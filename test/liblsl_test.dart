@@ -1,17 +1,23 @@
+import 'dart:async';
+
 import 'package:liblsl/liblsl.dart';
 import 'package:test/test.dart';
 
 void main() {
   group('A group of tests', () {
-    final awesome = Awesome();
-
-    setUp(() {
+    final lsl = LSL();
+    setUp(() async {
       // Additional setup goes here.
+      await lsl.createStreamInfo();
+      await lsl.createOutlet();
     });
 
-    test('First Test', () {
-      expect(awesome.isAwesome, isTrue);
-      expect(liblsl.runtimeType, Liblsl);
+    test('Check lsl library version', () {
+      expect(lsl.version, 116);
+    });
+    test('Wait for consumer times out with exception', () {
+      expect(lsl.waitForConsumer(timeout: 1),
+          throwsA(const TypeMatcher<TimeoutException>()));
     });
   });
 }
