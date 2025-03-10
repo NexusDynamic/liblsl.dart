@@ -16,19 +16,16 @@ void main(List<String> args) async {
       CBuilder.library(
         name: 'liblsl',
         assetName: 'liblsl',
-        sources: ['liblsl/lsl_c.h'],
-      ),
-      CBuilder.library(
-        name: 'math',
-        assetName: 'math',
-        sources: ['src/math.c'],
-        libraries: ['debug'],
-      ),
-      CBuilder.library(
-        name: 'add',
-        assetName: 'add.dart',
-        sources: ['src/add.c'],
-        libraries: ['math'],
+        sources: ['src/liblsl-1.16.2/src/common.cpp'],
+        includes: [
+          'src/liblsl-1.16.2/lslboost',
+          'src/liblsl-1.16.2/include',
+          'src/liblsl-1.16.2/thirdparty',
+          'src/liblsl-1.16.2/thirdparty/asio',
+          'src/liblsl-1.16.2/thirdparty/loguru',
+          'src/liblsl-1.16.2/thirdparty/catch2',
+          'src/liblsl-1.16.2/thirdparty/pugixml',
+        ],
       ),
     ];
 

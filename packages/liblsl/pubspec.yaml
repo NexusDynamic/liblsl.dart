@@ -26,9 +26,9 @@ ffigen:
   output: 'lib/src/liblsl.ffigen.dart'
   headers:
     entry-points:
-      - 'liblsl/lsl_c.h'
+      - 'src/liblsl-1.16.2/include/lsl_c.h'
     include-directives: # include only these header files and necessary structs from other header files
-      - '**lsl_c.h'
-      - '**/lsl/*.h'
+      - 'src/liblsl-1.16.2/include/lsl_c.h'
+      - 'src/liblsl-1.16.2/include/lsl/*.h'
   library-imports:
     pkg_liblsl: 'package:liblsl/src/liblsl_base.dart'
