@@ -3,7 +3,7 @@ import 'dart:ffi';
 import 'dart:io';
 import 'package:ffi/ffi.dart';
 import 'package:system_info2/system_info2.dart';
-import 'package:liblsl/liblsl.dart';
+import '../liblsl.dart';
 
 enum LSLContentType {
   /// EEG (for Electroencephalogram)
@@ -102,6 +102,14 @@ class LSL {
       return DynamicLibrary.open(
           '${Directory.current.path}/liblsl/liblsl.1.16.2-linux-amd64.so');
     }
-    throw 'libusb dynamic library not found';
+    if (Platform.isAndroid) {
+      return DynamicLibrary.open(
+          '${Directory.current.path}/liblsl/liblsl.1.16.2-android-arm64-v8a.so');
+    }
+    if (Platform.isIOS) {
+      return DynamicLibrary.open(
+          '${Directory.current.path}/liblsl/liblsl.1.16.2-ios-arm64.dylib');
+    }
+    throw 'liblsl dynamic library not found';
   }
 }

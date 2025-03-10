@@ -1,31 +1,48 @@
-name: liblsl
-description: A starting point for Dart libraries or applications.
-version: 1.0.0
-# repository: https://github.com/my_org/my_repo
+name: lsl_metapackage
+publish_to: none
 
-environment:
-  sdk: ^3.6.0-334.4.beta
-
-# Add regular dependencies here.
 dependencies:
-  ffi: ^2.1.3
-  system_info2: ^4.0.0
-  # path: ^1.8.0
+  liblsl:
+    path: packages/liblsl
+  liblsl_test:
+    path: packages/liblsl_test
 
-dev_dependencies:
-  ffigen: ^17.0.0
-  lints: ^5.0.0
-  test: ^1.24.0
 
-ffigen:
-  name: Liblsl
-  description: Bindings to `lsl_c.h`.
-  output: 'lib/src/liblsl.ffigen.dart'
-  headers:
-    entry-points:
-      - 'liblsl/lsl_c.h'
-    include-directives: # include only these header files and necessary structs from other header files
-      - '**lsl_c.h'
-      - '**/lsl/*.h'
-  library-imports:
-    pkg_liblsl: 'package:liblsl/src/liblsl_base.dart'
+melos:
+  command:
+    version:
+      # Only allow versioning to happen on main branch.
+      branch: main
+      # Generates a link to a prefilled GitHub release creation page.
+      releaseUrl: true
+      includeCommitId: true
+      linkToCommits: true
+
+    bootstrap:
+      environment:
+        sdk: ">=3.6.0 <4.0.0"
+        flutter: ">=3.27.1"
+  scripts:
+    lint:all:
+        steps:
+          - analyze
+          - format
+        description: Run all static analysis checks.
+
+    analyze:
+      run: melos exec dart analyze .
+      description: Run `dart analyze` for all packages.
+
+    format-check:
+      run: melos exec dart format . --set-exit-if-changed
+      description: Run `dart format` checks for all packages.
+  
+    test:select:
+      run: melos exec -c 1 -- flutter test
+      packageFilters:
+        dirExists: test
+      description: Run `flutter test` for selected packages.
+
+    test:
+      run: melos run test:select --no-select
+      description: Run all Flutter tests in this project.
