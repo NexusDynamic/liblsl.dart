@@ -24,19 +24,15 @@ ffigen:
   name: Liblsl
   silence-enum-warning: true # this is dangerous, maybe we can alter the enum types or use a different approach
   ffi-native:
-    asset-id: 'package:liblsl/liblsl_bindings.dart'
   description: Bindings to `lsl_c.h`.
-  output: 'lib/liblsl_bindings.dart'
+  output: 'lib/liblsl.dart'
   headers:
     entry-points:
-      - 'src/include/api_types.hpp'
       - 'src/liblsl-1.16.2/include/lsl_c.h'
     include-directives:
-      - 'src/include/api_types.hpp'
       - 'src/liblsl-1.16.2/include/lsl/*.h'
       - 'src/liblsl-1.16.2/include/lsl_c.h'
   compiler-opts:
-    - '-Isrc/include'
     - '-Isrc/liblsl-1.16.2/include'
   structs:
     dependency-only: opaque
