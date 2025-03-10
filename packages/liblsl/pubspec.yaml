@@ -22,13 +22,25 @@ dev_dependencies:
 
 ffigen:
   name: Liblsl
+  silence-enum-warning: true # this is dangerous, maybe we can alter the enum types or use a different approach
+  ffi-native:
+    asset-id: 'package:liblsl/liblsl_bindings.dart'
   description: Bindings to `lsl_c.h`.
-  output: 'lib/src/liblsl.ffigen.dart'
+  output: 'lib/liblsl_bindings.dart'
   headers:
     entry-points:
+      - 'src/include/api_types.hpp'
       - 'src/liblsl-1.16.2/include/lsl_c.h'
-    include-directives: # include only these header files and necessary structs from other header files
-      - 'src/liblsl-1.16.2/include/lsl_c.h'
+    include-directives:
+      - 'src/include/api_types.hpp'
       - 'src/liblsl-1.16.2/include/lsl/*.h'
-  library-imports:
-    pkg_liblsl: 'package:liblsl/src/liblsl_base.dart'
+      - 'src/liblsl-1.16.2/include/lsl_c.h'
+  compiler-opts:
+    - '-Isrc/include'
+    - '-Isrc/liblsl-1.16.2/include'
+  structs:
+    dependency-only: opaque
+    
+
+  # library-imports:
+  #   pkg_liblsl: 'package:liblsl/src/liblsl_base.dart'

@@ -1,2 +1,2 @@
-export 'src/liblsl_base.dart';
-export 'src/liblsl.ffigen.dart';
+export 'liblsl_bindings.dart';
+// export 'src/liblsl.ffigen.dart';
