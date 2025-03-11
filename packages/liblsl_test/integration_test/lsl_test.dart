@@ -5,27 +5,19 @@ import 'package:liblsl_test/main.dart';
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
-  group('end-to-end test', () {
-    testWidgets('tap on the floating action button, verify counter', (
-      tester,
-    ) async {
+  group('Ensure native bindings operate correctly', () {
+    testWidgets('Wait for the version to load', (tester) async {
       // Load app widget.
       await tester.pumpWidget(const MyApp());
 
       // Verify the counter starts at 0.
       expect(find.text('Calculating answer...'), findsOneWidget);
 
-      // // Finds the floating action button to tap on.
-      // final fab = find.byKey(const ValueKey('increment'));
-
-      // // Emulate a tap on the floating action button.
-      // await tester.tap(fab);
-
-      // Trigger a frame.
-      await tester.pumpAndSettle();
+      // Trigger a frame, wait 1 second, the default of 100ms is too short.
+      await tester.pumpAndSettle(Duration(seconds: 1));
 
       // Verify the counter increments by 1.
-      expect(find.text('LSL Version'), findsOneWidget);
+      expect(find.text('LSL Version 116'), findsOneWidget);
     });
   });
 }

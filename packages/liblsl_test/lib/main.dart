@@ -52,8 +52,5 @@ class _MyApp2State extends State<MyApp2> {
 }
 
 Future<int> setupLSL() async {
-  final lsl = LSL();
-  await lsl.createStreamInfo();
-  await lsl.createOutlet();
-  return lsl.version;
+  return lsl_library_version();
 }
