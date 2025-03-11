@@ -37,7 +37,7 @@ void main() {
       final lsl = LSL();
       await lsl.createStreamInfo();
       await lsl.createOutlet();
-      expect(() => lsl.waitForConsumer(timeout: 0.1),
+      expect(() => lsl.waitForConsumer(timeout: 1.0),
           throwsA(isA<TimeoutException>()));
     });
   });

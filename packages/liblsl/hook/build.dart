@@ -6,6 +6,7 @@ void main(List<String> args) async {
   await build(args, (input, output) async {
     final packageName = input.packageName;
     final OS targetOs = input.config.code.targetOS;
+    // ignore: unused_local_variable, just because it might be useful later
     final Architecture targetArchitecture =
         input.config.code.targetArchitecture;
 
