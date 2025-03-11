@@ -1,26 +1,44 @@
 import 'dart:async';
 
 import 'package:liblsl/liblsl.dart';
+import 'package:liblsl/lsl.dart';
+import 'package:liblsl/src/types.dart';
 import 'package:test/test.dart';
 
 void main() {
-  group('A group of tests', () {
+  group('LSL ffi direct', () {
     test('Check lsl library version', () {
       expect(lsl_library_version(), 116);
     });
-    // final lsl = LSL();
-    // setUp(() async {
-    //   // Additional setup goes here.
-    //   await lsl.createStreamInfo();
-    //   await lsl.createOutlet();
-    // });
+  });
+  group('LSL', () {
+    test('Check lsl library version', () async {
+      final lsl = LSL();
+      expect(lsl.version, 116);
+    });
 
-    // test('Check lsl library version', () {
-    //   expect(lsl.version, 116);
-    // });
-    // test('Wait for consumer times out with exception', () {
-    //   expect(lsl.waitForConsumer(timeout: 1),
-    //       throwsA(const TypeMatcher<TimeoutException>()));
-    // });
+    test('Create stream info', () async {
+      final lsl = LSL();
+      await lsl.createStreamInfo();
+    });
+
+    test('Create stream outlet throws exception without streamInfo', () async {
+      final lsl = LSL();
+      expect(() => lsl.createOutlet(), throwsA(isA<LSLException>()));
+    });
+
+    test('Create stream outlet', () async {
+      final lsl = LSL();
+      await lsl.createStreamInfo();
+      await lsl.createOutlet();
+    });
+
+    test('Wait for consumer timeout exception', () async {
+      final lsl = LSL();
+      await lsl.createStreamInfo();
+      await lsl.createOutlet();
+      expect(() => lsl.waitForConsumer(timeout: 0.1),
+          throwsA(isA<TimeoutException>()));
+    });
   });
 }
