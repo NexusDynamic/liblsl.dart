@@ -12,20 +12,27 @@ void main(List<String> args) async {
 
     List<String> flags = [];
     List<String> frameworks = [];
+    List<String> libraries = [];
 
-    var defines = <String, String>{
+    var defines = <String, String?>{
       // copied from CMakeLists.txt...probably needs tweaking
       'VERSION': '1.16.2',
       'LSL_ABI_VERSION': '2',
-      'ASIO_NO_DEPRECATED': '',
-      'BOOST_ALL_NO_LIB': '',
-      'LIBLSL_EXPORTS': '',
+      'ASIO_NO_DEPRECATED': null,
+      'BOOST_ALL_NO_LIB': null,
+      'LIBLSL_EXPORTS': null,
       'LSL_VERSION_INFO':
           'git:v1.16.2/branch:v1.16.2/build:dart_native/compiler:unknown',
-      'LSL_LIBRARY_INFO_STR':
-          '"git:v1.16.2/branch:v1.16.2/build:dart_native/compiler:unknown/link:SHARED"',
       'LOGURU_STACKTRACES': '0',
     };
+
+    if (targetOs != OS.windows) {
+      // this doesn't work on windows for now
+      // see: https://github.com/dart-lang/native/issues/2095
+      // and: https://github.com/dart-lang/native/pull/2096
+      defines['LSL_LIBRARY_INFO_STR'] =
+          '"${defines['LSL_VERSION_INFO']}/link:SHARED"';
+    }
 
     // osx
     if (targetOs == OS.macOS || targetOs == OS.iOS) {
@@ -36,16 +43,17 @@ void main(List<String> args) async {
     if (targetOs == OS.windows) {
       defines.addAll({
         '_WIN32_WINNT': '0x0601',
-        '_WINDOWS': '',
-        '_MBCS': '',
-        'WIN32': '',
-        '_CRT_SECURE_NO_WARNINGS': '',
-        '_WINDLL': '',
-        'LSLNOAUTOLINK': '',
+        '_WINDOWS': null,
+        '_MBCS': null,
+        'WIN32': null,
+        '_CRT_SECURE_NO_WARNINGS': null,
+        '_WINDLL': null,
+        'LSLNOAUTOLINK': null,
       });
+      flags.add('/EHsc');
+      libraries.add('winmm');
+      libraries.add('iphlpapi');
     }
-    // frameworks.add('CoreServices');
-    // frameworks.add('IOKit');
 
     final builder = CBuilder.library(
       name: packageName,
@@ -99,6 +107,7 @@ void main(List<String> args) async {
       defines: defines,
       flags: flags,
       frameworks: frameworks,
+      libraries: libraries,
     );
 
     await builder.run(
