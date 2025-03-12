@@ -39,6 +39,14 @@ void main(List<String> args) async {
       frameworks.add('Foundation');
     }
 
+    // Android
+    if (targetOs == OS.android) {
+      flags.add('-Wl,-z,max-page-size=16384');
+      // flags.add('--stl=libc++');
+      // defines['ANDROID_STL'] = 'c++_shared';
+      // libraries.add('libc++_shared');
+    }
+
     // WIN
     if (targetOs == OS.windows) {
       defines.addAll({
@@ -111,10 +119,12 @@ void main(List<String> args) async {
     );
 
     await builder.run(
-        input: input,
-        output: output,
-        logger: Logger('')
-          ..level = Level.ALL
-          ..onRecord.listen((record) => print(record.message)));
+      input: input,
+      output: output,
+      logger:
+          Logger('')
+            ..level = Level.ALL
+            ..onRecord.listen((record) => print(record.message)),
+    );
   });
 }

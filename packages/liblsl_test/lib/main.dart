@@ -38,11 +38,23 @@ class _MyApp2State extends State<MyApp2> {
           future: _lslver,
           builder: (BuildContext context, AsyncSnapshot<int> snapshot) {
             if (snapshot.hasData) {
-              return Text('LSL Version ${snapshot.data}');
+              return Text(
+                'LSL Version ${snapshot.data}',
+                overflow: TextOverflow.visible,
+                textScaler: TextScaler.linear(0.5),
+              );
             } else if (snapshot.hasError) {
-              return Text('Error: ${snapshot.error}');
+              return Text(
+                'Error: ${snapshot.error}',
+                overflow: TextOverflow.visible,
+                textScaler: TextScaler.linear(0.5),
+              );
             } else {
-              return Text('Calculating answer...');
+              return Text(
+                'Calculating answer...',
+                overflow: TextOverflow.visible,
+                textScaler: TextScaler.linear(0.5),
+              );
             }
           },
         ),
