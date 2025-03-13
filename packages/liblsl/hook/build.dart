@@ -1,6 +1,8 @@
 import 'package:logging/logging.dart';
 import 'package:native_assets_cli/code_assets.dart';
 import 'package:native_toolchain_c/native_toolchain_c.dart';
+import 'package:native_toolchain_c/src/cbuilder/run_cbuilder.dart';
+import 'package:native_toolchain_c/src/native_toolchain/android_ndk.dart';
 
 void main(List<String> args) async {
   await build(args, (input, output) async {
@@ -126,5 +128,32 @@ void main(List<String> args) async {
             ..level = Level.ALL
             ..onRecord.listen((record) => print(record.message)),
     );
+
+    // TODO: add check to break if the lib isnt found on android
+    if (targetOs == OS.android) {
+      // add libc++_shared.so from the NDK
+      final aclang = await androidNdkClang.defaultResolver!.resolve(
+        logger: Logger(''),
+      );
+      for (final tool in aclang) {
+        if (tool.tool.name == 'Clang') {
+          final sysroot = tool.uri.resolve('../sysroot/').toString();
+          final androidArch =
+              RunCBuilder.androidNdkClangTargetFlags[targetArchitecture];
+          final libPath = '$sysroot/usr/lib/$androidArch/libc++_shared.so';
+          output.assets.code.add(
+            CodeAsset(
+              package: packageName,
+              name: 'libc++_shared.so',
+              file: Uri.parse(libPath),
+              linkMode: DynamicLoadingBundled(),
+              os: targetOs,
+              architecture: targetArchitecture,
+            ),
+          );
+          break;
+        }
+      }
+    }
   });
 }
