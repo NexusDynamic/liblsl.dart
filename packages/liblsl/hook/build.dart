@@ -43,10 +43,8 @@ void main(List<String> args) async {
 
     // Android
     if (targetOs == OS.android) {
+      // add flag for 16k pages
       flags.add('-Wl,-z,max-page-size=16384');
-      // flags.add('--stl=libc++');
-      // defines['ANDROID_STL'] = 'c++_shared';
-      // libraries.add('libc++_shared');
     }
 
     // WIN
@@ -129,7 +127,6 @@ void main(List<String> args) async {
             ..onRecord.listen((record) => print(record.message)),
     );
 
-    // TODO: add check to break if the lib isnt found on android
     if (targetOs == OS.android) {
       // add libc++_shared.so from the NDK
       final aclang = await androidNdkClang.defaultResolver!.resolve(

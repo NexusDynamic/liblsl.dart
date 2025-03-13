@@ -1,3 +1,7 @@
+# 0.0.2
+
+- Android support 🎉
+
 # 0.0.1
 
 - Initial release
