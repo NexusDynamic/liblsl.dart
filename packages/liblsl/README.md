@@ -7,6 +7,15 @@ It's currently considered experimental, but if it compiles, then you should be a
 That said, I'm also working on a convenience wrapper which you will be able to use to make the whole process easier and
 not have to be concerned about the underlying types e.g. `Pointer<...>`. That will come in a later release.
 
+## Targets
+
+- [x] Linux
+- [x] OSX
+- [x] Windows
+- [x] iOS
+- [x] Android
+
+Also confirmed working on Meta Quest 2 (Android).
 
 ## Testing
 
