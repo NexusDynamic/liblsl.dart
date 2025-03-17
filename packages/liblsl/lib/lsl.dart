@@ -1,32 +1,32 @@
 import 'dart:async';
-import 'dart:ffi' as ffi;
-import 'package:ffi/ffi.dart';
+import 'dart:ffi';
+import 'package:ffi/ffi.dart' show calloc, StringUtf8Pointer;
 import 'package:liblsl/liblsl.dart';
 import 'src/types.dart';
 import 'src/ffi/mem.dart';
 
-typedef DartLslPushSample<T extends ffi.NativeType> =
-    int Function(lsl_outlet out, ffi.Pointer<T> data);
+typedef DartLslPushSample<T extends NativeType> =
+    int Function(lsl_outlet out, Pointer<T> data);
 
-typedef DartLslPushSampleTs<T extends ffi.NativeType> =
-    int Function(lsl_outlet out, ffi.Pointer<T> data, double timestamp);
+typedef DartLslPushSampleTs<T extends NativeType> =
+    int Function(lsl_outlet out, Pointer<T> data, double timestamp);
 
-typedef DartLslPullSample<T extends ffi.NativeType> =
+typedef DartLslPullSample<T extends NativeType> =
     double Function(
       lsl_inlet in$,
-      ffi.Pointer<T> buffer,
+      Pointer<T> buffer,
       int bufferElements,
       double timeout,
-      ffi.Pointer<ffi.Int32> ec,
+      Pointer<Int32> ec,
     );
 
 // Create a wrapper class to handle the different types
-class LslPushFunction<T extends ffi.NativeType> {
+class _LslPushSample<T extends NativeType> {
   final DartLslPushSample<T> _pushFn;
 
-  const LslPushFunction(this._pushFn);
+  const _LslPushSample(this._pushFn);
 
-  int call(lsl_outlet out, ffi.Pointer<T> data) {
+  int call(lsl_outlet out, Pointer<T> data) {
     return _pushFn(out, data);
   }
 }
@@ -60,8 +60,8 @@ enum LSLContentType {
 
   const LSLContentType(this.value);
 
-  ffi.Pointer<ffi.Char> get charPtr =>
-      value.toNativeUtf8(allocator: allocate) as ffi.Pointer<ffi.Char>;
+  Pointer<Char> get charPtr =>
+      value.toNativeUtf8(allocator: allocate) as Pointer<Char>;
 }
 
 enum LSLChannelFormat {
@@ -98,42 +98,42 @@ enum LSLChannelFormat {
   Type get ffiType {
     switch (this) {
       case LSLChannelFormat.float32:
-        return ffi.Float;
+        return Float;
       case LSLChannelFormat.double64:
-        return ffi.Double;
+        return Double;
       case LSLChannelFormat.int8:
-        return ffi.Int8;
+        return Int8;
       case LSLChannelFormat.int16:
-        return ffi.Int16;
+        return Int16;
       case LSLChannelFormat.int32:
-        return ffi.Int32;
+        return Int32;
       case LSLChannelFormat.int64:
-        return ffi.Int64;
+        return Int64;
       case LSLChannelFormat.string:
-        return ffi.Pointer<ffi.Char>;
+        return Pointer<Char>;
       case LSLChannelFormat.undefined:
-        return ffi.Void;
+        return Void;
     }
   }
 
-  LslPushFunction get pushFn {
+  _LslPushSample get pushFn {
     switch (this) {
       case LSLChannelFormat.float32:
-        return LslPushFunction<ffi.Float>(lsl_push_sample_f);
+        return _LslPushSample<Float>(lsl_push_sample_f);
       case LSLChannelFormat.double64:
-        return LslPushFunction<ffi.Double>(lsl_push_sample_d);
+        return _LslPushSample<Double>(lsl_push_sample_d);
       case LSLChannelFormat.int8:
-        return LslPushFunction<ffi.Char>(lsl_push_sample_c);
+        return _LslPushSample<Char>(lsl_push_sample_c);
       case LSLChannelFormat.int16:
-        return LslPushFunction<ffi.Int16>(lsl_push_sample_s);
+        return _LslPushSample<Int16>(lsl_push_sample_s);
       case LSLChannelFormat.int32:
-        return LslPushFunction<ffi.Int32>(lsl_push_sample_i);
+        return _LslPushSample<Int32>(lsl_push_sample_i);
       case LSLChannelFormat.int64:
-        return LslPushFunction<ffi.Int64>(lsl_push_sample_l);
+        return _LslPushSample<Int64>(lsl_push_sample_l);
       case LSLChannelFormat.string:
-        return LslPushFunction<ffi.Pointer<ffi.Char>>(lsl_push_sample_str);
+        return _LslPushSample<Pointer<Char>>(lsl_push_sample_str);
       case LSLChannelFormat.undefined:
-        return LslPushFunction<ffi.Void>(lsl_push_sample_v);
+        return _LslPushSample<Void>(lsl_push_sample_v);
     }
   }
 
@@ -190,7 +190,7 @@ enum LSLChannelFormat {
 // Synchronization Information
 
 abstract class MemManaged {
-  final List<ffi.Pointer> _allocatedArgs = [];
+  final List<Pointer> _allocatedArgs = [];
 
   void freeArgs() {
     for (final arg in _allocatedArgs) {
@@ -209,11 +209,16 @@ abstract class LSLObj extends MemManaged {
   }
 }
 
-class LSLSample<T extends ffi.NativeType> {
-  final ffi.Pointer<T> data;
+class LSLSample<T extends NativeType> {
+  final Pointer<T> data;
+
+  LSLSample(this.data);
+}
+
+class LSLSampleTs<T extends NativeType> extends LSLSample<T> {
   final double timestamp;
 
-  LSLSample(this.data, this.timestamp);
+  LSLSampleTs(super.data, this.timestamp);
 }
 
 class LSLStreamInfo extends LSLObj {
@@ -239,9 +244,9 @@ class LSLStreamInfo extends LSLObj {
   @override
   lsl_streaminfo create() {
     final streamNamePtr =
-        streamName.toNativeUtf8(allocator: allocate) as ffi.Pointer<ffi.Char>;
+        streamName.toNativeUtf8(allocator: allocate) as Pointer<Char>;
     final sourceIdPtr =
-        sourceId.toNativeUtf8(allocator: allocate) as ffi.Pointer<ffi.Char>;
+        sourceId.toNativeUtf8(allocator: allocate) as Pointer<Char>;
     final streamTypePtr = streamType.charPtr;
 
     _allocatedArgs.addAll([streamNamePtr, sourceIdPtr, streamTypePtr]);
@@ -271,7 +276,7 @@ class LSLStreamOutlet extends LSLObj {
   final LSLStreamInfo streamInfo;
   final int chunkSize;
   final int maxBuffer;
-  late final LslPushFunction _pushFn;
+  late final _LslPushSample _pushFn;
   late final DartLslPushSampleTs _pushFnTs;
   late final DartLslPullSample _pullFn;
   lsl_outlet? _streamOutlet;
@@ -316,46 +321,45 @@ class LSLStreamOutlet extends LSLObj {
     }
   }
 
-  ffi.Pointer _allocSample(dynamic data) {
+  Pointer _allocSample(dynamic data) {
     switch (streamInfo.channelFormat.ffiType) {
-      case const (ffi.Float):
-        final ptr = allocate<ffi.Float>();
+      case const (Float):
+        final ptr = allocate<Float>();
         ptr.value = data;
         return ptr;
-      case const (ffi.Double):
-        final ptr = allocate<ffi.Double>();
+      case const (Double):
+        final ptr = allocate<Double>();
         ptr.value = data;
         return ptr;
-      case const (ffi.Int8):
-        final ptr = allocate<ffi.Int8>();
+      case const (Int8):
+        final ptr = allocate<Int8>();
         ptr.value = data;
         return ptr;
-      case const (ffi.Int16):
-        final ptr = allocate<ffi.Int16>();
+      case const (Int16):
+        final ptr = allocate<Int16>();
         ptr.value = data;
         return ptr;
-      case const (ffi.Int32):
-        final ptr = allocate<ffi.Int32>();
+      case const (Int32):
+        final ptr = allocate<Int32>();
         ptr.value = data;
         return ptr;
-      case const (ffi.Int64):
-        final ptr = allocate<ffi.Int64>();
+      case const (Int64):
+        final ptr = allocate<Int64>();
         ptr.value = data;
         return ptr;
-      case const (ffi.Pointer<ffi.Char>):
+      case const (Pointer<Char>):
         // string
         if (data is String) {
-          final nativeStr = data.toNativeUtf8(allocator: allocate);
-          final ffi.Pointer<ffi.Pointer<ffi.Char>> ptr =
-              allocate<ffi.Pointer<ffi.Char>>(
-                ffi.sizeOf<ffi.Pointer<ffi.Char>>(),
-              );
-          ptr.value = nativeStr.cast<ffi.Char>();
-          return ptr;
+          final List<String> dataList = data.split('');
+          final ptrArray = calloc<Pointer<Char>>(dataList.length);
+          for (var i = 0; i < dataList.length; i++) {
+            ptrArray[i] = dataList[i].toNativeUtf8().cast<Char>();
+          }
+          return ptrArray;
         }
         throw LSLException('Invalid string data');
-      case const (ffi.Void):
-        return nullPtr<ffi.Void>();
+      case const (Void):
+        return nullPtr<Void>();
       default:
         throw LSLException('Invalid sample type');
     }
@@ -364,9 +368,6 @@ class LSLStreamOutlet extends LSLObj {
   Future<int> pushSample(dynamic data) async {
     final samplePtr = _allocSample(data);
     // exception with type of sampleptr
-    if (data is String) {
-      throw LSLException('${samplePtr.runtimeType} not supported');
-    }
     final int result = _pushFn(_streamOutlet!, samplePtr);
     samplePtr.free();
     return result;

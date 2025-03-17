@@ -54,7 +54,7 @@ void main() {
       final lsl = LSL();
       await lsl.createStreamInfo(channelFormat: LSLChannelFormat.string);
       await lsl.createOutlet();
-      await lsl.outlet?.pushSample('Hello, World!');
+      await lsl.outlet?.pushSample('H');
     });
   });
 }
