@@ -8,18 +8,6 @@ import 'src/ffi/mem.dart';
 typedef DartLslPushSample<T extends NativeType> =
     int Function(lsl_outlet out, Pointer<T> data);
 
-typedef DartLslPushSampleTs<T extends NativeType> =
-    int Function(lsl_outlet out, Pointer<T> data, double timestamp);
-
-typedef DartLslPullSample<T extends NativeType> =
-    double Function(
-      lsl_inlet in$,
-      Pointer<T> buffer,
-      int bufferElements,
-      double timeout,
-      Pointer<Int32> ec,
-    );
-
 // Create a wrapper class to handle the different types
 class LslPushSample<T extends NativeType> {
   final DartLslPushSample<T> _pushFn;
@@ -136,48 +124,6 @@ enum LSLChannelFormat {
         return LslPushSample<Void>(lsl_push_sample_v);
     }
   }
-
-  DartLslPushSampleTs get pushFnTs {
-    switch (this) {
-      case LSLChannelFormat.float32:
-        return lsl_push_sample_ft as DartLslPushSampleTs;
-      case LSLChannelFormat.double64:
-        return lsl_push_sample_dt as DartLslPushSampleTs;
-      case LSLChannelFormat.int8:
-        return lsl_push_sample_ct as DartLslPushSampleTs;
-      case LSLChannelFormat.int16:
-        return lsl_push_sample_st as DartLslPushSampleTs;
-      case LSLChannelFormat.int32:
-        return lsl_push_sample_it as DartLslPushSampleTs;
-      case LSLChannelFormat.int64:
-        return lsl_push_sample_lt as DartLslPushSampleTs;
-      case LSLChannelFormat.string:
-        return lsl_push_sample_strt as DartLslPushSampleTs;
-      case LSLChannelFormat.undefined:
-        return lsl_push_sample_vt as DartLslPushSampleTs;
-    }
-  }
-
-  DartLslPullSample get pullFn {
-    switch (this) {
-      case LSLChannelFormat.float32:
-        return lsl_pull_sample_f as DartLslPullSample;
-      case LSLChannelFormat.double64:
-        return lsl_pull_sample_d as DartLslPullSample;
-      case LSLChannelFormat.int8:
-        return lsl_pull_sample_c as DartLslPullSample;
-      case LSLChannelFormat.int16:
-        return lsl_pull_sample_s as DartLslPullSample;
-      case LSLChannelFormat.int32:
-        return lsl_pull_sample_i as DartLslPullSample;
-      case LSLChannelFormat.int64:
-        return lsl_pull_sample_l as DartLslPullSample;
-      case LSLChannelFormat.string:
-        return lsl_pull_sample_str as DartLslPullSample;
-      case LSLChannelFormat.undefined:
-        return lsl_pull_sample_v as DartLslPullSample;
-    }
-  }
 }
 
 // const Map<str, Function
@@ -277,8 +223,6 @@ class LSLStreamOutlet extends LSLObj {
   final int chunkSize;
   final int maxBuffer;
   late final LslPushSample _pushFn;
-  late final DartLslPushSampleTs _pushFnTs;
-  late final DartLslPullSample _pullFn;
   lsl_outlet? _streamOutlet;
 
   LSLStreamOutlet({
@@ -290,8 +234,6 @@ class LSLStreamOutlet extends LSLObj {
       throw LSLException('StreamInfo not created');
     }
     _pushFn = streamInfo.channelFormat.pushFn;
-    // _pushFnTs = streamInfo.channelFormat.pushFnTs;
-    // _pullFn = streamInfo.channelFormat.pullFn;
   }
 
   @override
