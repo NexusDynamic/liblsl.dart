@@ -21,10 +21,10 @@ typedef DartLslPullSample<T extends NativeType> =
     );
 
 // Create a wrapper class to handle the different types
-class _LslPushSample<T extends NativeType> {
+class LslPushSample<T extends NativeType> {
   final DartLslPushSample<T> _pushFn;
 
-  const _LslPushSample(this._pushFn);
+  const LslPushSample(this._pushFn);
 
   int call(lsl_outlet out, Pointer<T> data) {
     return _pushFn(out, data);
@@ -116,24 +116,24 @@ enum LSLChannelFormat {
     }
   }
 
-  _LslPushSample get pushFn {
+  LslPushSample get pushFn {
     switch (this) {
       case LSLChannelFormat.float32:
-        return _LslPushSample<Float>(lsl_push_sample_f);
+        return LslPushSample<Float>(lsl_push_sample_f);
       case LSLChannelFormat.double64:
-        return _LslPushSample<Double>(lsl_push_sample_d);
+        return LslPushSample<Double>(lsl_push_sample_d);
       case LSLChannelFormat.int8:
-        return _LslPushSample<Char>(lsl_push_sample_c);
+        return LslPushSample<Char>(lsl_push_sample_c);
       case LSLChannelFormat.int16:
-        return _LslPushSample<Int16>(lsl_push_sample_s);
+        return LslPushSample<Int16>(lsl_push_sample_s);
       case LSLChannelFormat.int32:
-        return _LslPushSample<Int32>(lsl_push_sample_i);
+        return LslPushSample<Int32>(lsl_push_sample_i);
       case LSLChannelFormat.int64:
-        return _LslPushSample<Int64>(lsl_push_sample_l);
+        return LslPushSample<Int64>(lsl_push_sample_l);
       case LSLChannelFormat.string:
-        return _LslPushSample<Pointer<Char>>(lsl_push_sample_str);
+        return LslPushSample<Pointer<Char>>(lsl_push_sample_str);
       case LSLChannelFormat.undefined:
-        return _LslPushSample<Void>(lsl_push_sample_v);
+        return LslPushSample<Void>(lsl_push_sample_v);
     }
   }
 
@@ -276,7 +276,7 @@ class LSLStreamOutlet extends LSLObj {
   final LSLStreamInfo streamInfo;
   final int chunkSize;
   final int maxBuffer;
-  late final _LslPushSample _pushFn;
+  late final LslPushSample _pushFn;
   late final DartLslPushSampleTs _pushFnTs;
   late final DartLslPullSample _pullFn;
   lsl_outlet? _streamOutlet;
