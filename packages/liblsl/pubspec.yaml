@@ -34,3 +34,7 @@ ffigen:
     - '-Isrc/liblsl-1.16.2/include'
   structs:
     dependency-only: opaque
+  functions:
+    expose-typedefs:
+      include:
+        - '.*'

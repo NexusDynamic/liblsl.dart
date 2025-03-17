@@ -37,8 +37,24 @@ void main() {
       final lsl = LSL();
       await lsl.createStreamInfo();
       await lsl.createOutlet();
-      expect(() => lsl.waitForConsumer(timeout: 1.0),
-          throwsA(isA<TimeoutException>()));
+      expect(
+        () => lsl.outlet?.waitForConsumer(timeout: 1.0),
+        throwsA(isA<TimeoutException>()),
+      );
+    });
+
+    test('push a default (float) sample', () async {
+      final lsl = LSL();
+      await lsl.createStreamInfo();
+      await lsl.createOutlet();
+      await lsl.outlet?.pushSample(5.0);
+    });
+
+    test('push a string sample', () async {
+      final lsl = LSL();
+      await lsl.createStreamInfo(channelFormat: LSLChannelFormat.string);
+      await lsl.createOutlet();
+      await lsl.outlet?.pushSample('Hello, World!');
     });
   });
 }

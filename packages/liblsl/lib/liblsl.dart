@@ -5,7 +5,7 @@
 import 'dart:ffi' as ffi;
 
 /// Return an explanation for the last error
-@ffi.Native<ffi.Pointer<ffi.Char> Function()>()
+@ffi.Native<NativeLsl_last_error>()
 external ffi.Pointer<ffi.Char> lsl_last_error();
 
 /// Protocol version.
@@ -15,21 +15,21 @@ external ffi.Pointer<ffi.Char> lsl_last_error();
 ///
 /// Clients with different minor versions are protocol-compatible while clients
 /// with different major versions will refuse to work together.
-@ffi.Native<ffi.Int32 Function()>()
+@ffi.Native<NativeLsl_protocol_version>()
 external int lsl_protocol_version();
 
 /// Version of the liblsl library.
 ///
 /// The major version is `library_version() / 100;`
 /// The minor version is `library_version() % 100;`
-@ffi.Native<ffi.Int32 Function()>()
+@ffi.Native<NativeLsl_library_version>()
 external int lsl_library_version();
 
 /// Get a string containing library information.
 ///
 /// The format of the string shouldn't be used for anything important except giving a debugging
 /// person a good idea which exact library version is used.
-@ffi.Native<ffi.Pointer<ffi.Char> Function()>()
+@ffi.Native<NativeLsl_library_info>()
 external ffi.Pointer<ffi.Char> lsl_library_info();
 
 /// Obtain a local system time stamp in seconds.
@@ -39,7 +39,7 @@ external ffi.Pointer<ffi.Char> lsl_library_info();
 /// If the "age" of a sample is known at a particular time (e.g., from USB transmission
 /// delays), it can be used as an offset to lsl_local_clock() to obtain a better estimate of
 /// when a sample was actually captured. See lsl_push_sample() for a use case.
-@ffi.Native<ffi.Double Function()>()
+@ffi.Native<NativeLsl_local_clock>()
 external double lsl_local_clock();
 
 /// Deallocate a string that has been transferred to the application.
@@ -47,10 +47,8 @@ external double lsl_local_clock();
 /// Rarely used: the only use case is to deallocate the contents of
 /// string-valued samples received from LSL in an application where
 /// no free() method is available (e.g., in some scripting languages).
-@ffi.Native<ffi.Void Function(ffi.Pointer<ffi.Char>)>()
-external void lsl_destroy_string(
-  ffi.Pointer<ffi.Char> s,
-);
+@ffi.Native<NativeLsl_destroy_string>()
+external void lsl_destroy_string(ffi.Pointer<ffi.Char> s);
 
 /// Construct a new stream inlet from a resolved stream info.
 /// @param info A resolved stream info object (as coming from one of the resolver functions).
@@ -79,8 +77,7 @@ external void lsl_destroy_string(
 /// If recover is 0 or the stream is not recoverable, most outlet functions will return an
 /// #lsl_lost_error if the stream's source is lost.
 /// @return A newly created lsl_inlet handle or NULL in the event that an error occurred.
-@ffi.Native<
-    lsl_inlet Function(lsl_streaminfo, ffi.Int32, ffi.Int32, ffi.Int32)>()
+@ffi.Native<NativeLsl_create_inlet>()
 external lsl_inlet lsl_create_inlet(
   lsl_streaminfo info,
   int max_buflen,
@@ -91,9 +88,7 @@ external lsl_inlet lsl_create_inlet(
 /// @copydoc lsl_create_inlet()
 /// @param flags An integer that is the result of bitwise OR'ing one or more options from
 /// #lsl_transport_options_t together (e.g., #transp_bufsize_samples)
-@ffi.Native<
-    lsl_inlet Function(lsl_streaminfo, ffi.Int32, ffi.Int32, ffi.Int32,
-        ffi.UnsignedInt)>(symbol: "lsl_create_inlet_ex")
+@ffi.Native<NativeLsl_create_inlet_ex>(symbol: 'lsl_create_inlet_ex')
 external lsl_inlet _lsl_create_inlet_ex(
   lsl_streaminfo info,
   int max_buflen,
@@ -108,21 +103,12 @@ lsl_inlet lsl_create_inlet_ex(
   int max_chunklen,
   int recover,
   lsl_transport_options_t flags,
-) =>
-    _lsl_create_inlet_ex(
-      info,
-      max_buflen,
-      max_chunklen,
-      recover,
-      flags.value,
-    );
+) => _lsl_create_inlet_ex(info, max_buflen, max_chunklen, recover, flags.value);
 
 /// Destructor.
 /// The inlet will automatically disconnect if destroyed.
-@ffi.Native<ffi.Void Function(lsl_inlet)>()
-external void lsl_destroy_inlet(
-  lsl_inlet in1,
-);
+@ffi.Native<NativeLsl_destroy_inlet>()
+external void lsl_destroy_inlet(lsl_inlet in$);
 
 /// Retrieve the complete information of the given stream, including the extended description.
 /// Can be invoked at any time of the stream's lifetime.
@@ -132,10 +118,9 @@ external void lsl_destroy_inlet(
 /// expired) or #lsl_lost_error (if the stream source has been lost).
 /// @return A copy of the full streaminfo of the inlet or NULL in the event that an error happened.
 /// @note It is the user's responsibility to destroy it when it is no longer needed.
-@ffi.Native<
-    lsl_streaminfo Function(lsl_inlet, ffi.Double, ffi.Pointer<ffi.Int32>)>()
+@ffi.Native<NativeLsl_get_fullinfo>()
 external lsl_streaminfo lsl_get_fullinfo(
-  lsl_inlet in1,
+  lsl_inlet in$,
   double timeout,
   ffi.Pointer<ffi.Int32> ec,
 );
@@ -150,9 +135,9 @@ external lsl_streaminfo lsl_get_fullinfo(
 /// @param timeout Optional timeout of the operation. Use LSL_FOREVER to effectively disable it.
 /// @param[out] ec Error code: if nonzero, can be either #lsl_timeout_error (if the timeout has
 /// expired) or lsl_lost_error (if the stream source has been lost).
-@ffi.Native<ffi.Void Function(lsl_inlet, ffi.Double, ffi.Pointer<ffi.Int32>)>()
+@ffi.Native<NativeLsl_open_stream>()
 external void lsl_open_stream(
-  lsl_inlet in1,
+  lsl_inlet in$,
   double timeout,
   ffi.Pointer<ffi.Int32> ec,
 );
@@ -164,10 +149,8 @@ external void lsl_open_stream(
 /// interested in data from a source (temporarily or not) but keeps the outlet alive,
 /// it should call lsl_close_stream() to not waste unnecessary system and network
 /// resources.
-@ffi.Native<ffi.Void Function(lsl_inlet)>()
-external void lsl_close_stream(
-  lsl_inlet in1,
-);
+@ffi.Native<NativeLsl_close_stream>()
+external void lsl_close_stream(lsl_inlet in$);
 
 /// @brief Retrieve an estimated time correction offset for the given stream.
 ///
@@ -190,10 +173,9 @@ external void lsl_close_stream(
 /// @return The time correction estimate.
 /// This is the number that needs to be added to a time stamp that was remotely generated via
 /// lsl_local_clock() to map it into the local clock domain of this machine.
-@ffi.Native<
-    ffi.Double Function(lsl_inlet, ffi.Double, ffi.Pointer<ffi.Int32>)>()
+@ffi.Native<NativeLsl_time_correction>()
 external double lsl_time_correction(
-  lsl_inlet in1,
+  lsl_inlet in$,
   double timeout,
   ffi.Pointer<ffi.Int32> ec,
 );
@@ -204,11 +186,9 @@ external double lsl_time_correction(
 /// If desired, the client can fit time_correction vs remote_time to improve the real-time
 /// time_correction further.
 /// @param uncertainty The maximum uncertainty of the given time correction.
-@ffi.Native<
-    ffi.Double Function(lsl_inlet, ffi.Pointer<ffi.Double>,
-        ffi.Pointer<ffi.Double>, ffi.Double, ffi.Pointer<ffi.Int32>)>()
+@ffi.Native<NativeLsl_time_correction_ex>()
 external double lsl_time_correction_ex(
-  lsl_inlet in1,
+  lsl_inlet in$,
   ffi.Pointer<ffi.Double> remote_time,
   ffi.Pointer<ffi.Double> uncertainty,
   double timeout,
@@ -229,11 +209,8 @@ external double lsl_time_correction_ex(
 /// #lsl_processing_options_t together (e.g., #proc_clocksync|#proc_dejitter);
 /// a good setting is to use #proc_ALL.
 /// @return The error code: if nonzero, can be #lsl_argument_error if an unknown flag was passed in.
-@ffi.Native<ffi.Int32 Function(lsl_inlet, ffi.Uint32)>()
-external int lsl_set_postprocessing(
-  lsl_inlet in1,
-  int flags,
-);
+@ffi.Native<NativeLsl_set_postprocessing>()
+external int lsl_set_postprocessing(lsl_inlet in$, int flags);
 
 /// Pull a sample from the inlet and read it into a pointer to values.
 /// Handles type checking & conversion.
@@ -252,77 +229,63 @@ external int lsl_set_postprocessing(
 /// available. To remap this time stamp to the local clock, add the value returned by
 /// lsl_time_correction() to it.
 /// @{
-@ffi.Native<
-    ffi.Double Function(lsl_inlet, ffi.Pointer<ffi.Float>, ffi.Int32,
-        ffi.Double, ffi.Pointer<ffi.Int32>)>()
+@ffi.Native<NativeLsl_pull_sample_f>()
 external double lsl_pull_sample_f(
-  lsl_inlet in1,
+  lsl_inlet in$,
   ffi.Pointer<ffi.Float> buffer,
   int buffer_elements,
   double timeout,
   ffi.Pointer<ffi.Int32> ec,
 );
 
-@ffi.Native<
-    ffi.Double Function(lsl_inlet, ffi.Pointer<ffi.Double>, ffi.Int32,
-        ffi.Double, ffi.Pointer<ffi.Int32>)>()
+@ffi.Native<NativeLsl_pull_sample_d>()
 external double lsl_pull_sample_d(
-  lsl_inlet in1,
+  lsl_inlet in$,
   ffi.Pointer<ffi.Double> buffer,
   int buffer_elements,
   double timeout,
   ffi.Pointer<ffi.Int32> ec,
 );
 
-@ffi.Native<
-    ffi.Double Function(lsl_inlet, ffi.Pointer<ffi.Int64>, ffi.Int32,
-        ffi.Double, ffi.Pointer<ffi.Int32>)>()
+@ffi.Native<NativeLsl_pull_sample_l>()
 external double lsl_pull_sample_l(
-  lsl_inlet in1,
+  lsl_inlet in$,
   ffi.Pointer<ffi.Int64> buffer,
   int buffer_elements,
   double timeout,
   ffi.Pointer<ffi.Int32> ec,
 );
 
-@ffi.Native<
-    ffi.Double Function(lsl_inlet, ffi.Pointer<ffi.Int32>, ffi.Int32,
-        ffi.Double, ffi.Pointer<ffi.Int32>)>()
+@ffi.Native<NativeLsl_pull_sample_i>()
 external double lsl_pull_sample_i(
-  lsl_inlet in1,
+  lsl_inlet in$,
   ffi.Pointer<ffi.Int32> buffer,
   int buffer_elements,
   double timeout,
   ffi.Pointer<ffi.Int32> ec,
 );
 
-@ffi.Native<
-    ffi.Double Function(lsl_inlet, ffi.Pointer<ffi.Int16>, ffi.Int32,
-        ffi.Double, ffi.Pointer<ffi.Int32>)>()
+@ffi.Native<NativeLsl_pull_sample_s>()
 external double lsl_pull_sample_s(
-  lsl_inlet in1,
+  lsl_inlet in$,
   ffi.Pointer<ffi.Int16> buffer,
   int buffer_elements,
   double timeout,
   ffi.Pointer<ffi.Int32> ec,
 );
 
-@ffi.Native<
-    ffi.Double Function(lsl_inlet, ffi.Pointer<ffi.Char>, ffi.Int32, ffi.Double,
-        ffi.Pointer<ffi.Int32>)>()
+@ffi.Native<NativeLsl_pull_sample_c>()
 external double lsl_pull_sample_c(
-  lsl_inlet in1,
+  lsl_inlet in$,
   ffi.Pointer<ffi.Char> buffer,
   int buffer_elements,
   double timeout,
   ffi.Pointer<ffi.Int32> ec,
 );
 
-@ffi.Native<
-    ffi.Double Function(lsl_inlet, ffi.Pointer<ffi.Pointer<ffi.Char>>,
-        ffi.Int32, ffi.Double, ffi.Pointer<ffi.Int32>)>()
+@ffi.Native<NativeLsl_pull_sample_str>()
 external double lsl_pull_sample_str(
-  lsl_inlet in1,
+  lsl_inlet in$,
   ffi.Pointer<ffi.Pointer<ffi.Char>> buffer,
   int buffer_elements,
   double timeout,
@@ -333,16 +296,9 @@ external double lsl_pull_sample_str(
 /// These strings may contains 0's, therefore the lengths are read into the buffer_lengths array.
 /// @param buffer_lengths
 /// A pointer to an array that holds the resulting lengths for each returned binary string.
-@ffi.Native<
-    ffi.Double Function(
-        lsl_inlet,
-        ffi.Pointer<ffi.Pointer<ffi.Char>>,
-        ffi.Pointer<ffi.Uint32>,
-        ffi.Int32,
-        ffi.Double,
-        ffi.Pointer<ffi.Int32>)>()
+@ffi.Native<NativeLsl_pull_sample_buf>()
 external double lsl_pull_sample_buf(
-  lsl_inlet in1,
+  lsl_inlet in$,
   ffi.Pointer<ffi.Pointer<ffi.Char>> buffer,
   ffi.Pointer<ffi.Uint32> buffer_lengths,
   int buffer_elements,
@@ -367,11 +323,9 @@ external double lsl_pull_sample_buf(
 /// @return The capture time of the sample on the remote machine, or 0.0 if no new sample was
 /// available. To remap this time stamp to the local clock, add the value returned by
 /// lsl_time_correction() to it.
-@ffi.Native<
-    ffi.Double Function(lsl_inlet, ffi.Pointer<ffi.Void>, ffi.Int32, ffi.Double,
-        ffi.Pointer<ffi.Int32>)>()
+@ffi.Native<NativeLsl_pull_sample_v>()
 external double lsl_pull_sample_v(
-  lsl_inlet in1,
+  lsl_inlet in$,
   ffi.Pointer<ffi.Void> buffer,
   int buffer_bytes,
   double timeout,
@@ -405,17 +359,9 @@ external double lsl_pull_sample_v(
 /// ec is *not* set to #lsl_timeout_error (because this case is not considered an error condition).
 /// @return data_elements_written Number of channel data elements written to the data buffer.
 /// @{
-@ffi.Native<
-    ffi.UnsignedLong Function(
-        lsl_inlet,
-        ffi.Pointer<ffi.Float>,
-        ffi.Pointer<ffi.Double>,
-        ffi.UnsignedLong,
-        ffi.UnsignedLong,
-        ffi.Double,
-        ffi.Pointer<ffi.Int32>)>()
+@ffi.Native<NativeLsl_pull_chunk_f>()
 external int lsl_pull_chunk_f(
-  lsl_inlet in1,
+  lsl_inlet in$,
   ffi.Pointer<ffi.Float> data_buffer,
   ffi.Pointer<ffi.Double> timestamp_buffer,
   int data_buffer_elements,
@@ -424,17 +370,9 @@ external int lsl_pull_chunk_f(
   ffi.Pointer<ffi.Int32> ec,
 );
 
-@ffi.Native<
-    ffi.UnsignedLong Function(
-        lsl_inlet,
-        ffi.Pointer<ffi.Double>,
-        ffi.Pointer<ffi.Double>,
-        ffi.UnsignedLong,
-        ffi.UnsignedLong,
-        ffi.Double,
-        ffi.Pointer<ffi.Int32>)>()
+@ffi.Native<NativeLsl_pull_chunk_d>()
 external int lsl_pull_chunk_d(
-  lsl_inlet in1,
+  lsl_inlet in$,
   ffi.Pointer<ffi.Double> data_buffer,
   ffi.Pointer<ffi.Double> timestamp_buffer,
   int data_buffer_elements,
@@ -443,17 +381,9 @@ external int lsl_pull_chunk_d(
   ffi.Pointer<ffi.Int32> ec,
 );
 
-@ffi.Native<
-    ffi.UnsignedLong Function(
-        lsl_inlet,
-        ffi.Pointer<ffi.Int64>,
-        ffi.Pointer<ffi.Double>,
-        ffi.UnsignedLong,
-        ffi.UnsignedLong,
-        ffi.Double,
-        ffi.Pointer<ffi.Int32>)>()
+@ffi.Native<NativeLsl_pull_chunk_l>()
 external int lsl_pull_chunk_l(
-  lsl_inlet in1,
+  lsl_inlet in$,
   ffi.Pointer<ffi.Int64> data_buffer,
   ffi.Pointer<ffi.Double> timestamp_buffer,
   int data_buffer_elements,
@@ -462,17 +392,9 @@ external int lsl_pull_chunk_l(
   ffi.Pointer<ffi.Int32> ec,
 );
 
-@ffi.Native<
-    ffi.UnsignedLong Function(
-        lsl_inlet,
-        ffi.Pointer<ffi.Int32>,
-        ffi.Pointer<ffi.Double>,
-        ffi.UnsignedLong,
-        ffi.UnsignedLong,
-        ffi.Double,
-        ffi.Pointer<ffi.Int32>)>()
+@ffi.Native<NativeLsl_pull_chunk_i>()
 external int lsl_pull_chunk_i(
-  lsl_inlet in1,
+  lsl_inlet in$,
   ffi.Pointer<ffi.Int32> data_buffer,
   ffi.Pointer<ffi.Double> timestamp_buffer,
   int data_buffer_elements,
@@ -481,17 +403,9 @@ external int lsl_pull_chunk_i(
   ffi.Pointer<ffi.Int32> ec,
 );
 
-@ffi.Native<
-    ffi.UnsignedLong Function(
-        lsl_inlet,
-        ffi.Pointer<ffi.Int16>,
-        ffi.Pointer<ffi.Double>,
-        ffi.UnsignedLong,
-        ffi.UnsignedLong,
-        ffi.Double,
-        ffi.Pointer<ffi.Int32>)>()
+@ffi.Native<NativeLsl_pull_chunk_s>()
 external int lsl_pull_chunk_s(
-  lsl_inlet in1,
+  lsl_inlet in$,
   ffi.Pointer<ffi.Int16> data_buffer,
   ffi.Pointer<ffi.Double> timestamp_buffer,
   int data_buffer_elements,
@@ -500,17 +414,9 @@ external int lsl_pull_chunk_s(
   ffi.Pointer<ffi.Int32> ec,
 );
 
-@ffi.Native<
-    ffi.UnsignedLong Function(
-        lsl_inlet,
-        ffi.Pointer<ffi.Char>,
-        ffi.Pointer<ffi.Double>,
-        ffi.UnsignedLong,
-        ffi.UnsignedLong,
-        ffi.Double,
-        ffi.Pointer<ffi.Int32>)>()
+@ffi.Native<NativeLsl_pull_chunk_c>()
 external int lsl_pull_chunk_c(
-  lsl_inlet in1,
+  lsl_inlet in$,
   ffi.Pointer<ffi.Char> data_buffer,
   ffi.Pointer<ffi.Double> timestamp_buffer,
   int data_buffer_elements,
@@ -519,17 +425,9 @@ external int lsl_pull_chunk_c(
   ffi.Pointer<ffi.Int32> ec,
 );
 
-@ffi.Native<
-    ffi.UnsignedLong Function(
-        lsl_inlet,
-        ffi.Pointer<ffi.Pointer<ffi.Char>>,
-        ffi.Pointer<ffi.Double>,
-        ffi.UnsignedLong,
-        ffi.UnsignedLong,
-        ffi.Double,
-        ffi.Pointer<ffi.Int32>)>()
+@ffi.Native<NativeLsl_pull_chunk_str>()
 external int lsl_pull_chunk_str(
-  lsl_inlet in1,
+  lsl_inlet in$,
   ffi.Pointer<ffi.Pointer<ffi.Char>> data_buffer,
   ffi.Pointer<ffi.Double> timestamp_buffer,
   int data_buffer_elements,
@@ -564,18 +462,9 @@ external int lsl_pull_chunk_str(
 /// @note If the timeout expires before a new sample was received the function returns 0.0; ec is
 /// *not* set to #lsl_timeout_error (because this case is not considered an error condition).
 /// @return data_elements_written Number of channel data elements written to the data buffer.
-@ffi.Native<
-    ffi.UnsignedLong Function(
-        lsl_inlet,
-        ffi.Pointer<ffi.Pointer<ffi.Char>>,
-        ffi.Pointer<ffi.Uint32>,
-        ffi.Pointer<ffi.Double>,
-        ffi.UnsignedLong,
-        ffi.UnsignedLong,
-        ffi.Double,
-        ffi.Pointer<ffi.Int32>)>()
+@ffi.Native<NativeLsl_pull_chunk_buf>()
 external int lsl_pull_chunk_buf(
-  lsl_inlet in1,
+  lsl_inlet in$,
   ffi.Pointer<ffi.Pointer<ffi.Char>> data_buffer,
   ffi.Pointer<ffi.Uint32> lengths_buffer,
   ffi.Pointer<ffi.Double> timestamp_buffer,
@@ -591,26 +480,20 @@ external int lsl_pull_chunk_buf(
 /// a pull_*() call would block: to be sure, set the pull timeout to 0.0 or an acceptably
 /// low value. If the underlying implementation supports it, the value will be the number of
 /// samples available (otherwise it will be 1 or 0).
-@ffi.Native<ffi.Uint32 Function(lsl_inlet)>()
-external int lsl_samples_available(
-  lsl_inlet in1,
-);
+@ffi.Native<NativeLsl_samples_available>()
+external int lsl_samples_available(lsl_inlet in$);
 
 /// Drop all queued not-yet pulled samples, return the nr of dropped samples
-@ffi.Native<ffi.Uint32 Function(lsl_inlet)>()
-external int lsl_inlet_flush(
-  lsl_inlet in1,
-);
+@ffi.Native<NativeLsl_inlet_flush>()
+external int lsl_inlet_flush(lsl_inlet in$);
 
 /// Query whether the clock was potentially reset since the last call to lsl_was_clock_reset().
 ///
 /// This is rarely-used function is only needed for applications that combine multiple time_correction
 /// values to estimate precise clock drift if they should tolerate cases where the source machine was
 /// hot-swapped or restarted.
-@ffi.Native<ffi.Uint32 Function(lsl_inlet)>()
-external int lsl_was_clock_reset(
-  lsl_inlet in1,
-);
+@ffi.Native<NativeLsl_was_clock_reset>()
+external int lsl_was_clock_reset(lsl_inlet in$);
 
 /// Override the half-time (forget factor) of the time-stamp smoothing.
 ///
@@ -623,11 +506,8 @@ external int lsl_was_clock_reset(
 /// @param value The new value, in seconds. This is the time after which a past sample
 /// will be weighted by 1/2 in the exponential smoothing window.
 /// @return The error code: if nonzero, can be #lsl_argument_error if an unknown flag was passed in.
-@ffi.Native<ffi.Int32 Function(lsl_inlet, ffi.Float)>()
-external int lsl_smoothing_halftime(
-  lsl_inlet in1,
-  double value,
-);
+@ffi.Native<NativeLsl_smoothing_halftime>()
+external int lsl_smoothing_halftime(lsl_inlet in$, double value);
 
 /// Establish a new stream outlet. This makes the stream discoverable.
 /// @param info The stream information to use for creating this stream.
@@ -642,7 +522,7 @@ external int lsl_smoothing_halftime(
 /// minutes of data. Note that, for high-bandwidth data you will almost certainly want to use a lower
 /// value here to avoid  running out of RAM.
 /// @return A newly created lsl_outlet handle or NULL in the event that an error occurred.
-@ffi.Native<lsl_outlet Function(lsl_streaminfo, ffi.Int32, ffi.Int32)>()
+@ffi.Native<NativeLsl_create_outlet>()
 external lsl_outlet lsl_create_outlet(
   lsl_streaminfo info,
   int chunk_size,
@@ -652,9 +532,7 @@ external lsl_outlet lsl_create_outlet(
 /// @copydoc lsl_create_outlet()
 /// @param flags An integer that is the result of bitwise OR'ing one or more options from
 /// #lsl_transport_options_t together (e.g., #transp_bufsize_samples|#transp_bufsize_thousandths)
-@ffi.Native<
-    lsl_outlet Function(lsl_streaminfo, ffi.Int32, ffi.Int32,
-        ffi.UnsignedInt)>(symbol: "lsl_create_outlet_ex")
+@ffi.Native<NativeLsl_create_outlet_ex>(symbol: 'lsl_create_outlet_ex')
 external lsl_outlet _lsl_create_outlet_ex(
   lsl_streaminfo info,
   int chunk_size,
@@ -667,21 +545,13 @@ lsl_outlet lsl_create_outlet_ex(
   int chunk_size,
   int max_buffered,
   lsl_transport_options_t flags,
-) =>
-    _lsl_create_outlet_ex(
-      info,
-      chunk_size,
-      max_buffered,
-      flags.value,
-    );
+) => _lsl_create_outlet_ex(info, chunk_size, max_buffered, flags.value);
 
 /// Destroy an outlet.
 /// The outlet will no longer be discoverable after destruction and all connected inlets will stop
 /// delivering data.
-@ffi.Native<ffi.Void Function(lsl_outlet)>()
-external void lsl_destroy_outlet(
-  lsl_outlet out,
-);
+@ffi.Native<NativeLsl_destroy_outlet>()
+external void lsl_destroy_outlet(lsl_outlet out);
 
 /// Push a pointer to some values as a sample into the outlet.
 /// Handles type checking & conversion.
@@ -692,117 +562,88 @@ external void lsl_destroy_outlet(
 /// @return Error code of the operation or lsl_no_error if successful (usually attributed to the
 /// wrong data type).
 /// @{
-@ffi.Native<ffi.Int32 Function(lsl_outlet, ffi.Pointer<ffi.Float>)>()
-external int lsl_push_sample_f(
-  lsl_outlet out,
-  ffi.Pointer<ffi.Float> data,
-);
+@ffi.Native<NativeLsl_push_sample_f>()
+external int lsl_push_sample_f(lsl_outlet out, ffi.Pointer<ffi.Float> data);
 
-@ffi.Native<ffi.Int32 Function(lsl_outlet, ffi.Pointer<ffi.Double>)>()
-external int lsl_push_sample_d(
-  lsl_outlet out,
-  ffi.Pointer<ffi.Double> data,
-);
+@ffi.Native<NativeLsl_push_sample_d>()
+external int lsl_push_sample_d(lsl_outlet out, ffi.Pointer<ffi.Double> data);
 
-@ffi.Native<ffi.Int32 Function(lsl_outlet, ffi.Pointer<ffi.Int64>)>()
-external int lsl_push_sample_l(
-  lsl_outlet out,
-  ffi.Pointer<ffi.Int64> data,
-);
+@ffi.Native<NativeLsl_push_sample_l>()
+external int lsl_push_sample_l(lsl_outlet out, ffi.Pointer<ffi.Int64> data);
 
-@ffi.Native<ffi.Int32 Function(lsl_outlet, ffi.Pointer<ffi.Int32>)>()
-external int lsl_push_sample_i(
-  lsl_outlet out,
-  ffi.Pointer<ffi.Int32> data,
-);
+@ffi.Native<NativeLsl_push_sample_i>()
+external int lsl_push_sample_i(lsl_outlet out, ffi.Pointer<ffi.Int32> data);
 
-@ffi.Native<ffi.Int32 Function(lsl_outlet, ffi.Pointer<ffi.Int16>)>()
-external int lsl_push_sample_s(
-  lsl_outlet out,
-  ffi.Pointer<ffi.Int16> data,
-);
+@ffi.Native<NativeLsl_push_sample_s>()
+external int lsl_push_sample_s(lsl_outlet out, ffi.Pointer<ffi.Int16> data);
 
-@ffi.Native<ffi.Int32 Function(lsl_outlet, ffi.Pointer<ffi.Char>)>()
-external int lsl_push_sample_c(
-  lsl_outlet out,
-  ffi.Pointer<ffi.Char> data,
-);
+@ffi.Native<NativeLsl_push_sample_c>()
+external int lsl_push_sample_c(lsl_outlet out, ffi.Pointer<ffi.Char> data);
 
-@ffi.Native<
-    ffi.Int32 Function(lsl_outlet, ffi.Pointer<ffi.Pointer<ffi.Char>>)>()
+@ffi.Native<NativeLsl_push_sample_str>()
 external int lsl_push_sample_str(
   lsl_outlet out,
   ffi.Pointer<ffi.Pointer<ffi.Char>> data,
 );
 
-@ffi.Native<ffi.Int32 Function(lsl_outlet, ffi.Pointer<ffi.Void>)>()
-external int lsl_push_sample_v(
-  lsl_outlet out,
-  ffi.Pointer<ffi.Void> data,
-);
+@ffi.Native<NativeLsl_push_sample_v>()
+external int lsl_push_sample_v(lsl_outlet out, ffi.Pointer<ffi.Void> data);
 
 /// @}
 /// /** @copydoc lsl_push_sample_f
 ///  * @param timestamp Optionally the capture time of the sample, in agreement with
 ///  * @{
 ///  */
-@ffi.Native<
-    ffi.Int32 Function(lsl_outlet, ffi.Pointer<ffi.Float>, ffi.Double)>()
+@ffi.Native<NativeLsl_push_sample_ft>()
 external int lsl_push_sample_ft(
   lsl_outlet out,
   ffi.Pointer<ffi.Float> data,
   double timestamp,
 );
 
-@ffi.Native<
-    ffi.Int32 Function(lsl_outlet, ffi.Pointer<ffi.Double>, ffi.Double)>()
+@ffi.Native<NativeLsl_push_sample_dt>()
 external int lsl_push_sample_dt(
   lsl_outlet out,
   ffi.Pointer<ffi.Double> data,
   double timestamp,
 );
 
-@ffi.Native<
-    ffi.Int32 Function(lsl_outlet, ffi.Pointer<ffi.Int64>, ffi.Double)>()
+@ffi.Native<NativeLsl_push_sample_lt>()
 external int lsl_push_sample_lt(
   lsl_outlet out,
   ffi.Pointer<ffi.Int64> data,
   double timestamp,
 );
 
-@ffi.Native<
-    ffi.Int32 Function(lsl_outlet, ffi.Pointer<ffi.Int32>, ffi.Double)>()
+@ffi.Native<NativeLsl_push_sample_it>()
 external int lsl_push_sample_it(
   lsl_outlet out,
   ffi.Pointer<ffi.Int32> data,
   double timestamp,
 );
 
-@ffi.Native<
-    ffi.Int32 Function(lsl_outlet, ffi.Pointer<ffi.Int16>, ffi.Double)>()
+@ffi.Native<NativeLsl_push_sample_st>()
 external int lsl_push_sample_st(
   lsl_outlet out,
   ffi.Pointer<ffi.Int16> data,
   double timestamp,
 );
 
-@ffi.Native<ffi.Int32 Function(lsl_outlet, ffi.Pointer<ffi.Char>, ffi.Double)>()
+@ffi.Native<NativeLsl_push_sample_ct>()
 external int lsl_push_sample_ct(
   lsl_outlet out,
   ffi.Pointer<ffi.Char> data,
   double timestamp,
 );
 
-@ffi.Native<
-    ffi.Int32 Function(
-        lsl_outlet, ffi.Pointer<ffi.Pointer<ffi.Char>>, ffi.Double)>()
+@ffi.Native<NativeLsl_push_sample_strt>()
 external int lsl_push_sample_strt(
   lsl_outlet out,
   ffi.Pointer<ffi.Pointer<ffi.Char>> data,
   double timestamp,
 );
 
-@ffi.Native<ffi.Int32 Function(lsl_outlet, ffi.Pointer<ffi.Void>, ffi.Double)>()
+@ffi.Native<NativeLsl_push_sample_vt>()
 external int lsl_push_sample_vt(
   lsl_outlet out,
   ffi.Pointer<ffi.Void> data,
@@ -816,9 +657,7 @@ external int lsl_push_sample_vt(
 ///  * precedence over the pushthrough flag.
 ///  * @{
 ///  */
-@ffi.Native<
-    ffi.Int32 Function(
-        lsl_outlet, ffi.Pointer<ffi.Float>, ffi.Double, ffi.Int32)>()
+@ffi.Native<NativeLsl_push_sample_ftp>()
 external int lsl_push_sample_ftp(
   lsl_outlet out,
   ffi.Pointer<ffi.Float> data,
@@ -826,9 +665,7 @@ external int lsl_push_sample_ftp(
   int pushthrough,
 );
 
-@ffi.Native<
-    ffi.Int32 Function(
-        lsl_outlet, ffi.Pointer<ffi.Double>, ffi.Double, ffi.Int32)>()
+@ffi.Native<NativeLsl_push_sample_dtp>()
 external int lsl_push_sample_dtp(
   lsl_outlet out,
   ffi.Pointer<ffi.Double> data,
@@ -836,9 +673,7 @@ external int lsl_push_sample_dtp(
   int pushthrough,
 );
 
-@ffi.Native<
-    ffi.Int32 Function(
-        lsl_outlet, ffi.Pointer<ffi.Int64>, ffi.Double, ffi.Int32)>()
+@ffi.Native<NativeLsl_push_sample_ltp>()
 external int lsl_push_sample_ltp(
   lsl_outlet out,
   ffi.Pointer<ffi.Int64> data,
@@ -846,9 +681,7 @@ external int lsl_push_sample_ltp(
   int pushthrough,
 );
 
-@ffi.Native<
-    ffi.Int32 Function(
-        lsl_outlet, ffi.Pointer<ffi.Int32>, ffi.Double, ffi.Int32)>()
+@ffi.Native<NativeLsl_push_sample_itp>()
 external int lsl_push_sample_itp(
   lsl_outlet out,
   ffi.Pointer<ffi.Int32> data,
@@ -856,9 +689,7 @@ external int lsl_push_sample_itp(
   int pushthrough,
 );
 
-@ffi.Native<
-    ffi.Int32 Function(
-        lsl_outlet, ffi.Pointer<ffi.Int16>, ffi.Double, ffi.Int32)>()
+@ffi.Native<NativeLsl_push_sample_stp>()
 external int lsl_push_sample_stp(
   lsl_outlet out,
   ffi.Pointer<ffi.Int16> data,
@@ -866,9 +697,7 @@ external int lsl_push_sample_stp(
   int pushthrough,
 );
 
-@ffi.Native<
-    ffi.Int32 Function(
-        lsl_outlet, ffi.Pointer<ffi.Char>, ffi.Double, ffi.Int32)>()
+@ffi.Native<NativeLsl_push_sample_ctp>()
 external int lsl_push_sample_ctp(
   lsl_outlet out,
   ffi.Pointer<ffi.Char> data,
@@ -876,9 +705,7 @@ external int lsl_push_sample_ctp(
   int pushthrough,
 );
 
-@ffi.Native<
-    ffi.Int32 Function(lsl_outlet, ffi.Pointer<ffi.Pointer<ffi.Char>>,
-        ffi.Double, ffi.Int32)>()
+@ffi.Native<NativeLsl_push_sample_strtp>()
 external int lsl_push_sample_strtp(
   lsl_outlet out,
   ffi.Pointer<ffi.Pointer<ffi.Char>> data,
@@ -886,9 +713,7 @@ external int lsl_push_sample_strtp(
   int pushthrough,
 );
 
-@ffi.Native<
-    ffi.Int32 Function(
-        lsl_outlet, ffi.Pointer<ffi.Void>, ffi.Double, ffi.Int32)>()
+@ffi.Native<NativeLsl_push_sample_vtp>()
 external int lsl_push_sample_vtp(
   lsl_outlet out,
   ffi.Pointer<ffi.Void> data,
@@ -902,9 +727,7 @@ external int lsl_push_sample_vtp(
 /// @param data A pointer to values to push. The number of values pointed to must be no less than the
 /// number of channels in the sample.
 /// @param lengths A pointer the number of elements to push for each channel (string lengths).
-@ffi.Native<
-    ffi.Int32 Function(lsl_outlet, ffi.Pointer<ffi.Pointer<ffi.Char>>,
-        ffi.Pointer<ffi.Uint32>)>()
+@ffi.Native<NativeLsl_push_sample_buf>()
 external int lsl_push_sample_buf(
   lsl_outlet out,
   ffi.Pointer<ffi.Pointer<ffi.Char>> data,
@@ -913,9 +736,7 @@ external int lsl_push_sample_buf(
 
 /// @copydoc lsl_push_sample_buf
 /// @param timestamp @see lsl_push_sample_ftp
-@ffi.Native<
-    ffi.Int32 Function(lsl_outlet, ffi.Pointer<ffi.Pointer<ffi.Char>>,
-        ffi.Pointer<ffi.Uint32>, ffi.Double)>()
+@ffi.Native<NativeLsl_push_sample_buft>()
 external int lsl_push_sample_buft(
   lsl_outlet out,
   ffi.Pointer<ffi.Pointer<ffi.Char>> data,
@@ -925,9 +746,7 @@ external int lsl_push_sample_buft(
 
 /// @copydoc lsl_push_sample_buft
 /// @param pushthrough @see lsl_push_sample_ftp
-@ffi.Native<
-    ffi.Int32 Function(lsl_outlet, ffi.Pointer<ffi.Pointer<ffi.Char>>,
-        ffi.Pointer<ffi.Uint32>, ffi.Double, ffi.Int32)>()
+@ffi.Native<NativeLsl_push_sample_buftp>()
 external int lsl_push_sample_buftp(
   lsl_outlet out,
   ffi.Pointer<ffi.Pointer<ffi.Char>> data,
@@ -949,57 +768,49 @@ external int lsl_push_sample_buftp(
 /// of the channel count.
 /// @return Error code of the operation (usually attributed to the wrong data type).
 /// @{
-@ffi.Native<
-    ffi.Int32 Function(lsl_outlet, ffi.Pointer<ffi.Float>, ffi.UnsignedLong)>()
+@ffi.Native<NativeLsl_push_chunk_f>()
 external int lsl_push_chunk_f(
   lsl_outlet out,
   ffi.Pointer<ffi.Float> data,
   int data_elements,
 );
 
-@ffi.Native<
-    ffi.Int32 Function(lsl_outlet, ffi.Pointer<ffi.Double>, ffi.UnsignedLong)>()
+@ffi.Native<NativeLsl_push_chunk_d>()
 external int lsl_push_chunk_d(
   lsl_outlet out,
   ffi.Pointer<ffi.Double> data,
   int data_elements,
 );
 
-@ffi.Native<
-    ffi.Int32 Function(lsl_outlet, ffi.Pointer<ffi.Int64>, ffi.UnsignedLong)>()
+@ffi.Native<NativeLsl_push_chunk_l>()
 external int lsl_push_chunk_l(
   lsl_outlet out,
   ffi.Pointer<ffi.Int64> data,
   int data_elements,
 );
 
-@ffi.Native<
-    ffi.Int32 Function(lsl_outlet, ffi.Pointer<ffi.Int32>, ffi.UnsignedLong)>()
+@ffi.Native<NativeLsl_push_chunk_i>()
 external int lsl_push_chunk_i(
   lsl_outlet out,
   ffi.Pointer<ffi.Int32> data,
   int data_elements,
 );
 
-@ffi.Native<
-    ffi.Int32 Function(lsl_outlet, ffi.Pointer<ffi.Int16>, ffi.UnsignedLong)>()
+@ffi.Native<NativeLsl_push_chunk_s>()
 external int lsl_push_chunk_s(
   lsl_outlet out,
   ffi.Pointer<ffi.Int16> data,
   int data_elements,
 );
 
-@ffi.Native<
-    ffi.Int32 Function(lsl_outlet, ffi.Pointer<ffi.Char>, ffi.UnsignedLong)>()
+@ffi.Native<NativeLsl_push_chunk_c>()
 external int lsl_push_chunk_c(
   lsl_outlet out,
   ffi.Pointer<ffi.Char> data,
   int data_elements,
 );
 
-@ffi.Native<
-    ffi.Int32 Function(
-        lsl_outlet, ffi.Pointer<ffi.Pointer<ffi.Char>>, ffi.UnsignedLong)>()
+@ffi.Native<NativeLsl_push_chunk_str>()
 external int lsl_push_chunk_str(
   lsl_outlet out,
   ffi.Pointer<ffi.Pointer<ffi.Char>> data,
@@ -1012,9 +823,7 @@ external int lsl_push_chunk_str(
 /// The time stamps of other samples are automatically derived based on the sampling rate of the
 /// stream.
 /// @{
-@ffi.Native<
-    ffi.Int32 Function(
-        lsl_outlet, ffi.Pointer<ffi.Float>, ffi.UnsignedLong, ffi.Double)>()
+@ffi.Native<NativeLsl_push_chunk_ft>()
 external int lsl_push_chunk_ft(
   lsl_outlet out,
   ffi.Pointer<ffi.Float> data,
@@ -1022,9 +831,7 @@ external int lsl_push_chunk_ft(
   double timestamp,
 );
 
-@ffi.Native<
-    ffi.Int32 Function(
-        lsl_outlet, ffi.Pointer<ffi.Double>, ffi.UnsignedLong, ffi.Double)>()
+@ffi.Native<NativeLsl_push_chunk_dt>()
 external int lsl_push_chunk_dt(
   lsl_outlet out,
   ffi.Pointer<ffi.Double> data,
@@ -1032,9 +839,7 @@ external int lsl_push_chunk_dt(
   double timestamp,
 );
 
-@ffi.Native<
-    ffi.Int32 Function(
-        lsl_outlet, ffi.Pointer<ffi.Int64>, ffi.UnsignedLong, ffi.Double)>()
+@ffi.Native<NativeLsl_push_chunk_lt>()
 external int lsl_push_chunk_lt(
   lsl_outlet out,
   ffi.Pointer<ffi.Int64> data,
@@ -1042,9 +847,7 @@ external int lsl_push_chunk_lt(
   double timestamp,
 );
 
-@ffi.Native<
-    ffi.Int32 Function(
-        lsl_outlet, ffi.Pointer<ffi.Int32>, ffi.UnsignedLong, ffi.Double)>()
+@ffi.Native<NativeLsl_push_chunk_it>()
 external int lsl_push_chunk_it(
   lsl_outlet out,
   ffi.Pointer<ffi.Int32> data,
@@ -1052,9 +855,7 @@ external int lsl_push_chunk_it(
   double timestamp,
 );
 
-@ffi.Native<
-    ffi.Int32 Function(
-        lsl_outlet, ffi.Pointer<ffi.Int16>, ffi.UnsignedLong, ffi.Double)>()
+@ffi.Native<NativeLsl_push_chunk_st>()
 external int lsl_push_chunk_st(
   lsl_outlet out,
   ffi.Pointer<ffi.Int16> data,
@@ -1062,9 +863,7 @@ external int lsl_push_chunk_st(
   double timestamp,
 );
 
-@ffi.Native<
-    ffi.Int32 Function(
-        lsl_outlet, ffi.Pointer<ffi.Char>, ffi.UnsignedLong, ffi.Double)>()
+@ffi.Native<NativeLsl_push_chunk_ct>()
 external int lsl_push_chunk_ct(
   lsl_outlet out,
   ffi.Pointer<ffi.Char> data,
@@ -1072,9 +871,7 @@ external int lsl_push_chunk_ct(
   double timestamp,
 );
 
-@ffi.Native<
-    ffi.Int32 Function(lsl_outlet, ffi.Pointer<ffi.Pointer<ffi.Char>>,
-        ffi.UnsignedLong, ffi.Double)>()
+@ffi.Native<NativeLsl_push_chunk_strt>()
 external int lsl_push_chunk_strt(
   lsl_outlet out,
   ffi.Pointer<ffi.Pointer<ffi.Char>> data,
@@ -1087,9 +884,7 @@ external int lsl_push_chunk_strt(
 /// with subsequent samples. Note that the chunk_size, if specified at outlet construction, takes
 /// precedence over the pushthrough flag.
 /// @{
-@ffi.Native<
-    ffi.Int32 Function(lsl_outlet, ffi.Pointer<ffi.Float>, ffi.UnsignedLong,
-        ffi.Double, ffi.Int32)>()
+@ffi.Native<NativeLsl_push_chunk_ftp>()
 external int lsl_push_chunk_ftp(
   lsl_outlet out,
   ffi.Pointer<ffi.Float> data,
@@ -1098,9 +893,7 @@ external int lsl_push_chunk_ftp(
   int pushthrough,
 );
 
-@ffi.Native<
-    ffi.Int32 Function(lsl_outlet, ffi.Pointer<ffi.Double>, ffi.UnsignedLong,
-        ffi.Double, ffi.Int32)>()
+@ffi.Native<NativeLsl_push_chunk_dtp>()
 external int lsl_push_chunk_dtp(
   lsl_outlet out,
   ffi.Pointer<ffi.Double> data,
@@ -1109,9 +902,7 @@ external int lsl_push_chunk_dtp(
   int pushthrough,
 );
 
-@ffi.Native<
-    ffi.Int32 Function(lsl_outlet, ffi.Pointer<ffi.Int64>, ffi.UnsignedLong,
-        ffi.Double, ffi.Int32)>()
+@ffi.Native<NativeLsl_push_chunk_ltp>()
 external int lsl_push_chunk_ltp(
   lsl_outlet out,
   ffi.Pointer<ffi.Int64> data,
@@ -1120,9 +911,7 @@ external int lsl_push_chunk_ltp(
   int pushthrough,
 );
 
-@ffi.Native<
-    ffi.Int32 Function(lsl_outlet, ffi.Pointer<ffi.Int32>, ffi.UnsignedLong,
-        ffi.Double, ffi.Int32)>()
+@ffi.Native<NativeLsl_push_chunk_itp>()
 external int lsl_push_chunk_itp(
   lsl_outlet out,
   ffi.Pointer<ffi.Int32> data,
@@ -1131,9 +920,7 @@ external int lsl_push_chunk_itp(
   int pushthrough,
 );
 
-@ffi.Native<
-    ffi.Int32 Function(lsl_outlet, ffi.Pointer<ffi.Int16>, ffi.UnsignedLong,
-        ffi.Double, ffi.Int32)>()
+@ffi.Native<NativeLsl_push_chunk_stp>()
 external int lsl_push_chunk_stp(
   lsl_outlet out,
   ffi.Pointer<ffi.Int16> data,
@@ -1142,9 +929,7 @@ external int lsl_push_chunk_stp(
   int pushthrough,
 );
 
-@ffi.Native<
-    ffi.Int32 Function(lsl_outlet, ffi.Pointer<ffi.Char>, ffi.UnsignedLong,
-        ffi.Double, ffi.Int32)>()
+@ffi.Native<NativeLsl_push_chunk_ctp>()
 external int lsl_push_chunk_ctp(
   lsl_outlet out,
   ffi.Pointer<ffi.Char> data,
@@ -1153,9 +938,7 @@ external int lsl_push_chunk_ctp(
   int pushthrough,
 );
 
-@ffi.Native<
-    ffi.Int32 Function(lsl_outlet, ffi.Pointer<ffi.Pointer<ffi.Char>>,
-        ffi.UnsignedLong, ffi.Double, ffi.Int32)>()
+@ffi.Native<NativeLsl_push_chunk_strtp>()
 external int lsl_push_chunk_strtp(
   lsl_outlet out,
   ffi.Pointer<ffi.Pointer<ffi.Char>> data,
@@ -1169,9 +952,7 @@ external int lsl_push_chunk_strtp(
 ///  * @param timestamps Buffer holding one time stamp for each sample in the data buffer.
 ///  * @{
 ///  */
-@ffi.Native<
-    ffi.Int32 Function(lsl_outlet, ffi.Pointer<ffi.Float>, ffi.UnsignedLong,
-        ffi.Pointer<ffi.Double>)>()
+@ffi.Native<NativeLsl_push_chunk_ftn>()
 external int lsl_push_chunk_ftn(
   lsl_outlet out,
   ffi.Pointer<ffi.Float> data,
@@ -1179,9 +960,7 @@ external int lsl_push_chunk_ftn(
   ffi.Pointer<ffi.Double> timestamps,
 );
 
-@ffi.Native<
-    ffi.Int32 Function(lsl_outlet, ffi.Pointer<ffi.Double>, ffi.UnsignedLong,
-        ffi.Pointer<ffi.Double>)>()
+@ffi.Native<NativeLsl_push_chunk_dtn>()
 external int lsl_push_chunk_dtn(
   lsl_outlet out,
   ffi.Pointer<ffi.Double> data,
@@ -1189,9 +968,7 @@ external int lsl_push_chunk_dtn(
   ffi.Pointer<ffi.Double> timestamps,
 );
 
-@ffi.Native<
-    ffi.Int32 Function(lsl_outlet, ffi.Pointer<ffi.Int64>, ffi.UnsignedLong,
-        ffi.Pointer<ffi.Double>)>()
+@ffi.Native<NativeLsl_push_chunk_ltn>()
 external int lsl_push_chunk_ltn(
   lsl_outlet out,
   ffi.Pointer<ffi.Int64> data,
@@ -1199,9 +976,7 @@ external int lsl_push_chunk_ltn(
   ffi.Pointer<ffi.Double> timestamps,
 );
 
-@ffi.Native<
-    ffi.Int32 Function(lsl_outlet, ffi.Pointer<ffi.Int32>, ffi.UnsignedLong,
-        ffi.Pointer<ffi.Double>)>()
+@ffi.Native<NativeLsl_push_chunk_itn>()
 external int lsl_push_chunk_itn(
   lsl_outlet out,
   ffi.Pointer<ffi.Int32> data,
@@ -1209,9 +984,7 @@ external int lsl_push_chunk_itn(
   ffi.Pointer<ffi.Double> timestamps,
 );
 
-@ffi.Native<
-    ffi.Int32 Function(lsl_outlet, ffi.Pointer<ffi.Int16>, ffi.UnsignedLong,
-        ffi.Pointer<ffi.Double>)>()
+@ffi.Native<NativeLsl_push_chunk_stn>()
 external int lsl_push_chunk_stn(
   lsl_outlet out,
   ffi.Pointer<ffi.Int16> data,
@@ -1219,9 +992,7 @@ external int lsl_push_chunk_stn(
   ffi.Pointer<ffi.Double> timestamps,
 );
 
-@ffi.Native<
-    ffi.Int32 Function(lsl_outlet, ffi.Pointer<ffi.Char>, ffi.UnsignedLong,
-        ffi.Pointer<ffi.Double>)>()
+@ffi.Native<NativeLsl_push_chunk_ctn>()
 external int lsl_push_chunk_ctn(
   lsl_outlet out,
   ffi.Pointer<ffi.Char> data,
@@ -1229,9 +1000,7 @@ external int lsl_push_chunk_ctn(
   ffi.Pointer<ffi.Double> timestamps,
 );
 
-@ffi.Native<
-    ffi.Int32 Function(lsl_outlet, ffi.Pointer<ffi.Pointer<ffi.Char>>,
-        ffi.UnsignedLong, ffi.Pointer<ffi.Double>)>()
+@ffi.Native<NativeLsl_push_chunk_strtn>()
 external int lsl_push_chunk_strtn(
   lsl_outlet out,
   ffi.Pointer<ffi.Pointer<ffi.Char>> data,
@@ -1244,9 +1013,7 @@ external int lsl_push_chunk_strtn(
 /// with subsequent samples. Note that the chunk_size, if specified at outlet construction, takes
 /// precedence over the pushthrough flag.
 /// @{
-@ffi.Native<
-    ffi.Int32 Function(lsl_outlet, ffi.Pointer<ffi.Float>, ffi.UnsignedLong,
-        ffi.Pointer<ffi.Double>, ffi.Int32)>()
+@ffi.Native<NativeLsl_push_chunk_ftnp>()
 external int lsl_push_chunk_ftnp(
   lsl_outlet out,
   ffi.Pointer<ffi.Float> data,
@@ -1255,9 +1022,7 @@ external int lsl_push_chunk_ftnp(
   int pushthrough,
 );
 
-@ffi.Native<
-    ffi.Int32 Function(lsl_outlet, ffi.Pointer<ffi.Double>, ffi.UnsignedLong,
-        ffi.Pointer<ffi.Double>, ffi.Int32)>()
+@ffi.Native<NativeLsl_push_chunk_dtnp>()
 external int lsl_push_chunk_dtnp(
   lsl_outlet out,
   ffi.Pointer<ffi.Double> data,
@@ -1266,9 +1031,7 @@ external int lsl_push_chunk_dtnp(
   int pushthrough,
 );
 
-@ffi.Native<
-    ffi.Int32 Function(lsl_outlet, ffi.Pointer<ffi.Int64>, ffi.UnsignedLong,
-        ffi.Pointer<ffi.Double>, ffi.Int32)>()
+@ffi.Native<NativeLsl_push_chunk_ltnp>()
 external int lsl_push_chunk_ltnp(
   lsl_outlet out,
   ffi.Pointer<ffi.Int64> data,
@@ -1277,9 +1040,7 @@ external int lsl_push_chunk_ltnp(
   int pushthrough,
 );
 
-@ffi.Native<
-    ffi.Int32 Function(lsl_outlet, ffi.Pointer<ffi.Int32>, ffi.UnsignedLong,
-        ffi.Pointer<ffi.Double>, ffi.Int32)>()
+@ffi.Native<NativeLsl_push_chunk_itnp>()
 external int lsl_push_chunk_itnp(
   lsl_outlet out,
   ffi.Pointer<ffi.Int32> data,
@@ -1288,9 +1049,7 @@ external int lsl_push_chunk_itnp(
   int pushthrough,
 );
 
-@ffi.Native<
-    ffi.Int32 Function(lsl_outlet, ffi.Pointer<ffi.Int16>, ffi.UnsignedLong,
-        ffi.Pointer<ffi.Double>, ffi.Int32)>()
+@ffi.Native<NativeLsl_push_chunk_stnp>()
 external int lsl_push_chunk_stnp(
   lsl_outlet out,
   ffi.Pointer<ffi.Int16> data,
@@ -1299,9 +1058,7 @@ external int lsl_push_chunk_stnp(
   int pushthrough,
 );
 
-@ffi.Native<
-    ffi.Int32 Function(lsl_outlet, ffi.Pointer<ffi.Char>, ffi.UnsignedLong,
-        ffi.Pointer<ffi.Double>, ffi.Int32)>()
+@ffi.Native<NativeLsl_push_chunk_ctnp>()
 external int lsl_push_chunk_ctnp(
   lsl_outlet out,
   ffi.Pointer<ffi.Char> data,
@@ -1310,9 +1067,7 @@ external int lsl_push_chunk_ctnp(
   int pushthrough,
 );
 
-@ffi.Native<
-    ffi.Int32 Function(lsl_outlet, ffi.Pointer<ffi.Pointer<ffi.Char>>,
-        ffi.UnsignedLong, ffi.Pointer<ffi.Double>, ffi.Int32)>()
+@ffi.Native<NativeLsl_push_chunk_strtnp>()
 external int lsl_push_chunk_strtnp(
   lsl_outlet out,
   ffi.Pointer<ffi.Pointer<ffi.Char>> data,
@@ -1329,9 +1084,7 @@ external int lsl_push_chunk_strtnp(
 /// `size(data[i])==lengths[i]`.
 /// @param data_elements The number of data values in the data buffer.
 /// Must be a multiple of the channel count.
-@ffi.Native<
-    ffi.Int32 Function(lsl_outlet, ffi.Pointer<ffi.Pointer<ffi.Char>>,
-        ffi.Pointer<ffi.Uint32>, ffi.UnsignedLong)>()
+@ffi.Native<NativeLsl_push_chunk_buf>()
 external int lsl_push_chunk_buf(
   lsl_outlet out,
   ffi.Pointer<ffi.Pointer<ffi.Char>> data,
@@ -1344,9 +1097,7 @@ external int lsl_push_chunk_buf(
 /// lsl_local_clock(); if omitted, the current time is used.
 /// The time stamps of other samples are automatically derived based on the sampling rate of the
 /// stream.
-@ffi.Native<
-    ffi.Int32 Function(lsl_outlet, ffi.Pointer<ffi.Pointer<ffi.Char>>,
-        ffi.Pointer<ffi.Uint32>, ffi.UnsignedLong, ffi.Double)>()
+@ffi.Native<NativeLsl_push_chunk_buft>()
 external int lsl_push_chunk_buft(
   lsl_outlet out,
   ffi.Pointer<ffi.Pointer<ffi.Char>> data,
@@ -1359,9 +1110,7 @@ external int lsl_push_chunk_buft(
 /// @param pushthrough Whether to push the chunk through to the receivers instead of buffering it
 /// with subsequent samples. Note that the chunk_size, if specified at outlet construction, takes
 /// precedence over the pushthrough flag.
-@ffi.Native<
-    ffi.Int32 Function(lsl_outlet, ffi.Pointer<ffi.Pointer<ffi.Char>>,
-        ffi.Pointer<ffi.Uint32>, ffi.UnsignedLong, ffi.Double, ffi.Int32)>()
+@ffi.Native<NativeLsl_push_chunk_buftp>()
 external int lsl_push_chunk_buftp(
   lsl_outlet out,
   ffi.Pointer<ffi.Pointer<ffi.Char>> data,
@@ -1373,9 +1122,7 @@ external int lsl_push_chunk_buftp(
 
 /// @copydoc lsl_push_chunk_buf @sa lsl_push_chunk_ftp @sa lsl_push_chunk_buf
 /// @param timestamps Buffer holding one time stamp for each sample in the data buffer.
-@ffi.Native<
-    ffi.Int32 Function(lsl_outlet, ffi.Pointer<ffi.Pointer<ffi.Char>>,
-        ffi.Pointer<ffi.Uint32>, ffi.UnsignedLong, ffi.Pointer<ffi.Double>)>()
+@ffi.Native<NativeLsl_push_chunk_buftn>()
 external int lsl_push_chunk_buftn(
   lsl_outlet out,
   ffi.Pointer<ffi.Pointer<ffi.Char>> data,
@@ -1388,14 +1135,7 @@ external int lsl_push_chunk_buftn(
 /// @param pushthrough Whether to push the chunk through to the receivers instead of buffering it
 /// with subsequent samples. Note that the chunk_size, if specified at outlet construction, takes
 /// precedence over the pushthrough flag.
-@ffi.Native<
-    ffi.Int32 Function(
-        lsl_outlet,
-        ffi.Pointer<ffi.Pointer<ffi.Char>>,
-        ffi.Pointer<ffi.Uint32>,
-        ffi.UnsignedLong,
-        ffi.Pointer<ffi.Double>,
-        ffi.Int32)>()
+@ffi.Native<NativeLsl_push_chunk_buftnp>()
 external int lsl_push_chunk_buftnp(
   lsl_outlet out,
   ffi.Pointer<ffi.Pointer<ffi.Char>> data,
@@ -1407,18 +1147,13 @@ external int lsl_push_chunk_buftnp(
 
 /// Check whether consumers are currently registered.
 /// While it does not hurt, there is technically no reason to push samples if there is no consumer.
-@ffi.Native<ffi.Int32 Function(lsl_outlet)>()
-external int lsl_have_consumers(
-  lsl_outlet out,
-);
+@ffi.Native<NativeLsl_have_consumers>()
+external int lsl_have_consumers(lsl_outlet out);
 
 /// Wait until some consumer shows up (without wasting resources).
 /// @return True if the wait was successful, false if the timeout expired.
-@ffi.Native<ffi.Int32 Function(lsl_outlet, ffi.Double)>()
-external int lsl_wait_for_consumers(
-  lsl_outlet out,
-  double timeout,
-);
+@ffi.Native<NativeLsl_wait_for_consumers>()
+external int lsl_wait_for_consumers(lsl_outlet out, double timeout);
 
 /// Retrieve a handle to the stream info provided by this outlet.
 /// This is what was used to create the stream (and also has the Additional Network Information
@@ -1426,10 +1161,8 @@ external int lsl_wait_for_consumers(
 /// @return A copy of the streaminfo of the outlet or NULL in the event that an error occurred.
 /// @note It is the user's responsibility to destroy it when it is no longer needed.
 /// @sa lsl_destroy_string()
-@ffi.Native<lsl_streaminfo Function(lsl_outlet)>()
-external lsl_streaminfo lsl_get_info(
-  lsl_outlet out,
-);
+@ffi.Native<NativeLsl_get_info>()
+external lsl_streaminfo lsl_get_info(lsl_outlet out);
 
 /// Construct a new #lsl_continuous_resolver that resolves all streams on the network.
 ///
@@ -1438,7 +1171,7 @@ external lsl_streaminfo lsl_get_info(
 /// down), this is the time in seconds after which it is no longer reported by the resolver.
 ///
 /// The recommended default value is 5.0.
-@ffi.Native<lsl_continuous_resolver Function(ffi.Double)>()
+@ffi.Native<NativeLsl_create_continuous_resolver>()
 external lsl_continuous_resolver lsl_create_continuous_resolver(
   double forget_after,
 );
@@ -1453,9 +1186,7 @@ external lsl_continuous_resolver lsl_create_continuous_resolver(
 /// @param forget_after When a stream is no longer visible on the network (e.g., because it was shut
 /// down), this is the time in seconds after which it is no longer reported by the resolver.
 /// The recommended default value is 5.0.
-@ffi.Native<
-    lsl_continuous_resolver Function(
-        ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Char>, ffi.Double)>()
+@ffi.Native<NativeLsl_create_continuous_resolver_byprop>()
 external lsl_continuous_resolver lsl_create_continuous_resolver_byprop(
   ffi.Pointer<ffi.Char> prop,
   ffi.Pointer<ffi.Char> value,
@@ -1471,8 +1202,7 @@ external lsl_continuous_resolver lsl_create_continuous_resolver_byprop(
 /// @param forget_after When a stream is no longer visible on the network (e.g., because it was shut
 /// down), this is the time in seconds after which it is no longer reported by the resolver.
 /// The recommended default value is 5.0.
-@ffi.Native<
-    lsl_continuous_resolver Function(ffi.Pointer<ffi.Char>, ffi.Double)>()
+@ffi.Native<NativeLsl_create_continuous_resolver_bypred>()
 external lsl_continuous_resolver lsl_create_continuous_resolver_bypred(
   ffi.Pointer<ffi.Char> pred,
   double forget_after,
@@ -1493,9 +1223,7 @@ external lsl_continuous_resolver lsl_create_continuous_resolver_bypred(
 /// @param buffer_elements The user-provided buffer length.
 /// @return The number of results written into the buffer (never more than the provided # of slots)
 /// or a negative number if an error has occurred (values corresponding to #lsl_error_code_t).
-@ffi.Native<
-    ffi.Int32 Function(
-        lsl_continuous_resolver, ffi.Pointer<lsl_streaminfo>, ffi.Uint32)>()
+@ffi.Native<NativeLsl_resolver_results>()
 external int lsl_resolver_results(
   lsl_continuous_resolver res,
   ffi.Pointer<lsl_streaminfo> buffer,
@@ -1503,10 +1231,8 @@ external int lsl_resolver_results(
 );
 
 /// Destructor for the continuous resolver.
-@ffi.Native<ffi.Void Function(lsl_continuous_resolver)>()
-external void lsl_destroy_continuous_resolver(
-  lsl_continuous_resolver res,
-);
+@ffi.Native<NativeLsl_destroy_continuous_resolver>()
+external void lsl_destroy_continuous_resolver(lsl_continuous_resolver res);
 
 /// Resolve all streams on the network.
 ///
@@ -1531,8 +1257,7 @@ external void lsl_destroy_continuous_resolver(
 /// the network may be returned.
 /// @return The number of results written into the buffer (never more than the provided # of slots)
 /// or a negative number if an error has occurred (values corresponding to lsl_error_code_t).
-@ffi.Native<
-    ffi.Int32 Function(ffi.Pointer<lsl_streaminfo>, ffi.Uint32, ffi.Double)>()
+@ffi.Native<NativeLsl_resolve_all>()
 external int lsl_resolve_all(
   ffi.Pointer<lsl_streaminfo> buffer,
   int buffer_elements,
@@ -1559,9 +1284,7 @@ external int lsl_resolve_all(
 /// If the timeout expires, less than the desired number of streams (possibly none) will be returned.
 /// @return The number of results written into the buffer (never more than the provided # of slots)
 /// or a negative number if an error has occurred (values corresponding to #lsl_error_code_t).
-@ffi.Native<
-    ffi.Int32 Function(ffi.Pointer<lsl_streaminfo>, ffi.Uint32,
-        ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Char>, ffi.Int32, ffi.Double)>()
+@ffi.Native<NativeLsl_resolve_byprop>()
 external int lsl_resolve_byprop(
   ffi.Pointer<lsl_streaminfo> buffer,
   int buffer_elements,
@@ -1592,9 +1315,7 @@ external int lsl_resolve_byprop(
 /// will be returned.
 /// @return The number of results written into the buffer (never more than the provided # of slots)
 /// or a negative number if an error has occurred (values corresponding to lsl_error_code_t).
-@ffi.Native<
-    ffi.Int32 Function(ffi.Pointer<lsl_streaminfo>, ffi.Uint32,
-        ffi.Pointer<ffi.Char>, ffi.Int32, ffi.Double)>()
+@ffi.Native<NativeLsl_resolve_bypred>()
 external int lsl_resolve_bypred(
   ffi.Pointer<lsl_streaminfo> buffer,
   int buffer_elements,
@@ -1625,14 +1346,7 @@ external int lsl_resolve_bypred(
 /// Allows recipients to recover from failure even after the serving app or device crashes.
 /// May in some cases also be constructed from device settings.
 /// @return A newly created streaminfo handle or NULL in the event that an error occurred.
-@ffi.Native<
-    lsl_streaminfo Function(
-        ffi.Pointer<ffi.Char>,
-        ffi.Pointer<ffi.Char>,
-        ffi.Int32,
-        ffi.Double,
-        ffi.UnsignedInt,
-        ffi.Pointer<ffi.Char>)>(symbol: "lsl_create_streaminfo")
+@ffi.Native<NativeLsl_create_streaminfo>(symbol: 'lsl_create_streaminfo')
 external lsl_streaminfo _lsl_create_streaminfo(
   ffi.Pointer<ffi.Char> name,
   ffi.Pointer<ffi.Char> type,
@@ -1649,27 +1363,22 @@ lsl_streaminfo lsl_create_streaminfo(
   double nominal_srate,
   lsl_channel_format_t channel_format,
   ffi.Pointer<ffi.Char> source_id,
-) =>
-    _lsl_create_streaminfo(
-      name,
-      type,
-      channel_count,
-      nominal_srate,
-      channel_format.value,
-      source_id,
-    );
+) => _lsl_create_streaminfo(
+  name,
+  type,
+  channel_count,
+  nominal_srate,
+  channel_format.value,
+  source_id,
+);
 
 /// Destroy a previously created streaminfo object.
-@ffi.Native<ffi.Void Function(lsl_streaminfo)>()
-external void lsl_destroy_streaminfo(
-  lsl_streaminfo info,
-);
+@ffi.Native<NativeLsl_destroy_streaminfo>()
+external void lsl_destroy_streaminfo(lsl_streaminfo info);
 
 /// Copy an existing streaminfo object (rarely used).
-@ffi.Native<lsl_streaminfo Function(lsl_streaminfo)>()
-external lsl_streaminfo lsl_copy_streaminfo(
-  lsl_streaminfo info,
-);
+@ffi.Native<NativeLsl_copy_streaminfo>()
+external lsl_streaminfo lsl_copy_streaminfo(lsl_streaminfo info);
 
 /// Name of the stream.
 ///
@@ -1679,10 +1388,8 @@ external lsl_streaminfo lsl_copy_streaminfo(
 /// generic or specific identifier. Multiple streams with the same name can coexist, though
 /// potentially at the cost of ambiguity (for the recording app or experimenter).
 /// @return An immutable library-owned pointer to the string value. @sa lsl_destroy_string()
-@ffi.Native<ffi.Pointer<ffi.Char> Function(lsl_streaminfo)>()
-external ffi.Pointer<ffi.Char> lsl_get_name(
-  lsl_streaminfo info,
-);
+@ffi.Native<NativeLsl_get_name>()
+external ffi.Pointer<ffi.Char> lsl_get_name(lsl_streaminfo info);
 
 /// Content type of the stream.
 ///
@@ -1693,17 +1400,13 @@ external ffi.Pointer<ffi.Char> lsl_get_name(
 /// usually follow those pre-defined in the [wiki](https://github.com/sccn/xdf/wiki/Meta-Data) (or
 /// web search for: XDF meta-data).
 /// @return An immutable library-owned pointer to the string value. @sa lsl_destroy_string()
-@ffi.Native<ffi.Pointer<ffi.Char> Function(lsl_streaminfo)>()
-external ffi.Pointer<ffi.Char> lsl_get_type(
-  lsl_streaminfo info,
-);
+@ffi.Native<NativeLsl_get_type>()
+external ffi.Pointer<ffi.Char> lsl_get_type(lsl_streaminfo info);
 
 /// Number of channels of the stream.
 /// A stream has at least one channels; the channel count stays constant for all samples.
-@ffi.Native<ffi.Int32 Function(lsl_streaminfo)>()
-external int lsl_get_channel_count(
-  lsl_streaminfo info,
-);
+@ffi.Native<NativeLsl_get_channel_count>()
+external int lsl_get_channel_count(lsl_streaminfo info);
 
 /// Sampling rate of the stream, according to the source (in Hz).
 ///
@@ -1714,26 +1417,17 @@ external int lsl_get_channel_count(
 /// device itself). However, when the recording is imported into an application, a good importer may
 /// correct such errors more accurately if the advertised sampling rate was close to the specs of the
 /// device.
-@ffi.Native<ffi.Double Function(lsl_streaminfo)>()
-external double lsl_get_nominal_srate(
-  lsl_streaminfo info,
-);
+@ffi.Native<NativeLsl_get_nominal_srate>()
+external double lsl_get_nominal_srate(lsl_streaminfo info);
 
 /// Channel format of the stream.
 /// All channels in a stream have the same format.
 /// However, a device might offer multiple time-synched streams  each with its own format.
-@ffi.Native<ffi.UnsignedInt Function(lsl_streaminfo)>(
-    symbol: "lsl_get_channel_format")
-external int _lsl_get_channel_format(
-  lsl_streaminfo info,
-);
+@ffi.Native<NativeLsl_get_channel_format>(symbol: 'lsl_get_channel_format')
+external int _lsl_get_channel_format(lsl_streaminfo info);
 
-lsl_channel_format_t lsl_get_channel_format(
-  lsl_streaminfo info,
-) =>
-    lsl_channel_format_t.fromValue(_lsl_get_channel_format(
-      info,
-    ));
+lsl_channel_format_t lsl_get_channel_format(lsl_streaminfo info) =>
+    lsl_channel_format_t.fromValue(_lsl_get_channel_format(info));
 
 /// Unique identifier of the stream's source, if available.
 ///
@@ -1741,35 +1435,27 @@ lsl_channel_format_t lsl_get_channel_format(
 /// allows that endpoints (such as the recording program) can re-acquire a stream automatically once
 /// it is back online.
 /// @return An immutable library-owned pointer to the string value. @sa lsl_destroy_string()
-@ffi.Native<ffi.Pointer<ffi.Char> Function(lsl_streaminfo)>()
-external ffi.Pointer<ffi.Char> lsl_get_source_id(
-  lsl_streaminfo info,
-);
+@ffi.Native<NativeLsl_get_source_id>()
+external ffi.Pointer<ffi.Char> lsl_get_source_id(lsl_streaminfo info);
 
 /// Protocol version used to deliver the stream.
-@ffi.Native<ffi.Int32 Function(lsl_streaminfo)>()
-external int lsl_get_version(
-  lsl_streaminfo info,
-);
+@ffi.Native<NativeLsl_get_version>()
+external int lsl_get_version(lsl_streaminfo info);
 
 /// Creation time stamp of the stream.
 ///
 /// This is the time stamp when the stream was first created
 /// (as determined via local_clock() on the providing machine).
-@ffi.Native<ffi.Double Function(lsl_streaminfo)>()
-external double lsl_get_created_at(
-  lsl_streaminfo info,
-);
+@ffi.Native<NativeLsl_get_created_at>()
+external double lsl_get_created_at(lsl_streaminfo info);
 
 /// Unique ID of the stream outlet (once assigned).
 ///
 /// This is a unique identifier of the stream outlet, and is guaranteed to be different
 /// across multiple instantiations of the same outlet (e.g., after a re-start).
 /// @return An immutable library-owned pointer to the string value. @sa lsl_destroy_string()
-@ffi.Native<ffi.Pointer<ffi.Char> Function(lsl_streaminfo)>()
-external ffi.Pointer<ffi.Char> lsl_get_uid(
-  lsl_streaminfo info,
-);
+@ffi.Native<NativeLsl_get_uid>()
+external ffi.Pointer<ffi.Char> lsl_get_uid(lsl_streaminfo info);
 
 /// Session ID for the given stream.
 ///
@@ -1779,16 +1465,12 @@ external ffi.Pointer<ffi.Char> lsl_get_uid(
 /// (assigned via a configuration file by the experimenter, see Network Connectivity on the LSL
 /// wiki).
 /// @return An immutable library-owned pointer to the string value. @sa lsl_destroy_string()
-@ffi.Native<ffi.Pointer<ffi.Char> Function(lsl_streaminfo)>()
-external ffi.Pointer<ffi.Char> lsl_get_session_id(
-  lsl_streaminfo info,
-);
+@ffi.Native<NativeLsl_get_session_id>()
+external ffi.Pointer<ffi.Char> lsl_get_session_id(lsl_streaminfo info);
 
 /// Hostname of the providing machine (once bound to an outlet). Modification is not permitted.
-@ffi.Native<ffi.Pointer<ffi.Char> Function(lsl_streaminfo)>()
-external ffi.Pointer<ffi.Char> lsl_get_hostname(
-  lsl_streaminfo info,
-);
+@ffi.Native<NativeLsl_get_hostname>()
+external ffi.Pointer<ffi.Char> lsl_get_hostname(lsl_streaminfo info);
 
 /// Extended description of the stream.
 ///
@@ -1800,10 +1482,8 @@ external ffi.Pointer<ffi.Char> lsl_get_hostname(
 ///
 /// @attention if you use a stream content type for which meta-data recommendations exist, please
 /// try to lay out your meta-data in agreement with these recommendations for compatibility with other applications.
-@ffi.Native<lsl_xml_ptr Function(lsl_streaminfo)>()
-external lsl_xml_ptr lsl_get_desc(
-  lsl_streaminfo info,
-);
+@ffi.Native<NativeLsl_get_desc>()
+external lsl_xml_ptr lsl_get_desc(lsl_streaminfo info);
 
 /// Retrieve the entire streaminfo in XML format.
 ///
@@ -1818,22 +1498,16 @@ external lsl_xml_ptr lsl_get_desc(
 /// - the extended description element `<desc>` with user-defined sub-elements.
 /// @return A pointer to a copy of the XML text or NULL in the event that an error occurred.
 /// @note It is the user's responsibility to deallocate this string when it is no longer needed.
-@ffi.Native<ffi.Pointer<ffi.Char> Function(lsl_streaminfo)>()
-external ffi.Pointer<ffi.Char> lsl_get_xml(
-  lsl_streaminfo info,
-);
+@ffi.Native<NativeLsl_get_xml>()
+external ffi.Pointer<ffi.Char> lsl_get_xml(lsl_streaminfo info);
 
 /// Number of bytes occupied by a channel (0 for string-typed channels).
-@ffi.Native<ffi.Int32 Function(lsl_streaminfo)>()
-external int lsl_get_channel_bytes(
-  lsl_streaminfo info,
-);
+@ffi.Native<NativeLsl_get_channel_bytes>()
+external int lsl_get_channel_bytes(lsl_streaminfo info);
 
 /// Number of bytes occupied by a sample (0 for string-typed channels).
-@ffi.Native<ffi.Int32 Function(lsl_streaminfo)>()
-external int lsl_get_sample_bytes(
-  lsl_streaminfo info,
-);
+@ffi.Native<NativeLsl_get_sample_bytes>()
+external int lsl_get_sample_bytes(lsl_streaminfo info);
 
 /// Tries to match the stream info XML element @p info against an
 /// <a href="https://en.wikipedia.org/wiki/XPath#Syntax_and_semantics_(XPath_1.0)">XPath</a> query.
@@ -1844,111 +1518,83 @@ external int lsl_get_sample_bytes(
 /// type='TestStream' or contains(name,'Brain')
 /// name='ExampleStream'
 /// @endcode
-@ffi.Native<ffi.Int32 Function(lsl_streaminfo, ffi.Pointer<ffi.Char>)>()
+@ffi.Native<NativeLsl_stream_info_matches_query>()
 external int lsl_stream_info_matches_query(
   lsl_streaminfo info,
   ffi.Pointer<ffi.Char> query,
 );
 
 /// Create a streaminfo object from an XML representation
-@ffi.Native<lsl_streaminfo Function(ffi.Pointer<ffi.Char>)>()
-external lsl_streaminfo lsl_streaminfo_from_xml(
-  ffi.Pointer<ffi.Char> xml,
-);
+@ffi.Native<NativeLsl_streaminfo_from_xml>()
+external lsl_streaminfo lsl_streaminfo_from_xml(ffi.Pointer<ffi.Char> xml);
 
 /// Get the first child of the element.
-@ffi.Native<lsl_xml_ptr Function(lsl_xml_ptr)>()
-external lsl_xml_ptr lsl_first_child(
-  lsl_xml_ptr e,
-);
+@ffi.Native<NativeLsl_first_child>()
+external lsl_xml_ptr lsl_first_child(lsl_xml_ptr e);
 
 /// Get the last child of the element.
-@ffi.Native<lsl_xml_ptr Function(lsl_xml_ptr)>()
-external lsl_xml_ptr lsl_last_child(
-  lsl_xml_ptr e,
-);
+@ffi.Native<NativeLsl_last_child>()
+external lsl_xml_ptr lsl_last_child(lsl_xml_ptr e);
 
 /// Get the next sibling in the children list of the parent node.
-@ffi.Native<lsl_xml_ptr Function(lsl_xml_ptr)>()
-external lsl_xml_ptr lsl_next_sibling(
-  lsl_xml_ptr e,
-);
+@ffi.Native<NativeLsl_next_sibling>()
+external lsl_xml_ptr lsl_next_sibling(lsl_xml_ptr e);
 
 /// Get the previous sibling in the children list of the parent node.
-@ffi.Native<lsl_xml_ptr Function(lsl_xml_ptr)>()
-external lsl_xml_ptr lsl_previous_sibling(
-  lsl_xml_ptr e,
-);
+@ffi.Native<NativeLsl_previous_sibling>()
+external lsl_xml_ptr lsl_previous_sibling(lsl_xml_ptr e);
 
 /// Get the parent node.
-@ffi.Native<lsl_xml_ptr Function(lsl_xml_ptr)>()
-external lsl_xml_ptr lsl_parent(
-  lsl_xml_ptr e,
-);
+@ffi.Native<NativeLsl_parent>()
+external lsl_xml_ptr lsl_parent(lsl_xml_ptr e);
 
 /// Get a child with a specified name.
-@ffi.Native<lsl_xml_ptr Function(lsl_xml_ptr, ffi.Pointer<ffi.Char>)>()
-external lsl_xml_ptr lsl_child(
-  lsl_xml_ptr e,
-  ffi.Pointer<ffi.Char> name,
-);
+@ffi.Native<NativeLsl_child>()
+external lsl_xml_ptr lsl_child(lsl_xml_ptr e, ffi.Pointer<ffi.Char> name);
 
 /// Get the next sibling with the specified name.
-@ffi.Native<lsl_xml_ptr Function(lsl_xml_ptr, ffi.Pointer<ffi.Char>)>()
+@ffi.Native<NativeLsl_next_sibling_n>()
 external lsl_xml_ptr lsl_next_sibling_n(
   lsl_xml_ptr e,
   ffi.Pointer<ffi.Char> name,
 );
 
 /// Get the previous sibling with the specified name.
-@ffi.Native<lsl_xml_ptr Function(lsl_xml_ptr, ffi.Pointer<ffi.Char>)>()
+@ffi.Native<NativeLsl_previous_sibling_n>()
 external lsl_xml_ptr lsl_previous_sibling_n(
   lsl_xml_ptr e,
   ffi.Pointer<ffi.Char> name,
 );
 
 /// Whether this node is empty.
-@ffi.Native<ffi.Int32 Function(lsl_xml_ptr)>()
-external int lsl_empty(
-  lsl_xml_ptr e,
-);
+@ffi.Native<NativeLsl_empty>()
+external int lsl_empty(lsl_xml_ptr e);
 
 /// Whether this is a text body (instead of an XML element). True both for plain char data and CData.
-@ffi.Native<ffi.Int32 Function(lsl_xml_ptr)>()
-external int lsl_is_text(
-  lsl_xml_ptr e,
-);
+@ffi.Native<NativeLsl_is_text>()
+external int lsl_is_text(lsl_xml_ptr e);
 
 /// Name of the element.
-@ffi.Native<ffi.Pointer<ffi.Char> Function(lsl_xml_ptr)>()
-external ffi.Pointer<ffi.Char> lsl_name(
-  lsl_xml_ptr e,
-);
+@ffi.Native<NativeLsl_name>()
+external ffi.Pointer<ffi.Char> lsl_name(lsl_xml_ptr e);
 
 /// Value of the element.
-@ffi.Native<ffi.Pointer<ffi.Char> Function(lsl_xml_ptr)>()
-external ffi.Pointer<ffi.Char> lsl_value(
-  lsl_xml_ptr e,
-);
+@ffi.Native<NativeLsl_value>()
+external ffi.Pointer<ffi.Char> lsl_value(lsl_xml_ptr e);
 
 /// Get child value (value of the first child that is text).
-@ffi.Native<ffi.Pointer<ffi.Char> Function(lsl_xml_ptr)>()
-external ffi.Pointer<ffi.Char> lsl_child_value(
-  lsl_xml_ptr e,
-);
+@ffi.Native<NativeLsl_child_value>()
+external ffi.Pointer<ffi.Char> lsl_child_value(lsl_xml_ptr e);
 
 /// Get child value of a child with a specified name.
-@ffi.Native<
-    ffi.Pointer<ffi.Char> Function(lsl_xml_ptr, ffi.Pointer<ffi.Char>)>()
+@ffi.Native<NativeLsl_child_value_n>()
 external ffi.Pointer<ffi.Char> lsl_child_value_n(
   lsl_xml_ptr e,
   ffi.Pointer<ffi.Char> name,
 );
 
 /// Append a child node with a given name, which has a (nameless) plain-text child with the given text value.
-@ffi.Native<
-    lsl_xml_ptr Function(
-        lsl_xml_ptr, ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Char>)>()
+@ffi.Native<NativeLsl_append_child_value>()
 external lsl_xml_ptr lsl_append_child_value(
   lsl_xml_ptr e,
   ffi.Pointer<ffi.Char> name,
@@ -1956,9 +1602,7 @@ external lsl_xml_ptr lsl_append_child_value(
 );
 
 /// Prepend a child node with a given name, which has a (nameless) plain-text child with the given text value.
-@ffi.Native<
-    lsl_xml_ptr Function(
-        lsl_xml_ptr, ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Char>)>()
+@ffi.Native<NativeLsl_prepend_child_value>()
 external lsl_xml_ptr lsl_prepend_child_value(
   lsl_xml_ptr e,
   ffi.Pointer<ffi.Char> name,
@@ -1966,9 +1610,7 @@ external lsl_xml_ptr lsl_prepend_child_value(
 );
 
 /// Set the text value of the (nameless) plain-text child of a named child node.
-@ffi.Native<
-    ffi.Int32 Function(
-        lsl_xml_ptr, ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Char>)>()
+@ffi.Native<NativeLsl_set_child_value>()
 external int lsl_set_child_value(
   lsl_xml_ptr e,
   ffi.Pointer<ffi.Char> name,
@@ -1977,61 +1619,43 @@ external int lsl_set_child_value(
 
 /// Set the element's name.
 /// @return 0 if the node is empty (or if out of memory).
-@ffi.Native<ffi.Int32 Function(lsl_xml_ptr, ffi.Pointer<ffi.Char>)>()
-external int lsl_set_name(
-  lsl_xml_ptr e,
-  ffi.Pointer<ffi.Char> rhs,
-);
+@ffi.Native<NativeLsl_set_name>()
+external int lsl_set_name(lsl_xml_ptr e, ffi.Pointer<ffi.Char> rhs);
 
 /// Set the element's value.
 /// @return 0 if the node is empty (or if out of memory).
-@ffi.Native<ffi.Int32 Function(lsl_xml_ptr, ffi.Pointer<ffi.Char>)>()
-external int lsl_set_value(
-  lsl_xml_ptr e,
-  ffi.Pointer<ffi.Char> rhs,
-);
+@ffi.Native<NativeLsl_set_value>()
+external int lsl_set_value(lsl_xml_ptr e, ffi.Pointer<ffi.Char> rhs);
 
 /// Append a child element with the specified name.
-@ffi.Native<lsl_xml_ptr Function(lsl_xml_ptr, ffi.Pointer<ffi.Char>)>()
+@ffi.Native<NativeLsl_append_child>()
 external lsl_xml_ptr lsl_append_child(
   lsl_xml_ptr e,
   ffi.Pointer<ffi.Char> name,
 );
 
 /// Prepend a child element with the specified name.
-@ffi.Native<lsl_xml_ptr Function(lsl_xml_ptr, ffi.Pointer<ffi.Char>)>()
+@ffi.Native<NativeLsl_prepend_child>()
 external lsl_xml_ptr lsl_prepend_child(
   lsl_xml_ptr e,
   ffi.Pointer<ffi.Char> name,
 );
 
 /// Append a copy of the specified element as a child.
-@ffi.Native<lsl_xml_ptr Function(lsl_xml_ptr, lsl_xml_ptr)>()
-external lsl_xml_ptr lsl_append_copy(
-  lsl_xml_ptr e,
-  lsl_xml_ptr e2,
-);
+@ffi.Native<NativeLsl_append_copy>()
+external lsl_xml_ptr lsl_append_copy(lsl_xml_ptr e, lsl_xml_ptr e2);
 
 /// Prepend a child element with the specified name.
-@ffi.Native<lsl_xml_ptr Function(lsl_xml_ptr, lsl_xml_ptr)>()
-external lsl_xml_ptr lsl_prepend_copy(
-  lsl_xml_ptr e,
-  lsl_xml_ptr e2,
-);
+@ffi.Native<NativeLsl_prepend_copy>()
+external lsl_xml_ptr lsl_prepend_copy(lsl_xml_ptr e, lsl_xml_ptr e2);
 
 /// Remove a child element with the specified name.
-@ffi.Native<ffi.Void Function(lsl_xml_ptr, ffi.Pointer<ffi.Char>)>()
-external void lsl_remove_child_n(
-  lsl_xml_ptr e,
-  ffi.Pointer<ffi.Char> name,
-);
+@ffi.Native<NativeLsl_remove_child_n>()
+external void lsl_remove_child_n(lsl_xml_ptr e, ffi.Pointer<ffi.Char> name);
 
 /// Remove a specified child element.
-@ffi.Native<ffi.Void Function(lsl_xml_ptr, lsl_xml_ptr)>()
-external void lsl_remove_child(
-  lsl_xml_ptr e,
-  lsl_xml_ptr e2,
-);
+@ffi.Native<NativeLsl_remove_child>()
+external void lsl_remove_child(lsl_xml_ptr e, lsl_xml_ptr e2);
 
 /// Data format of a channel (each transmitted sample holds an array of channels), 4 bytes wide
 enum lsl_channel_format_t {
@@ -2071,18 +1695,17 @@ enum lsl_channel_format_t {
   const lsl_channel_format_t(this.value);
 
   static lsl_channel_format_t fromValue(int value) => switch (value) {
-        1 => cft_float32,
-        2 => cft_double64,
-        3 => cft_string,
-        4 => cft_int32,
-        5 => cft_int16,
-        6 => cft_int8,
-        7 => cft_int64,
-        0 => cft_undefined,
-        2130706432 => _cft_maxval,
-        _ =>
-          throw ArgumentError("Unknown value for lsl_channel_format_t: $value"),
-      };
+    1 => cft_float32,
+    2 => cft_double64,
+    3 => cft_string,
+    4 => cft_int32,
+    5 => cft_int16,
+    6 => cft_int8,
+    7 => cft_int64,
+    0 => cft_undefined,
+    2130706432 => _cft_maxval,
+    _ => throw ArgumentError('Unknown value for lsl_channel_format_t: $value'),
+  };
 }
 
 /// Post-processing options for stream inlets.
@@ -2119,16 +1742,16 @@ enum lsl_processing_options_t {
   const lsl_processing_options_t(this.value);
 
   static lsl_processing_options_t fromValue(int value) => switch (value) {
-        0 => proc_none,
-        1 => proc_clocksync,
-        2 => proc_dejitter,
-        4 => proc_monotonize,
-        8 => proc_threadsafe,
-        15 => proc_ALL,
-        2130706432 => _proc_maxval,
-        _ => throw ArgumentError(
-            "Unknown value for lsl_processing_options_t: $value"),
-      };
+    0 => proc_none,
+    1 => proc_clocksync,
+    2 => proc_dejitter,
+    4 => proc_monotonize,
+    8 => proc_threadsafe,
+    15 => proc_ALL,
+    2130706432 => _proc_maxval,
+    _ =>
+      throw ArgumentError('Unknown value for lsl_processing_options_t: $value'),
+  };
 }
 
 /// Possible error codes.
@@ -2153,14 +1776,14 @@ enum lsl_error_code_t {
   const lsl_error_code_t(this.value);
 
   static lsl_error_code_t fromValue(int value) => switch (value) {
-        0 => lsl_no_error,
-        -1 => lsl_timeout_error,
-        -2 => lsl_lost_error,
-        -3 => lsl_argument_error,
-        -4 => lsl_internal_error,
-        2130706432 => _lsl_error_code_maxval,
-        _ => throw ArgumentError("Unknown value for lsl_error_code_t: $value"),
-      };
+    0 => lsl_no_error,
+    -1 => lsl_timeout_error,
+    -2 => lsl_lost_error,
+    -3 => lsl_argument_error,
+    -4 => lsl_internal_error,
+    2130706432 => _lsl_error_code_maxval,
+    _ => throw ArgumentError('Unknown value for lsl_error_code_t: $value'),
+  };
 }
 
 /// Flags for outlet_ex and inlet_ex
@@ -2179,14 +1802,27 @@ enum lsl_transport_options_t {
   const lsl_transport_options_t(this.value);
 
   static lsl_transport_options_t fromValue(int value) => switch (value) {
-        0 => transp_default,
-        1 => transp_bufsize_samples,
-        2 => transp_bufsize_thousandths,
-        2130706432 => _lsl_transport_options_maxval,
-        _ => throw ArgumentError(
-            "Unknown value for lsl_transport_options_t: $value"),
-      };
+    0 => transp_default,
+    1 => transp_bufsize_samples,
+    2 => transp_bufsize_thousandths,
+    2130706432 => _lsl_transport_options_maxval,
+    _ =>
+      throw ArgumentError('Unknown value for lsl_transport_options_t: $value'),
+  };
 }
+
+typedef NativeLsl_last_error = ffi.Pointer<ffi.Char> Function();
+typedef DartLsl_last_error = ffi.Pointer<ffi.Char> Function();
+typedef NativeLsl_protocol_version = ffi.Int32 Function();
+typedef DartLsl_protocol_version = int Function();
+typedef NativeLsl_library_version = ffi.Int32 Function();
+typedef DartLsl_library_version = int Function();
+typedef NativeLsl_library_info = ffi.Pointer<ffi.Char> Function();
+typedef DartLsl_library_info = ffi.Pointer<ffi.Char> Function();
+typedef NativeLsl_local_clock = ffi.Double Function();
+typedef DartLsl_local_clock = double Function();
+typedef NativeLsl_destroy_string = ffi.Void Function(ffi.Pointer<ffi.Char> s);
+typedef DartLsl_destroy_string = void Function(ffi.Pointer<ffi.Char> s);
 
 final class lsl_streaminfo_struct_ extends ffi.Opaque {}
 
@@ -2243,6 +1879,1537 @@ final class lsl_continuous_resolver_ extends ffi.Opaque {}
 /// its lifetime and which can be queried at any time for the set of streams that are currently
 /// visible on the network.
 typedef lsl_continuous_resolver = ffi.Pointer<lsl_continuous_resolver_>;
+typedef NativeLsl_create_inlet =
+    lsl_inlet Function(
+      lsl_streaminfo info,
+      ffi.Int32 max_buflen,
+      ffi.Int32 max_chunklen,
+      ffi.Int32 recover,
+    );
+typedef DartLsl_create_inlet =
+    lsl_inlet Function(
+      lsl_streaminfo info,
+      int max_buflen,
+      int max_chunklen,
+      int recover,
+    );
+typedef NativeLsl_create_inlet_ex =
+    lsl_inlet Function(
+      lsl_streaminfo info,
+      ffi.Int32 max_buflen,
+      ffi.Int32 max_chunklen,
+      ffi.Int32 recover,
+      ffi.UnsignedInt flags,
+    );
+typedef DartLsl_create_inlet_ex =
+    lsl_inlet Function(
+      lsl_streaminfo info,
+      int max_buflen,
+      int max_chunklen,
+      int recover,
+      int flags,
+    );
+typedef NativeLsl_destroy_inlet = ffi.Void Function(lsl_inlet in$);
+typedef DartLsl_destroy_inlet = void Function(lsl_inlet in$);
+typedef NativeLsl_get_fullinfo =
+    lsl_streaminfo Function(
+      lsl_inlet in$,
+      ffi.Double timeout,
+      ffi.Pointer<ffi.Int32> ec,
+    );
+typedef DartLsl_get_fullinfo =
+    lsl_streaminfo Function(
+      lsl_inlet in$,
+      double timeout,
+      ffi.Pointer<ffi.Int32> ec,
+    );
+typedef NativeLsl_open_stream =
+    ffi.Void Function(
+      lsl_inlet in$,
+      ffi.Double timeout,
+      ffi.Pointer<ffi.Int32> ec,
+    );
+typedef DartLsl_open_stream =
+    void Function(lsl_inlet in$, double timeout, ffi.Pointer<ffi.Int32> ec);
+typedef NativeLsl_close_stream = ffi.Void Function(lsl_inlet in$);
+typedef DartLsl_close_stream = void Function(lsl_inlet in$);
+typedef NativeLsl_time_correction =
+    ffi.Double Function(
+      lsl_inlet in$,
+      ffi.Double timeout,
+      ffi.Pointer<ffi.Int32> ec,
+    );
+typedef DartLsl_time_correction =
+    double Function(lsl_inlet in$, double timeout, ffi.Pointer<ffi.Int32> ec);
+typedef NativeLsl_time_correction_ex =
+    ffi.Double Function(
+      lsl_inlet in$,
+      ffi.Pointer<ffi.Double> remote_time,
+      ffi.Pointer<ffi.Double> uncertainty,
+      ffi.Double timeout,
+      ffi.Pointer<ffi.Int32> ec,
+    );
+typedef DartLsl_time_correction_ex =
+    double Function(
+      lsl_inlet in$,
+      ffi.Pointer<ffi.Double> remote_time,
+      ffi.Pointer<ffi.Double> uncertainty,
+      double timeout,
+      ffi.Pointer<ffi.Int32> ec,
+    );
+typedef NativeLsl_set_postprocessing =
+    ffi.Int32 Function(lsl_inlet in$, ffi.Uint32 flags);
+typedef DartLsl_set_postprocessing = int Function(lsl_inlet in$, int flags);
+typedef NativeLsl_pull_sample_f =
+    ffi.Double Function(
+      lsl_inlet in$,
+      ffi.Pointer<ffi.Float> buffer,
+      ffi.Int32 buffer_elements,
+      ffi.Double timeout,
+      ffi.Pointer<ffi.Int32> ec,
+    );
+typedef DartLsl_pull_sample_f =
+    double Function(
+      lsl_inlet in$,
+      ffi.Pointer<ffi.Float> buffer,
+      int buffer_elements,
+      double timeout,
+      ffi.Pointer<ffi.Int32> ec,
+    );
+typedef NativeLsl_pull_sample_d =
+    ffi.Double Function(
+      lsl_inlet in$,
+      ffi.Pointer<ffi.Double> buffer,
+      ffi.Int32 buffer_elements,
+      ffi.Double timeout,
+      ffi.Pointer<ffi.Int32> ec,
+    );
+typedef DartLsl_pull_sample_d =
+    double Function(
+      lsl_inlet in$,
+      ffi.Pointer<ffi.Double> buffer,
+      int buffer_elements,
+      double timeout,
+      ffi.Pointer<ffi.Int32> ec,
+    );
+typedef NativeLsl_pull_sample_l =
+    ffi.Double Function(
+      lsl_inlet in$,
+      ffi.Pointer<ffi.Int64> buffer,
+      ffi.Int32 buffer_elements,
+      ffi.Double timeout,
+      ffi.Pointer<ffi.Int32> ec,
+    );
+typedef DartLsl_pull_sample_l =
+    double Function(
+      lsl_inlet in$,
+      ffi.Pointer<ffi.Int64> buffer,
+      int buffer_elements,
+      double timeout,
+      ffi.Pointer<ffi.Int32> ec,
+    );
+typedef NativeLsl_pull_sample_i =
+    ffi.Double Function(
+      lsl_inlet in$,
+      ffi.Pointer<ffi.Int32> buffer,
+      ffi.Int32 buffer_elements,
+      ffi.Double timeout,
+      ffi.Pointer<ffi.Int32> ec,
+    );
+typedef DartLsl_pull_sample_i =
+    double Function(
+      lsl_inlet in$,
+      ffi.Pointer<ffi.Int32> buffer,
+      int buffer_elements,
+      double timeout,
+      ffi.Pointer<ffi.Int32> ec,
+    );
+typedef NativeLsl_pull_sample_s =
+    ffi.Double Function(
+      lsl_inlet in$,
+      ffi.Pointer<ffi.Int16> buffer,
+      ffi.Int32 buffer_elements,
+      ffi.Double timeout,
+      ffi.Pointer<ffi.Int32> ec,
+    );
+typedef DartLsl_pull_sample_s =
+    double Function(
+      lsl_inlet in$,
+      ffi.Pointer<ffi.Int16> buffer,
+      int buffer_elements,
+      double timeout,
+      ffi.Pointer<ffi.Int32> ec,
+    );
+typedef NativeLsl_pull_sample_c =
+    ffi.Double Function(
+      lsl_inlet in$,
+      ffi.Pointer<ffi.Char> buffer,
+      ffi.Int32 buffer_elements,
+      ffi.Double timeout,
+      ffi.Pointer<ffi.Int32> ec,
+    );
+typedef DartLsl_pull_sample_c =
+    double Function(
+      lsl_inlet in$,
+      ffi.Pointer<ffi.Char> buffer,
+      int buffer_elements,
+      double timeout,
+      ffi.Pointer<ffi.Int32> ec,
+    );
+typedef NativeLsl_pull_sample_str =
+    ffi.Double Function(
+      lsl_inlet in$,
+      ffi.Pointer<ffi.Pointer<ffi.Char>> buffer,
+      ffi.Int32 buffer_elements,
+      ffi.Double timeout,
+      ffi.Pointer<ffi.Int32> ec,
+    );
+typedef DartLsl_pull_sample_str =
+    double Function(
+      lsl_inlet in$,
+      ffi.Pointer<ffi.Pointer<ffi.Char>> buffer,
+      int buffer_elements,
+      double timeout,
+      ffi.Pointer<ffi.Int32> ec,
+    );
+typedef NativeLsl_pull_sample_buf =
+    ffi.Double Function(
+      lsl_inlet in$,
+      ffi.Pointer<ffi.Pointer<ffi.Char>> buffer,
+      ffi.Pointer<ffi.Uint32> buffer_lengths,
+      ffi.Int32 buffer_elements,
+      ffi.Double timeout,
+      ffi.Pointer<ffi.Int32> ec,
+    );
+typedef DartLsl_pull_sample_buf =
+    double Function(
+      lsl_inlet in$,
+      ffi.Pointer<ffi.Pointer<ffi.Char>> buffer,
+      ffi.Pointer<ffi.Uint32> buffer_lengths,
+      int buffer_elements,
+      double timeout,
+      ffi.Pointer<ffi.Int32> ec,
+    );
+typedef NativeLsl_pull_sample_v =
+    ffi.Double Function(
+      lsl_inlet in$,
+      ffi.Pointer<ffi.Void> buffer,
+      ffi.Int32 buffer_bytes,
+      ffi.Double timeout,
+      ffi.Pointer<ffi.Int32> ec,
+    );
+typedef DartLsl_pull_sample_v =
+    double Function(
+      lsl_inlet in$,
+      ffi.Pointer<ffi.Void> buffer,
+      int buffer_bytes,
+      double timeout,
+      ffi.Pointer<ffi.Int32> ec,
+    );
+typedef NativeLsl_pull_chunk_f =
+    ffi.UnsignedLong Function(
+      lsl_inlet in$,
+      ffi.Pointer<ffi.Float> data_buffer,
+      ffi.Pointer<ffi.Double> timestamp_buffer,
+      ffi.UnsignedLong data_buffer_elements,
+      ffi.UnsignedLong timestamp_buffer_elements,
+      ffi.Double timeout,
+      ffi.Pointer<ffi.Int32> ec,
+    );
+typedef DartLsl_pull_chunk_f =
+    int Function(
+      lsl_inlet in$,
+      ffi.Pointer<ffi.Float> data_buffer,
+      ffi.Pointer<ffi.Double> timestamp_buffer,
+      int data_buffer_elements,
+      int timestamp_buffer_elements,
+      double timeout,
+      ffi.Pointer<ffi.Int32> ec,
+    );
+typedef NativeLsl_pull_chunk_d =
+    ffi.UnsignedLong Function(
+      lsl_inlet in$,
+      ffi.Pointer<ffi.Double> data_buffer,
+      ffi.Pointer<ffi.Double> timestamp_buffer,
+      ffi.UnsignedLong data_buffer_elements,
+      ffi.UnsignedLong timestamp_buffer_elements,
+      ffi.Double timeout,
+      ffi.Pointer<ffi.Int32> ec,
+    );
+typedef DartLsl_pull_chunk_d =
+    int Function(
+      lsl_inlet in$,
+      ffi.Pointer<ffi.Double> data_buffer,
+      ffi.Pointer<ffi.Double> timestamp_buffer,
+      int data_buffer_elements,
+      int timestamp_buffer_elements,
+      double timeout,
+      ffi.Pointer<ffi.Int32> ec,
+    );
+typedef NativeLsl_pull_chunk_l =
+    ffi.UnsignedLong Function(
+      lsl_inlet in$,
+      ffi.Pointer<ffi.Int64> data_buffer,
+      ffi.Pointer<ffi.Double> timestamp_buffer,
+      ffi.UnsignedLong data_buffer_elements,
+      ffi.UnsignedLong timestamp_buffer_elements,
+      ffi.Double timeout,
+      ffi.Pointer<ffi.Int32> ec,
+    );
+typedef DartLsl_pull_chunk_l =
+    int Function(
+      lsl_inlet in$,
+      ffi.Pointer<ffi.Int64> data_buffer,
+      ffi.Pointer<ffi.Double> timestamp_buffer,
+      int data_buffer_elements,
+      int timestamp_buffer_elements,
+      double timeout,
+      ffi.Pointer<ffi.Int32> ec,
+    );
+typedef NativeLsl_pull_chunk_i =
+    ffi.UnsignedLong Function(
+      lsl_inlet in$,
+      ffi.Pointer<ffi.Int32> data_buffer,
+      ffi.Pointer<ffi.Double> timestamp_buffer,
+      ffi.UnsignedLong data_buffer_elements,
+      ffi.UnsignedLong timestamp_buffer_elements,
+      ffi.Double timeout,
+      ffi.Pointer<ffi.Int32> ec,
+    );
+typedef DartLsl_pull_chunk_i =
+    int Function(
+      lsl_inlet in$,
+      ffi.Pointer<ffi.Int32> data_buffer,
+      ffi.Pointer<ffi.Double> timestamp_buffer,
+      int data_buffer_elements,
+      int timestamp_buffer_elements,
+      double timeout,
+      ffi.Pointer<ffi.Int32> ec,
+    );
+typedef NativeLsl_pull_chunk_s =
+    ffi.UnsignedLong Function(
+      lsl_inlet in$,
+      ffi.Pointer<ffi.Int16> data_buffer,
+      ffi.Pointer<ffi.Double> timestamp_buffer,
+      ffi.UnsignedLong data_buffer_elements,
+      ffi.UnsignedLong timestamp_buffer_elements,
+      ffi.Double timeout,
+      ffi.Pointer<ffi.Int32> ec,
+    );
+typedef DartLsl_pull_chunk_s =
+    int Function(
+      lsl_inlet in$,
+      ffi.Pointer<ffi.Int16> data_buffer,
+      ffi.Pointer<ffi.Double> timestamp_buffer,
+      int data_buffer_elements,
+      int timestamp_buffer_elements,
+      double timeout,
+      ffi.Pointer<ffi.Int32> ec,
+    );
+typedef NativeLsl_pull_chunk_c =
+    ffi.UnsignedLong Function(
+      lsl_inlet in$,
+      ffi.Pointer<ffi.Char> data_buffer,
+      ffi.Pointer<ffi.Double> timestamp_buffer,
+      ffi.UnsignedLong data_buffer_elements,
+      ffi.UnsignedLong timestamp_buffer_elements,
+      ffi.Double timeout,
+      ffi.Pointer<ffi.Int32> ec,
+    );
+typedef DartLsl_pull_chunk_c =
+    int Function(
+      lsl_inlet in$,
+      ffi.Pointer<ffi.Char> data_buffer,
+      ffi.Pointer<ffi.Double> timestamp_buffer,
+      int data_buffer_elements,
+      int timestamp_buffer_elements,
+      double timeout,
+      ffi.Pointer<ffi.Int32> ec,
+    );
+typedef NativeLsl_pull_chunk_str =
+    ffi.UnsignedLong Function(
+      lsl_inlet in$,
+      ffi.Pointer<ffi.Pointer<ffi.Char>> data_buffer,
+      ffi.Pointer<ffi.Double> timestamp_buffer,
+      ffi.UnsignedLong data_buffer_elements,
+      ffi.UnsignedLong timestamp_buffer_elements,
+      ffi.Double timeout,
+      ffi.Pointer<ffi.Int32> ec,
+    );
+typedef DartLsl_pull_chunk_str =
+    int Function(
+      lsl_inlet in$,
+      ffi.Pointer<ffi.Pointer<ffi.Char>> data_buffer,
+      ffi.Pointer<ffi.Double> timestamp_buffer,
+      int data_buffer_elements,
+      int timestamp_buffer_elements,
+      double timeout,
+      ffi.Pointer<ffi.Int32> ec,
+    );
+typedef NativeLsl_pull_chunk_buf =
+    ffi.UnsignedLong Function(
+      lsl_inlet in$,
+      ffi.Pointer<ffi.Pointer<ffi.Char>> data_buffer,
+      ffi.Pointer<ffi.Uint32> lengths_buffer,
+      ffi.Pointer<ffi.Double> timestamp_buffer,
+      ffi.UnsignedLong data_buffer_elements,
+      ffi.UnsignedLong timestamp_buffer_elements,
+      ffi.Double timeout,
+      ffi.Pointer<ffi.Int32> ec,
+    );
+typedef DartLsl_pull_chunk_buf =
+    int Function(
+      lsl_inlet in$,
+      ffi.Pointer<ffi.Pointer<ffi.Char>> data_buffer,
+      ffi.Pointer<ffi.Uint32> lengths_buffer,
+      ffi.Pointer<ffi.Double> timestamp_buffer,
+      int data_buffer_elements,
+      int timestamp_buffer_elements,
+      double timeout,
+      ffi.Pointer<ffi.Int32> ec,
+    );
+typedef NativeLsl_samples_available = ffi.Uint32 Function(lsl_inlet in$);
+typedef DartLsl_samples_available = int Function(lsl_inlet in$);
+typedef NativeLsl_inlet_flush = ffi.Uint32 Function(lsl_inlet in$);
+typedef DartLsl_inlet_flush = int Function(lsl_inlet in$);
+typedef NativeLsl_was_clock_reset = ffi.Uint32 Function(lsl_inlet in$);
+typedef DartLsl_was_clock_reset = int Function(lsl_inlet in$);
+typedef NativeLsl_smoothing_halftime =
+    ffi.Int32 Function(lsl_inlet in$, ffi.Float value);
+typedef DartLsl_smoothing_halftime = int Function(lsl_inlet in$, double value);
+typedef NativeLsl_create_outlet =
+    lsl_outlet Function(
+      lsl_streaminfo info,
+      ffi.Int32 chunk_size,
+      ffi.Int32 max_buffered,
+    );
+typedef DartLsl_create_outlet =
+    lsl_outlet Function(lsl_streaminfo info, int chunk_size, int max_buffered);
+typedef NativeLsl_create_outlet_ex =
+    lsl_outlet Function(
+      lsl_streaminfo info,
+      ffi.Int32 chunk_size,
+      ffi.Int32 max_buffered,
+      ffi.UnsignedInt flags,
+    );
+typedef DartLsl_create_outlet_ex =
+    lsl_outlet Function(
+      lsl_streaminfo info,
+      int chunk_size,
+      int max_buffered,
+      int flags,
+    );
+typedef NativeLsl_destroy_outlet = ffi.Void Function(lsl_outlet out);
+typedef DartLsl_destroy_outlet = void Function(lsl_outlet out);
+typedef NativeLsl_push_sample_f =
+    ffi.Int32 Function(lsl_outlet out, ffi.Pointer<ffi.Float> data);
+typedef DartLsl_push_sample_f =
+    int Function(lsl_outlet out, ffi.Pointer<ffi.Float> data);
+typedef NativeLsl_push_sample_d =
+    ffi.Int32 Function(lsl_outlet out, ffi.Pointer<ffi.Double> data);
+typedef DartLsl_push_sample_d =
+    int Function(lsl_outlet out, ffi.Pointer<ffi.Double> data);
+typedef NativeLsl_push_sample_l =
+    ffi.Int32 Function(lsl_outlet out, ffi.Pointer<ffi.Int64> data);
+typedef DartLsl_push_sample_l =
+    int Function(lsl_outlet out, ffi.Pointer<ffi.Int64> data);
+typedef NativeLsl_push_sample_i =
+    ffi.Int32 Function(lsl_outlet out, ffi.Pointer<ffi.Int32> data);
+typedef DartLsl_push_sample_i =
+    int Function(lsl_outlet out, ffi.Pointer<ffi.Int32> data);
+typedef NativeLsl_push_sample_s =
+    ffi.Int32 Function(lsl_outlet out, ffi.Pointer<ffi.Int16> data);
+typedef DartLsl_push_sample_s =
+    int Function(lsl_outlet out, ffi.Pointer<ffi.Int16> data);
+typedef NativeLsl_push_sample_c =
+    ffi.Int32 Function(lsl_outlet out, ffi.Pointer<ffi.Char> data);
+typedef DartLsl_push_sample_c =
+    int Function(lsl_outlet out, ffi.Pointer<ffi.Char> data);
+typedef NativeLsl_push_sample_str =
+    ffi.Int32 Function(lsl_outlet out, ffi.Pointer<ffi.Pointer<ffi.Char>> data);
+typedef DartLsl_push_sample_str =
+    int Function(lsl_outlet out, ffi.Pointer<ffi.Pointer<ffi.Char>> data);
+typedef NativeLsl_push_sample_v =
+    ffi.Int32 Function(lsl_outlet out, ffi.Pointer<ffi.Void> data);
+typedef DartLsl_push_sample_v =
+    int Function(lsl_outlet out, ffi.Pointer<ffi.Void> data);
+typedef NativeLsl_push_sample_ft =
+    ffi.Int32 Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Float> data,
+      ffi.Double timestamp,
+    );
+typedef DartLsl_push_sample_ft =
+    int Function(lsl_outlet out, ffi.Pointer<ffi.Float> data, double timestamp);
+typedef NativeLsl_push_sample_dt =
+    ffi.Int32 Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Double> data,
+      ffi.Double timestamp,
+    );
+typedef DartLsl_push_sample_dt =
+    int Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Double> data,
+      double timestamp,
+    );
+typedef NativeLsl_push_sample_lt =
+    ffi.Int32 Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Int64> data,
+      ffi.Double timestamp,
+    );
+typedef DartLsl_push_sample_lt =
+    int Function(lsl_outlet out, ffi.Pointer<ffi.Int64> data, double timestamp);
+typedef NativeLsl_push_sample_it =
+    ffi.Int32 Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Int32> data,
+      ffi.Double timestamp,
+    );
+typedef DartLsl_push_sample_it =
+    int Function(lsl_outlet out, ffi.Pointer<ffi.Int32> data, double timestamp);
+typedef NativeLsl_push_sample_st =
+    ffi.Int32 Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Int16> data,
+      ffi.Double timestamp,
+    );
+typedef DartLsl_push_sample_st =
+    int Function(lsl_outlet out, ffi.Pointer<ffi.Int16> data, double timestamp);
+typedef NativeLsl_push_sample_ct =
+    ffi.Int32 Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Char> data,
+      ffi.Double timestamp,
+    );
+typedef DartLsl_push_sample_ct =
+    int Function(lsl_outlet out, ffi.Pointer<ffi.Char> data, double timestamp);
+typedef NativeLsl_push_sample_strt =
+    ffi.Int32 Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Pointer<ffi.Char>> data,
+      ffi.Double timestamp,
+    );
+typedef DartLsl_push_sample_strt =
+    int Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Pointer<ffi.Char>> data,
+      double timestamp,
+    );
+typedef NativeLsl_push_sample_vt =
+    ffi.Int32 Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Void> data,
+      ffi.Double timestamp,
+    );
+typedef DartLsl_push_sample_vt =
+    int Function(lsl_outlet out, ffi.Pointer<ffi.Void> data, double timestamp);
+typedef NativeLsl_push_sample_ftp =
+    ffi.Int32 Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Float> data,
+      ffi.Double timestamp,
+      ffi.Int32 pushthrough,
+    );
+typedef DartLsl_push_sample_ftp =
+    int Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Float> data,
+      double timestamp,
+      int pushthrough,
+    );
+typedef NativeLsl_push_sample_dtp =
+    ffi.Int32 Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Double> data,
+      ffi.Double timestamp,
+      ffi.Int32 pushthrough,
+    );
+typedef DartLsl_push_sample_dtp =
+    int Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Double> data,
+      double timestamp,
+      int pushthrough,
+    );
+typedef NativeLsl_push_sample_ltp =
+    ffi.Int32 Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Int64> data,
+      ffi.Double timestamp,
+      ffi.Int32 pushthrough,
+    );
+typedef DartLsl_push_sample_ltp =
+    int Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Int64> data,
+      double timestamp,
+      int pushthrough,
+    );
+typedef NativeLsl_push_sample_itp =
+    ffi.Int32 Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Int32> data,
+      ffi.Double timestamp,
+      ffi.Int32 pushthrough,
+    );
+typedef DartLsl_push_sample_itp =
+    int Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Int32> data,
+      double timestamp,
+      int pushthrough,
+    );
+typedef NativeLsl_push_sample_stp =
+    ffi.Int32 Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Int16> data,
+      ffi.Double timestamp,
+      ffi.Int32 pushthrough,
+    );
+typedef DartLsl_push_sample_stp =
+    int Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Int16> data,
+      double timestamp,
+      int pushthrough,
+    );
+typedef NativeLsl_push_sample_ctp =
+    ffi.Int32 Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Char> data,
+      ffi.Double timestamp,
+      ffi.Int32 pushthrough,
+    );
+typedef DartLsl_push_sample_ctp =
+    int Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Char> data,
+      double timestamp,
+      int pushthrough,
+    );
+typedef NativeLsl_push_sample_strtp =
+    ffi.Int32 Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Pointer<ffi.Char>> data,
+      ffi.Double timestamp,
+      ffi.Int32 pushthrough,
+    );
+typedef DartLsl_push_sample_strtp =
+    int Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Pointer<ffi.Char>> data,
+      double timestamp,
+      int pushthrough,
+    );
+typedef NativeLsl_push_sample_vtp =
+    ffi.Int32 Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Void> data,
+      ffi.Double timestamp,
+      ffi.Int32 pushthrough,
+    );
+typedef DartLsl_push_sample_vtp =
+    int Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Void> data,
+      double timestamp,
+      int pushthrough,
+    );
+typedef NativeLsl_push_sample_buf =
+    ffi.Int32 Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Pointer<ffi.Char>> data,
+      ffi.Pointer<ffi.Uint32> lengths,
+    );
+typedef DartLsl_push_sample_buf =
+    int Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Pointer<ffi.Char>> data,
+      ffi.Pointer<ffi.Uint32> lengths,
+    );
+typedef NativeLsl_push_sample_buft =
+    ffi.Int32 Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Pointer<ffi.Char>> data,
+      ffi.Pointer<ffi.Uint32> lengths,
+      ffi.Double timestamp,
+    );
+typedef DartLsl_push_sample_buft =
+    int Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Pointer<ffi.Char>> data,
+      ffi.Pointer<ffi.Uint32> lengths,
+      double timestamp,
+    );
+typedef NativeLsl_push_sample_buftp =
+    ffi.Int32 Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Pointer<ffi.Char>> data,
+      ffi.Pointer<ffi.Uint32> lengths,
+      ffi.Double timestamp,
+      ffi.Int32 pushthrough,
+    );
+typedef DartLsl_push_sample_buftp =
+    int Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Pointer<ffi.Char>> data,
+      ffi.Pointer<ffi.Uint32> lengths,
+      double timestamp,
+      int pushthrough,
+    );
+typedef NativeLsl_push_chunk_f =
+    ffi.Int32 Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Float> data,
+      ffi.UnsignedLong data_elements,
+    );
+typedef DartLsl_push_chunk_f =
+    int Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Float> data,
+      int data_elements,
+    );
+typedef NativeLsl_push_chunk_d =
+    ffi.Int32 Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Double> data,
+      ffi.UnsignedLong data_elements,
+    );
+typedef DartLsl_push_chunk_d =
+    int Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Double> data,
+      int data_elements,
+    );
+typedef NativeLsl_push_chunk_l =
+    ffi.Int32 Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Int64> data,
+      ffi.UnsignedLong data_elements,
+    );
+typedef DartLsl_push_chunk_l =
+    int Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Int64> data,
+      int data_elements,
+    );
+typedef NativeLsl_push_chunk_i =
+    ffi.Int32 Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Int32> data,
+      ffi.UnsignedLong data_elements,
+    );
+typedef DartLsl_push_chunk_i =
+    int Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Int32> data,
+      int data_elements,
+    );
+typedef NativeLsl_push_chunk_s =
+    ffi.Int32 Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Int16> data,
+      ffi.UnsignedLong data_elements,
+    );
+typedef DartLsl_push_chunk_s =
+    int Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Int16> data,
+      int data_elements,
+    );
+typedef NativeLsl_push_chunk_c =
+    ffi.Int32 Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Char> data,
+      ffi.UnsignedLong data_elements,
+    );
+typedef DartLsl_push_chunk_c =
+    int Function(lsl_outlet out, ffi.Pointer<ffi.Char> data, int data_elements);
+typedef NativeLsl_push_chunk_str =
+    ffi.Int32 Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Pointer<ffi.Char>> data,
+      ffi.UnsignedLong data_elements,
+    );
+typedef DartLsl_push_chunk_str =
+    int Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Pointer<ffi.Char>> data,
+      int data_elements,
+    );
+typedef NativeLsl_push_chunk_ft =
+    ffi.Int32 Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Float> data,
+      ffi.UnsignedLong data_elements,
+      ffi.Double timestamp,
+    );
+typedef DartLsl_push_chunk_ft =
+    int Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Float> data,
+      int data_elements,
+      double timestamp,
+    );
+typedef NativeLsl_push_chunk_dt =
+    ffi.Int32 Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Double> data,
+      ffi.UnsignedLong data_elements,
+      ffi.Double timestamp,
+    );
+typedef DartLsl_push_chunk_dt =
+    int Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Double> data,
+      int data_elements,
+      double timestamp,
+    );
+typedef NativeLsl_push_chunk_lt =
+    ffi.Int32 Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Int64> data,
+      ffi.UnsignedLong data_elements,
+      ffi.Double timestamp,
+    );
+typedef DartLsl_push_chunk_lt =
+    int Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Int64> data,
+      int data_elements,
+      double timestamp,
+    );
+typedef NativeLsl_push_chunk_it =
+    ffi.Int32 Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Int32> data,
+      ffi.UnsignedLong data_elements,
+      ffi.Double timestamp,
+    );
+typedef DartLsl_push_chunk_it =
+    int Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Int32> data,
+      int data_elements,
+      double timestamp,
+    );
+typedef NativeLsl_push_chunk_st =
+    ffi.Int32 Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Int16> data,
+      ffi.UnsignedLong data_elements,
+      ffi.Double timestamp,
+    );
+typedef DartLsl_push_chunk_st =
+    int Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Int16> data,
+      int data_elements,
+      double timestamp,
+    );
+typedef NativeLsl_push_chunk_ct =
+    ffi.Int32 Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Char> data,
+      ffi.UnsignedLong data_elements,
+      ffi.Double timestamp,
+    );
+typedef DartLsl_push_chunk_ct =
+    int Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Char> data,
+      int data_elements,
+      double timestamp,
+    );
+typedef NativeLsl_push_chunk_strt =
+    ffi.Int32 Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Pointer<ffi.Char>> data,
+      ffi.UnsignedLong data_elements,
+      ffi.Double timestamp,
+    );
+typedef DartLsl_push_chunk_strt =
+    int Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Pointer<ffi.Char>> data,
+      int data_elements,
+      double timestamp,
+    );
+typedef NativeLsl_push_chunk_ftp =
+    ffi.Int32 Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Float> data,
+      ffi.UnsignedLong data_elements,
+      ffi.Double timestamp,
+      ffi.Int32 pushthrough,
+    );
+typedef DartLsl_push_chunk_ftp =
+    int Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Float> data,
+      int data_elements,
+      double timestamp,
+      int pushthrough,
+    );
+typedef NativeLsl_push_chunk_dtp =
+    ffi.Int32 Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Double> data,
+      ffi.UnsignedLong data_elements,
+      ffi.Double timestamp,
+      ffi.Int32 pushthrough,
+    );
+typedef DartLsl_push_chunk_dtp =
+    int Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Double> data,
+      int data_elements,
+      double timestamp,
+      int pushthrough,
+    );
+typedef NativeLsl_push_chunk_ltp =
+    ffi.Int32 Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Int64> data,
+      ffi.UnsignedLong data_elements,
+      ffi.Double timestamp,
+      ffi.Int32 pushthrough,
+    );
+typedef DartLsl_push_chunk_ltp =
+    int Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Int64> data,
+      int data_elements,
+      double timestamp,
+      int pushthrough,
+    );
+typedef NativeLsl_push_chunk_itp =
+    ffi.Int32 Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Int32> data,
+      ffi.UnsignedLong data_elements,
+      ffi.Double timestamp,
+      ffi.Int32 pushthrough,
+    );
+typedef DartLsl_push_chunk_itp =
+    int Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Int32> data,
+      int data_elements,
+      double timestamp,
+      int pushthrough,
+    );
+typedef NativeLsl_push_chunk_stp =
+    ffi.Int32 Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Int16> data,
+      ffi.UnsignedLong data_elements,
+      ffi.Double timestamp,
+      ffi.Int32 pushthrough,
+    );
+typedef DartLsl_push_chunk_stp =
+    int Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Int16> data,
+      int data_elements,
+      double timestamp,
+      int pushthrough,
+    );
+typedef NativeLsl_push_chunk_ctp =
+    ffi.Int32 Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Char> data,
+      ffi.UnsignedLong data_elements,
+      ffi.Double timestamp,
+      ffi.Int32 pushthrough,
+    );
+typedef DartLsl_push_chunk_ctp =
+    int Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Char> data,
+      int data_elements,
+      double timestamp,
+      int pushthrough,
+    );
+typedef NativeLsl_push_chunk_strtp =
+    ffi.Int32 Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Pointer<ffi.Char>> data,
+      ffi.UnsignedLong data_elements,
+      ffi.Double timestamp,
+      ffi.Int32 pushthrough,
+    );
+typedef DartLsl_push_chunk_strtp =
+    int Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Pointer<ffi.Char>> data,
+      int data_elements,
+      double timestamp,
+      int pushthrough,
+    );
+typedef NativeLsl_push_chunk_ftn =
+    ffi.Int32 Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Float> data,
+      ffi.UnsignedLong data_elements,
+      ffi.Pointer<ffi.Double> timestamps,
+    );
+typedef DartLsl_push_chunk_ftn =
+    int Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Float> data,
+      int data_elements,
+      ffi.Pointer<ffi.Double> timestamps,
+    );
+typedef NativeLsl_push_chunk_dtn =
+    ffi.Int32 Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Double> data,
+      ffi.UnsignedLong data_elements,
+      ffi.Pointer<ffi.Double> timestamps,
+    );
+typedef DartLsl_push_chunk_dtn =
+    int Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Double> data,
+      int data_elements,
+      ffi.Pointer<ffi.Double> timestamps,
+    );
+typedef NativeLsl_push_chunk_ltn =
+    ffi.Int32 Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Int64> data,
+      ffi.UnsignedLong data_elements,
+      ffi.Pointer<ffi.Double> timestamps,
+    );
+typedef DartLsl_push_chunk_ltn =
+    int Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Int64> data,
+      int data_elements,
+      ffi.Pointer<ffi.Double> timestamps,
+    );
+typedef NativeLsl_push_chunk_itn =
+    ffi.Int32 Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Int32> data,
+      ffi.UnsignedLong data_elements,
+      ffi.Pointer<ffi.Double> timestamps,
+    );
+typedef DartLsl_push_chunk_itn =
+    int Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Int32> data,
+      int data_elements,
+      ffi.Pointer<ffi.Double> timestamps,
+    );
+typedef NativeLsl_push_chunk_stn =
+    ffi.Int32 Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Int16> data,
+      ffi.UnsignedLong data_elements,
+      ffi.Pointer<ffi.Double> timestamps,
+    );
+typedef DartLsl_push_chunk_stn =
+    int Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Int16> data,
+      int data_elements,
+      ffi.Pointer<ffi.Double> timestamps,
+    );
+typedef NativeLsl_push_chunk_ctn =
+    ffi.Int32 Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Char> data,
+      ffi.UnsignedLong data_elements,
+      ffi.Pointer<ffi.Double> timestamps,
+    );
+typedef DartLsl_push_chunk_ctn =
+    int Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Char> data,
+      int data_elements,
+      ffi.Pointer<ffi.Double> timestamps,
+    );
+typedef NativeLsl_push_chunk_strtn =
+    ffi.Int32 Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Pointer<ffi.Char>> data,
+      ffi.UnsignedLong data_elements,
+      ffi.Pointer<ffi.Double> timestamps,
+    );
+typedef DartLsl_push_chunk_strtn =
+    int Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Pointer<ffi.Char>> data,
+      int data_elements,
+      ffi.Pointer<ffi.Double> timestamps,
+    );
+typedef NativeLsl_push_chunk_ftnp =
+    ffi.Int32 Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Float> data,
+      ffi.UnsignedLong data_elements,
+      ffi.Pointer<ffi.Double> timestamps,
+      ffi.Int32 pushthrough,
+    );
+typedef DartLsl_push_chunk_ftnp =
+    int Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Float> data,
+      int data_elements,
+      ffi.Pointer<ffi.Double> timestamps,
+      int pushthrough,
+    );
+typedef NativeLsl_push_chunk_dtnp =
+    ffi.Int32 Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Double> data,
+      ffi.UnsignedLong data_elements,
+      ffi.Pointer<ffi.Double> timestamps,
+      ffi.Int32 pushthrough,
+    );
+typedef DartLsl_push_chunk_dtnp =
+    int Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Double> data,
+      int data_elements,
+      ffi.Pointer<ffi.Double> timestamps,
+      int pushthrough,
+    );
+typedef NativeLsl_push_chunk_ltnp =
+    ffi.Int32 Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Int64> data,
+      ffi.UnsignedLong data_elements,
+      ffi.Pointer<ffi.Double> timestamps,
+      ffi.Int32 pushthrough,
+    );
+typedef DartLsl_push_chunk_ltnp =
+    int Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Int64> data,
+      int data_elements,
+      ffi.Pointer<ffi.Double> timestamps,
+      int pushthrough,
+    );
+typedef NativeLsl_push_chunk_itnp =
+    ffi.Int32 Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Int32> data,
+      ffi.UnsignedLong data_elements,
+      ffi.Pointer<ffi.Double> timestamps,
+      ffi.Int32 pushthrough,
+    );
+typedef DartLsl_push_chunk_itnp =
+    int Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Int32> data,
+      int data_elements,
+      ffi.Pointer<ffi.Double> timestamps,
+      int pushthrough,
+    );
+typedef NativeLsl_push_chunk_stnp =
+    ffi.Int32 Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Int16> data,
+      ffi.UnsignedLong data_elements,
+      ffi.Pointer<ffi.Double> timestamps,
+      ffi.Int32 pushthrough,
+    );
+typedef DartLsl_push_chunk_stnp =
+    int Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Int16> data,
+      int data_elements,
+      ffi.Pointer<ffi.Double> timestamps,
+      int pushthrough,
+    );
+typedef NativeLsl_push_chunk_ctnp =
+    ffi.Int32 Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Char> data,
+      ffi.UnsignedLong data_elements,
+      ffi.Pointer<ffi.Double> timestamps,
+      ffi.Int32 pushthrough,
+    );
+typedef DartLsl_push_chunk_ctnp =
+    int Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Char> data,
+      int data_elements,
+      ffi.Pointer<ffi.Double> timestamps,
+      int pushthrough,
+    );
+typedef NativeLsl_push_chunk_strtnp =
+    ffi.Int32 Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Pointer<ffi.Char>> data,
+      ffi.UnsignedLong data_elements,
+      ffi.Pointer<ffi.Double> timestamps,
+      ffi.Int32 pushthrough,
+    );
+typedef DartLsl_push_chunk_strtnp =
+    int Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Pointer<ffi.Char>> data,
+      int data_elements,
+      ffi.Pointer<ffi.Double> timestamps,
+      int pushthrough,
+    );
+typedef NativeLsl_push_chunk_buf =
+    ffi.Int32 Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Pointer<ffi.Char>> data,
+      ffi.Pointer<ffi.Uint32> lengths,
+      ffi.UnsignedLong data_elements,
+    );
+typedef DartLsl_push_chunk_buf =
+    int Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Pointer<ffi.Char>> data,
+      ffi.Pointer<ffi.Uint32> lengths,
+      int data_elements,
+    );
+typedef NativeLsl_push_chunk_buft =
+    ffi.Int32 Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Pointer<ffi.Char>> data,
+      ffi.Pointer<ffi.Uint32> lengths,
+      ffi.UnsignedLong data_elements,
+      ffi.Double timestamp,
+    );
+typedef DartLsl_push_chunk_buft =
+    int Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Pointer<ffi.Char>> data,
+      ffi.Pointer<ffi.Uint32> lengths,
+      int data_elements,
+      double timestamp,
+    );
+typedef NativeLsl_push_chunk_buftp =
+    ffi.Int32 Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Pointer<ffi.Char>> data,
+      ffi.Pointer<ffi.Uint32> lengths,
+      ffi.UnsignedLong data_elements,
+      ffi.Double timestamp,
+      ffi.Int32 pushthrough,
+    );
+typedef DartLsl_push_chunk_buftp =
+    int Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Pointer<ffi.Char>> data,
+      ffi.Pointer<ffi.Uint32> lengths,
+      int data_elements,
+      double timestamp,
+      int pushthrough,
+    );
+typedef NativeLsl_push_chunk_buftn =
+    ffi.Int32 Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Pointer<ffi.Char>> data,
+      ffi.Pointer<ffi.Uint32> lengths,
+      ffi.UnsignedLong data_elements,
+      ffi.Pointer<ffi.Double> timestamps,
+    );
+typedef DartLsl_push_chunk_buftn =
+    int Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Pointer<ffi.Char>> data,
+      ffi.Pointer<ffi.Uint32> lengths,
+      int data_elements,
+      ffi.Pointer<ffi.Double> timestamps,
+    );
+typedef NativeLsl_push_chunk_buftnp =
+    ffi.Int32 Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Pointer<ffi.Char>> data,
+      ffi.Pointer<ffi.Uint32> lengths,
+      ffi.UnsignedLong data_elements,
+      ffi.Pointer<ffi.Double> timestamps,
+      ffi.Int32 pushthrough,
+    );
+typedef DartLsl_push_chunk_buftnp =
+    int Function(
+      lsl_outlet out,
+      ffi.Pointer<ffi.Pointer<ffi.Char>> data,
+      ffi.Pointer<ffi.Uint32> lengths,
+      int data_elements,
+      ffi.Pointer<ffi.Double> timestamps,
+      int pushthrough,
+    );
+typedef NativeLsl_have_consumers = ffi.Int32 Function(lsl_outlet out);
+typedef DartLsl_have_consumers = int Function(lsl_outlet out);
+typedef NativeLsl_wait_for_consumers =
+    ffi.Int32 Function(lsl_outlet out, ffi.Double timeout);
+typedef DartLsl_wait_for_consumers =
+    int Function(lsl_outlet out, double timeout);
+typedef NativeLsl_get_info = lsl_streaminfo Function(lsl_outlet out);
+typedef DartLsl_get_info = lsl_streaminfo Function(lsl_outlet out);
+typedef NativeLsl_create_continuous_resolver =
+    lsl_continuous_resolver Function(ffi.Double forget_after);
+typedef DartLsl_create_continuous_resolver =
+    lsl_continuous_resolver Function(double forget_after);
+typedef NativeLsl_create_continuous_resolver_byprop =
+    lsl_continuous_resolver Function(
+      ffi.Pointer<ffi.Char> prop,
+      ffi.Pointer<ffi.Char> value,
+      ffi.Double forget_after,
+    );
+typedef DartLsl_create_continuous_resolver_byprop =
+    lsl_continuous_resolver Function(
+      ffi.Pointer<ffi.Char> prop,
+      ffi.Pointer<ffi.Char> value,
+      double forget_after,
+    );
+typedef NativeLsl_create_continuous_resolver_bypred =
+    lsl_continuous_resolver Function(
+      ffi.Pointer<ffi.Char> pred,
+      ffi.Double forget_after,
+    );
+typedef DartLsl_create_continuous_resolver_bypred =
+    lsl_continuous_resolver Function(
+      ffi.Pointer<ffi.Char> pred,
+      double forget_after,
+    );
+typedef NativeLsl_resolver_results =
+    ffi.Int32 Function(
+      lsl_continuous_resolver res,
+      ffi.Pointer<lsl_streaminfo> buffer,
+      ffi.Uint32 buffer_elements,
+    );
+typedef DartLsl_resolver_results =
+    int Function(
+      lsl_continuous_resolver res,
+      ffi.Pointer<lsl_streaminfo> buffer,
+      int buffer_elements,
+    );
+typedef NativeLsl_destroy_continuous_resolver =
+    ffi.Void Function(lsl_continuous_resolver res);
+typedef DartLsl_destroy_continuous_resolver =
+    void Function(lsl_continuous_resolver res);
+typedef NativeLsl_resolve_all =
+    ffi.Int32 Function(
+      ffi.Pointer<lsl_streaminfo> buffer,
+      ffi.Uint32 buffer_elements,
+      ffi.Double wait_time,
+    );
+typedef DartLsl_resolve_all =
+    int Function(
+      ffi.Pointer<lsl_streaminfo> buffer,
+      int buffer_elements,
+      double wait_time,
+    );
+typedef NativeLsl_resolve_byprop =
+    ffi.Int32 Function(
+      ffi.Pointer<lsl_streaminfo> buffer,
+      ffi.Uint32 buffer_elements,
+      ffi.Pointer<ffi.Char> prop,
+      ffi.Pointer<ffi.Char> value,
+      ffi.Int32 minimum,
+      ffi.Double timeout,
+    );
+typedef DartLsl_resolve_byprop =
+    int Function(
+      ffi.Pointer<lsl_streaminfo> buffer,
+      int buffer_elements,
+      ffi.Pointer<ffi.Char> prop,
+      ffi.Pointer<ffi.Char> value,
+      int minimum,
+      double timeout,
+    );
+typedef NativeLsl_resolve_bypred =
+    ffi.Int32 Function(
+      ffi.Pointer<lsl_streaminfo> buffer,
+      ffi.Uint32 buffer_elements,
+      ffi.Pointer<ffi.Char> pred,
+      ffi.Int32 minimum,
+      ffi.Double timeout,
+    );
+typedef DartLsl_resolve_bypred =
+    int Function(
+      ffi.Pointer<lsl_streaminfo> buffer,
+      int buffer_elements,
+      ffi.Pointer<ffi.Char> pred,
+      int minimum,
+      double timeout,
+    );
+typedef NativeLsl_create_streaminfo =
+    lsl_streaminfo Function(
+      ffi.Pointer<ffi.Char> name,
+      ffi.Pointer<ffi.Char> type,
+      ffi.Int32 channel_count,
+      ffi.Double nominal_srate,
+      ffi.UnsignedInt channel_format,
+      ffi.Pointer<ffi.Char> source_id,
+    );
+typedef DartLsl_create_streaminfo =
+    lsl_streaminfo Function(
+      ffi.Pointer<ffi.Char> name,
+      ffi.Pointer<ffi.Char> type,
+      int channel_count,
+      double nominal_srate,
+      int channel_format,
+      ffi.Pointer<ffi.Char> source_id,
+    );
+typedef NativeLsl_destroy_streaminfo = ffi.Void Function(lsl_streaminfo info);
+typedef DartLsl_destroy_streaminfo = void Function(lsl_streaminfo info);
+typedef NativeLsl_copy_streaminfo =
+    lsl_streaminfo Function(lsl_streaminfo info);
+typedef DartLsl_copy_streaminfo = lsl_streaminfo Function(lsl_streaminfo info);
+typedef NativeLsl_get_name =
+    ffi.Pointer<ffi.Char> Function(lsl_streaminfo info);
+typedef DartLsl_get_name = ffi.Pointer<ffi.Char> Function(lsl_streaminfo info);
+typedef NativeLsl_get_type =
+    ffi.Pointer<ffi.Char> Function(lsl_streaminfo info);
+typedef DartLsl_get_type = ffi.Pointer<ffi.Char> Function(lsl_streaminfo info);
+typedef NativeLsl_get_channel_count = ffi.Int32 Function(lsl_streaminfo info);
+typedef DartLsl_get_channel_count = int Function(lsl_streaminfo info);
+typedef NativeLsl_get_nominal_srate = ffi.Double Function(lsl_streaminfo info);
+typedef DartLsl_get_nominal_srate = double Function(lsl_streaminfo info);
+typedef NativeLsl_get_channel_format =
+    ffi.UnsignedInt Function(lsl_streaminfo info);
+typedef DartLsl_get_channel_format = int Function(lsl_streaminfo info);
+typedef NativeLsl_get_source_id =
+    ffi.Pointer<ffi.Char> Function(lsl_streaminfo info);
+typedef DartLsl_get_source_id =
+    ffi.Pointer<ffi.Char> Function(lsl_streaminfo info);
+typedef NativeLsl_get_version = ffi.Int32 Function(lsl_streaminfo info);
+typedef DartLsl_get_version = int Function(lsl_streaminfo info);
+typedef NativeLsl_get_created_at = ffi.Double Function(lsl_streaminfo info);
+typedef DartLsl_get_created_at = double Function(lsl_streaminfo info);
+typedef NativeLsl_get_uid = ffi.Pointer<ffi.Char> Function(lsl_streaminfo info);
+typedef DartLsl_get_uid = ffi.Pointer<ffi.Char> Function(lsl_streaminfo info);
+typedef NativeLsl_get_session_id =
+    ffi.Pointer<ffi.Char> Function(lsl_streaminfo info);
+typedef DartLsl_get_session_id =
+    ffi.Pointer<ffi.Char> Function(lsl_streaminfo info);
+typedef NativeLsl_get_hostname =
+    ffi.Pointer<ffi.Char> Function(lsl_streaminfo info);
+typedef DartLsl_get_hostname =
+    ffi.Pointer<ffi.Char> Function(lsl_streaminfo info);
+typedef NativeLsl_get_desc = lsl_xml_ptr Function(lsl_streaminfo info);
+typedef DartLsl_get_desc = lsl_xml_ptr Function(lsl_streaminfo info);
+typedef NativeLsl_get_xml = ffi.Pointer<ffi.Char> Function(lsl_streaminfo info);
+typedef DartLsl_get_xml = ffi.Pointer<ffi.Char> Function(lsl_streaminfo info);
+typedef NativeLsl_get_channel_bytes = ffi.Int32 Function(lsl_streaminfo info);
+typedef DartLsl_get_channel_bytes = int Function(lsl_streaminfo info);
+typedef NativeLsl_get_sample_bytes = ffi.Int32 Function(lsl_streaminfo info);
+typedef DartLsl_get_sample_bytes = int Function(lsl_streaminfo info);
+typedef NativeLsl_stream_info_matches_query =
+    ffi.Int32 Function(lsl_streaminfo info, ffi.Pointer<ffi.Char> query);
+typedef DartLsl_stream_info_matches_query =
+    int Function(lsl_streaminfo info, ffi.Pointer<ffi.Char> query);
+typedef NativeLsl_streaminfo_from_xml =
+    lsl_streaminfo Function(ffi.Pointer<ffi.Char> xml);
+typedef DartLsl_streaminfo_from_xml =
+    lsl_streaminfo Function(ffi.Pointer<ffi.Char> xml);
+typedef NativeLsl_first_child = lsl_xml_ptr Function(lsl_xml_ptr e);
+typedef DartLsl_first_child = lsl_xml_ptr Function(lsl_xml_ptr e);
+typedef NativeLsl_last_child = lsl_xml_ptr Function(lsl_xml_ptr e);
+typedef DartLsl_last_child = lsl_xml_ptr Function(lsl_xml_ptr e);
+typedef NativeLsl_next_sibling = lsl_xml_ptr Function(lsl_xml_ptr e);
+typedef DartLsl_next_sibling = lsl_xml_ptr Function(lsl_xml_ptr e);
+typedef NativeLsl_previous_sibling = lsl_xml_ptr Function(lsl_xml_ptr e);
+typedef DartLsl_previous_sibling = lsl_xml_ptr Function(lsl_xml_ptr e);
+typedef NativeLsl_parent = lsl_xml_ptr Function(lsl_xml_ptr e);
+typedef DartLsl_parent = lsl_xml_ptr Function(lsl_xml_ptr e);
+typedef NativeLsl_child =
+    lsl_xml_ptr Function(lsl_xml_ptr e, ffi.Pointer<ffi.Char> name);
+typedef DartLsl_child =
+    lsl_xml_ptr Function(lsl_xml_ptr e, ffi.Pointer<ffi.Char> name);
+typedef NativeLsl_next_sibling_n =
+    lsl_xml_ptr Function(lsl_xml_ptr e, ffi.Pointer<ffi.Char> name);
+typedef DartLsl_next_sibling_n =
+    lsl_xml_ptr Function(lsl_xml_ptr e, ffi.Pointer<ffi.Char> name);
+typedef NativeLsl_previous_sibling_n =
+    lsl_xml_ptr Function(lsl_xml_ptr e, ffi.Pointer<ffi.Char> name);
+typedef DartLsl_previous_sibling_n =
+    lsl_xml_ptr Function(lsl_xml_ptr e, ffi.Pointer<ffi.Char> name);
+typedef NativeLsl_empty = ffi.Int32 Function(lsl_xml_ptr e);
+typedef DartLsl_empty = int Function(lsl_xml_ptr e);
+typedef NativeLsl_is_text = ffi.Int32 Function(lsl_xml_ptr e);
+typedef DartLsl_is_text = int Function(lsl_xml_ptr e);
+typedef NativeLsl_name = ffi.Pointer<ffi.Char> Function(lsl_xml_ptr e);
+typedef DartLsl_name = ffi.Pointer<ffi.Char> Function(lsl_xml_ptr e);
+typedef NativeLsl_value = ffi.Pointer<ffi.Char> Function(lsl_xml_ptr e);
+typedef DartLsl_value = ffi.Pointer<ffi.Char> Function(lsl_xml_ptr e);
+typedef NativeLsl_child_value = ffi.Pointer<ffi.Char> Function(lsl_xml_ptr e);
+typedef DartLsl_child_value = ffi.Pointer<ffi.Char> Function(lsl_xml_ptr e);
+typedef NativeLsl_child_value_n =
+    ffi.Pointer<ffi.Char> Function(lsl_xml_ptr e, ffi.Pointer<ffi.Char> name);
+typedef DartLsl_child_value_n =
+    ffi.Pointer<ffi.Char> Function(lsl_xml_ptr e, ffi.Pointer<ffi.Char> name);
+typedef NativeLsl_append_child_value =
+    lsl_xml_ptr Function(
+      lsl_xml_ptr e,
+      ffi.Pointer<ffi.Char> name,
+      ffi.Pointer<ffi.Char> value,
+    );
+typedef DartLsl_append_child_value =
+    lsl_xml_ptr Function(
+      lsl_xml_ptr e,
+      ffi.Pointer<ffi.Char> name,
+      ffi.Pointer<ffi.Char> value,
+    );
+typedef NativeLsl_prepend_child_value =
+    lsl_xml_ptr Function(
+      lsl_xml_ptr e,
+      ffi.Pointer<ffi.Char> name,
+      ffi.Pointer<ffi.Char> value,
+    );
+typedef DartLsl_prepend_child_value =
+    lsl_xml_ptr Function(
+      lsl_xml_ptr e,
+      ffi.Pointer<ffi.Char> name,
+      ffi.Pointer<ffi.Char> value,
+    );
+typedef NativeLsl_set_child_value =
+    ffi.Int32 Function(
+      lsl_xml_ptr e,
+      ffi.Pointer<ffi.Char> name,
+      ffi.Pointer<ffi.Char> value,
+    );
+typedef DartLsl_set_child_value =
+    int Function(
+      lsl_xml_ptr e,
+      ffi.Pointer<ffi.Char> name,
+      ffi.Pointer<ffi.Char> value,
+    );
+typedef NativeLsl_set_name =
+    ffi.Int32 Function(lsl_xml_ptr e, ffi.Pointer<ffi.Char> rhs);
+typedef DartLsl_set_name =
+    int Function(lsl_xml_ptr e, ffi.Pointer<ffi.Char> rhs);
+typedef NativeLsl_set_value =
+    ffi.Int32 Function(lsl_xml_ptr e, ffi.Pointer<ffi.Char> rhs);
+typedef DartLsl_set_value =
+    int Function(lsl_xml_ptr e, ffi.Pointer<ffi.Char> rhs);
+typedef NativeLsl_append_child =
+    lsl_xml_ptr Function(lsl_xml_ptr e, ffi.Pointer<ffi.Char> name);
+typedef DartLsl_append_child =
+    lsl_xml_ptr Function(lsl_xml_ptr e, ffi.Pointer<ffi.Char> name);
+typedef NativeLsl_prepend_child =
+    lsl_xml_ptr Function(lsl_xml_ptr e, ffi.Pointer<ffi.Char> name);
+typedef DartLsl_prepend_child =
+    lsl_xml_ptr Function(lsl_xml_ptr e, ffi.Pointer<ffi.Char> name);
+typedef NativeLsl_append_copy =
+    lsl_xml_ptr Function(lsl_xml_ptr e, lsl_xml_ptr e2);
+typedef DartLsl_append_copy =
+    lsl_xml_ptr Function(lsl_xml_ptr e, lsl_xml_ptr e2);
+typedef NativeLsl_prepend_copy =
+    lsl_xml_ptr Function(lsl_xml_ptr e, lsl_xml_ptr e2);
+typedef DartLsl_prepend_copy =
+    lsl_xml_ptr Function(lsl_xml_ptr e, lsl_xml_ptr e2);
+typedef NativeLsl_remove_child_n =
+    ffi.Void Function(lsl_xml_ptr e, ffi.Pointer<ffi.Char> name);
+typedef DartLsl_remove_child_n =
+    void Function(lsl_xml_ptr e, ffi.Pointer<ffi.Char> name);
+typedef NativeLsl_remove_child =
+    ffi.Void Function(lsl_xml_ptr e, lsl_xml_ptr e2);
+typedef DartLsl_remove_child = void Function(lsl_xml_ptr e, lsl_xml_ptr e2);
 
 const double LSL_IRREGULAR_RATE = 0.0;
 
