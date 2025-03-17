@@ -290,16 +290,20 @@ class LSLStreamOutlet extends LSLObj {
         ptr.value = data;
         return ptr;
       case const (Pointer<Char>):
-        // string
         if (data is String) {
-          final List<String> dataList = data.split('');
-          final ptrArray = calloc<Pointer<Char>>(dataList.length);
-          for (var i = 0; i < dataList.length; i++) {
-            ptrArray[i] = dataList[i].toNativeUtf8().cast<Char>();
+          // For a single string in a single channel
+          final stringArray = allocate<Pointer<Char>>(1);
+          stringArray[0] = data.toNativeUtf8().cast<Char>();
+          return stringArray;
+        } else if (data is List && data.every((item) => item is String)) {
+          // For multiple strings in multiple channels
+          final stringArray = allocate<Pointer<Char>>(data.length);
+          for (var i = 0; i < data.length; i++) {
+            stringArray[i] = data[i].toString().toNativeUtf8().cast<Char>();
           }
-          return ptrArray;
+          return stringArray;
         }
-        throw LSLException('Invalid string data');
+        throw LSLException('Invalid string data type');
       case const (Void):
         return nullPtr<Void>();
       default:
@@ -309,10 +313,23 @@ class LSLStreamOutlet extends LSLObj {
 
   Future<int> pushSample(dynamic data) async {
     final samplePtr = _allocSample(data);
-    // exception with type of sampleptr
-    final int result = _pushFn(_streamOutlet!, samplePtr);
-    samplePtr.free();
-    return result;
+    try {
+      // Push the sample
+      final int result = _pushFn(_streamOutlet!, samplePtr);
+      if (error(result)) {
+        throw LSLException('Error pushing sample: $result');
+      }
+      return result;
+    } finally {
+      if (streamInfo.channelFormat != LSLChannelFormat.string) {
+        samplePtr.free();
+      } else {
+        // This is just a test
+        Future.delayed(Duration(milliseconds: 100), () {
+          samplePtr.free();
+        });
+      }
+    }
   }
 }
 
