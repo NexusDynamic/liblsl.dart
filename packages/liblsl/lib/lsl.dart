@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:ffi';
-import 'package:ffi/ffi.dart' show StringUtf8Pointer;
+import 'package:ffi/ffi.dart' show StringUtf8Pointer, Utf8, Utf8Pointer;
 import 'package:liblsl/liblsl.dart';
 import 'src/types.dart';
 import 'src/ffi/mem.dart';
@@ -183,7 +183,12 @@ class LSLStreamInfo extends LSLObj {
     this.sampleRate = 250.0,
     this.channelFormat = LSLChannelFormat.float32,
     this.sourceId = "DartLSL",
-  });
+    lsl_streaminfo? streamInfo,
+  }) : _streamInfo = streamInfo {
+    if (streamInfo != null) {
+      _streamInfo = streamInfo;
+    }
+  }
 
   lsl_streaminfo? get streamInfo => _streamInfo;
 
@@ -207,6 +212,39 @@ class LSLStreamInfo extends LSLObj {
     return _streamInfo!;
   }
 
+  factory LSLStreamInfo.fromStreamInfo(lsl_streaminfo streamInfo) {
+    // get all the values
+    final Pointer<Utf8> streamName = lsl_get_name(streamInfo) as Pointer<Utf8>;
+    final Pointer<Utf8> streamType = lsl_get_type(streamInfo) as Pointer<Utf8>;
+    final int channelCount = lsl_get_channel_count(streamInfo);
+    final double sampleRate = lsl_get_nominal_srate(streamInfo);
+    final lsl_channel_format_t channelFormat = lsl_get_channel_format(
+      streamInfo,
+    );
+    final Pointer<Utf8> sourceId =
+        lsl_get_source_id(streamInfo) as Pointer<Utf8>;
+
+    final info = LSLStreamInfo(
+      streamName: streamName.toDartString(),
+      streamType: LSLContentType.values.firstWhere(
+        (e) => e.value == streamType.toDartString(),
+      ),
+      channelCount: channelCount,
+      sampleRate: sampleRate,
+      channelFormat: LSLChannelFormat.values.firstWhere(
+        (e) => e.lslFormat == channelFormat,
+      ),
+      sourceId: sourceId.toDartString(),
+      streamInfo: streamInfo,
+    );
+    // free the pointers
+    //streamName.free();
+    //streamType.free();
+    //sourceId.free();
+
+    return info;
+  }
+
   @override
   void destroy() {
     if (_streamInfo != null) {
@@ -216,7 +254,92 @@ class LSLStreamInfo extends LSLObj {
     }
     freeArgs();
   }
+
+  @override
+  String toString() {
+    return 'LSLStreamInfo{streamName: $streamName, streamType: $streamType, channelCount: $channelCount, sampleRate: $sampleRate, channelFormat: $channelFormat, sourceId: $sourceId}';
+  }
 }
+
+class LSLStreamResolverContinuous extends LSLObj {
+  int maxStreams;
+  final double forgetAfter;
+  Pointer<lsl_streaminfo>? _streamInfoBuffer;
+  lsl_continuous_resolver? _resolver;
+
+  LSLStreamResolverContinuous({this.forgetAfter = 5.0, this.maxStreams = 5});
+
+  @override
+  void create() {
+    _streamInfoBuffer = allocate<lsl_streaminfo>(maxStreams);
+    _resolver = lsl_create_continuous_resolver(forgetAfter);
+  }
+
+  /// Resolve streams
+  Future<List<LSLStreamInfo>> resolve({double waitTime = 5.0}) async {
+    if (_resolver == null) {
+      throw LSLException('Resolver not created');
+    }
+    // pause for a bit
+    await Future.delayed(Duration(milliseconds: (waitTime * 1000).toInt()));
+
+    final int streamCount = lsl_resolver_results(
+      _resolver!,
+      _streamInfoBuffer!,
+      maxStreams,
+    );
+    if (streamCount < 0) {
+      throw LSLException('Error resolving streams: $streamCount');
+    }
+    final streams = <LSLStreamInfo>[];
+    for (var i = 0; i < streamCount; i++) {
+      final streamInfo = LSLStreamInfo.fromStreamInfo(_streamInfoBuffer![i]);
+      streams.add(streamInfo);
+    }
+    return streams;
+  }
+
+  @override
+  void destroy() {
+    if (_streamInfoBuffer != null) {
+      _streamInfoBuffer?.free();
+      _streamInfoBuffer = null;
+    }
+    if (_resolver != null) {
+      lsl_destroy_continuous_resolver(_resolver!);
+      _resolver?.free();
+      _resolver = null;
+    }
+    freeArgs();
+  }
+
+  @override
+  String toString() {
+    return 'LSLStreamResolverContinuous{maxStreams: $maxStreams, forgetAfter: $forgetAfter}';
+  }
+}
+
+// class LSLStreamInlet extends LSLObj {
+//   final lsl_inlet? _streamInlet;
+//   late final LSLStreamInfo streamInfo;
+
+//   LSLStreamInlet(this.streamInfo);
+
+//   @override
+//   lsl_inlet create() {
+//     _streamInlet = lsl_create_inlet(streamInfo.streamInfo!);
+//     return _streamInlet!;
+//   }
+
+//   @override
+//   void destroy() {
+//     if (_streamInlet != null) {
+//       lsl_destroy_inlet(_streamInlet!);
+//       _streamInlet?.free();
+//     }
+//     freeArgs();
+//   }
+// }
 
 class LSLStreamOutlet extends LSLObj {
   final LSLStreamInfo streamInfo;
@@ -256,49 +379,84 @@ class LSLStreamOutlet extends LSLObj {
     freeArgs();
   }
 
-  Future<void> waitForConsumer({double timeout = 60}) async {
+  Future<void> waitForConsumer({
+    double timeout = 60,
+    bool exception = true,
+  }) async {
     final consumerFound = lsl_wait_for_consumers(_streamOutlet!, timeout);
-    if (consumerFound == 0) {
+    if (consumerFound == 0 && exception) {
       throw TimeoutException('No consumer found within $timeout seconds');
     }
   }
 
-  Pointer _allocSample(dynamic data) {
+  // is this necessary? might slow down the process
+  /// Check if the value is within the bounds of the type
+  /// For example, if the type is Int8,
+  /// the value should be between -128 and 127
+  bool inTypeBounds(Type type, dynamic value) {
+    switch (type) {
+      case const (Float):
+        return value is double;
+      case const (Double):
+        return value is double;
+      case const (Int8):
+        return value is int && value >= -128 && value <= 127;
+      case const (Int16):
+        return value is int && value >= -32768 && value <= 32767;
+      case const (Int32):
+        return value is int && value >= -2147483648 && value <= 2147483647;
+      case const (Int64):
+        return value is int &&
+            value >= -9223372036854775808 &&
+            value <= 9223372036854775807;
+      default:
+        return false;
+    }
+  }
+
+  Pointer _allocSample(List<dynamic> data) {
     switch (streamInfo.channelFormat.ffiType) {
       case const (Float):
-        final ptr = allocate<Float>();
-        ptr.value = data;
+        final ptr = allocate<Float>(streamInfo.channelCount);
+        for (var i = 0; i < streamInfo.channelCount; i++) {
+          ptr[i] = data[i].toDouble();
+        }
         return ptr;
       case const (Double):
-        final ptr = allocate<Double>();
-        ptr.value = data;
+        final ptr = allocate<Double>(streamInfo.channelCount);
+        for (var i = 0; i < streamInfo.channelCount; i++) {
+          ptr[i] = data[i].toDouble();
+        }
         return ptr;
       case const (Int8):
-        final ptr = allocate<Int8>();
-        ptr.value = data;
+        final ptr = allocate<Int8>(streamInfo.channelCount);
+        for (var i = 0; i < streamInfo.channelCount; i++) {
+          ptr[i] = data[i].toInt();
+        }
         return ptr;
       case const (Int16):
-        final ptr = allocate<Int16>();
-        ptr.value = data;
+        final ptr = allocate<Int16>(streamInfo.channelCount);
+        for (var i = 0; i < streamInfo.channelCount; i++) {
+          ptr[i] = data[i].toInt();
+        }
         return ptr;
       case const (Int32):
-        final ptr = allocate<Int32>();
-        ptr.value = data;
+        final ptr = allocate<Int32>(streamInfo.channelCount);
+        for (var i = 0; i < streamInfo.channelCount; i++) {
+          ptr[i] = data[i].toInt();
+        }
         return ptr;
       case const (Int64):
-        final ptr = allocate<Int64>();
-        ptr.value = data;
+        final ptr = allocate<Int64>(streamInfo.channelCount);
+        for (var i = 0; i < streamInfo.channelCount; i++) {
+          ptr[i] = data[i].toInt();
+        }
         return ptr;
       case const (Pointer<Char>):
-        if (data is String) {
+        if (data.every((item) => item is String)) {
           // For a single string in a single channel
-          final stringArray = allocate<Pointer<Char>>(1);
-          stringArray[0] = data.toNativeUtf8().cast<Char>();
-          return stringArray;
-        } else if (data is List && data.every((item) => item is String)) {
-          // For multiple strings in multiple channels
-          final stringArray = allocate<Pointer<Char>>(data.length);
-          for (var i = 0; i < data.length; i++) {
+          final stringArray = allocate<Pointer<Char>>(streamInfo.channelCount);
+          for (var i = 0; i < streamInfo.channelCount; i++) {
             stringArray[i] = data[i].toString().toNativeUtf8().cast<Char>();
           }
           return stringArray;
@@ -311,7 +469,12 @@ class LSLStreamOutlet extends LSLObj {
     }
   }
 
-  Future<int> pushSample(dynamic data) async {
+  Future<int> pushSample(List<dynamic> data) async {
+    if (data.length != streamInfo.channelCount) {
+      throw LSLException(
+        'Data length (${data.length}) does not match channel count (${streamInfo.channelCount})',
+      );
+    }
     final samplePtr = _allocSample(data);
     try {
       // Push the sample
@@ -331,12 +494,18 @@ class LSLStreamOutlet extends LSLObj {
       }
     }
   }
+
+  @override
+  String toString() {
+    return 'LSLStreamOutlet{streamInfo: $streamInfo, chunkSize: $chunkSize, maxBuffer: $maxBuffer}';
+  }
 }
 
 // need to implement full data types later
 class LSL {
   LSLStreamInfo? _streamInfo;
   LSLStreamOutlet? _streamOutlet;
+  // LSLStreamInlet? _streamInlet;
   LSL();
 
   Future<LSLStreamInfo> createStreamInfo({
@@ -380,5 +549,33 @@ class LSL {
     return _streamOutlet!;
   }
 
+  Future<List<LSLStreamInfo>> resolveStreams({
+    double waitTime = 5.0,
+    int maxStreams = 5,
+    double forgetAfter = 5.0,
+  }) async {
+    final resolver = LSLStreamResolverContinuous(
+      forgetAfter: forgetAfter,
+      maxStreams: maxStreams,
+    );
+    resolver.create();
+    final streams = await resolver.resolve(waitTime: waitTime);
+    // free the resolver
+    //resolver.destroy();
+    // these stream info pointers remain until they are destroyed
+    return streams;
+  }
+
   double localClock() => lsl_local_clock();
+
+  void destroy() {
+    _streamInfo?.destroy();
+    _streamOutlet?.destroy();
+    // _streamInlet?.destroy();
+  }
+
+  @override
+  String toString() {
+    return 'LSL{streamInfo: $_streamInfo, streamOutlet: $_streamOutlet}';
+  }
 }

@@ -9,6 +9,7 @@ import 'dart:ffi';
 import 'package:ffi/ffi.dart' show StringUtf8Pointer, calloc;
 
 void main() {
+  // todo test object destruction, dealloc and free
   group('LSL ffi direct', () {
     test('Check lsl library version', () {
       expect(lsl_library_version(), 116);
@@ -55,16 +56,28 @@ void main() {
     // of values is less than the channels.
     test('push a default (float) sample', () async {
       final lsl = LSL();
-      await lsl.createStreamInfo();
+      await lsl.createStreamInfo(channelCount: 2);
       await lsl.createOutlet();
-      await lsl.outlet?.pushSample(5.0);
+      await lsl.outlet?.pushSample([5.0, 8.0]);
     });
 
     test('push a string sample', () async {
       final lsl = LSL();
-      await lsl.createStreamInfo(channelFormat: LSLChannelFormat.string);
+      await lsl.createStreamInfo(
+        channelFormat: LSLChannelFormat.string,
+        channelCount: 5,
+      );
       await lsl.createOutlet();
-      await lsl.outlet?.pushSample('Hello, World!');
+      await lsl.outlet?.pushSample(['Hello', 'World', 'This', 'is', 'a test']);
+    });
+    test('Create outlet and resolve available streams', () async {
+      final lsl = LSL();
+      await lsl.createStreamInfo();
+      final outlet = await lsl.createOutlet();
+      outlet.waitForConsumer(timeout: 5.0, exception: false);
+      final streams = await lsl.resolveStreams(waitTime: 1.0);
+      throw Exception(streams);
+      expect(streams.length, greaterThan(0));
     });
     test('Direct FFI test for string sample', () {
       // Create a simple stream info
