@@ -6,7 +6,7 @@ import 'package:liblsl/src/ffi/mem.dart' show FreePointerExtension;
 import 'package:liblsl/src/types.dart';
 import 'package:test/test.dart';
 import 'dart:ffi';
-import 'package:ffi/ffi.dart' show StringUtf8Pointer, malloc;
+import 'package:ffi/ffi.dart' show StringUtf8Pointer, calloc;
 
 void main() {
   group('LSL ffi direct', () {
@@ -45,7 +45,14 @@ void main() {
         throwsA(isA<TimeoutException>()),
       );
     });
-
+    // TODO: ERROR: This passes but it's probably
+    // passing because it's reading contiguous memory
+    // for the number of channels, which fails if you do a string
+    // with more than 1 channel. This is critical to
+    // a) test, and fix
+    // b) handle in the api to ensure that either dummy/null
+    // values are pushed, or an error is thrown if the number
+    // of values is less than the channels.
     test('push a default (float) sample', () async {
       final lsl = LSL();
       await lsl.createStreamInfo();
@@ -79,7 +86,7 @@ void main() {
 
       // Create a string sample (as an array of strings)
       final sampleStr = "Test Sample".toNativeUtf8().cast<Char>();
-      final stringArray = malloc<Pointer<Char>>(1);
+      final stringArray = calloc<Pointer<Char>>(1);
       stringArray[0] = sampleStr;
 
       // Push the sample

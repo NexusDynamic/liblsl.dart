@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:ffi';
-import 'package:ffi/ffi.dart' show calloc, StringUtf8Pointer;
+import 'package:ffi/ffi.dart' show StringUtf8Pointer;
 import 'package:liblsl/liblsl.dart';
 import 'src/types.dart';
 import 'src/ffi/mem.dart';
@@ -342,8 +342,8 @@ class LSL {
   Future<LSLStreamInfo> createStreamInfo({
     String streamName = "DartLSLStream",
     LSLContentType streamType = LSLContentType.eeg,
-    int channelCount = 16,
-    double sampleRate = 250.0,
+    int channelCount = 1,
+    double sampleRate = 150.0,
     LSLChannelFormat channelFormat = LSLChannelFormat.float32,
     String sourceId = "DartLSL",
   }) async {
