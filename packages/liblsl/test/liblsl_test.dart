@@ -19,22 +19,29 @@ void main() {
     test('Check lsl library version', () async {
       final lsl = LSL();
       expect(lsl.version, 116);
+      lsl.destroy();
     });
 
     test('Create stream info', () async {
       final lsl = LSL();
       await lsl.createStreamInfo();
+      lsl.destroy();
     });
 
     test('Create stream outlet throws exception without streamInfo', () async {
       final lsl = LSL();
       expect(() => lsl.createOutlet(), throwsA(isA<LSLException>()));
+      lsl.destroy();
     });
 
     test('Create stream outlet', () async {
       final lsl = LSL();
       await lsl.createStreamInfo();
       await lsl.createOutlet();
+      expect(lsl.outlet, isNotNull);
+      expect(lsl.outlet?.streamInfo, isNotNull);
+      expect(lsl.outlet?.streamInfo.streamName, 'DartLSLStream');
+      lsl.destroy();
     });
 
     test('Wait for consumer timeout exception', () async {
@@ -45,6 +52,7 @@ void main() {
         () => lsl.outlet?.waitForConsumer(timeout: 1.0),
         throwsA(isA<TimeoutException>()),
       );
+      lsl.destroy();
     });
     // TODO: ERROR: This passes but it's probably
     // passing because it's reading contiguous memory
@@ -59,6 +67,7 @@ void main() {
       await lsl.createStreamInfo(channelCount: 2);
       await lsl.createOutlet();
       await lsl.outlet?.pushSample([5.0, 8.0]);
+      lsl.destroy();
     });
 
     test('push a string sample', () async {
@@ -69,6 +78,7 @@ void main() {
       );
       await lsl.createOutlet();
       await lsl.outlet?.pushSample(['Hello', 'World', 'This', 'is', 'a test']);
+      lsl.destroy();
     });
     test('Create outlet and resolve available streams', () async {
       final lsl = LSL();
@@ -76,8 +86,11 @@ void main() {
       final outlet = await lsl.createOutlet();
       outlet.waitForConsumer(timeout: 5.0, exception: false);
       final streams = await lsl.resolveStreams(waitTime: 1.0);
-      throw Exception(streams);
       expect(streams.length, greaterThan(0));
+      for (final stream in streams) {
+        stream.destroy();
+      }
+      lsl.destroy();
     });
     test('Direct FFI test for string sample', () {
       // Create a simple stream info

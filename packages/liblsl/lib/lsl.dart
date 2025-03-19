@@ -237,10 +237,7 @@ class LSLStreamInfo extends LSLObj {
       sourceId: sourceId.toDartString(),
       streamInfo: streamInfo,
     );
-    // free the pointers
-    //streamName.free();
-    //streamType.free();
-    //sourceId.free();
+    info._allocatedArgs.addAll([streamName, streamType, sourceId]);
 
     return info;
   }
@@ -249,7 +246,7 @@ class LSLStreamInfo extends LSLObj {
   void destroy() {
     if (_streamInfo != null) {
       lsl_destroy_streaminfo(_streamInfo!);
-      _streamInfo?.free();
+      //allocate.free(_streamInfo!);
       _streamInfo = null;
     }
     freeArgs();
@@ -373,7 +370,9 @@ class LSLStreamOutlet extends LSLObj {
   void destroy() {
     if (_streamOutlet != null) {
       lsl_destroy_outlet(_streamOutlet!);
-      _streamOutlet?.free();
+      // i don't understand, i guess the pointer is freed in
+      // lsl_destroy_outlet, but idk.
+      // _streamOutlet?.free();
       _streamOutlet = null;
     }
     freeArgs();
