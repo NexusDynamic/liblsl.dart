@@ -5,6 +5,35 @@ import 'package:liblsl/liblsl.dart';
 import 'src/types.dart';
 import 'src/ffi/mem.dart';
 
+extension PointerBaseExtension<T extends NativeType> on Pointer<T> {
+  dynamic operator [](int index) {
+    throw LSLException(
+      'Cannot access elements directly from a base Pointer<NativeType>. '
+      'Use a specific type like Pointer<Float>, Pointer<Int32>, etc.',
+    );
+  }
+
+  void operator []=(int index, dynamic value) {
+    throw LSLException(
+      'Cannot assign elements directly to a base Pointer<NativeType>. '
+      'Use a specific type like Pointer<Float>, Pointer<Int32>, etc.',
+    );
+  }
+
+  dynamic toDartString() {
+    if (this is Pointer<Char>) {
+      return cast<Utf8>().toDartString();
+    } else if (this is Pointer<Utf8>) {
+      return cast<Utf8>().toDartString();
+    } else {
+      throw LSLException(
+        'Cannot convert Pointer<NativeType> to Dart String. '
+        'Use a specific type like Pointer<Char> or Pointer<Utf8>.',
+      );
+    }
+  }
+}
+
 typedef DartLslPushSample<T extends NativeType> =
     int Function(lsl_outlet out, Pointer<T> data);
 
@@ -51,7 +80,7 @@ class LslToSample<T extends NativeType, D> {
 
   const LslToSample(this._toDartFn);
 
-  List call(Pointer<T> ptr, int maxLength) {
+  List<D> call(Pointer<T> ptr, int maxLength) {
     return _toDartFn(ptr, maxLength);
   }
 }
@@ -272,92 +301,22 @@ enum LSLChannelFormat {
   }
 }
 
-LslToSample<N, T> toDartSample<N extends NativeType, T>() {
-  switch (T) {
-    case const (double):
-      if (N == Float) {
-        return LslToSample<N, double>(
-              (Pointer<N> ptr, int maxLength) => List<double>.generate(
-                maxLength,
-                (i) => (ptr as Pointer<Float>)[i],
-              ),
-            )
-            as LslToSample<N, T>;
-      } else if (N == Double) {
-        return LslToSample<N, double>(
-              (Pointer<N> ptr, int maxLength) => List<double>.generate(
-                maxLength,
-                (i) => (ptr as Pointer<Double>)[i],
-              ),
-            )
-            as LslToSample<N, T>;
-      } else {
-        throw LSLException('Invalid channel format for double conversion');
-      }
-    case const (int):
-      if (N == Int8) {
-        return LslToSample<N, int>(
-              (Pointer<N> ptr, int maxLength) => List<int>.generate(
-                maxLength,
-                (i) => (ptr as Pointer<Int8>)[i],
-              ),
-            )
-            as LslToSample<N, T>;
-      } else if (N == Int16) {
-        return LslToSample<N, int>(
-              (Pointer<N> ptr, int maxLength) => List<int>.generate(
-                maxLength,
-                (i) => (ptr as Pointer<Int16>)[i],
-              ),
-            )
-            as LslToSample<N, T>;
-      } else if (N == Int32) {
-        return LslToSample<N, int>(
-              (Pointer<N> ptr, int maxLength) => List<int>.generate(
-                maxLength,
-                (i) => (ptr as Pointer<Int32>)[i],
-              ),
-            )
-            as LslToSample<N, T>;
-      } else if (N == Int64) {
-        return LslToSample<N, int>(
-              (Pointer<N> ptr, int maxLength) => List<int>.generate(
-                maxLength,
-                (i) => (ptr as Pointer<Int64>)[i],
-              ),
-            )
-            as LslToSample<N, T>;
-      } else {
-        throw LSLException('Invalid channel format for int conversion');
-      }
-    case const (String):
-      if (N == Pointer<Char>) {
-        return LslToSample<N, String>(
-              (Pointer<N> ptr, int maxLength) => List<String>.generate(
-                maxLength,
-                (i) =>
-                    (ptr as Pointer<Pointer<Char>>)[i]
-                        .cast<Utf8>()
-                        .toDartString(),
-              ),
-            )
-            as LslToSample<N, T>;
-      } else {
-        throw LSLException('Invalid channel format for string conversion');
-      }
-    case const (Void):
-      if (N == Void) {
-        return LslToSample<N, Null>(
-              (Pointer<N> ptr, int maxLength) =>
-                  List.generate(maxLength, (i) => null),
-            )
-            as LslToSample<N, T>;
-      } else {
-        throw LSLException('Invalid channel format for void conversion');
-      }
-    default:
-      throw LSLException('Invalid channel format for conversion');
-  }
+LslToSample<N, T> toDartSample<N extends Pointer<NativeType>, T>() {
+  return LslToSample<N, T>(
+    (Pointer<N> ptr, int maxLength) =>
+        List<T>.generate(maxLength, (i) => ptr[i] as T, growable: false),
+  );
+}
+
+/// this is the most ungeneric of generics, potentially dangerous
+LslToSample<N, T> toDartSampleString<N extends Pointer<NativeType>, T>() {
+  return LslToSample<N, T>(
+    (Pointer<N> ptr, int maxLength) => List<T>.generate(
+      maxLength,
+      (i) => (ptr[i] as Pointer<Char>).toDartString() as T,
+      growable: false,
+    ),
+  );
 }
 
 // const Map<str, Function
@@ -600,8 +559,7 @@ class LSLStreamInlet<T> extends LSLObj {
       throw LSLException('StreamInfo not created');
     }
     _pullFn = streamInfo.channelFormat.pullFn;
-    final nt = streamInfo.channelFormat.ffiType;
-    _toDartFn = toDartSample<nt, T>();
+    _toDartFn = toDartSample<Pointer<NativeType>, T>();
   }
 
   @override
@@ -642,7 +600,10 @@ class LSLStreamInlet<T> extends LSLObj {
     if (error(ec.value)) {
       throw LSLException('Error pulling sample');
     }
-    return LSLSample<T>(_toDartFn(samplePtr), timestamp);
+    return LSLSample<T>(
+      _toDartFn(samplePtr, streamInfo.channelCount),
+      timestamp,
+    );
   }
 
   @override
@@ -757,7 +718,11 @@ class LSLStreamOutlet extends LSLObj {
           // For a single string in a single channel
           final stringArray = allocate<Pointer<Char>>(streamInfo.channelCount);
           for (var i = 0; i < streamInfo.channelCount; i++) {
-            stringArray[i] = data[i].toString().toNativeUtf8().cast<Char>();
+            // Convert the string to a native UTF8 string and store the pointer
+            final Pointer<Utf8> utf8String = data[i].toString().toNativeUtf8(
+              allocator: allocate,
+            );
+            stringArray[i] = utf8String.cast<Char>();
           }
           return stringArray;
         }

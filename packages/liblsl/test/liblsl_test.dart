@@ -6,7 +6,7 @@ import 'package:liblsl/src/ffi/mem.dart' show FreePointerExtension;
 import 'package:liblsl/src/types.dart';
 import 'package:test/test.dart';
 import 'dart:ffi';
-import 'package:ffi/ffi.dart' show StringUtf8Pointer, calloc;
+import 'package:ffi/ffi.dart' show StringUtf8Pointer, malloc;
 
 void main() {
   // todo test object destruction, dealloc and free
@@ -104,9 +104,9 @@ void main() {
         expect(streams.length, greaterThan(0));
         final inlet = await lsl.createInlet(streamInfo: streams[0]);
         final sample = await inlet.pullSample();
-        expect(sample.length, 2);
-        expect(sample[0], isA<double>());
-        expect(sample[1], isA<double>());
+        expect(sample.data.length, 2);
+        expect(sample.data[0], isA<double>());
+        expect(sample.data[1], isA<double>());
         for (final stream in streams) {
           stream.destroy();
         }
@@ -133,7 +133,7 @@ void main() {
 
       // Create a string sample (as an array of strings)
       final sampleStr = "Test Sample".toNativeUtf8().cast<Char>();
-      final stringArray = calloc<Pointer<Char>>(1);
+      final stringArray = malloc<Pointer<Char>>(1);
       stringArray[0] = sampleStr;
 
       // Push the sample
