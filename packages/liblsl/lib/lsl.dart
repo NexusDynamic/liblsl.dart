@@ -19,6 +19,43 @@ class LslPushSample<T extends NativeType> {
   }
 }
 
+typedef DartLslPullSample<T extends NativeType> =
+    double Function(
+      lsl_inlet inlet,
+      Pointer<T> buffer,
+      int bufferSize,
+      double timeout,
+      Pointer<Int32> ec,
+    );
+
+class LslPullSample<T extends NativeType> {
+  final DartLslPullSample<T> _pullFn;
+
+  const LslPullSample(this._pullFn);
+
+  double call(
+    lsl_inlet inlet,
+    Pointer<T> buffer,
+    int bufferSize,
+    double timeout,
+    Pointer<Int32> ec,
+  ) {
+    return _pullFn(inlet, buffer, bufferSize, timeout, ec);
+  }
+}
+
+// typedef LslToDartSample<T extends NativeType> = List Function(Pointer<T> ptr, int maxLength);
+
+class LslToSample<T extends NativeType, D> {
+  final List<D> Function(Pointer<T>, int) _toDartFn;
+
+  const LslToSample(this._toDartFn);
+
+  List call(Pointer<T> ptr, int maxLength) {
+    return _toDartFn(ptr, maxLength);
+  }
+}
+
 enum LSLContentType {
   /// EEG (for Electroencephalogram)
   eeg("EEG"),
@@ -104,6 +141,27 @@ enum LSLChannelFormat {
     }
   }
 
+  Type get dartType {
+    switch (this) {
+      case LSLChannelFormat.float32:
+        return double;
+      case LSLChannelFormat.double64:
+        return double;
+      case LSLChannelFormat.int8:
+        return int;
+      case LSLChannelFormat.int16:
+        return int;
+      case LSLChannelFormat.int32:
+        return int;
+      case LSLChannelFormat.int64:
+        return int;
+      case LSLChannelFormat.string:
+        return String;
+      case LSLChannelFormat.undefined:
+        return Void;
+    }
+  }
+
   LslPushSample get pushFn {
     switch (this) {
       case LSLChannelFormat.float32:
@@ -123,6 +181,182 @@ enum LSLChannelFormat {
       case LSLChannelFormat.undefined:
         return LslPushSample<Void>(lsl_push_sample_v);
     }
+  }
+
+  LslPullSample get pullFn {
+    switch (this) {
+      case LSLChannelFormat.float32:
+        return LslPullSample<Float>(lsl_pull_sample_f);
+      case LSLChannelFormat.double64:
+        return LslPullSample<Double>(lsl_pull_sample_d);
+      case LSLChannelFormat.int8:
+        return LslPullSample<Char>(lsl_pull_sample_c);
+      case LSLChannelFormat.int16:
+        return LslPullSample<Int16>(lsl_pull_sample_s);
+      case LSLChannelFormat.int32:
+        return LslPullSample<Int32>(lsl_pull_sample_i);
+      case LSLChannelFormat.int64:
+        return LslPullSample<Int64>(lsl_pull_sample_l);
+      case LSLChannelFormat.string:
+        return LslPullSample<Pointer<Char>>(lsl_pull_sample_str);
+      case LSLChannelFormat.undefined:
+        return LslPullSample<Void>(lsl_pull_sample_v);
+    }
+  }
+
+  LslToSample<NativeType, double> get toDoubleFn {
+    switch (this) {
+      case LSLChannelFormat.float32:
+        return LslToSample<Float, double>(
+          (Pointer<Float> ptr, int maxLength) =>
+              List<double>.generate(maxLength, (i) => ptr[i]),
+        );
+      case LSLChannelFormat.double64:
+        return LslToSample<Double, double>(
+          (Pointer<Double> ptr, int maxLength) =>
+              List<double>.generate(maxLength, (i) => ptr[i]),
+        );
+      default:
+        throw LSLException('Invalid channel format for double conversion');
+    }
+  }
+
+  LslToSample<NativeType, int> get toIntFn {
+    switch (this) {
+      case LSLChannelFormat.int8:
+        return LslToSample<Char, int>(
+          (Pointer<Char> ptr, int maxLength) =>
+              List<int>.generate(maxLength, (i) => ptr[i]),
+        );
+      case LSLChannelFormat.int16:
+        return LslToSample<Int16, int>(
+          (Pointer<Int16> ptr, int maxLength) =>
+              List<int>.generate(maxLength, (i) => ptr[i]),
+        );
+      case LSLChannelFormat.int32:
+        return LslToSample<Int32, int>(
+          (Pointer<Int32> ptr, int maxLength) =>
+              List<int>.generate(maxLength, (i) => ptr[i]),
+        );
+      case LSLChannelFormat.int64:
+        return LslToSample<Int64, int>(
+          (Pointer<Int64> ptr, int maxLength) =>
+              List<int>.generate(maxLength, (i) => ptr[i]),
+        );
+      default:
+        throw LSLException('Invalid channel format for int conversion');
+    }
+  }
+
+  LslToSample<NativeType, String> get toStringFn {
+    if (this != LSLChannelFormat.string) {
+      throw LSLException('Invalid channel format for string conversion');
+    }
+
+    return LslToSample<Pointer<Char>, String>(
+      (Pointer<Pointer<Char>> ptr, int maxLength) => List<String>.generate(
+        maxLength,
+        (i) => ptr[i].cast<Utf8>().toDartString(),
+      ),
+    );
+  }
+
+  LslToSample<NativeType, Null> get toVoidFn {
+    if (this != LSLChannelFormat.undefined) {
+      throw LSLException('Invalid channel format for void conversion');
+    }
+    return LslToSample<Void, Null>(
+      (Pointer<Void> ptr, int maxLength) =>
+          List.generate(maxLength, (i) => null),
+    );
+  }
+}
+
+LslToSample<N, T> toDartSample<N extends NativeType, T>() {
+  switch (T) {
+    case const (double):
+      if (N == Float) {
+        return LslToSample<N, double>(
+              (Pointer<N> ptr, int maxLength) => List<double>.generate(
+                maxLength,
+                (i) => (ptr as Pointer<Float>)[i],
+              ),
+            )
+            as LslToSample<N, T>;
+      } else if (N == Double) {
+        return LslToSample<N, double>(
+              (Pointer<N> ptr, int maxLength) => List<double>.generate(
+                maxLength,
+                (i) => (ptr as Pointer<Double>)[i],
+              ),
+            )
+            as LslToSample<N, T>;
+      } else {
+        throw LSLException('Invalid channel format for double conversion');
+      }
+    case const (int):
+      if (N == Int8) {
+        return LslToSample<N, int>(
+              (Pointer<N> ptr, int maxLength) => List<int>.generate(
+                maxLength,
+                (i) => (ptr as Pointer<Int8>)[i],
+              ),
+            )
+            as LslToSample<N, T>;
+      } else if (N == Int16) {
+        return LslToSample<N, int>(
+              (Pointer<N> ptr, int maxLength) => List<int>.generate(
+                maxLength,
+                (i) => (ptr as Pointer<Int16>)[i],
+              ),
+            )
+            as LslToSample<N, T>;
+      } else if (N == Int32) {
+        return LslToSample<N, int>(
+              (Pointer<N> ptr, int maxLength) => List<int>.generate(
+                maxLength,
+                (i) => (ptr as Pointer<Int32>)[i],
+              ),
+            )
+            as LslToSample<N, T>;
+      } else if (N == Int64) {
+        return LslToSample<N, int>(
+              (Pointer<N> ptr, int maxLength) => List<int>.generate(
+                maxLength,
+                (i) => (ptr as Pointer<Int64>)[i],
+              ),
+            )
+            as LslToSample<N, T>;
+      } else {
+        throw LSLException('Invalid channel format for int conversion');
+      }
+    case const (String):
+      if (N == Pointer<Char>) {
+        return LslToSample<N, String>(
+              (Pointer<N> ptr, int maxLength) => List<String>.generate(
+                maxLength,
+                (i) =>
+                    (ptr as Pointer<Pointer<Char>>)[i]
+                        .cast<Utf8>()
+                        .toDartString(),
+              ),
+            )
+            as LslToSample<N, T>;
+      } else {
+        throw LSLException('Invalid channel format for string conversion');
+      }
+    case const (Void):
+      if (N == Void) {
+        return LslToSample<N, Null>(
+              (Pointer<N> ptr, int maxLength) =>
+                  List.generate(maxLength, (i) => null),
+            )
+            as LslToSample<N, T>;
+      } else {
+        throw LSLException('Invalid channel format for void conversion');
+      }
+    default:
+      throw LSLException('Invalid channel format for conversion');
   }
 }
 
@@ -147,25 +381,39 @@ abstract class MemManaged {
 }
 
 abstract class LSLObj extends MemManaged {
-  dynamic create();
-  void destroy();
+  bool _created = false;
+  bool _destroyed = false;
+  LSLObj create() {
+    _created = true;
+    return this;
+  }
+
+  void destroy() {
+    _destroyed = true;
+    freeArgs();
+  }
+
   bool error(int code) {
     final e = lsl_error_code_t.fromValue(code);
     return e != lsl_error_code_t.lsl_no_error;
   }
+
+  bool get created => _created;
+  bool get destroyed => _destroyed;
 }
 
-class LSLSample<T extends NativeType> {
-  final Pointer<T> data;
-
-  LSLSample(this.data);
-}
-
-class LSLSampleTs<T extends NativeType> extends LSLSample<T> {
+class LSLSample<T> {
+  final List<T> data;
   final double timestamp;
 
-  LSLSampleTs(super.data, this.timestamp);
+  LSLSample(this.data, this.timestamp);
 }
+
+// class LSLSampleTs<T extends NativeType> extends LSLSample<T> {
+//   final double timestamp;
+
+//   LSLSampleTs(super.data, this.timestamp);
+// }
 
 class LSLStreamInfo extends LSLObj {
   final String streamName;
@@ -193,7 +441,10 @@ class LSLStreamInfo extends LSLObj {
   lsl_streaminfo? get streamInfo => _streamInfo;
 
   @override
-  lsl_streaminfo create() {
+  create() {
+    if (created) {
+      throw LSLException('StreamInfo already created');
+    }
     final streamNamePtr =
         streamName.toNativeUtf8(allocator: allocate) as Pointer<Char>;
     final sourceIdPtr =
@@ -209,7 +460,8 @@ class LSLStreamInfo extends LSLObj {
       channelFormat.lslFormat,
       sourceIdPtr,
     );
-    return _streamInfo!;
+    super.create();
+    return this;
   }
 
   factory LSLStreamInfo.fromStreamInfo(lsl_streaminfo streamInfo) {
@@ -238,18 +490,21 @@ class LSLStreamInfo extends LSLObj {
       streamInfo: streamInfo,
     );
     info._allocatedArgs.addAll([streamName, streamType, sourceId]);
-
+    info._created = true;
     return info;
   }
 
   @override
   void destroy() {
+    if (destroyed) {
+      return;
+    }
     if (_streamInfo != null) {
       lsl_destroy_streaminfo(_streamInfo!);
       //allocate.free(_streamInfo!);
       _streamInfo = null;
     }
-    freeArgs();
+    super.destroy();
   }
 
   @override
@@ -267,9 +522,14 @@ class LSLStreamResolverContinuous extends LSLObj {
   LSLStreamResolverContinuous({this.forgetAfter = 5.0, this.maxStreams = 5});
 
   @override
-  void create() {
+  create() {
+    if (created) {
+      throw LSLException('Resolver already created');
+    }
     _streamInfoBuffer = allocate<lsl_streaminfo>(maxStreams);
     _resolver = lsl_create_continuous_resolver(forgetAfter);
+    super.create();
+    return this;
   }
 
   /// Resolve streams
@@ -293,11 +553,15 @@ class LSLStreamResolverContinuous extends LSLObj {
       final streamInfo = LSLStreamInfo.fromStreamInfo(_streamInfoBuffer![i]);
       streams.add(streamInfo);
     }
+
     return streams;
   }
 
   @override
   void destroy() {
+    if (destroyed) {
+      return;
+    }
     if (_streamInfoBuffer != null) {
       _streamInfoBuffer?.free();
       _streamInfoBuffer = null;
@@ -307,7 +571,7 @@ class LSLStreamResolverContinuous extends LSLObj {
       _resolver?.free();
       _resolver = null;
     }
-    freeArgs();
+    super.destroy();
   }
 
   @override
@@ -316,27 +580,83 @@ class LSLStreamResolverContinuous extends LSLObj {
   }
 }
 
-// class LSLStreamInlet extends LSLObj {
-//   final lsl_inlet? _streamInlet;
-//   late final LSLStreamInfo streamInfo;
+/// @note The inlet makes a copy of the info object at its construction.
+class LSLStreamInlet<T> extends LSLObj {
+  lsl_inlet? _streamInlet;
+  late final LSLStreamInfo streamInfo;
+  int maxBufferSize;
+  int maxChunkLength;
+  bool recover;
+  late final LslPullSample _pullFn;
+  late final LslToSample<NativeType, T> _toDartFn;
 
-//   LSLStreamInlet(this.streamInfo);
+  LSLStreamInlet(
+    this.streamInfo, {
+    this.maxBufferSize = 0,
+    this.maxChunkLength = 0,
+    this.recover = true,
+  }) {
+    if (streamInfo.streamInfo == null) {
+      throw LSLException('StreamInfo not created');
+    }
+    _pullFn = streamInfo.channelFormat.pullFn;
+    final nt = streamInfo.channelFormat.ffiType;
+    _toDartFn = toDartSample<nt, T>();
+  }
 
-//   @override
-//   lsl_inlet create() {
-//     _streamInlet = lsl_create_inlet(streamInfo.streamInfo!);
-//     return _streamInlet!;
-//   }
+  @override
+  create() {
+    if (created) {
+      throw LSLException('Inlet already created');
+    }
+    _streamInlet = lsl_create_inlet(
+      streamInfo.streamInfo!,
+      maxBufferSize,
+      maxChunkLength,
+      recover as int,
+    );
+    if (_streamInlet == null) {
+      throw LSLException('Error creating inlet');
+    }
+    super.create();
+    return this;
+  }
 
-//   @override
-//   void destroy() {
-//     if (_streamInlet != null) {
-//       lsl_destroy_inlet(_streamInlet!);
-//       _streamInlet?.free();
-//     }
-//     freeArgs();
-//   }
-// }
+  /// Pull a sample from the inlet
+  Future<LSLSample<T>> pullSample({
+    double timeout = 0.0,
+    int bufferSize = 0,
+  }) async {
+    if (_streamInlet == null) {
+      throw LSLException('Inlet not created');
+    }
+    final ec = allocate<Int32>();
+    final samplePtr = allocate<Pointer>(streamInfo.channelCount);
+    final double timestamp = _pullFn(
+      _streamInlet!,
+      samplePtr,
+      bufferSize,
+      timeout,
+      ec,
+    );
+    if (error(ec.value)) {
+      throw LSLException('Error pulling sample');
+    }
+    return LSLSample<T>(_toDartFn(samplePtr), timestamp);
+  }
+
+  @override
+  void destroy() {
+    if (destroyed) {
+      return;
+    }
+    if (_streamInlet != null) {
+      lsl_destroy_inlet(_streamInlet!);
+    }
+    streamInfo.destroy();
+    super.destroy();
+  }
+}
 
 class LSLStreamOutlet extends LSLObj {
   final LSLStreamInfo streamInfo;
@@ -357,13 +677,17 @@ class LSLStreamOutlet extends LSLObj {
   }
 
   @override
-  lsl_outlet create() {
+  create() {
     _streamOutlet = lsl_create_outlet(
       streamInfo.streamInfo!,
       chunkSize,
       maxBuffer,
     );
-    return _streamOutlet!;
+    if (_streamOutlet == null) {
+      throw LSLException('Error creating outlet');
+    }
+    super.create();
+    return this;
   }
 
   @override
@@ -375,7 +699,8 @@ class LSLStreamOutlet extends LSLObj {
       // _streamOutlet?.free();
       _streamOutlet = null;
     }
-    freeArgs();
+    streamInfo.destroy();
+    super.destroy();
   }
 
   Future<void> waitForConsumer({
@@ -388,31 +713,7 @@ class LSLStreamOutlet extends LSLObj {
     }
   }
 
-  // is this necessary? might slow down the process
-  /// Check if the value is within the bounds of the type
-  /// For example, if the type is Int8,
-  /// the value should be between -128 and 127
-  bool inTypeBounds(Type type, dynamic value) {
-    switch (type) {
-      case const (Float):
-        return value is double;
-      case const (Double):
-        return value is double;
-      case const (Int8):
-        return value is int && value >= -128 && value <= 127;
-      case const (Int16):
-        return value is int && value >= -32768 && value <= 32767;
-      case const (Int32):
-        return value is int && value >= -2147483648 && value <= 2147483647;
-      case const (Int64):
-        return value is int &&
-            value >= -9223372036854775808 &&
-            value <= 9223372036854775807;
-      default:
-        return false;
-    }
-  }
-
+  // this can be made more efficient, just create the function during create.
   Pointer _allocSample(List<dynamic> data) {
     switch (streamInfo.channelFormat.ffiType) {
       case const (Float):
@@ -500,11 +801,10 @@ class LSLStreamOutlet extends LSLObj {
   }
 }
 
-// need to implement full data types later
 class LSL {
   LSLStreamInfo? _streamInfo;
   LSLStreamOutlet? _streamOutlet;
-  // LSLStreamInlet? _streamInlet;
+  LSLStreamInlet? _streamInlet;
   LSL();
 
   Future<LSLStreamInfo> createStreamInfo({
@@ -546,6 +846,53 @@ class LSL {
     );
     _streamOutlet?.create();
     return _streamOutlet!;
+  }
+
+  Future<LSLStreamInlet> createInlet({
+    required LSLStreamInfo streamInfo,
+    int maxBufferSize = 0,
+    int maxChunkLength = 0,
+    bool recover = true,
+  }) async {
+    if (_streamInlet != null) {
+      throw LSLException('Inlet already created');
+    }
+
+    if (!streamInfo.created) {
+      throw LSLException('StreamInfo not created');
+    }
+
+    switch (streamInfo.channelFormat.dartType) {
+      case const (double):
+        _streamInlet = LSLStreamInlet<double>(
+          streamInfo,
+          maxBufferSize: maxBufferSize,
+          maxChunkLength: maxChunkLength,
+          recover: recover,
+        );
+        break;
+      case const (int):
+        _streamInlet = LSLStreamInlet<int>(
+          streamInfo,
+          maxBufferSize: maxBufferSize,
+          maxChunkLength: maxChunkLength,
+          recover: recover,
+        );
+        break;
+      case const (String):
+        _streamInlet = LSLStreamInlet<String>(
+          streamInfo,
+          maxBufferSize: maxBufferSize,
+          maxChunkLength: maxChunkLength,
+          recover: recover,
+        );
+        break;
+      default:
+        throw LSLException('Invalid channel format');
+    }
+
+    _streamInlet?.create();
+    return _streamInlet!;
   }
 
   Future<List<LSLStreamInfo>> resolveStreams({

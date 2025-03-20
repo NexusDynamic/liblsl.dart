@@ -92,6 +92,27 @@ void main() {
       }
       lsl.destroy();
     });
+
+    test(
+      'create outlet, resolve stream, create inlet and pull sample',
+      () async {
+        final lsl = LSL();
+        await lsl.createStreamInfo();
+        final outlet = await lsl.createOutlet();
+        outlet.waitForConsumer(timeout: 5.0, exception: false);
+        final streams = await lsl.resolveStreams(waitTime: 1.0);
+        expect(streams.length, greaterThan(0));
+        final inlet = await lsl.createInlet(streamInfo: streams[0]);
+        final sample = await inlet.pullSample();
+        expect(sample.length, 2);
+        expect(sample[0], isA<double>());
+        expect(sample[1], isA<double>());
+        for (final stream in streams) {
+          stream.destroy();
+        }
+        lsl.destroy();
+      },
+    );
     test('Direct FFI test for string sample', () {
       // Create a simple stream info
       final streamNamePtr = "TestStream".toNativeUtf8().cast<Char>();
