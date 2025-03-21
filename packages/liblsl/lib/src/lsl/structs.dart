@@ -1,5 +1,5 @@
 import 'dart:ffi';
-import 'package:liblsl/liblsl.dart';
+import 'package:liblsl/native_liblsl.dart';
 import 'package:ffi/ffi.dart' show StringUtf8Pointer;
 import 'package:liblsl/src/ffi/mem.dart';
 

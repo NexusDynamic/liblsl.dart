@@ -1,4 +1,4 @@
-import 'package:liblsl/liblsl.dart';
+import 'package:liblsl/native_liblsl.dart';
 import 'package:liblsl/lsl.dart';
 import 'package:liblsl/src/ffi/mem.dart' show FreePointerExtension;
 import 'package:liblsl/src/lsl/exception.dart';
@@ -53,14 +53,6 @@ void main() {
       );
       lsl.destroy();
     });
-    // TODO: ERROR: This passes but it's probably
-    // passing because it's reading contiguous memory
-    // for the number of channels, which fails if you do a string
-    // with more than 1 channel. This is critical to
-    // a) test, and fix
-    // b) handle in the api to ensure that either dummy/null
-    // values are pushed, or an error is thrown if the number
-    // of values is less than the channels.
     test('push a default (float) sample', () async {
       final lsl = LSL();
       await lsl.createStreamInfo(channelCount: 2);

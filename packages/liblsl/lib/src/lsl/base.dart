@@ -1,7 +1,7 @@
 import 'dart:ffi';
 import 'package:liblsl/src/ffi/mem.dart';
 import 'package:liblsl/src/lsl/exception.dart';
-import 'package:liblsl/liblsl.dart';
+import 'package:liblsl/native_liblsl.dart';
 // ignore: depend_on_referenced_packages
 import 'package:meta/meta.dart';
 

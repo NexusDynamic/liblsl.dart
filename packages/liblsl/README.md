@@ -80,10 +80,10 @@ lsl.destroy();
 
 ## Direct FFI usage
 
-If you want to use the FFI directly, you can do so by importing the `liblsl.dart` file.
+If you want to use the FFI directly, you can do so by importing the `native_liblsl.dart` file.
 
 ```dart
-import 'package:liblsl/liblsl.dart';
+import 'package:liblsl/native_liblsl.dart';
 // Create a simple stream info
 final streamNamePtr = "TestStream".toNativeUtf8().cast<Char>();
 final streamTypePtr = "EEG".toNativeUtf8().cast<Char>();

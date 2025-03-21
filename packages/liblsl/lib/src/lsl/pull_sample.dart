@@ -1,5 +1,5 @@
 import 'dart:ffi';
-import 'package:liblsl/liblsl.dart';
+import 'package:liblsl/native_liblsl.dart';
 import 'package:liblsl/src/lsl/base.dart';
 import 'package:liblsl/src/lsl/sample.dart';
 import 'package:ffi/ffi.dart' show Utf8, Utf8Pointer;
@@ -7,14 +7,13 @@ import 'package:ffi/ffi.dart' show Utf8, Utf8Pointer;
 /// A function that pulls a sample from the inlet.
 ///
 /// This is a generalized version of the lsl_pull_sample_* functions.
-typedef DartLslPullSample<T extends NativeType> =
-    double Function(
-      lsl_inlet inlet,
-      Pointer<T> buffer,
-      int bufferSize,
-      double timeout,
-      Pointer<Int32> ec,
-    );
+typedef DartLslPullSample<T extends NativeType> = double Function(
+  lsl_inlet inlet,
+  Pointer<T> buffer,
+  int bufferSize,
+  double timeout,
+  Pointer<Int32> ec,
+);
 
 /// The base class for all LSL pull sample types.
 abstract class LslPullSample<T extends NativeType, D> {

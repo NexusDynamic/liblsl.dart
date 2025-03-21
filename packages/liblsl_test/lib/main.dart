@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:liblsl/liblsl.dart';
+import 'package:liblsl/native_liblsl.dart';
 
 void main() {
   runApp(const MyApp());

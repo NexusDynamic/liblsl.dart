@@ -1,3 +1,7 @@
+# 0.2.0
+
+- Restructured API, renamed `liblsl` to `native_liblsl`.
+
 # 0.1.2
 
 - Updated `native_assets_cli` to `0.12.0`

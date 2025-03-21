@@ -65,7 +65,7 @@ void main(List<String> args) async {
 
     final builder = CBuilder.library(
       name: packageName,
-      assetName: '$packageName.dart',
+      assetName: 'native_liblsl.dart',
       pic: true,
       std: 'c++17',
       sources: [

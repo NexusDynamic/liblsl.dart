@@ -1,6 +1,6 @@
 import 'dart:ffi';
 import 'package:ffi/ffi.dart' show StringUtf8Pointer, Utf8, Utf8Pointer;
-import 'package:liblsl/liblsl.dart';
+import 'package:liblsl/native_liblsl.dart';
 import 'package:liblsl/src/lsl/base.dart';
 import 'package:liblsl/src/lsl/exception.dart';
 import 'package:liblsl/src/lsl/structs.dart';
