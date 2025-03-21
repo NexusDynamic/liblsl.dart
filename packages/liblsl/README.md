@@ -19,7 +19,7 @@ Also confirmed working on Meta Quest 2 (Android).
 
 ## API Usage
 
-More documentation will come, but see [liblsl_test.dart](./test/liblsl_test.dart) also see the [liblsl_test](../packages/liblsl_test) package for a working example with flutter for all supported target devices.
+More documentation will come, but see [liblsl_test.dart](./test/liblsl_test.dart) also see the [liblsl_test](../liblsl_test) package for a working example with flutter for all supported target devices.
 
 ```dart
 import 'package:liblsl/liblsl.dart';
