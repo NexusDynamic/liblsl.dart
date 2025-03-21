@@ -1,10 +1,8 @@
-import 'dart:async';
-
 import 'package:liblsl/liblsl.dart';
 import 'package:liblsl/lsl.dart';
 import 'package:liblsl/src/ffi/mem.dart' show FreePointerExtension;
 import 'package:liblsl/src/lsl/exception.dart';
-import 'package:liblsl/src/lsl/structs.dart';
+import 'package:liblsl/src/lsl/stream_info.dart';
 import 'package:test/test.dart';
 import 'dart:ffi';
 import 'package:ffi/ffi.dart' show StringUtf8Pointer, malloc;
@@ -112,9 +110,7 @@ void main() {
         expect(sample.data[0], 5.0);
         expect(sample.data[1], 8.0);
 
-        for (final stream in streams) {
-          stream.destroy();
-        }
+        streams.destroy(); // destroys ALL streams resolved in the list.
         lsl.destroy();
       },
     );

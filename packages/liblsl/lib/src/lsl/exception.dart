@@ -1,3 +1,4 @@
+/// LSLException base exception class
 class LSLException implements Exception {
   final String message;
 
@@ -9,6 +10,7 @@ class LSLException implements Exception {
   }
 }
 
+/// LSLTimeout exception class
 class LSLTimeout extends LSLException {
   LSLTimeout(super.message);
 

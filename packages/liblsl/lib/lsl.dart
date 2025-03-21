@@ -7,12 +7,25 @@ import 'package:liblsl/src/lsl/stream_outlet.dart';
 import 'package:liblsl/src/lsl/stream_resolver.dart';
 import 'package:liblsl/src/lsl/structs.dart';
 
+export 'package:liblsl/src/lsl/structs.dart';
+
+/// Interface to the LSL library.
+///
+/// This class provides a high-level interface to the LSL library, allowing
+/// you to create and manage streams, outlets, and inlets.
 class LSL {
   LSLStreamInfo? _streamInfo;
   LSLStreamOutlet? _streamOutlet;
   LSLStreamInlet? _streamInlet;
   LSL();
 
+  /// Creates a new [LSLStreamInfo] object.
+  ///
+  /// [streamName] is the name of the stream.
+  /// [streamType] is the [LSLContentType] of the stream (e.g. EEG, mocap, ...).
+  /// [channelCount] is the number of channels in the stream.
+  /// [streamType] is the stream's [LSLChannelFormat] (e.g. string, int8).
+  /// [sourceId] is the source ID of the stream which should be unique.
   Future<LSLStreamInfo> createStreamInfo({
     String streamName = "DartLSLStream",
     LSLContentType streamType = LSLContentType.eeg,
@@ -33,11 +46,19 @@ class LSL {
     return _streamInfo!;
   }
 
+  /// Returns the version of the LSL library.
   int get version => lsl_library_version();
 
+  /// Returns the [LSLStreamInfo] object.
   LSLStreamInfo? get info => _streamInfo;
+
+  /// Returns the [LSLStreamInlet] object.
   LSLStreamOutlet? get outlet => _streamOutlet;
 
+  /// Creates a new [LSLStreamOutlet] object.
+  ///
+  /// [chunkSize] is the size of the chunk to be sent.
+  /// [maxBuffer] is the maximum number of samples to be buffered.
   Future<LSLStreamOutlet> createOutlet({
     int chunkSize = 0,
     int maxBuffer = 1,
@@ -54,6 +75,13 @@ class LSL {
     return _streamOutlet!;
   }
 
+  /// Creates a new [LSLStreamInlet] object.
+  ///
+  /// [streamInfo] is the [LSLStreamInfo] object to be used. Probably obtained
+  ///   from a [LSLStreamResolver].
+  /// [maxBufferSize] is the size of the buffer to be used.
+  /// [maxChunkLength] is the maximum number of samples to be buffered.
+  /// [recover] is whether to recover from lost samples.
   Future<LSLStreamInlet> createInlet({
     required LSLStreamInfo streamInfo,
     int maxBufferSize = 0,
@@ -101,6 +129,11 @@ class LSL {
     return _streamInlet!;
   }
 
+  /// Resolves streams available on the network.
+  ///
+  /// [waitTime] is the time to wait for streams to resolve.
+  /// [maxStreams] is the maximum number of streams to resolve.
+  /// [forgetAfter] is the time to forget streams that are not seen.
   Future<List<LSLStreamInfo>> resolveStreams({
     double waitTime = 5.0,
     int maxStreams = 5,
@@ -118,6 +151,7 @@ class LSL {
     return streams;
   }
 
+  /// Returns the local clock time, used to calculate offsets.
   double localClock() => lsl_local_clock();
 
   void destroy() {

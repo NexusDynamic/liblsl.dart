@@ -11,6 +11,7 @@ import 'package:ffi/ffi.dart' show Utf8, StringUtf8Pointer;
 
 // todo: change this to use a similar method to the inlet
 
+/// Representation of the lsl_outlet_struct_ from the LSL C API.
 class LSLStreamOutlet extends LSLObj {
   final LSLStreamInfo streamInfo;
   final int chunkSize;
@@ -18,6 +19,11 @@ class LSLStreamOutlet extends LSLObj {
   late final LslPushSample _pushFn;
   lsl_outlet? _streamOutlet;
 
+  /// Creates a new LSLStreamOutlet object.
+  ///
+  /// The [streamInfo] parameter is used to determine the type of data for the
+  /// given outlet. The [chunkSize] and [maxBuffer] parameters
+  /// determine the size of the buffer and the chunk length for the outlet.
   LSLStreamOutlet({
     required this.streamInfo,
     this.chunkSize = 0,
@@ -56,6 +62,15 @@ class LSLStreamOutlet extends LSLObj {
     super.destroy();
   }
 
+  /// Waits for a consumer (e.g. LabRecorder, another inlet) to connect to the
+  /// outlet.
+  ///
+  /// The [timeout] parameter determines the maximum time to wait for a
+  /// consumer to connect.
+  ///
+  /// If [exception] is true, an exception will be thrown if no consumer is
+  /// found within the timeout period. This should be the default way to use
+  /// this method.
   Future<void> waitForConsumer({
     double timeout = 60,
     bool exception = true,
@@ -67,6 +82,13 @@ class LSLStreamOutlet extends LSLObj {
   }
 
   // this can be made more efficient, just create the function during create.
+
+  /// Allocates a sample of the appropriate type for the given data.
+  ///
+  /// The [data] parameter is a list of dynamic values that will be used to
+  /// initialize the sample. The type should match the channel format.
+  ///
+  /// @todo: implement in the same way as inlet.
   Pointer _allocSample(List<dynamic> data) {
     switch (streamInfo.channelFormat.ffiType) {
       case const (Float):
@@ -126,6 +148,10 @@ class LSLStreamOutlet extends LSLObj {
     }
   }
 
+  /// Pushes a sample to the outlet.
+  ///
+  /// The [data] parameter is a list of dynamic values that will be used to
+  /// initialize the sample. The type should match the channel format.
   Future<int> pushSample(List<dynamic> data) async {
     if (data.length != streamInfo.channelCount) {
       throw LSLException(

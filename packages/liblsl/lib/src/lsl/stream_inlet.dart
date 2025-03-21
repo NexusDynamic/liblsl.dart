@@ -8,7 +8,7 @@ import 'package:liblsl/src/lsl/exception.dart';
 import 'package:liblsl/src/lsl/pull_sample.dart';
 import 'package:liblsl/src/lsl/stream_info.dart';
 
-// import 'package:ffi/ffi.dart' show Utf8, Utf8Pointer;
+/// Representation of the lsl_inlet_struct_ from the LSL C API.
 /// @note The inlet makes a copy of the info object at its construction.
 class LSLStreamInlet<T> extends LSLObj {
   lsl_inlet? _streamInlet;
@@ -18,6 +18,13 @@ class LSLStreamInlet<T> extends LSLObj {
   bool recover;
   late final LslPullSample _pullFn;
 
+  /// Creates a new LSLStreamInlet object.
+  ///
+  /// The [streamInfo] parameter is used to determine the type of data for the
+  /// given inlet. The [maxBufferSize] and [maxChunkLength] parameters
+  /// determine the size of the buffer and the chunk length for the inlet.
+  /// The [recover] parameter determines whether the inlet should
+  /// recover from lost samples.
   LSLStreamInlet(
     this.streamInfo, {
     this.maxBufferSize = 0,
@@ -48,7 +55,12 @@ class LSLStreamInlet<T> extends LSLObj {
     return this;
   }
 
-  /// Pull a sample from the inlet
+  /// Pulls a sample from the inlet.
+  ///
+  /// The [timeout] parameter determines the maximum time to wait for a sample
+  /// to arrive.
+  /// The [bufferSize] parameter determines the size of the buffer to use.
+  /// If [bufferSize] is 0, the default buffer size from the stream is used.
   Future<LSLSample<T>> pullSample({
     double timeout = 0.0,
     int bufferSize = 0,

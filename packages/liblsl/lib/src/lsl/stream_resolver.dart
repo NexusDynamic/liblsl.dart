@@ -5,12 +5,23 @@ import 'package:liblsl/src/lsl/exception.dart';
 import 'package:liblsl/src/lsl/stream_info.dart';
 import 'package:liblsl/src/ffi/mem.dart';
 
+/// Representation of the lsl_continuous_resolver_ from the LSL C API.
+///
+/// Stream resolution means finding streams available on the network for
+/// consumption.
 class LSLStreamResolverContinuous extends LSLObj {
   int maxStreams;
   final double forgetAfter;
   Pointer<lsl_streaminfo>? _streamInfoBuffer;
   lsl_continuous_resolver? _resolver;
 
+  /// Creates a new LSLStreamResolverContinuous object.
+  ///
+  /// The [forgetAfter] parameter determines how long the resolver should
+  /// remember streams after they have not been seen.
+  /// The [maxStreams] parameter determines the maximum number of streams
+  /// to resolve, ideally, this would be the exact number of streams you expect
+  /// to be available.
   LSLStreamResolverContinuous({this.forgetAfter = 5.0, this.maxStreams = 5});
 
   @override
@@ -24,7 +35,10 @@ class LSLStreamResolverContinuous extends LSLObj {
     return this;
   }
 
-  /// Resolve streams
+  /// Resolves streams available on the network.
+  ///
+  /// The [waitTime] parameter determines how long to wait for streams to
+  /// resolve.
   Future<List<LSLStreamInfo>> resolve({double waitTime = 5.0}) async {
     if (_resolver == null) {
       throw LSLException('Resolver not created');

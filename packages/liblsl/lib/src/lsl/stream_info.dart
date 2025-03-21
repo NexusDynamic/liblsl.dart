@@ -6,6 +6,15 @@ import 'package:liblsl/src/lsl/exception.dart';
 import 'package:liblsl/src/lsl/structs.dart';
 import 'package:liblsl/src/ffi/mem.dart';
 
+extension StreamInfoList on List<LSLStreamInfo> {
+  void destroy() {
+    for (final streamInfo in this) {
+      streamInfo.destroy();
+    }
+  }
+}
+
+/// Representation of the lsl_streaminfo_struct_ from the LSL C API.
 class LSLStreamInfo extends LSLObj {
   final String streamName;
   final LSLContentType streamType;
@@ -15,6 +24,11 @@ class LSLStreamInfo extends LSLObj {
   final String sourceId;
   lsl_streaminfo? _streamInfo;
 
+  /// Creates a new LSLStreamInfo object.
+  ///
+  /// The [streamName], [streamType], [channelCount], [sampleRate],
+  /// [channelFormat], and [sourceId] parameters are used to create
+  /// the stream info object.
   LSLStreamInfo({
     this.streamName = "DartLSLStream",
     this.streamType = LSLContentType.eeg,
@@ -30,8 +44,10 @@ class LSLStreamInfo extends LSLObj {
     }
   }
 
+  /// The [Pointer] to the underlying lsl_streaminfo_struct_.
   lsl_streaminfo? get streamInfo => _streamInfo;
 
+  /// Creates the stream info object, allocates memory, etc.
   @override
   create() {
     if (created) {
@@ -55,8 +71,12 @@ class LSLStreamInfo extends LSLObj {
     return this;
   }
 
+  /// Creates a new LSLStreamInfo object from an existing lsl_streaminfo.
+  ///
+  /// When constructing inlets, this creates the [LSLStreamInfo] object based
+  /// on an existing [lsl_streaminfo] object, which can be retrieved from a
+  /// stream resolver.
   factory LSLStreamInfo.fromStreamInfo(lsl_streaminfo streamInfo) {
-    // get all the values
     final Pointer<Utf8> streamName = lsl_get_name(streamInfo) as Pointer<Utf8>;
     final Pointer<Utf8> streamType = lsl_get_type(streamInfo) as Pointer<Utf8>;
     final int channelCount = lsl_get_channel_count(streamInfo);

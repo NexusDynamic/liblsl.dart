@@ -3,39 +3,42 @@ import 'package:liblsl/liblsl.dart';
 import 'package:ffi/ffi.dart' show StringUtf8Pointer;
 import 'package:liblsl/src/ffi/mem.dart';
 
+/// The stream info content types.
 enum LSLContentType {
-  /// EEG (for Electroencephalogram)
+  /// EEG (for Electroencephalogram).
   eeg("EEG"),
 
-  /// MoCap (for Motion Capture)
+  /// MoCap (for Motion Capture).
   mocap("MoCap"),
 
-  /// NIRS (Near-Infrared Spectroscopy)
+  /// NIRS (Near-Infrared Spectroscopy).
   nirs("NIRS"),
 
-  /// Gaze (for gaze / eye tracking parameters)
+  /// Gaze (for gaze / eye tracking parameters).
   gaze("Gaze"),
 
-  /// VideoRaw (for uncompressed video)
+  /// VideoRaw (for uncompressed video).
   videoRaw("VideoRaw"),
 
-  /// VideoCompressed (for compressed video)
+  /// VideoCompressed (for compressed video).
   videoCompressed("VideoCompressed"),
 
-  /// Audio (for PCM-encoded audio)
+  /// Audio (for PCM-encoded audio).
   audio("Audio"),
 
-  /// Markers (for event marker streams)
+  /// Markers (for event marker streams).
   markers("Markers");
 
   final String value;
 
   const LSLContentType(this.value);
 
+  /// Converts the content type to a [Pointer<Char>].
   Pointer<Char> get charPtr =>
       value.toNativeUtf8(allocator: allocate) as Pointer<Char>;
 }
 
+/// The stream info channel formats.
 enum LSLChannelFormat {
   float32,
   double64,
@@ -46,6 +49,7 @@ enum LSLChannelFormat {
   string,
   undefined;
 
+  /// Gets the underlying lsl_channel_format_t value for the channel format.
   lsl_channel_format_t get lslFormat {
     switch (this) {
       case LSLChannelFormat.float32:
@@ -67,6 +71,9 @@ enum LSLChannelFormat {
     }
   }
 
+  /// Gets the underlying FFI [NativeType] for the channel format.
+  /// @note This returns [Type], not [NativeType], because FFI types are
+  /// not considered subtypes of [NativeType].
   Type get ffiType {
     switch (this) {
       case LSLChannelFormat.float32:
@@ -88,6 +95,7 @@ enum LSLChannelFormat {
     }
   }
 
+  /// Gets the underlying Dart [Type] for the channel format.
   Type get dartType {
     switch (this) {
       case LSLChannelFormat.float32:
