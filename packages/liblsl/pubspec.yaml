@@ -1,6 +1,6 @@
 name: liblsl
 description: A dart native library for working with Lab Streaming Layer (LSL / liblsl).
-version: 0.1.1
+version: 0.1.2
 homepage: https://zeyus.com/
 repository: https://github.com/zeyus/liblsl.dart
 
@@ -9,8 +9,8 @@ environment:
 
 dependencies:
   ffi: ^2.1.3
-  native_assets_cli: ^0.11.0
-  native_toolchain_c: ^0.8.0
+  native_assets_cli: ^0.12.0
+  native_toolchain_c: ^0.9.0
   logging: ^1.3.0
   meta: ^1.16.0
 
