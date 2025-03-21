@@ -1,3 +1,7 @@
+# 0.1.1
+
+- Added missing `meta` dependency
+
 # 0.1.0
 
 - Restructured everything to be a bit more modular
