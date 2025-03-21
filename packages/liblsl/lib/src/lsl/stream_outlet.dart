@@ -134,8 +134,8 @@ class LSLStreamOutlet extends LSLObj {
           for (var i = 0; i < streamInfo.channelCount; i++) {
             // Convert the string to a native UTF8 string and store the pointer
             final Pointer<Utf8> utf8String = data[i].toString().toNativeUtf8(
-                  allocator: allocate,
-                );
+              allocator: allocate,
+            );
             stringArray[i] = utf8String.cast<Char>();
           }
           return stringArray;
