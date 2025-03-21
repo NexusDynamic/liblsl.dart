@@ -3,7 +3,8 @@ import 'dart:async';
 import 'package:liblsl/liblsl.dart';
 import 'package:liblsl/lsl.dart';
 import 'package:liblsl/src/ffi/mem.dart' show FreePointerExtension;
-import 'package:liblsl/src/types.dart';
+import 'package:liblsl/src/lsl/exception.dart';
+import 'package:liblsl/src/lsl/structs.dart';
 import 'package:test/test.dart';
 import 'dart:ffi';
 import 'package:ffi/ffi.dart' show StringUtf8Pointer, malloc;
@@ -50,7 +51,7 @@ void main() {
       await lsl.createOutlet();
       expect(
         () => lsl.outlet?.waitForConsumer(timeout: 1.0),
-        throwsA(isA<TimeoutException>()),
+        throwsA(isA<LSLTimeout>()),
       );
       lsl.destroy();
     });
@@ -99,7 +100,8 @@ void main() {
         final lsl = LSL();
         await lsl.createStreamInfo();
         final outlet = await lsl.createOutlet();
-        outlet.waitForConsumer(timeout: 5.0, exception: false);
+        // outlet.waitForConsumer(timeout: 5.0, exception: false);
+        outlet.pushSample([5.0, 8.0]);
         final streams = await lsl.resolveStreams(waitTime: 1.0);
         expect(streams.length, greaterThan(0));
         final inlet = await lsl.createInlet(streamInfo: streams[0]);
@@ -107,6 +109,9 @@ void main() {
         expect(sample.data.length, 2);
         expect(sample.data[0], isA<double>());
         expect(sample.data[1], isA<double>());
+        expect(sample.data[0], 5.0);
+        expect(sample.data[1], 8.0);
+
         for (final stream in streams) {
           stream.destroy();
         }

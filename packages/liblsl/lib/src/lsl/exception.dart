@@ -8,3 +8,12 @@ class LSLException implements Exception {
     return 'LSLException: $message';
   }
 }
+
+class LSLTimeout extends LSLException {
+  LSLTimeout(super.message);
+
+  @override
+  String toString() {
+    return 'LSLTimeout: $message';
+  }
+}
