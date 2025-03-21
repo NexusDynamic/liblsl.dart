@@ -1,3 +1,9 @@
+# 0.1.2
+
+- Updated `native_assets_cli` to `0.12.0`
+- Updated `native_toolchain_c` to `0.9.0`
+- Removed spurious `api.dart` file (might come back later)
+
 # 0.1.1
 
 - Added missing `meta` dependency
