@@ -1,3 +1,7 @@
+# 0.2.1
+
+- Fixed linting issues.
+
 # 0.2.0
 
 - Restructured API, renamed `liblsl` to `native_liblsl`.
