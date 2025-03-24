@@ -74,13 +74,10 @@ void main() {
     test('Create outlet and resolve available streams', () async {
       final lsl = LSL();
       await lsl.createStreamInfo();
-      final outlet = await lsl.createOutlet();
-      outlet.waitForConsumer(timeout: 5.0, exception: false);
+      await lsl.createOutlet();
       final streams = await lsl.resolveStreams(waitTime: 1.0);
       expect(streams.length, greaterThan(0));
-      for (final stream in streams) {
-        stream.destroy();
-      }
+      //streams.destroy();
       lsl.destroy();
     });
 
@@ -88,22 +85,60 @@ void main() {
       'create outlet, resolve stream, create inlet and pull sample',
       () async {
         final lsl = LSL();
-        await lsl.createStreamInfo();
+        await lsl.createStreamInfo(
+          streamName: 'TestStream',
+          channelCount: 2,
+          channelFormat: LSLChannelFormat.int8,
+        );
         final outlet = await lsl.createOutlet();
-        // outlet.waitForConsumer(timeout: 5.0, exception: false);
-        outlet.pushSample([5.0, 8.0]);
-        final streams = await lsl.resolveStreams(waitTime: 1.0);
-        expect(streams.length, greaterThan(0));
-        final inlet = await lsl.createInlet(streamInfo: streams[0]);
-        final sample = await inlet.pullSample();
-        expect(sample.data.length, 2);
-        expect(sample.data[0], isA<double>());
-        expect(sample.data[1], isA<double>());
-        expect(sample.data[0], 5.0);
-        expect(sample.data[1], 8.0);
 
-        streams.destroy(); // destroys ALL streams resolved in the list.
-        lsl.destroy();
+        final streams = await lsl.resolveStreams(waitTime: 0.1);
+        expect(streams.length, greaterThan(0));
+
+        LSLStreamInfo? streamInfo;
+        for (final stream in streams) {
+          if (stream.streamName == 'TestStream') {
+            streamInfo = stream;
+            break;
+          }
+        }
+        expect(streamInfo, isNotNull);
+        expect(streamInfo?.streamName, 'TestStream');
+        final inlet = await lsl.createInlet(
+          maxBufferSize: 1,
+          streamInfo: streamInfo!,
+        );
+
+        await outlet.pushSample([1, 2]);
+        inlet.flush();
+        expect(inlet.samplesAvailable(), 0);
+        await outlet.pushSample([5, 8]);
+        await Future.delayed(const Duration(milliseconds: 200));
+        await outlet.pushSample([5, 8]);
+        await outlet.pushSample([5, 8]);
+        await outlet.pushSample([5, 8]);
+        await outlet.pushSample([5, 8]);
+        await outlet.pushSample([5, 8]);
+        await outlet.pushSample([5, 8]);
+        await outlet.pushSample([5, 8]);
+        outlet.pushSample([5, 8]);
+        expect(inlet.samplesAvailable(), 1);
+        final sample = inlet.pullSample(timeout: 1.0);
+        outlet.pushSample([7, 7]);
+        sample.then((s) {
+          expect(s, isA<LSLSample<int>>());
+          expect(s.errorCode, 0);
+          expect(s.length, 2);
+          expect(s[0], isA<int>());
+          expect(s[1], isA<int>());
+          expect(s[0], 5);
+          expect(s[1], 8);
+        });
+        outlet.pushSample([3, 4]);
+        sample.whenComplete(() {
+          // clean up
+          lsl.destroy();
+        });
       },
     );
     test('Direct FFI test for string sample', () {

@@ -3,7 +3,6 @@ import 'package:liblsl/native_liblsl.dart';
 import 'package:liblsl/src/ffi/mem.dart';
 import 'package:liblsl/src/lsl/base.dart';
 import 'package:liblsl/src/lsl/helper.dart';
-import 'package:liblsl/src/lsl/structs.dart';
 import 'package:liblsl/src/lsl/exception.dart';
 import 'package:liblsl/src/lsl/push_sample.dart';
 import 'package:liblsl/src/lsl/stream_info.dart';
@@ -167,14 +166,7 @@ class LSLStreamOutlet extends LSLObj {
       }
       return result;
     } finally {
-      if (streamInfo.channelFormat != LSLChannelFormat.string) {
-        samplePtr.free();
-      } else {
-        // This is just a test
-        Future.delayed(Duration(milliseconds: 100), () {
-          samplePtr.free();
-        });
-      }
+      samplePtr.free();
     }
   }
 

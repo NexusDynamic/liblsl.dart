@@ -28,14 +28,14 @@ class LSLMapper {
 
   /// Map of [StreamInfo.channelFormat] to [LslPullSample].
   static final Map<LSLChannelFormat, LslPullSample> _pullSampleMap = {
-    LSLChannelFormat.float32: LslPullSampleFloat(lsl_pull_sample_f),
-    LSLChannelFormat.double64: LslPullSampleDouble(lsl_pull_sample_d),
-    LSLChannelFormat.int8: LslPullSampleInt8(lsl_pull_sample_c),
-    LSLChannelFormat.int16: LslPullSampleInt16(lsl_pull_sample_s),
-    LSLChannelFormat.int32: LslPullSampleInt32(lsl_pull_sample_i),
-    LSLChannelFormat.int64: LslPullSampleInt64(lsl_pull_sample_l),
-    LSLChannelFormat.string: LslPullSampleString(lsl_pull_sample_str),
-    LSLChannelFormat.undefined: LslPullSampleUndefined(lsl_pull_sample_v),
+    LSLChannelFormat.float32: LslPullSampleFloat(),
+    LSLChannelFormat.double64: LslPullSampleDouble(),
+    LSLChannelFormat.int8: LslPullSampleInt8(),
+    LSLChannelFormat.int16: LslPullSampleInt16(),
+    LSLChannelFormat.int32: LslPullSampleInt32(),
+    LSLChannelFormat.int64: LslPullSampleInt64(),
+    LSLChannelFormat.string: LslPullSampleString(),
+    LSLChannelFormat.undefined: LslPullSampleUndefined(),
   };
 
   LSLMapper._();

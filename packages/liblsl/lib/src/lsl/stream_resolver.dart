@@ -74,7 +74,6 @@ class LSLStreamResolverContinuous extends LSLObj {
     }
     if (_resolver != null) {
       lsl_destroy_continuous_resolver(_resolver!);
-      _resolver?.free();
       _resolver = null;
     }
     super.destroy();

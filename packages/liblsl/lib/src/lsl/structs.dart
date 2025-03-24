@@ -3,39 +3,85 @@ import 'package:liblsl/native_liblsl.dart';
 import 'package:ffi/ffi.dart' show StringUtf8Pointer;
 import 'package:liblsl/src/ffi/mem.dart';
 
-/// The stream info content types.
-enum LSLContentType {
+/// LSL content types used to identify the type of data being streamed.
+class LSLContentType {
+  final String value;
+  final bool isCustom;
+  static List<LSLContentType> _values = [
+    eeg,
+    mocap,
+    nirs,
+    gaze,
+    videoRaw,
+    videoCompressed,
+    audio,
+    markers,
+  ];
+
+  const LSLContentType._(this.value, {this.isCustom = false});
+
   /// EEG (for Electroencephalogram).
-  eeg("EEG"),
+  static const LSLContentType eeg = LSLContentType._("EEG");
 
   /// MoCap (for Motion Capture).
-  mocap("MoCap"),
+  static const LSLContentType mocap = LSLContentType._("MoCap");
 
   /// NIRS (Near-Infrared Spectroscopy).
-  nirs("NIRS"),
+  static const LSLContentType nirs = LSLContentType._("NIRS");
 
   /// Gaze (for gaze / eye tracking parameters).
-  gaze("Gaze"),
+  static const LSLContentType gaze = LSLContentType._("Gaze");
 
   /// VideoRaw (for uncompressed video).
-  videoRaw("VideoRaw"),
+  static const LSLContentType videoRaw = LSLContentType._("VideoRaw");
 
   /// VideoCompressed (for compressed video).
-  videoCompressed("VideoCompressed"),
+  static const LSLContentType videoCompressed = LSLContentType._(
+    "VideoCompressed",
+  );
 
   /// Audio (for PCM-encoded audio).
-  audio("Audio"),
+  static const LSLContentType audio = LSLContentType._("Audio");
 
   /// Markers (for event marker streams).
-  markers("Markers");
+  static const LSLContentType markers = LSLContentType._("Markers");
 
-  final String value;
-
-  const LSLContentType(this.value);
+  /// Custom content type.
+  /// @param value The custom content type string.
+  /// @note This is used for custom content types that are not defined in the
+  /// LSL / XDF standard, e.g. "State" or "Stimulus".
+  factory LSLContentType.custom(String value) {
+    final customType = LSLContentType._(value, isCustom: true);
+    if (_values.any((type) => type.value == value)) {
+      throw ArgumentError(
+        'Custom content type "$value" conflicts with existing LSL content types.',
+      );
+    }
+    _values.add(customType);
+    return customType;
+  }
 
   /// Converts the content type to a [Pointer<Char>].
   Pointer<Char> get charPtr =>
       value.toNativeUtf8(allocator: allocate) as Pointer<Char>;
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    if (other is! LSLContentType) return false;
+    return value == other.value && isCustom == other.isCustom;
+  }
+
+  @override
+  int get hashCode => value.hashCode ^ isCustom.hashCode;
+
+  @override
+  String toString() {
+    return 'LSLContentType(value: $value, isCustom: $isCustom)';
+  }
+
+  /// Returns a list of all available default and custom LSL content types.
+  static List<LSLContentType> get values => _values;
 }
 
 /// The stream info channel formats.

@@ -46,7 +46,7 @@ class LSLStreamInlet<T> extends LSLObj {
       streamInfo.streamInfo!,
       maxBufferSize,
       maxChunkLength,
-      recover as int,
+      recover ? 1 : 0,
     );
     if (_streamInlet == null) {
       throw LSLException('Error creating inlet');
@@ -69,15 +69,33 @@ class LSLStreamInlet<T> extends LSLObj {
       throw LSLException('Inlet not created');
     }
     final ec = allocate<Int32>();
-    final samplePtr = allocate<Pointer>(streamInfo.channelCount);
     final LSLSample sample = _pullFn(
       _streamInlet!,
-      samplePtr,
-      bufferSize,
+      streamInfo.channelCount,
+      streamInfo.channelCount,
       timeout,
       ec,
     );
     return sample as LSLSample<T>;
+  }
+
+  /// Clears all samples from the inlet.
+  int flush() {
+    if (_streamInlet == null) {
+      throw LSLException('Inlet not created');
+    }
+    return lsl_inlet_flush(_streamInlet!);
+  }
+
+  /// Gets the number of samples available in the inlet.
+  /// This will either be the number of available samples (if supported by the
+  /// platform) or it will be 1 if there are samples available, or 0 if there
+  /// are no samples available.
+  int samplesAvailable() {
+    if (_streamInlet == null) {
+      throw LSLException('Inlet not created');
+    }
+    return lsl_samples_available(_streamInlet!);
   }
 
   @override

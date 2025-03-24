@@ -144,7 +144,7 @@ class LSL {
     resolver.create();
     final streams = await resolver.resolve(waitTime: waitTime);
     // free the resolver
-    //resolver.destroy();
+    resolver.destroy();
     // these stream info pointers remain until they are destroyed
     return streams;
   }
