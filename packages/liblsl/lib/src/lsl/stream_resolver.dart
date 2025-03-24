@@ -68,10 +68,10 @@ class LSLStreamResolverContinuous extends LSLObj {
     if (destroyed) {
       return;
     }
-    if (_streamInfoBuffer != null) {
-      _streamInfoBuffer?.free();
-      _streamInfoBuffer = null;
-    }
+    // if (_streamInfoBuffer != null) {
+    //   _streamInfoBuffer?.free();
+    //   _streamInfoBuffer = null;
+    // }
     if (_resolver != null) {
       lsl_destroy_continuous_resolver(_resolver!);
       _resolver = null;

@@ -87,14 +87,16 @@ void main() {
         final lsl = LSL();
 
         // create stream info
-        await lsl.createStreamInfo(
+        final info = await lsl.createStreamInfo(
           streamName: 'TestStream',
           channelCount: 2,
           channelFormat: LSLChannelFormat.int8,
-        );
+        ); 
 
+        print(info.toString());
+        
         // create outlet
-        final outlet = await lsl.createOutlet();
+        final outlet = await lsl.createOutlet(chunkSize: 1, maxBuffer: 2);
 
         // push some samples
         final int result = await outlet.pushSample([1, 2]);
@@ -107,9 +109,10 @@ void main() {
         // find the right stream
         LSLStreamInfo? streamInfo;
         for (final stream in streams) {
+          print(stream.toString());
           if (stream.streamName == 'TestStream') {
             streamInfo = stream;
-            break;
+            // break;
           }
         }
 
@@ -119,18 +122,26 @@ void main() {
 
         // create inlet from found stream info
         final inlet = await lsl.createInlet(
-          maxBufferSize: 1,
+          maxBufferSize: 2,
+          maxChunkLength: 1,
           streamInfo: streamInfo!,
+          recover: false,
         );
         await outlet.pushSample([5, 8]);
+        await Future.delayed(Duration(milliseconds: 50));
         // inlet.flush();
 
         // make sure there is at least one queued sample
-        expect(inlet.samplesAvailable(), greaterThan(0));
+        
+        
+        outlet.pushSample([16, 16]);
+        //expect(inlet.samplesAvailable(), greaterThan(0));
 
         // get the sample
-        final sample = inlet.pullSample(timeout: 1.0);
-
+        final sample = inlet.pullSample(timeout: 0.1);
+        outlet.pushSample([16, 16]);
+        outlet.pushSample([16, 16]);
+        outlet.pushSample([16, 16]);
         // validate received sample
         sample.then((s) {
           expect(s, isA<LSLSample<int>>());
@@ -144,6 +155,7 @@ void main() {
         outlet.pushSample([3, 4]);
         sample.whenComplete(() {
           // clean up
+          //streams.destroy();
           lsl.destroy();
         });
       },

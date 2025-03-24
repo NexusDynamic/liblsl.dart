@@ -22,6 +22,7 @@ class LSLStreamInfo extends LSLObj {
   final double sampleRate;
   final LSLChannelFormat channelFormat;
   final String sourceId;
+  int? _uid;
   lsl_streaminfo? _streamInfo;
 
   /// Creates a new LSLStreamInfo object.
@@ -69,6 +70,12 @@ class LSLStreamInfo extends LSLObj {
     );
     super.create();
     return this;
+  }
+
+  int get uid {
+    final Pointer<Char> uidp = lsl_get_uid(_streamInfo!);
+    _uid = uidp.value;
+    return _uid!;
   }
 
   /// Creates a new LSLStreamInfo object from an existing lsl_streaminfo.
@@ -119,6 +126,6 @@ class LSLStreamInfo extends LSLObj {
 
   @override
   String toString() {
-    return 'LSLStreamInfo{streamName: $streamName, streamType: $streamType, channelCount: $channelCount, sampleRate: $sampleRate, channelFormat: $channelFormat, sourceId: $sourceId}';
+    return 'LSLStreamInfo[$uid]{streamName: $streamName, streamType: $streamType, channelCount: $channelCount, sampleRate: $sampleRate, channelFormat: $channelFormat, sourceId: $sourceId}';
   }
 }

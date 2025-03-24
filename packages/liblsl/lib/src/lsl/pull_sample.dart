@@ -3,7 +3,7 @@ import 'package:liblsl/native_liblsl.dart';
 import 'package:liblsl/src/ffi/mem.dart';
 import 'package:liblsl/src/lsl/base.dart';
 import 'package:liblsl/src/lsl/sample.dart';
-import 'package:ffi/ffi.dart' show Utf8, Utf8Pointer;
+import 'package:ffi/ffi.dart' show Utf8, Utf8Pointer, calloc;
 
 /// A function that pulls a sample from the inlet.
 ///
@@ -28,7 +28,6 @@ abstract class LslPullSample<T extends NativeType, D> {
     int channels,
     int bufferSize,
     double timeout,
-    Pointer<Int32> ec,
   );
 }
 
@@ -43,18 +42,19 @@ class LslPullSampleFloat extends LslPullSample<Float, double> {
     int channels,
     int bufferSize,
     double timeout,
-    Pointer<Int32> ec,
   ) {
-    final Pointer<Float> buffer = allocate<Float>(channels);
-    final double timestamp = _pullFn(inlet, buffer, bufferSize, timeout, ec);
+    final Pointer<Int32> ec = allocate<Int32>();
+    final Pointer<Float> buffer = calloc<Float>(channels);
+    final double timestamp = _pullFn(inlet, buffer, channels, timeout, ec);
     final int errorCode = ec.value;
     final List<double> result = [];
-    if (LSLObj.error(ec.value)) {
+    if (LSLObj.error(errorCode)) {
       return LSLSample<double>(result, timestamp, errorCode);
     }
     for (int i = 0; i < bufferSize; i++) {
-      result.add(buffer[i]);
+      result.add(buffer[i].toDouble());
     }
+    ec.free();
     return LSLSample<double>(result, timestamp, errorCode);
   }
 }
@@ -70,15 +70,16 @@ class LslPullSampleDouble extends LslPullSample<Double, double> {
     int channels,
     int bufferSize,
     double timeout,
-    Pointer<Int32> ec,
   ) {
-    final Pointer<Double> buffer = allocate<Double>(channels);
+    final Pointer<Int32> ec = allocate<Int32>();
+    final Pointer<Double> buffer = calloc<Double>(channels);
     final double timestamp = _pullFn(inlet, buffer, bufferSize, timeout, ec);
     final int errorCode = ec.value;
     final List<double> result = [];
     for (int i = 0; i < bufferSize; i++) {
-      result.add(buffer[i]);
+      result.add(buffer[i].toDouble());
     }
+    ec.free();
     return LSLSample<double>(result, timestamp, errorCode);
   }
 }
@@ -94,15 +95,16 @@ class LslPullSampleInt8 extends LslPullSample<Char, int> {
     int channels,
     int bufferSize,
     double timeout,
-    Pointer<Int32> ec,
   ) {
-    final Pointer<Char> buffer = allocate<Char>(channels);
+    final Pointer<Int32> ec = allocate<Int32>();
+    final Pointer<Char> buffer = calloc<Char>(channels);
     final double timestamp = _pullFn(inlet, buffer, bufferSize, timeout, ec);
     final int errorCode = ec.value;
     final List<int> result = [];
     for (int i = 0; i < bufferSize; i++) {
-      result.add(buffer[i]);
+      result.add(buffer[i].toInt());
     }
+    ec.free();
     return LSLSample<int>(result, timestamp, errorCode);
   }
 }
@@ -118,15 +120,16 @@ class LslPullSampleInt16 extends LslPullSample<Int16, int> {
     int channels,
     int bufferSize,
     double timeout,
-    Pointer<Int32> ec,
   ) {
-    final Pointer<Int16> buffer = allocate<Int16>(channels);
+    final Pointer<Int32> ec = allocate<Int32>();
+    final Pointer<Int16> buffer = calloc<Int16>(channels);
     final double timestamp = _pullFn(inlet, buffer, bufferSize, timeout, ec);
     final int errorCode = ec.value;
     final List<int> result = [];
     for (int i = 0; i < bufferSize; i++) {
-      result.add(buffer[i]);
+      result.add(buffer[i].toInt());
     }
+    ec.free();
     return LSLSample<int>(result, timestamp, errorCode);
   }
 }
@@ -142,15 +145,16 @@ class LslPullSampleInt32 extends LslPullSample<Int32, int> {
     int channels,
     int bufferSize,
     double timeout,
-    Pointer<Int32> ec,
   ) {
-    final Pointer<Int32> buffer = allocate<Int32>(channels);
+    final Pointer<Int32> ec = allocate<Int32>();
+    final Pointer<Int32> buffer = calloc<Int32>(channels);
     final double timestamp = _pullFn(inlet, buffer, bufferSize, timeout, ec);
     final int errorCode = ec.value;
     final List<int> result = [];
     for (int i = 0; i < bufferSize; i++) {
-      result.add(buffer[i]);
+      result.add(buffer[i].toInt());
     }
+    ec.free();
     return LSLSample<int>(result, timestamp, errorCode);
   }
 }
@@ -166,15 +170,16 @@ class LslPullSampleInt64 extends LslPullSample<Int64, int> {
     int channels,
     int bufferSize,
     double timeout,
-    Pointer<Int32> ec,
   ) {
-    final Pointer<Int64> buffer = allocate<Int64>(channels);
+    final Pointer<Int32> ec = allocate<Int32>();
+    final Pointer<Int64> buffer = calloc<Int64>(channels);
     final double timestamp = _pullFn(inlet, buffer, bufferSize, timeout, ec);
     final int errorCode = ec.value;
     final List<int> result = [];
     for (int i = 0; i < bufferSize; i++) {
-      result.add(buffer[i]);
+      result.add(buffer[i].toInt());
     }
+    ec.free();
     return LSLSample<int>(result, timestamp, errorCode);
   }
 }
@@ -190,15 +195,16 @@ class LslPullSampleString extends LslPullSample<Pointer<Char>, String> {
     int channels,
     int bufferSize,
     double timeout,
-    Pointer<Int32> ec,
   ) {
-    final Pointer<Pointer<Char>> buffer = allocate<Pointer<Char>>(channels);
+    final Pointer<Int32> ec = allocate<Int32>();
+    final Pointer<Pointer<Char>> buffer = calloc<Pointer<Char>>(channels);
     final double timestamp = _pullFn(inlet, buffer, bufferSize, timeout, ec);
     final int errorCode = ec.value;
     final List<String> result = [];
     for (int i = 0; i < bufferSize; i++) {
       result.add(buffer[i].cast<Utf8>().toDartString());
     }
+    ec.free();
     return LSLSample<String>(result, timestamp, errorCode);
   }
 }
@@ -214,15 +220,17 @@ class LslPullSampleUndefined extends LslPullSample<Void, Null> {
     int channels,
     int bufferSize,
     double timeout,
-    Pointer<Int32> ec,
   ) {
+    final Pointer<Int32> ec = allocate<Int32>();
     final Pointer<Void> buffer = nullPtr<Void>();
-    final double timestamp = _pullFn(inlet, buffer, bufferSize, timeout, ec);
+    final double timestamp = _pullFn(inlet, buffer, 0, timeout, ec);
     final int errorCode = ec.value;
+    ec.free();
     return LSLSample<Null>(
       List.generate(channels, (index) => null),
       timestamp,
       errorCode,
     );
+    
   }
 }

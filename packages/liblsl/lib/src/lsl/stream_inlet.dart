@@ -68,13 +68,12 @@ class LSLStreamInlet<T> extends LSLObj {
     if (_streamInlet == null) {
       throw LSLException('Inlet not created');
     }
-    final ec = allocate<Int32>();
+    
     final LSLSample sample = _pullFn(
       _streamInlet!,
       streamInfo.channelCount,
       streamInfo.channelCount,
       timeout,
-      ec,
     );
     return sample as LSLSample<T>;
   }
