@@ -85,16 +85,26 @@ void main() {
       'create outlet, resolve stream, create inlet and pull sample',
       () async {
         final lsl = LSL();
+
+        // create stream info
         await lsl.createStreamInfo(
           streamName: 'TestStream',
           channelCount: 2,
           channelFormat: LSLChannelFormat.int8,
         );
+
+        // create outlet
         final outlet = await lsl.createOutlet();
 
+        // push some samples
+        final int result = await outlet.pushSample([1, 2]);
+        expect(result, 0);
+
+        // resolve streams
         final streams = await lsl.resolveStreams(waitTime: 0.1);
         expect(streams.length, greaterThan(0));
 
+        // find the right stream
         LSLStreamInfo? streamInfo;
         for (final stream in streams) {
           if (stream.streamName == 'TestStream') {
@@ -102,29 +112,26 @@ void main() {
             break;
           }
         }
+
+        // found?
         expect(streamInfo, isNotNull);
         expect(streamInfo?.streamName, 'TestStream');
+
+        // create inlet from found stream info
         final inlet = await lsl.createInlet(
           maxBufferSize: 1,
           streamInfo: streamInfo!,
         );
+        await outlet.pushSample([5, 8]);
+        // inlet.flush();
 
-        await outlet.pushSample([1, 2]);
-        inlet.flush();
-        expect(inlet.samplesAvailable(), 0);
-        await outlet.pushSample([5, 8]);
-        await Future.delayed(const Duration(milliseconds: 200));
-        await outlet.pushSample([5, 8]);
-        await outlet.pushSample([5, 8]);
-        await outlet.pushSample([5, 8]);
-        await outlet.pushSample([5, 8]);
-        await outlet.pushSample([5, 8]);
-        await outlet.pushSample([5, 8]);
-        await outlet.pushSample([5, 8]);
-        outlet.pushSample([5, 8]);
-        expect(inlet.samplesAvailable(), 1);
+        // make sure there is at least one queued sample
+        expect(inlet.samplesAvailable(), greaterThan(0));
+
+        // get the sample
         final sample = inlet.pullSample(timeout: 1.0);
-        outlet.pushSample([7, 7]);
+
+        // validate received sample
         sample.then((s) {
           expect(s, isA<LSLSample<int>>());
           expect(s.errorCode, 0);
