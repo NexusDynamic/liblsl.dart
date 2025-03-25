@@ -103,7 +103,6 @@ void main(List<String> args) async {
         '$libLSLPath/src/util/strfuns.cpp',
         '$libLSLPath/thirdparty/pugixml/pugixml.cpp',
         '$libLSLPath/thirdparty/loguru/loguru.cpp',
-        '$libLSLPath/lslboost/serialization_objects.cpp',
       ],
       language: Language.cpp,
       includes: [
@@ -112,7 +111,6 @@ void main(List<String> args) async {
         '$libLSLPath/thirdparty',
         '$libLSLPath/thirdparty/asio',
         '$libLSLPath/thirdparty/loguru',
-        '$libLSLPath/thirdparty/catch2',
         '$libLSLPath/thirdparty/pugixml',
       ],
       defines: defines,
