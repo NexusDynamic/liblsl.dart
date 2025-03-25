@@ -21,12 +21,19 @@ class LSLStreamOutlet extends LSLObj {
   /// Creates a new LSLStreamOutlet object.
   ///
   /// The [streamInfo] parameter is used to determine the type of data for the
-  /// given outlet. The [chunkSize] and [maxBuffer] parameters
-  /// determine the size of the buffer and the chunk length for the outlet.
+  /// given outlet and other LSL parameters.
+  /// The [chunkSize] parameter (in samples) determines how to hand off samples
+  /// to the buffer, 0 creates a chunk for each push.
+  /// network level buffer which is fine for recording applications.
+  /// The [maxBuffer] parameter determines the the size of the buffer that
+  /// stores incoming samples. NOTE: This is in seconds, if the stream has
+  /// a sample rate, otherwise it is in 100s of samples (maxBuffer * 10^2).
+  /// High values will use more memory, low values may lose samples, this should
+  /// be set as close as possible to the rate of consumption.
   LSLStreamOutlet({
     required this.streamInfo,
     this.chunkSize = 0,
-    this.maxBuffer = 1,
+    this.maxBuffer = 360,
   }) {
     if (streamInfo.streamInfo == null) {
       throw LSLException('StreamInfo not created');

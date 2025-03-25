@@ -87,23 +87,28 @@ void main() {
         final lsl = LSL();
 
         // create stream info
-        final info = await lsl.createStreamInfo(
+        await lsl.createStreamInfo(
           streamName: 'TestStream',
           channelCount: 2,
           channelFormat: LSLChannelFormat.int8,
-        ); 
+          sampleRate: LSL_IRREGULAR_RATE,
+        );
 
-        print(info.toString());
-        
+        // print(info.toString());
+
         // create outlet
-        final outlet = await lsl.createOutlet(chunkSize: 1, maxBuffer: 2);
+        final outlet = await lsl.createOutlet(chunkSize: 0, maxBuffer: 1);
 
         // push some samples
         final int result = await outlet.pushSample([1, 2]);
         expect(result, 0);
 
         // resolve streams
-        final streams = await lsl.resolveStreams(waitTime: 0.1);
+        final streams = await lsl.resolveStreams(
+          waitTime: 0.5,
+          maxStreams: 1,
+          forgetAfter: 1.0,
+        );
         expect(streams.length, greaterThan(0));
 
         // find the right stream
@@ -122,37 +127,35 @@ void main() {
 
         // create inlet from found stream info
         final inlet = await lsl.createInlet(
-          maxBufferSize: 2,
+          maxBufferSize: 1,
           maxChunkLength: 1,
           streamInfo: streamInfo!,
-          recover: false,
+          recover: true,
         );
+        // inlet.flush();
         await outlet.pushSample([5, 8]);
         await Future.delayed(Duration(milliseconds: 50));
-        // inlet.flush();
 
         // make sure there is at least one queued sample
-        
-        
-        outlet.pushSample([16, 16]);
-        //expect(inlet.samplesAvailable(), greaterThan(0));
+
+        outlet.pushSample([9, 7]);
+        await Future.delayed(Duration(milliseconds: 50));
+        expect(inlet.samplesAvailable(), greaterThan(0));
 
         // get the sample
         final sample = inlet.pullSample(timeout: 0.1);
-        outlet.pushSample([16, 16]);
-        outlet.pushSample([16, 16]);
-        outlet.pushSample([16, 16]);
+        outlet.pushSample([3, 5]);
         // validate received sample
         sample.then((s) {
+          // general
+          print(s.toString());
           expect(s, isA<LSLSample<int>>());
-          expect(s.errorCode, 0);
           expect(s.length, 2);
-          expect(s[0], isA<int>());
-          expect(s[1], isA<int>());
           expect(s[0], 5);
           expect(s[1], 8);
+          expect(s.timestamp, isA<double>());
+          expect(s.errorCode, 0);
         });
-        outlet.pushSample([3, 4]);
         sample.whenComplete(() {
           // clean up
           //streams.destroy();

@@ -1,6 +1,4 @@
-import 'dart:ffi';
 import 'package:liblsl/native_liblsl.dart';
-import 'package:liblsl/src/ffi/mem.dart';
 import 'package:liblsl/src/lsl/base.dart';
 import 'package:liblsl/src/lsl/helper.dart';
 import 'package:liblsl/src/lsl/sample.dart';
@@ -20,14 +18,21 @@ class LSLStreamInlet<T> extends LSLObj {
 
   /// Creates a new LSLStreamInlet object.
   ///
+  /// See also [LSLStreamOutlet] for more information on the parameters.
+  ///
   /// The [streamInfo] parameter is used to determine the type of data for the
-  /// given inlet. The [maxBufferSize] and [maxChunkLength] parameters
-  /// determine the size of the buffer and the chunk length for the inlet.
+  /// given inlet.
+  ///
+  /// The [maxBufferSize] parameter determines the size of the buffer to use
+  /// in seconds if the stream has a sample rate, otherwise it is in 100s of
+  /// samples. If 0, the default buffer size from the stream is used.
+  /// The [maxChunkLength] parameter determines the maximum number of samples
+  /// in a chunk, if 0, the default chunk length from the stream is used.
   /// The [recover] parameter determines whether the inlet should
   /// recover from lost samples.
   LSLStreamInlet(
     this.streamInfo, {
-    this.maxBufferSize = 0,
+    this.maxBufferSize = 360,
     this.maxChunkLength = 0,
     this.recover = true,
   }) {
@@ -58,24 +63,17 @@ class LSLStreamInlet<T> extends LSLObj {
   /// Pulls a sample from the inlet.
   ///
   /// The [timeout] parameter determines the maximum time to wait for a sample
-  /// to arrive.
-  /// The [bufferSize] parameter determines the size of the buffer to use.
-  /// If [bufferSize] is 0, the default buffer size from the stream is used.
-  Future<LSLSample<T>> pullSample({
-    double timeout = 0.0,
-    int bufferSize = 0,
-  }) async {
+  /// to arrive. To wait indefinitely, set [timeout] to [LSL_FOREVER].
+  /// If [timeout] is 0, the function will return immediately with available
+  /// samples, but there is no guarantee that it will return a sample.
+  /// values.
+  Future<LSLSample<T>> pullSample({double timeout = 0.0}) async {
     if (_streamInlet == null) {
       throw LSLException('Inlet not created');
     }
-    
-    final LSLSample sample = _pullFn(
-      _streamInlet!,
-      streamInfo.channelCount,
-      streamInfo.channelCount,
-      timeout,
-    );
-    return sample as LSLSample<T>;
+
+    return _pullFn(_streamInlet!, streamInfo.channelCount, timeout)
+        as LSLSample<T>;
   }
 
   /// Clears all samples from the inlet.

@@ -24,4 +24,9 @@ class LSLSample<T> {
   bool get isNotEmpty {
     return data.isNotEmpty;
   }
+
+  @override
+  String toString() {
+    return 'LSLSample{data: $data, timestamp: $timestamp, errorCode: $errorCode}';
+  }
 }

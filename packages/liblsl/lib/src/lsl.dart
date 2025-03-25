@@ -6,6 +6,8 @@ import 'package:liblsl/src/lsl/stream_inlet.dart';
 import 'package:liblsl/src/lsl/stream_outlet.dart';
 import 'package:liblsl/src/lsl/stream_resolver.dart';
 import 'package:liblsl/src/lsl/structs.dart';
+// probably will want to add more consts here
+export 'package:liblsl/native_liblsl.dart' show LSL_FOREVER, LSL_IRREGULAR_RATE;
 
 /// Interface to the LSL library.
 ///
@@ -55,11 +57,17 @@ class LSL {
 
   /// Creates a new [LSLStreamOutlet] object.
   ///
-  /// [chunkSize] is the size of the chunk to be sent.
-  /// [maxBuffer] is the maximum number of samples to be buffered.
+  /// [chunkSize] determines how to hand off samples to the buffer,
+  /// 0 creates a chunk for each push.
+  ///
+  /// [maxBuffer] determines the size of the buffer that stores incoming
+  /// samples. NOTE: This is in seconds, if the stream has a sample rate,
+  /// otherwise it is in 100s of samples (maxBuffer * 10^2).
+  /// High values will use more memory, low values may lose samples,
+  /// this should be set as close as possible to the rate of consumption.
   Future<LSLStreamOutlet> createOutlet({
     int chunkSize = 0,
-    int maxBuffer = 1,
+    int maxBuffer = 360,
   }) async {
     if (_streamInfo == null) {
       throw LSLException('StreamInfo not created');
@@ -77,12 +85,14 @@ class LSL {
   ///
   /// [streamInfo] is the [LSLStreamInfo] object to be used. Probably obtained
   ///   from a [LSLStreamResolver].
-  /// [maxBufferSize] is the size of the buffer to be used.
-  /// [maxChunkLength] is the maximum number of samples to be buffered.
+  /// [maxBufferSize] this is the either seconds (if [streamInfo.sampleRate]
+  /// is specified) or 100s of samples (if not).
+  /// [maxChunkLength] is the maximum number of samples. If 0, the default
+  ///  chunk length from the stream is used.
   /// [recover] is whether to recover from lost samples.
   Future<LSLStreamInlet> createInlet({
     required LSLStreamInfo streamInfo,
-    int maxBufferSize = 0,
+    int maxBufferSize = 360,
     int maxChunkLength = 0,
     bool recover = true,
   }) async {
@@ -123,7 +133,7 @@ class LSL {
         throw LSLException('Invalid channel format');
     }
 
-    _streamInlet?.create();
+    _streamInlet!.create();
     return _streamInlet!;
   }
 
