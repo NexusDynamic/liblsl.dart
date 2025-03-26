@@ -41,9 +41,13 @@ abstract class LslPullSample<T extends NativeType, D> {
       return LSLSample<D>([], timestamp, errorCode);
     }
     ec.free();
-    final List<D> result = bufferToList(buffer, channels);
+    if (timestamp > 0) {
+      final List<D> result = bufferToList(buffer, channels);
+      buffer.free();
+      return LSLSample<D>(result, timestamp, errorCode);
+    }
     buffer.free();
-    return LSLSample<D>(result, timestamp, errorCode);
+    return LSLSample<D>([], timestamp, errorCode);
   }
 
   @mustBeOverridden

@@ -31,13 +31,16 @@ void main(List<String> args) async {
       'LOGURU_STACKTRACES': '0',
     };
 
-    if (targetOs != OS.windows) {
-      // this doesn't work on windows for now
-      // see: https://github.com/dart-lang/native/issues/2095
-      // and: https://github.com/dart-lang/native/pull/2096
-      defines['LSL_LIBRARY_INFO_STR'] =
-          '"${defines['LSL_VERSION_INFO']}/link:SHARED"';
-    }
+    var forcedIncludes = <String>[];
+    forcedIncludes.add('src/include/lsl_lib_version.h');
+
+    // if (targetOs != OS.windows) {
+    //   // this doesn't work on windows for now
+    //   // see: https://github.com/dart-lang/native/issues/2095
+    //   // and: https://github.com/dart-lang/native/pull/2096
+    //   defines['LSL_LIBRARY_INFO_STR'] =
+    //       '"${defines['LSL_VERSION_INFO']}/link:SHARED"';
+    // }
 
     // osx
     if (targetOs == OS.macOS || targetOs == OS.iOS) {
@@ -117,6 +120,7 @@ void main(List<String> args) async {
       flags: flags,
       frameworks: frameworks,
       libraries: libraries,
+      forcedIncludes: forcedIncludes,
     );
 
     await builder.run(
