@@ -100,37 +100,37 @@ class LSLStreamOutlet extends LSLObj {
       case const (Float):
         final ptr = allocate<Float>(streamInfo.channelCount);
         for (var i = 0; i < streamInfo.channelCount; i++) {
-          ptr[i] = data[i].toDouble();
+          ptr[i] = data[i];
         }
         return ptr;
       case const (Double):
         final ptr = allocate<Double>(streamInfo.channelCount);
         for (var i = 0; i < streamInfo.channelCount; i++) {
-          ptr[i] = data[i].toDouble();
+          ptr[i] = data[i];
         }
         return ptr;
       case const (Int8):
         final ptr = allocate<Int8>(streamInfo.channelCount);
         for (var i = 0; i < streamInfo.channelCount; i++) {
-          ptr[i] = data[i].toInt();
+          ptr[i] = data[i];
         }
         return ptr;
       case const (Int16):
         final ptr = allocate<Int16>(streamInfo.channelCount);
         for (var i = 0; i < streamInfo.channelCount; i++) {
-          ptr[i] = data[i].toInt();
+          ptr[i] = data[i];
         }
         return ptr;
       case const (Int32):
         final ptr = allocate<Int32>(streamInfo.channelCount);
         for (var i = 0; i < streamInfo.channelCount; i++) {
-          ptr[i] = data[i].toInt();
+          ptr[i] = data[i];
         }
         return ptr;
       case const (Int64):
         final ptr = allocate<Int64>(streamInfo.channelCount);
         for (var i = 0; i < streamInfo.channelCount; i++) {
-          ptr[i] = data[i].toInt();
+          ptr[i] = data[i];
         }
         return ptr;
       case const (Pointer<Char>):
@@ -139,7 +139,7 @@ class LSLStreamOutlet extends LSLObj {
           final stringArray = allocate<Pointer<Char>>(streamInfo.channelCount);
           for (var i = 0; i < streamInfo.channelCount; i++) {
             // Convert the string to a native UTF8 string and store the pointer
-            final Pointer<Utf8> utf8String = data[i].toString().toNativeUtf8(
+            final Pointer<Utf8> utf8String = (data[i] as String).toNativeUtf8(
               allocator: allocate,
             );
             stringArray[i] = utf8String.cast<Char>();

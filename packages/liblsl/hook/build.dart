@@ -6,12 +6,12 @@ import 'package:native_toolchain_c/src/native_toolchain/android_ndk.dart';
 
 void main(List<String> args) async {
   await build(args, (input, output) async {
+    // This needs to be manually copied from CMakeLists.txt.
     const String libLSLVersion = '1.16.2';
     const String libLSLBranch = '7e61a2e';
     const String libLSLPath = 'src/liblsl-$libLSLBranch';
     final packageName = input.packageName;
     final OS targetOs = input.config.code.targetOS;
-    // ignore: unused_local_variable, just because it might be useful later
     final Architecture targetArchitecture =
         input.config.code.targetArchitecture;
 
@@ -20,7 +20,7 @@ void main(List<String> args) async {
     List<String> libraries = [];
 
     var defines = <String, String?>{
-      // copied from CMakeLists.txt...probably needs tweaking
+      // copied from CMakeLists.txt.
       'VERSION': libLSLVersion,
       'LSL_ABI_VERSION': '2',
       'ASIO_NO_DEPRECATED': null,
@@ -32,29 +32,26 @@ void main(List<String> args) async {
     };
 
     var forcedIncludes = <String>[];
+    // This is the crossplatform fix for the previous workaround
+    // that required a define with quoatation marks around it
+    // which breaks CL.exe.
     forcedIncludes.add('src/include/lsl_lib_version.h');
-
-    // if (targetOs != OS.windows) {
-    //   // this doesn't work on windows for now
-    //   // see: https://github.com/dart-lang/native/issues/2095
-    //   // and: https://github.com/dart-lang/native/pull/2096
-    //   defines['LSL_LIBRARY_INFO_STR'] =
-    //       '"${defines['LSL_VERSION_INFO']}/link:SHARED"';
-    // }
 
     // osx
     if (targetOs == OS.macOS || targetOs == OS.iOS) {
+      // Required to compile on OSX with Apple targets.
       frameworks.add('Foundation');
     }
 
     // Android
     if (targetOs == OS.android) {
-      // add flag for 16k pages
+      // Add flag for 16k pages.
       flags.add('-Wl,-z,max-page-size=16384');
     }
 
     // WIN
     if (targetOs == OS.windows) {
+      // @TODO: check which of these are actually necessary.
       defines.addAll({
         '_WIN32_WINNT': '0x0601',
         '_WINDOWS': null,
@@ -65,7 +62,9 @@ void main(List<String> args) async {
         'LSLNOAUTOLINK': null,
       });
       flags.add('/EHsc');
+      // Required for ASIO I think.
       libraries.add('winmm');
+      // Required for the network interface.
       libraries.add('iphlpapi');
     }
 
