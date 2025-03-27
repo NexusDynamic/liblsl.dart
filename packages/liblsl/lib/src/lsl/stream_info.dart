@@ -157,6 +157,34 @@ class LSLStreamInfo extends LSLObj {
     super.destroy();
   }
 
+  Map<String, dynamic> toSerializable() {
+    return {
+      'streamName': streamName,
+      'streamType': streamType.value,
+      'channelCount': channelCount,
+      'sampleRate': sampleRate,
+      'channelFormat': channelFormat.index,
+      'sourceId': sourceId,
+      'uid': uid,
+    };
+  }
+
+  factory LSLStreamInfo.fromSerializable(Map<String, dynamic> map) {
+    // Create from map data
+    return LSLStreamInfo(
+      streamName: map['streamName'] as String,
+      streamType: LSLContentType.values.firstWhere(
+        (e) => e.value == map['streamType'] as String,
+      ),
+      channelCount: map['channelCount'] as int,
+      sampleRate: map['sampleRate'] as double,
+      channelFormat: LSLChannelFormat.values.firstWhere(
+        (e) => e.index == map['channelFormat'] as int,
+      ),
+      sourceId: map['sourceId'] as String,
+    );
+  }
+
   @override
   String toString() {
     return 'LSLStreamInfo{streamName: $streamName, streamType: $streamType, channelCount: $channelCount, sampleRate: $sampleRate, channelFormat: $channelFormat, sourceId: $sourceId, uid: $uid, host: $hostname}';

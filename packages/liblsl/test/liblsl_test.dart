@@ -6,6 +6,154 @@ import 'dart:ffi';
 import 'package:ffi/ffi.dart' show StringUtf8Pointer, malloc;
 
 void main() {
+  test('detailed hybrid test', () async {
+    // 1. Create stream info
+    print('Creating stream info');
+    final streamInfo = LSLStreamInfo(
+      streamName: 'DetailTest',
+      sourceId: 'DetailSource',
+      channelCount: 2,
+      channelFormat: LSLChannelFormat.float32,
+    );
+    streamInfo.create();
+    print('Stream info created: ${streamInfo.toString()}');
+
+    // 2. Create outlet directly
+    print('Creating outlet directly');
+    final outlet = LSLStreamOutlet(
+      streamInfo: streamInfo,
+      chunkSize: 0,
+      maxBuffer: 1,
+    );
+    outlet.create();
+    print('Outlet created');
+
+    // 3. Push a sample
+    print('Pushing initial sample [99.0, 88.0]');
+    final pushResult = await outlet.pushSample([99.0, 88.0]);
+    print('Push result: $pushResult');
+
+    // 4. Wait for consumers
+    print('Checking if outlet has consumers');
+    final hasConsumers = lsl_have_consumers(outlet.streamOutlet!);
+    print('Has consumers: $hasConsumers (0=no, 1=yes)');
+
+    // 5. Create LSL instance for inlet
+    final lsl = LSL();
+
+    // 6. Resolve streams
+    print('Resolving streams');
+    final resolvedStreams = await lsl.resolveStreams(waitTime: 1.0);
+    print('Found ${resolvedStreams.length} streams');
+
+    // 7. Print more details
+    for (final s in resolvedStreams) {
+      print(
+        'Stream: ${s.streamName}, type: ${s.streamType.value}, ' +
+            'source: ${s.sourceId}, host: ${s.hostname}, uid: ${s.uid}',
+      );
+    }
+
+    // 8. Find target stream
+    print('Finding target stream');
+    final targetStream = resolvedStreams.firstWhere(
+      (s) => s.streamName == 'DetailTest' && s.sourceId == 'DetailSource',
+    );
+    print('Target stream found: ${targetStream.toString()}');
+
+    // 9. Create inlet in isolate
+    print('Creating inlet in isolate');
+    final inlet = await lsl.createInlet(
+      streamInfo: targetStream,
+      recover: false,
+    );
+    print('Inlet created');
+    // Then in your test:
+    print('Explicitly opening the stream');
+    await inlet.openStream(timeout: 2.0);
+    print('Stream opened');
+    // 10. Check if samples are available
+    print('Checking if samples are available before push');
+    final samplesAvailableBefore = await inlet.samplesAvailable();
+    print('Samples available before push: $samplesAvailableBefore');
+
+    // 11. Push more samples
+    print('Pushing more samples [77.0, 66.0]');
+    await outlet.pushSample([77.0, 66.0]);
+
+    // 12. Wait a moment
+    print('Waiting for sample propagation');
+    await Future.delayed(Duration(milliseconds: 500));
+
+    // 13. Check samples available again
+    print('Checking if samples are available after push');
+    final samplesAvailableAfter = await inlet.samplesAvailable();
+    print('Samples available after push: $samplesAvailableAfter');
+
+    // 14. Try to pull with longer timeout
+    print('Pulling sample with 3 second timeout');
+    final sample = await inlet.pullSample(timeout: 3.0);
+    print(
+      'Pulled sample: ${sample.data}, timestamp: ${sample.timestamp}, errorCode: ${sample.errorCode}',
+    );
+
+    // 15. Clean up
+    print('Cleaning up');
+    inlet.destroy();
+    outlet.destroy();
+    lsl.destroy();
+    print('Test completed');
+  });
+
+  test('hybrid approach test', () async {
+    final lsl = LSL();
+
+    // Create stream info
+    final streamInfo = LSLStreamInfo(
+      streamName: 'HybridTest',
+      sourceId: 'HybridSource',
+      channelCount: 2,
+      channelFormat: LSLChannelFormat.float32,
+    );
+    streamInfo.create();
+
+    // Create outlet directly
+    final outlet = LSLStreamOutlet(
+      streamInfo: streamInfo,
+      chunkSize: 0,
+      maxBuffer: 1,
+    );
+    outlet.create();
+
+    // Push sample directly
+    await outlet.pushSample([99.0, 88.0]);
+
+    // Now create inlet in isolate via your LSL class
+    final resolvedStreams = await lsl.resolveStreams(waitTime: 1.0);
+
+    // Find by exact name and source ID
+    final targetStream = resolvedStreams.firstWhere(
+      (s) => s.streamName == 'HybridTest' && s.sourceId == 'HybridSource',
+    );
+
+    // Create inlet in isolate
+    final inlet = await lsl.createInlet(
+      streamInfo: targetStream,
+      recover: false,
+    );
+
+    // Push more directly
+    await outlet.pushSample([77.0, 66.0]);
+
+    // Try to pull via isolate
+    final sample = await inlet.pullSample(timeout: 2.0);
+    print('Hybrid test sample: ${sample.data}');
+
+    // Clean up
+    inlet.destroy();
+    outlet.destroy();
+    lsl.destroy();
+  });
   // todo test object destruction, dealloc and free
   group('LSL ffi direct', () {
     test('Check lsl library version', () {
@@ -80,6 +228,169 @@ void main() {
       final outlet = await lsl.createOutlet(streamInfo: streamInfo);
       await outlet.pushSample(['Hello', 'World', 'This', 'is', 'a test']);
       outlet.destroy();
+      lsl.destroy();
+    });
+
+    test('investigate duplicate streams', () async {
+      // Create a unique LSL instance for this test
+      final lsl = LSL();
+
+      // First, check what streams exist BEFORE creating anything
+      print('Checking existing streams...');
+      final existingStreams = await lsl.resolveStreams(waitTime: 1.0);
+      print('Found ${existingStreams.length} existing streams:');
+      for (final s in existingStreams) {
+        print(
+          '  ${s.streamName}, ${s.streamType.value}, sourceId: ${s.sourceId}, uid: ${s.uid}',
+        );
+      }
+
+      // Create a uniquely named stream
+      final testId = DateTime.now().millisecondsSinceEpoch.toString();
+      final streamName = 'TestStream_$testId';
+      final sourceId = 'TestSource_$testId';
+
+      print('\nCreating new stream: $streamName, sourceId: $sourceId');
+      final streamInfo = await lsl.createStreamInfo(
+        streamName: streamName,
+        sourceId: sourceId,
+        channelCount: 1,
+        channelFormat: LSLChannelFormat.float32,
+      );
+
+      final outlet = await lsl.createOutlet(streamInfo: streamInfo);
+
+      // Wait for the outlet to be fully established
+      await Future.delayed(Duration(seconds: 1));
+
+      // Now check what streams exist AFTER creating our outlet
+      print('\nChecking streams after creating outlet...');
+      final newStreams = await lsl.resolveStreams(waitTime: 1.0);
+      print('Found ${newStreams.length} streams after creating outlet:');
+      for (final s in newStreams) {
+        print(
+          '  ${s.streamName}, ${s.streamType.value}, sourceId: ${s.sourceId}, uid: ${s.uid}',
+        );
+      }
+
+      // Try to find how many streams match our unique identifiers
+      final matchingStreams =
+          newStreams
+              .where(
+                (s) => s.streamName == streamName && s.sourceId == sourceId,
+              )
+              .toList();
+
+      print(
+        '\nFound ${matchingStreams.length} streams matching our new stream:',
+      );
+      for (final s in matchingStreams) {
+        print('  uid: ${s.uid}, host: ${s.hostname}');
+      }
+
+      // Now let's see what happens in the LSL implementation
+      print('\nLooking at the structure of the LSL implementation:');
+      print('LSL class outlet proxies: ${lsl.sendPorts.length}');
+      print('LSL class isolates: ${lsl.isolates.length}');
+
+      // Clean up
+      print('\nCleaning up...');
+      outlet.destroy();
+      await Future.delayed(Duration(seconds: 1));
+
+      // Check one more time after cleanup
+      print('\nChecking streams after cleanup...');
+      final cleanupStreams = await lsl.resolveStreams(waitTime: 1.0);
+      print('Found ${cleanupStreams.length} streams after cleanup:');
+      for (final s in cleanupStreams) {
+        print(
+          '  ${s.streamName}, ${s.streamType.value}, sourceId: ${s.sourceId}, uid: ${s.uid}',
+        );
+      }
+
+      // Final cleanup
+      lsl.destroy();
+    });
+    test('debug pullSample issue', () async {
+      final lsl = LSL();
+
+      // Create stream info with unique name and source ID
+      final testId = DateTime.now().millisecondsSinceEpoch.toString();
+      final oStreamInfo = await lsl.createStreamInfo(
+        streamName: 'DebugTestStream_$testId',
+        sourceId: 'DartLSL_$testId', // Add unique source ID
+        channelCount: 2,
+        channelFormat: LSLChannelFormat.float32,
+        sampleRate: 0.5,
+      );
+
+      // Create outlet
+      print('Creating outlet...');
+      final outlet = await lsl.createOutlet(
+        streamInfo: oStreamInfo,
+        chunkSize: 0,
+        maxBuffer: 1,
+      );
+
+      // Push a distinctive sample
+      print('Pushing sample [99.0, 88.0]...');
+      final pushResult = await outlet.pushSample([99.0, 88.0]);
+      print('Push result: $pushResult');
+
+      // Wait longer to ensure the sample is processed
+      print('Waiting for sample to be processed...');
+      await Future.delayed(Duration(milliseconds: 200));
+
+      // Resolve streams
+      print('Resolving streams...');
+      final streams = await lsl.resolveStreams(waitTime: 0.5);
+      print('Found ${streams.length} streams');
+
+      for (final s in streams) {
+        print(
+          'Found stream: ${s.streamName}, ${s.streamType.value}, channels: ${s.channelCount}',
+        );
+      }
+
+      // Find our specific stream
+      final streamInfo = streams.firstWhere(
+        (s) => s.streamName == 'DebugTestStream_$testId',
+        orElse: () => throw Exception('Test stream not found'),
+      );
+
+      // Create inlet
+      print('Creating inlet...');
+      final inlet = await lsl.createInlet(
+        streamInfo: streamInfo,
+        maxBufferSize: 360,
+        recover: true,
+      );
+
+      // Check if samples are available
+      print('Checking if samples are available...');
+      final available = await inlet.samplesAvailable();
+      print('Samples available: $available');
+
+      // Push another sample in case the first one is lost
+      print('Pushing another sample [77.0, 66.0]...');
+      await outlet.pushSample([77.0, 66.0]);
+
+      // Wait longer
+      print('Waiting for connection and sample delivery...');
+      await Future.delayed(Duration(milliseconds: 500));
+
+      // Check again if samples are available
+      final availableAfterWait = await inlet.samplesAvailable();
+      print('Samples available after wait: $availableAfterWait');
+
+      // Pull with longer timeout
+      print('Pulling sample with 2 second timeout...');
+      final sample = await inlet.pullSample(timeout: 2.0);
+      print('Pulled sample: ${sample.data}');
+
+      // Clean up
+      outlet.destroy();
+      inlet.destroy();
       lsl.destroy();
     });
     test('Create outlet and resolve available streams', () async {
@@ -219,6 +530,118 @@ void main() {
     //     lsl.destroy();
     //   },
     // );
+    test('fixed pullSample test', () async {
+      final lsl = LSL();
+
+      // Create stream with unique identifiers
+      final testId = DateTime.now().millisecondsSinceEpoch.toString();
+      final streamName = 'TestStream_$testId';
+      final sourceId = 'TestSource_$testId';
+
+      // Create stream info and outlet
+      final streamInfo = await lsl.createStreamInfo(
+        streamName: streamName,
+        sourceId: sourceId,
+        channelCount: 2,
+        channelFormat: LSLChannelFormat.float32,
+      );
+
+      final outlet = await lsl.createOutlet(
+        streamInfo: streamInfo,
+        chunkSize: 0,
+        maxBuffer: 1,
+      );
+
+      // Push a sample
+      await outlet.pushSample([99.0, 88.0]);
+
+      // Allow time for the network to register
+      await Future.delayed(Duration(seconds: 1));
+
+      // Resolve all streams
+      final streams = await lsl.resolveStreams(waitTime: 1.0, maxStreams: 10);
+
+      // Find our specific stream - use only the first matching one
+      final matchingStreams =
+          streams
+              .where(
+                (s) => s.streamName == streamName && s.sourceId == sourceId,
+              )
+              .toList();
+
+      print('Found ${matchingStreams.length} matching streams');
+      expect(
+        matchingStreams.isNotEmpty,
+        isTrue,
+        reason: 'No matching streams found',
+      );
+
+      // Create inlet with the first matching stream
+      final inlet = await lsl.createInlet(
+        streamInfo: matchingStreams.first,
+        maxBufferSize: 360,
+        recover: false, // Important! Don't try to auto-recover
+      );
+
+      // Push more samples to ensure something is available
+      for (int i = 0; i < 5; i++) {
+        await outlet.pushSample([77.0 + i, 66.0 + i]);
+        await Future.delayed(Duration(milliseconds: 100));
+      }
+
+      // Pull sample with timeout
+      final sample = await inlet.pullSample(timeout: 3.0);
+      print('Pulled sample: ${sample.data}');
+
+      // Verify we got data
+      expect(sample.data.isNotEmpty, isTrue, reason: 'No sample data received');
+
+      // Clean up
+      outlet.destroy();
+      inlet.destroy();
+      lsl.destroy();
+    });
+    test('direct LSL test - no isolates', () async {
+      // Create stream info directly
+      final streamInfo = LSLStreamInfo(
+        streamName: 'DirectTestStream',
+        sourceId: 'DirectTestSource',
+        channelCount: 2,
+        channelFormat: LSLChannelFormat.float32,
+      );
+      streamInfo.create();
+
+      // Create outlet directly
+      final outlet = LSLStreamOutlet(
+        streamInfo: streamInfo,
+        chunkSize: 0,
+        maxBuffer: 1,
+      );
+      outlet.create();
+
+      // Push a sample
+      await outlet.pushSample([99.0, 88.0]);
+
+      // Create inlet directly
+      final inlet = LSLStreamInlet<double>(
+        streamInfo,
+        maxBufferSize: 360,
+        maxChunkLength: 0,
+        recover: false,
+      );
+      inlet.create();
+
+      // Push more samples
+      await outlet.pushSample([77.0, 66.0]);
+
+      // Pull a sample
+      final sample = await inlet.pullSample(timeout: 2.0);
+      print('Direct test pulled sample: ${sample.data}');
+
+      // Clean up
+      inlet.destroy();
+      outlet.destroy();
+    });
     test(
       'create outlet, resolve stream, create inlet and pull sample',
       () async {

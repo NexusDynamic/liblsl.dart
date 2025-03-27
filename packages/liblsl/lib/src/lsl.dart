@@ -168,6 +168,9 @@ class LSL {
   final Map<String, SendPort> _sendPorts = {};
   final Map<String, StreamController> _controllerMap = {};
 
+  Map<String, SendPort> get sendPorts => _sendPorts;
+  Map<String, Isolate> get isolates => _isolates;
+
   // Isolate entry points
   static void _outletWorker(Map<String, dynamic> message) async {
     final msg = _OutletMsg.fromMap(message['config']);
@@ -203,12 +206,11 @@ class LSL {
     final outletInfo = lsl_get_info(outlet.streamOutlet!);
     if (outletInfo.address != nullptr.address) {
       final outletInfoObj = LSLStreamInfo.fromStreamInfo(outletInfo);
-      print(
-        'Outlet worker created outlet with info: ${outletInfoObj.toString()}',
-      );
+      // Use the UID for identification
+      final streamUID = outletInfoObj.uid;
 
-      // Only destroy the created object, not the underlying pointer which is owned by the outlet
-      //outletInfoObj.destroy();
+      // Send this UID back to the main thread
+      sendPort.send({'status': 'created', 'uid': streamUID});
     }
 
     print('Outlet worker ready, starting to process messages...');
@@ -403,11 +405,18 @@ class LSL {
           final responsePort = data['responsePort'] as SendPort;
 
           try {
-            final result = inlet.samplesAvailable();
+            // Replace this line if it returns a Future
+            // final result = inlet.samplesAvailable();
+
+            // Instead, make sure it returns a simple value
+            final result =
+                await inlet
+                    .samplesAvailable(); // Make sure this doesn't return a Future
+
             responsePort.send({
               'status': 'success',
               'commandId': commandId,
-              'result': result,
+              'result': result, // Make sure 'result' is a simple type like int
             });
           } catch (e) {
             responsePort.send({
@@ -1176,15 +1185,17 @@ class _ProxyStreamInlet<T> extends LSLStreamInlet<T> {
 
   @override
   Future<int> samplesAvailable() async {
-    // This should be async for consistency, but the base class method is sync
-    // We'll make it async but block for the result
     final commandId =
         'samplesAvailable_${DateTime.now().millisecondsSinceEpoch}';
     final responsePort = ReceivePort();
     final completer = Completer<int>();
 
-    // Send the command to the isolate
-    sendPort.send({'command': 'samplesAvailable', 'commandId': commandId});
+    // Send the command to the isolate WITH the response port
+    sendPort.send({
+      'command': 'samplesAvailable',
+      'commandId': commandId,
+      'responsePort': responsePort.sendPort, // Add this line
+    });
 
     // Listen for the response
     responsePort.listen((message) {

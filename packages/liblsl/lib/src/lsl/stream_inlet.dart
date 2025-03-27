@@ -1,4 +1,7 @@
+import 'dart:ffi';
+
 import 'package:liblsl/native_liblsl.dart';
+import 'package:liblsl/src/ffi/mem.dart';
 import 'package:liblsl/src/lsl/base.dart';
 import 'package:liblsl/src/lsl/helper.dart';
 import 'package:liblsl/src/lsl/sample.dart';
@@ -40,6 +43,23 @@ class LSLStreamInlet<T> extends LSLObj {
       throw LSLException('StreamInfo not created');
     }
     _pullFn = LSLMapper().streamPull(streamInfo);
+  }
+
+  // In your LSLStreamInlet class, add a method to explicitly open the stream
+  Future<void> openStream({double timeout = 5.0}) async {
+    if (_streamInlet == null) {
+      throw LSLException('Inlet not created');
+    }
+
+    final ec = allocate<Int32>();
+    lsl_open_stream(_streamInlet!, timeout, ec);
+
+    final errorCode = ec.value;
+    ec.free();
+
+    if (LSLObj.error(errorCode)) {
+      throw LSLException('Error opening stream: $errorCode');
+    }
   }
 
   @override
