@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:liblsl/native_liblsl.dart';
 import 'package:liblsl/lsl.dart';
 import 'package:liblsl/src/ffi/mem.dart' show FreePointerExtension;
@@ -101,20 +103,25 @@ void main() {
         );
         final outlet = await LSL.createOutlet(
           streamInfo: oStreamInfo,
-          chunkSize: 0,
+          chunkSize: 1,
           maxBuffer: 360,
         );
         expect(outlet, isNotNull);
-        outlet.pushSample([5.0, 8.0]).then((result) {
-          expect(result, 0);
-        });
 
-        await Future.delayed(Duration(milliseconds: 100));
-        outlet.pushSample([5.0, 8.0]);
+        final Completer<void> completer = Completer<void>();
+        // Start sending data in the background
+        // this works
+        // final senderFuture = () async {
+        //   // while (!completer.isCompleted) {
+        //   await Future.delayed(Duration(milliseconds: 200));
+        //   await outlet.pushSample([5.0, 8.0]);
+        //   // }
+        // }();
 
-        final streams = await LSL.resolveStreams(waitTime: 0.5);
+        await Future.delayed(Duration(milliseconds: 10));
+
+        final streams = await LSL.resolveStreams(waitTime: 0.1);
         expect(streams.length, greaterThan(0));
-
         // Find and validate the stream
         final streamInfo = streams.firstWhere(
           (s) => s.streamName == 'TestStream',
@@ -124,19 +131,43 @@ void main() {
         // Create inlet and allow time for connection
         final inlet = await LSL.createInlet<double>(
           maxBufferSize: 360,
+          maxChunkLength: 1,
           streamInfo: streamInfo,
           recover: false,
         );
-        await outlet.pushSample([5.0, 8.0]);
-        await Future.delayed(Duration(milliseconds: 100));
+        // After creating the inlet
+        print('Inlet created: $inlet');
+        // Check how many samples are available before pulling
+        () async {
+          await Future.delayed(Duration(milliseconds: 100));
+          await outlet.pushSample([5.0, 8.0]);
+        }();
+        print('Pushed sample');
+        print('Samples available: ${await inlet.samplesAvailable()}');
+
+        final s = await inlet.pullSample(timeout: 5.0);
+        print('Samples available: ${await inlet.samplesAvailable()}');
         // Pull sample with timeout
-        final s = await inlet.pullSample();
         print(s.toString());
 
         // Validate the sample
         expect(s.length, 2);
         expect(s[0], 5.0); // Adjust based on expected sample order
         expect(s[1], 8.0);
+
+        inlet.pullSample(timeout: 5.0).then((s) {
+          print('Samples available: ${inlet.samplesAvailable()}');
+          print(s.toString());
+          // Validate the sample
+          expect(s.length, 2);
+          expect(s[0], 5.0); // Adjust based on expected sample order
+          expect(s[1], 8.0);
+        });
+        await Future.delayed(Duration(milliseconds: 50));
+        await outlet.pushSample([5.0, 8.0]);
+
+        completer.complete();
+        //await senderFuture; // Wait for the sender to finish
 
         // Clean up
         inlet.destroy();

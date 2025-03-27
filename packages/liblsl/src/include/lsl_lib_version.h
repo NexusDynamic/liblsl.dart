@@ -1,7 +1,8 @@
 #ifndef LSL_LIBRARY_INFO_STR
 #define MSTR_EXPAND(tok) #tok
 #define MSTR(tok) MSTR_EXPAND(tok)
-#define MSTR_CAT(A,B) A ## B
-#define LSL_LIBTYPE_DART /link:SHARED
-#define LSL_LIBRARY_INFO_STR MSTR(MSTR_CAT(LSL_VERSION_INFO, LSL_LIBTYPE_DART))
+
+#define LSL_LIBTYPE_DART link:SHARED
+// Concatenate strings without space, using proper formatting of /
+#define LSL_LIBRARY_INFO_STR MSTR(LSL_VERSION_INFO) "/" MSTR(LSL_LIBTYPE_DART)
 #endif

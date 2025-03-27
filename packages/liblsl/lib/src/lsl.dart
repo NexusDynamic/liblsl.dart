@@ -1,11 +1,13 @@
 import 'dart:async';
 import 'package:liblsl/native_liblsl.dart';
+import 'package:liblsl/src/ffi/mem.dart';
 import 'package:liblsl/src/lsl/exception.dart';
 import 'package:liblsl/src/lsl/stream_info.dart';
 import 'package:liblsl/src/lsl/isolated_inlet.dart';
 import 'package:liblsl/src/lsl/isolated_outlet.dart';
 import 'package:liblsl/src/lsl/stream_resolver.dart';
 import 'package:liblsl/src/lsl/structs.dart';
+import 'package:ffi/ffi.dart' show Utf8, Utf8Pointer;
 
 // Export LSL constants for public use
 export 'package:liblsl/native_liblsl.dart' show LSL_FOREVER, LSL_IRREGULAR_RATE;
@@ -88,6 +90,7 @@ class LSL {
     int maxBufferSize = 360,
     int maxChunkLength = 0,
     bool recover = true,
+    double createTimeout = LSL_FOREVER,
   }) async {
     if (!streamInfo.created) {
       throw LSLException('StreamInfo not created');
@@ -122,6 +125,7 @@ class LSL {
         maxBufferSize: maxBufferSize,
         maxChunkLength: maxChunkLength,
         recover: recover,
+        createTimeout: createTimeout,
       );
       await inlet.create();
       return inlet;
@@ -131,6 +135,7 @@ class LSL {
         maxBufferSize: maxBufferSize,
         maxChunkLength: maxChunkLength,
         recover: recover,
+        createTimeout: createTimeout,
       );
       await inlet.create();
       return inlet;
@@ -140,6 +145,7 @@ class LSL {
         maxBufferSize: maxBufferSize,
         maxChunkLength: maxChunkLength,
         recover: recover,
+        createTimeout: createTimeout,
       );
       await inlet.create();
       return inlet;
@@ -172,6 +178,15 @@ class LSL {
 
   /// Returns the local clock time, used to calculate offsets.
   static double localClock() => lsl_local_clock();
+
+  static String libraryInfo() {
+    final version = lsl_library_info();
+    if (version.isNullPointer) {
+      throw LSLException('Failed to get library info');
+    }
+    final versionString = version.cast<Utf8>().toDartString();
+    return versionString;
+  }
 
   /// Cleans up all resources.
   void destroy() {}

@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:ffi';
 import 'dart:isolate';
 
 import 'package:liblsl/native_liblsl.dart';
+import 'package:liblsl/src/ffi/mem.dart';
 import 'package:liblsl/src/lsl/base.dart';
 import 'package:liblsl/src/lsl/exception.dart';
 import 'package:liblsl/src/lsl/pull_sample.dart';
@@ -18,6 +20,7 @@ class LSLIsolatedInlet<T> extends LSLObj {
   final int maxChunkLength;
   final bool recover;
   final LSLInletIsolateManager _isolateManager = LSLInletIsolateManager();
+  final double createTimeout;
   bool _initialized = false;
 
   /// Creates a new LSLIsolatedInlet object
@@ -37,6 +40,7 @@ class LSLIsolatedInlet<T> extends LSLObj {
     this.maxBufferSize = 360,
     this.maxChunkLength = 0,
     this.recover = true,
+    this.createTimeout = LSL_FOREVER,
   }) {
     if (streamInfo.streamInfo == null) {
       throw LSLException('StreamInfo not created');
@@ -80,6 +84,7 @@ class LSLIsolatedInlet<T> extends LSLObj {
         'maxBufferSize': maxBufferSize,
         'maxChunkLength': maxChunkLength,
         'recover': recover,
+        'timeout': createTimeout,
       }),
     );
 
@@ -282,6 +287,16 @@ class LSLInletIsolate {
       throw LSLException('Error creating inlet');
     }
 
+    // open the stream
+    final Pointer<Int32> ec = allocate<Int32>();
+    final timeout = data['timeout'] as double;
+    lsl_open_stream(_inlet!, timeout, ec);
+    final result = ec.value;
+    ec.free();
+    if (result != 0) {
+      throw LSLException('Error opening stream: $result');
+    }
+
     return true;
   }
 
@@ -317,6 +332,7 @@ class LSLInletIsolate {
 
   void _destroy() {
     if (_inlet != null) {
+      lsl_close_stream(_inlet!);
       lsl_destroy_inlet(_inlet!);
       _inlet = null;
     }

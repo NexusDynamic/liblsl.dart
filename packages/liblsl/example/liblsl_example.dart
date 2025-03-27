@@ -16,6 +16,10 @@ Future<void> basicExample() async {
   // Create the main LSL instance with isolates enabled
   print('LSL Library Version: ${LSL.version}');
 
+  // print library info
+  final libraryInfo = LSL.libraryInfo();
+  print('LSL Library Info: $libraryInfo');
+
   try {
     // Create stream info for EEG data
     final streamInfo = await LSL.createStreamInfo(
