@@ -77,7 +77,7 @@ class LSLStreamInlet<T> extends LSLObj {
   }
 
   /// Clears all samples from the inlet.
-  int flush() {
+  Future<int> flush() async {
     if (_streamInlet == null) {
       throw LSLException('Inlet not created');
     }
@@ -88,7 +88,7 @@ class LSLStreamInlet<T> extends LSLObj {
   /// This will either be the number of available samples (if supported by the
   /// platform) or it will be 1 if there are samples available, or 0 if there
   /// are no samples available.
-  int samplesAvailable() {
+  Future<int> samplesAvailable() async {
     if (_streamInlet == null) {
       throw LSLException('Inlet not created');
     }
