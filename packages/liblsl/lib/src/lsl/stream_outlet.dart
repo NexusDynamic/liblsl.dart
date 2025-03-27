@@ -181,4 +181,6 @@ class LSLStreamOutlet extends LSLObj {
   String toString() {
     return 'LSLStreamOutlet{streamInfo: $streamInfo, chunkSize: $chunkSize, maxBuffer: $maxBuffer}';
   }
+
+  lsl_outlet? get nativeOutlet => _streamOutlet;
 }

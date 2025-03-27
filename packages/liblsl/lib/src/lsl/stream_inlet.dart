@@ -106,4 +106,6 @@ class LSLStreamInlet<T> extends LSLObj {
     streamInfo.destroy();
     super.destroy();
   }
+
+  lsl_inlet? get nativeInlet => _streamInlet;
 }
