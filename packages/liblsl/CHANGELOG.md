@@ -1,3 +1,10 @@
+# 0.3.0
+
+- Outlets and inlets now have to be destroyed by the user
+- Outlets and inlets are now contained in `Isolate`s
+- Updated liblsl to `7e61a2e`
+- Added a fully self-contained example
+
 # 0.2.1
 
 - Fixed linting issues.
