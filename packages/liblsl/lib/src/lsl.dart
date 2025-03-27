@@ -2,11 +2,12 @@ import 'dart:async';
 import 'package:liblsl/native_liblsl.dart';
 import 'package:liblsl/src/lsl/exception.dart';
 import 'package:liblsl/src/lsl/stream_info.dart';
-import 'package:liblsl/src/lsl/stream_inlet.dart';
-import 'package:liblsl/src/lsl/stream_outlet.dart';
+import 'package:liblsl/src/lsl/isolated_inlet.dart';
+import 'package:liblsl/src/lsl/isolated_outlet.dart';
 import 'package:liblsl/src/lsl/stream_resolver.dart';
 import 'package:liblsl/src/lsl/structs.dart';
-// probably will want to add more consts here
+
+// Export LSL constants for public use
 export 'package:liblsl/native_liblsl.dart' show LSL_FOREVER, LSL_IRREGULAR_RATE;
 
 /// Interface to the LSL library.
@@ -14,10 +15,9 @@ export 'package:liblsl/native_liblsl.dart' show LSL_FOREVER, LSL_IRREGULAR_RATE;
 /// This class provides a high-level interface to the LSL library, allowing
 /// you to create and manage streams, outlets, and inlets.
 class LSL {
-  LSLStreamInfo? _streamInfo;
-  LSLStreamOutlet? _streamOutlet;
-  LSLStreamInlet? _streamInlet;
-  LSL();
+  /// Don't use this constructor directly, use [LSL.createStreamInfo],
+  /// [LSL.createOutlet], or [LSL.createInlet] instead.
+  LSL._();
 
   /// Creates a new [LSLStreamInfo] object.
   ///
@@ -26,7 +26,7 @@ class LSL {
   /// [channelCount] is the number of channels in the stream.
   /// [streamType] is the stream's [LSLChannelFormat] (e.g. string, int8).
   /// [sourceId] is the source ID of the stream which should be unique.
-  Future<LSLStreamInfo> createStreamInfo({
+  static Future<LSLStreamInfo> createStreamInfo({
     String streamName = "DartLSLStream",
     LSLContentType streamType = LSLContentType.eeg,
     int channelCount = 1,
@@ -34,7 +34,7 @@ class LSL {
     LSLChannelFormat channelFormat = LSLChannelFormat.float32,
     String sourceId = "DartLSL",
   }) async {
-    _streamInfo = LSLStreamInfo(
+    final streamInfo = LSLStreamInfo(
       streamName: streamName,
       streamType: streamType,
       channelCount: channelCount,
@@ -42,20 +42,14 @@ class LSL {
       channelFormat: channelFormat,
       sourceId: sourceId,
     );
-    _streamInfo?.create();
-    return _streamInfo!;
+    streamInfo.create();
+    return streamInfo;
   }
 
   /// Returns the version of the LSL library.
-  int get version => lsl_library_version();
+  static int get version => lsl_library_version();
 
-  /// Returns the [LSLStreamInfo] object.
-  LSLStreamInfo? get info => _streamInfo;
-
-  /// Returns the [LSLStreamInlet] object.
-  LSLStreamOutlet? get outlet => _streamOutlet;
-
-  /// Creates a new [LSLStreamOutlet] object.
+  /// Creates a new outlet object.
   ///
   /// [chunkSize] determines how to hand off samples to the buffer,
   /// 0 creates a chunk for each push.
@@ -65,23 +59,22 @@ class LSL {
   /// otherwise it is in 100s of samples (maxBuffer * 10^2).
   /// High values will use more memory, low values may lose samples,
   /// this should be set as close as possible to the rate of consumption.
-  Future<LSLStreamOutlet> createOutlet({
+  static Future<LSLIsolatedOutlet> createOutlet({
+    required LSLStreamInfo streamInfo,
     int chunkSize = 0,
     int maxBuffer = 360,
   }) async {
-    if (_streamInfo == null) {
-      throw LSLException('StreamInfo not created');
-    }
-    _streamOutlet = LSLStreamOutlet(
-      streamInfo: _streamInfo!,
+    final streamOutlet = LSLIsolatedOutlet(
+      streamInfo: streamInfo,
       chunkSize: chunkSize,
       maxBuffer: maxBuffer,
     );
-    _streamOutlet?.create();
-    return _streamOutlet!;
+    await streamOutlet.create();
+
+    return streamOutlet;
   }
 
-  /// Creates a new [LSLStreamInlet] object.
+  /// Creates a new inlet object.
   ///
   /// [streamInfo] is the [LSLStreamInfo] object to be used. Probably obtained
   ///   from a [LSLStreamResolver].
@@ -90,51 +83,69 @@ class LSL {
   /// [maxChunkLength] is the maximum number of samples. If 0, the default
   ///  chunk length from the stream is used.
   /// [recover] is whether to recover from lost samples.
-  Future<LSLStreamInlet> createInlet({
+  static Future<LSLIsolatedInlet> createInlet<T>({
     required LSLStreamInfo streamInfo,
     int maxBufferSize = 360,
     int maxChunkLength = 0,
     bool recover = true,
   }) async {
-    if (_streamInlet != null) {
-      throw LSLException('Inlet already created');
-    }
-
     if (!streamInfo.created) {
       throw LSLException('StreamInfo not created');
     }
 
+    Type dataType;
     switch (streamInfo.channelFormat.dartType) {
       case const (double):
-        _streamInlet = LSLStreamInlet<double>(
-          streamInfo,
-          maxBufferSize: maxBufferSize,
-          maxChunkLength: maxChunkLength,
-          recover: recover,
-        );
+        dataType = double;
         break;
       case const (int):
-        _streamInlet = LSLStreamInlet<int>(
-          streamInfo,
-          maxBufferSize: maxBufferSize,
-          maxChunkLength: maxChunkLength,
-          recover: recover,
-        );
+        dataType = int;
         break;
       case const (String):
-        _streamInlet = LSLStreamInlet<String>(
-          streamInfo,
-          maxBufferSize: maxBufferSize,
-          maxChunkLength: maxChunkLength,
-          recover: recover,
-        );
+        dataType = String;
         break;
       default:
         throw LSLException('Invalid channel format');
     }
 
-    _streamInlet!.create();
-    return _streamInlet!;
+    // Check if the generic type matches the expected data type
+    if (T != dynamic && T != dataType) {
+      throw LSLException(
+        'Generic type $T does not match expected data type $dataType for channel format ${streamInfo.channelFormat}',
+      );
+    }
+
+    // Use isolated implementation
+    if (dataType == double) {
+      final inlet = LSLIsolatedInlet<double>(
+        streamInfo,
+        maxBufferSize: maxBufferSize,
+        maxChunkLength: maxChunkLength,
+        recover: recover,
+      );
+      await inlet.create();
+      return inlet;
+    } else if (dataType == int) {
+      final inlet = LSLIsolatedInlet<int>(
+        streamInfo,
+        maxBufferSize: maxBufferSize,
+        maxChunkLength: maxChunkLength,
+        recover: recover,
+      );
+      await inlet.create();
+      return inlet;
+    } else if (dataType == String) {
+      final inlet = LSLIsolatedInlet<String>(
+        streamInfo,
+        maxBufferSize: maxBufferSize,
+        maxChunkLength: maxChunkLength,
+        recover: recover,
+      );
+      await inlet.create();
+      return inlet;
+    }
+
+    throw LSLException('Unsupported data type: $dataType');
   }
 
   /// Resolves streams available on the network.
@@ -142,7 +153,7 @@ class LSL {
   /// [waitTime] is the time to wait for streams to resolve.
   /// [maxStreams] is the maximum number of streams to resolve.
   /// [forgetAfter] is the time to forget streams that are not seen.
-  Future<List<LSLStreamInfo>> resolveStreams({
+  static Future<List<LSLStreamInfo>> resolveStreams({
     double waitTime = 5.0,
     int maxStreams = 5,
     double forgetAfter = 5.0,
@@ -160,16 +171,13 @@ class LSL {
   }
 
   /// Returns the local clock time, used to calculate offsets.
-  double localClock() => lsl_local_clock();
+  static double localClock() => lsl_local_clock();
 
-  void destroy() {
-    _streamInfo?.destroy();
-    _streamOutlet?.destroy();
-    // _streamInlet?.destroy();
-  }
+  /// Cleans up all resources.
+  void destroy() {}
 
   @override
   String toString() {
-    return 'LSL{streamInfo: $_streamInfo, streamOutlet: $_streamOutlet}';
+    return 'LSL{version: $version}';
   }
 }

@@ -22,7 +22,6 @@ class LSLStreamInfo extends LSLObj {
   final double sampleRate;
   final LSLChannelFormat channelFormat;
   final String sourceId;
-  int? _uid;
   lsl_streaminfo? _streamInfo;
 
   /// Creates a new LSLStreamInfo object.

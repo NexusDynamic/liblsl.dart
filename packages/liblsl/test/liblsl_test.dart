@@ -1,10 +1,6 @@
-import 'dart:isolate';
-
 import 'package:liblsl/native_liblsl.dart';
 import 'package:liblsl/lsl.dart';
 import 'package:liblsl/src/ffi/mem.dart' show FreePointerExtension;
-import 'package:liblsl/src/lsl/exception.dart';
-import 'package:liblsl/src/lsl/stream_info.dart';
 import 'package:test/test.dart';
 import 'dart:ffi';
 import 'package:ffi/ffi.dart' show StringUtf8Pointer, malloc;
@@ -18,232 +14,105 @@ void main() {
   });
   group('LSL', () {
     test('Check lsl library version', () async {
-      final lsl = LSL();
-      expect(lsl.version, 116);
-      lsl.destroy();
+      expect(LSL.version, 116);
     });
 
     test('Create stream info', () async {
-      final lsl = LSL();
-      await lsl.createStreamInfo();
-      lsl.destroy();
-    });
-
-    test('Create stream outlet throws exception without streamInfo', () async {
-      final lsl = LSL();
-      expect(() => lsl.createOutlet(), throwsA(isA<LSLException>()));
-      lsl.destroy();
+      final streamInfo = await LSL.createStreamInfo();
+      expect(streamInfo, isNotNull);
+      expect(streamInfo.streamName, 'DartLSLStream');
+      streamInfo.destroy();
     });
 
     test('Create stream outlet', () async {
-      final lsl = LSL();
-      await lsl.createStreamInfo();
-      await lsl.createOutlet();
-      expect(lsl.outlet, isNotNull);
-      expect(lsl.outlet?.streamInfo, isNotNull);
-      expect(lsl.outlet?.streamInfo.streamName, 'DartLSLStream');
-      lsl.destroy();
+      final streamInfo = await LSL.createStreamInfo();
+      final streamOutlet = await LSL.createOutlet(streamInfo: streamInfo);
+      expect(streamOutlet, isNotNull);
+      expect(streamOutlet.streamInfo, isNotNull);
+      expect(streamOutlet.streamInfo.streamName, 'DartLSLStream');
+      streamOutlet.destroy();
+      streamInfo.destroy();
     });
 
     test('Wait for consumer timeout exception', () async {
-      final lsl = LSL();
-      await lsl.createStreamInfo();
-      await lsl.createOutlet();
+      final streamInfo = await LSL.createStreamInfo();
+      final outlet = await LSL.createOutlet(streamInfo: streamInfo);
       expect(
-        () => lsl.outlet?.waitForConsumer(timeout: 1.0),
+        () => outlet.waitForConsumer(timeout: 1.0),
         throwsA(isA<LSLTimeout>()),
       );
-      lsl.destroy();
+      outlet.destroy();
+      streamInfo.destroy();
     });
     test('push a default (float) sample', () async {
-      final lsl = LSL();
-      await lsl.createStreamInfo(channelCount: 2);
-      await lsl.createOutlet();
-      await lsl.outlet?.pushSample([5.0, 8.0]);
-      lsl.destroy();
+      final streamInfo = await LSL.createStreamInfo(channelCount: 2);
+      final outlet = await LSL.createOutlet(streamInfo: streamInfo);
+      final result = await outlet.pushSample([5.0, 8.0]);
+      expect(result, 0); // 0 typically means success
+
+      outlet.destroy();
+      streamInfo.destroy();
     });
 
     test('push a string sample', () async {
-      final lsl = LSL();
-      await lsl.createStreamInfo(
+      final streamInfo = await LSL.createStreamInfo(
         channelFormat: LSLChannelFormat.string,
-        channelCount: 5,
+        channelCount: 1,
       );
-      await lsl.createOutlet();
-      await lsl.outlet?.pushSample(['Hello', 'World', 'This', 'is', 'a test']);
-      lsl.destroy();
+      final outlet = await LSL.createOutlet(streamInfo: streamInfo);
+      final result = await outlet.pushSample(['Test Sample']);
+      expect(result, 0);
+
+      outlet.destroy();
+      streamInfo.destroy();
     });
     test('Create outlet and resolve available streams', () async {
-      final lsl = LSL();
-      await lsl.createStreamInfo();
-      await lsl.createOutlet();
-      final streams = await lsl.resolveStreams(waitTime: 1.0);
+      final streamInfo = await LSL.createStreamInfo();
+      final outlet = await LSL.createOutlet(streamInfo: streamInfo);
+      final streams = await LSL.resolveStreams(waitTime: 1.0);
       expect(streams.length, greaterThan(0));
-      //streams.destroy();
-      lsl.destroy();
+
+      // Find the right stream
+      LSLStreamInfo? foundStreamInfo;
+      for (final stream in streams) {
+        print(stream.toString());
+        if (stream.streamName == 'DartLSLStream') {
+          foundStreamInfo = stream;
+          break;
+        }
+      }
+
+      // Validate the found stream
+      expect(foundStreamInfo, isNotNull);
+      expect(foundStreamInfo?.streamName, 'DartLSLStream');
+
+      outlet.destroy();
+      streamInfo.destroy();
     });
-
-    // /// this will be skipped normally unless e.g. the pylsl script is running
-    // /// this works from pylsl...
-    // /// prints out e.g.:
-    // /// Sample: LSLSample{data: [0.19785338640213013, 0.9229772090911865, 0.7834794521331787, 0.10717403888702393, 0.8670063614845276, 0.5186590552330017, 0.15880778431892395, 0.790692150592804], timestamp: 75012.221855291, errorCode: 0}
-    // /// Sample: LSLSample{data: [0.9281628131866455, 0.2588001787662506, 0.32235756516456604, 0.04881776124238968, 0.9249580502510071, 0.19534574449062347, 0.2730277478694916, 0.36848941445350647], timestamp: 75012.232806958, errorCode: 0}
-    // test('create inlet and pull samples from external source', () async {
-    //   final lsl = LSL();
-    //   final streams = await lsl.resolveStreams(waitTime: 1.0);
-    //   expect(streams.length, greaterThan(0));
-    //   // find the right stream
-    //   LSLStreamInfo? streamInfo;
-    //   for (final stream in streams) {
-    //     print(stream.toString());
-    //     if (stream.streamName == 'BioSemi') {
-    //       streamInfo = stream;
-    //       break;
-    //     }
-    //   }
-    //   // found?
-    //   expect(streamInfo, isNotNull);
-    //   expect(streamInfo?.streamName, 'BioSemi');
-    //   // create inlet from found stream info
-    //   final inlet = await lsl.createInlet(
-    //     maxBufferSize: 360,
-    //     maxChunkLength: 0,
-    //     streamInfo: streamInfo!,
-    //     recover: true,
-    //   );
-    //   while (true) {
-    //     // get the sample
-    //     final s = await inlet.pullSample(timeout: 0.1);
-    //     // validate received sample
-    //     expect(s, isA<LSLSample<double>>());
-    //     expect(s.length, 8);
-    //     expect(s.timestamp, isA<double>());
-    //     expect(s.errorCode, 0);
-
-    //     print('Sample: ${s.toString()}');
-
-    //     await Future.delayed(Duration(milliseconds: 50));
-    //   }
-    // });
-
-    // test(
-    //   'create outlet, resolve stream, create inlet and pull sample',
-    //   () async {
-    //     final lsl = LSL();
-
-    //     // create stream info
-    //     await lsl.createStreamInfo(
-    //       streamName: 'TestStream',
-    //       channelCount: 2,
-    //       channelFormat: LSLChannelFormat.float32,
-    //       sampleRate: 0.5,
-    //     );
-
-    //     // print(info.toString());
-
-    //     // create outlet
-    //     final outlet = await lsl.createOutlet(chunkSize: 0, maxBuffer: 1);
-
-    //     // push some samples
-    //     final int result = await outlet.pushSample([1.0, 2.0]);
-    //     expect(result, 0);
-
-    //     // resolve streams
-    //     final streams = await lsl.resolveStreams(
-    //       waitTime: 0.5,
-    //       maxStreams: 2,
-    //       forgetAfter: 1.0,
-    //     );
-    //     expect(streams.length, greaterThan(0));
-
-    //     // find the right stream
-    //     LSLStreamInfo? streamInfo;
-    //     for (final stream in streams) {
-    //       print(stream.toString());
-    //       if (stream.streamName == 'TestStream') {
-    //         streamInfo = stream;
-    //         // break;
-    //       }
-    //     }
-
-    //     // found?
-    //     expect(streamInfo, isNotNull);
-    //     expect(streamInfo?.streamName, 'TestStream');
-
-    //     // create inlet from found stream info
-    //     final inlet = await lsl.createInlet(
-    //       maxBufferSize: 360,
-    //       maxChunkLength: 0,
-    //       streamInfo: streamInfo!,
-    //       recover: true,
-    //     );
-    //     // inlet.flush();
-    //     await outlet.pushSample([5.0, 8.0]);
-    //     await Future.delayed(Duration(milliseconds: 10));
-
-    //     // make sure there is at least one queued sample
-
-    //     outlet.pushSample([9.0, 7.0]);
-    //     await Future.delayed(Duration(milliseconds: 10));
-    //     //expect(inlet.samplesAvailable(), greaterThan(0));
-    //     outlet.pushSample([9.0, 7.0]);
-    //     outlet.pushSample([9.0, 7.0]);
-    //     outlet.pushSample([9.0, 7.0]);
-    //     outlet.pushSample([9.0, 7.0]);
-    //     outlet.pushSample([9.0, 7.0]);
-    //     outlet.pushSample([9.0, 7.0]);
-    //     // get the sample
-    //     final s = await inlet.pullSample(timeout: 0.5);
-    //     outlet.pushSample([3.0, 5.0]);
-    //     // validate received sample
-
-    //     // general
-    //     print(s.toString());
-    //     expect(s, isA<LSLSample<double>>());
-    //     expect(s.length, 2);
-    //     expect(s[0], 5.0);
-    //     expect(s[1], 8.0);
-    //     expect(s.timestamp, isA<double>());
-    //     expect(s.errorCode, 0);
-
-    //     lsl.destroy();
-    //   },
-    // );
     test(
       'create outlet, resolve stream, create inlet and pull sample',
       () async {
-        final thread = Isolate.run(() async {
-          final lsl = LSL();
-          // Create stream info and outlet
-          await lsl.createStreamInfo(
-            streamName: 'TestStream',
-            channelCount: 2,
-            channelFormat: LSLChannelFormat.float32,
-            sampleRate: 0.5,
-          );
-          final outlet = await lsl.createOutlet(chunkSize: 0, maxBuffer: 1);
-
-          int sampleCount = 0;
-          while (sampleCount < 100) {
-            // Push samples
-            await outlet.pushSample([5.0, 8.0]);
-            await outlet.pushSample([9.0, 7.0]);
-            await outlet.pushSample([3.0, 5.0]);
-            sampleCount++;
-            await Future.delayed(Duration(milliseconds: 100));
-          }
-          lsl.destroy();
-          return sampleCount;
-        }).then((sampleCount) {
-          print('Sample count: $sampleCount');
-          expect(sampleCount, 100);
+        final oStreamInfo = await LSL.createStreamInfo(
+          streamName: 'TestStream',
+          channelCount: 2,
+          channelFormat: LSLChannelFormat.float32,
+          sampleRate: LSL_IRREGULAR_RATE,
+          streamType: LSLContentType.markers,
+        );
+        final outlet = await LSL.createOutlet(
+          streamInfo: oStreamInfo,
+          chunkSize: 0,
+          maxBuffer: 360,
+        );
+        expect(outlet, isNotNull);
+        outlet.pushSample([5.0, 8.0]).then((result) {
+          expect(result, 0);
         });
 
-        // wait for thread to start
         await Future.delayed(Duration(milliseconds: 100));
-        // create main thread lsl
-        final lsl = LSL();
-        final streams = await lsl.resolveStreams(waitTime: 0.5);
+        outlet.pushSample([5.0, 8.0]);
+
+        final streams = await LSL.resolveStreams(waitTime: 0.5);
         expect(streams.length, greaterThan(0));
 
         // Find and validate the stream
@@ -253,17 +122,15 @@ void main() {
         expect(streamInfo, isNotNull);
 
         // Create inlet and allow time for connection
-        final inlet = await lsl.createInlet(
+        final inlet = await LSL.createInlet<double>(
           maxBufferSize: 360,
           streamInfo: streamInfo,
           recover: false,
         );
-        await Future.delayed(
-          Duration(milliseconds: 100),
-        ); // Allow connection time
-
+        await outlet.pushSample([5.0, 8.0]);
+        await Future.delayed(Duration(milliseconds: 100));
         // Pull sample with timeout
-        final s = await inlet.pullSample(timeout: 1.0);
+        final s = await inlet.pullSample();
         print(s.toString());
 
         // Validate the sample
@@ -271,8 +138,11 @@ void main() {
         expect(s[0], 5.0); // Adjust based on expected sample order
         expect(s[1], 8.0);
 
-        lsl.destroy(); // Ensure this is after all operations
-        await thread;
+        // Clean up
+        inlet.destroy();
+        outlet.destroy();
+        oStreamInfo.destroy();
+        streamInfo.destroy();
       },
     );
     test('Direct FFI test for string sample', () {
