@@ -22,7 +22,6 @@ class LSLStreamInfo extends LSLObj {
   final double sampleRate;
   final LSLChannelFormat channelFormat;
   final String sourceId;
-  int? _uid;
   lsl_streaminfo? _streamInfo;
 
   /// Creates a new LSLStreamInfo object.
@@ -48,6 +47,10 @@ class LSLStreamInfo extends LSLObj {
   /// The [Pointer] to the underlying lsl_streaminfo_struct_.
   lsl_streaminfo? get streamInfo => _streamInfo;
 
+  void clearStreamInfo() {
+    _streamInfo = null;
+  }
+
   /// Creates the stream info object, allocates memory, etc.
   @override
   create() {
@@ -72,10 +75,40 @@ class LSLStreamInfo extends LSLObj {
     return this;
   }
 
-  int get uid {
+  String? get uid {
+    if (_streamInfo == null) {
+      return null;
+    }
+
     final Pointer<Char> uidp = lsl_get_uid(_streamInfo!);
-    _uid = uidp.value;
-    return _uid!;
+    if (uidp.isNullPointer) {
+      return null;
+    }
+
+    try {
+      return uidp.cast<Utf8>().toDartString();
+    } catch (e) {
+      print('Error getting UID: $e');
+      return null;
+    }
+  }
+
+  String? get hostname {
+    if (_streamInfo == null) {
+      return null;
+    }
+
+    final Pointer<Char> hostPtr = lsl_get_hostname(_streamInfo!);
+    if (hostPtr.isNullPointer) {
+      return null;
+    }
+
+    try {
+      return hostPtr.cast<Utf8>().toDartString();
+    } catch (e) {
+      print('Error getting hostname: $e');
+      return null;
+    }
   }
 
   /// Creates a new LSLStreamInfo object from an existing lsl_streaminfo.
@@ -126,6 +159,6 @@ class LSLStreamInfo extends LSLObj {
 
   @override
   String toString() {
-    return 'LSLStreamInfo[$uid]{streamName: $streamName, streamType: $streamType, channelCount: $channelCount, sampleRate: $sampleRate, channelFormat: $channelFormat, sourceId: $sourceId}';
+    return 'LSLStreamInfo{streamName: $streamName, streamType: $streamType, channelCount: $channelCount, sampleRate: $sampleRate, channelFormat: $channelFormat, sourceId: $sourceId, uid: $uid, host: $hostname}';
   }
 }

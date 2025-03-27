@@ -1,10 +1,6 @@
-import 'dart:isolate';
-
 import 'package:liblsl/native_liblsl.dart';
 import 'package:liblsl/lsl.dart';
 import 'package:liblsl/src/ffi/mem.dart' show FreePointerExtension;
-import 'package:liblsl/src/lsl/exception.dart';
-import 'package:liblsl/src/lsl/stream_info.dart';
 import 'package:test/test.dart';
 import 'dart:ffi';
 import 'package:ffi/ffi.dart' show StringUtf8Pointer, malloc;
@@ -259,6 +255,7 @@ void main() {
           streamInfo: streamInfo,
           recover: false,
         );
+        await outlet.pushSample([5.0, 8.0]);
         await Future.delayed(
           Duration(milliseconds: 100),
         ); // Allow connection time
@@ -272,6 +269,8 @@ void main() {
         expect(s[0], 5.0); // Adjust based on expected sample order
         expect(s[1], 8.0);
 
+        outlet.destroy();
+        inlet.destroy();
         lsl.destroy(); // Ensure this is after all operations
       },
     );

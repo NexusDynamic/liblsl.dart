@@ -8,6 +8,7 @@ import 'package:liblsl/src/lsl/stream_outlet.dart';
 import 'package:liblsl/src/lsl/stream_resolver.dart';
 import 'package:liblsl/src/lsl/sample.dart';
 import 'package:liblsl/src/lsl/structs.dart';
+import 'dart:ffi' show nullptr;
 
 // Messages for isolate communication
 class _StreamInfoMsg {
@@ -173,6 +174,8 @@ class LSL {
     final sendPort = message['sendPort'] as SendPort;
     final receivePort = ReceivePort();
 
+    print('Outlet worker starting for stream: ${msg.streamInfo.streamName}');
+
     sendPort.send({'port': receivePort.sendPort, 'status': 'ready'});
 
     // Create the actual outlet
@@ -187,6 +190,8 @@ class LSL {
     );
     streamInfo.create();
 
+    print('Outlet worker created stream info: ${streamInfo.toString()}');
+
     final outlet = LSLStreamOutlet(
       streamInfo: streamInfo,
       chunkSize: msg.chunkSize,
@@ -194,37 +199,86 @@ class LSL {
     );
     outlet.create();
 
+    // Get and print the outlet's stream info for diagnostic purposes
+    final outletInfo = lsl_get_info(outlet.streamOutlet!);
+    if (outletInfo.address != nullptr.address) {
+      final outletInfoObj = LSLStreamInfo.fromStreamInfo(outletInfo);
+      print(
+        'Outlet worker created outlet with info: ${outletInfoObj.toString()}',
+      );
+
+      // Only destroy the created object, not the underlying pointer which is owned by the outlet
+      //outletInfoObj.destroy();
+    }
+
+    print('Outlet worker ready, starting to process messages...');
+
     // Handle messages
     await for (final data in receivePort) {
+      print(
+        'Outlet worker received message: ${data is Map ? data['command'] : data}',
+      );
+
       if (data == 'destroy') {
+        print('Outlet worker received destroy command, cleaning up...');
         outlet.destroy();
         lsl.destroy();
         Isolate.exit();
       } else if (data is Map<String, dynamic>) {
         if (data['command'] == 'push') {
-          final sampleMsg = _SampleMsg.fromMap(data);
+          final sampleData = data['data'] as List<dynamic>;
+          final commandId = data['commandId'] as String;
+          final responsePort = data['responsePort'] as SendPort;
+
           try {
-            final result = await outlet.pushSample(sampleMsg.data);
-            sendPort.send({
+            print('Outlet worker pushing sample: $sampleData');
+            final result = await outlet.pushSample(sampleData);
+            print('Outlet worker push result: $result');
+            responsePort.send({
               'status': 'success',
-              'commandId': sampleMsg.commandId,
+              'commandId': commandId,
               'result': result,
             });
           } catch (e) {
-            sendPort.send({
+            print('Outlet worker push error: $e');
+            responsePort.send({
               'status': 'error',
-              'commandId': sampleMsg.commandId,
+              'commandId': commandId,
               'error': e.toString(),
             });
           }
         } else if (data['command'] == 'waitForConsumer') {
           final timeout = data['timeout'] as double;
           final commandId = data['commandId'] as String;
+          final responsePort = data['responsePort'] as SendPort;
+          final exception = data['exception'] as bool? ?? true;
+
+          print(
+            'Outlet worker handling waitForConsumer with timeout: $timeout',
+          );
           try {
-            await outlet.waitForConsumer(timeout: timeout);
-            sendPort.send({'status': 'success', 'commandId': commandId});
+            // We can't directly use outlet.waitForConsumer because it has exception handling logic
+            // Instead, directly use the underlying lsl_wait_for_consumers function
+            final consumerFound = lsl_wait_for_consumers(
+              outlet.streamOutlet!,
+              timeout,
+            );
+
+            print('Outlet worker waitForConsumer result: $consumerFound');
+            if (consumerFound == 0 && exception) {
+              // No consumer found and exception flag is set
+              responsePort.send({
+                'status': 'error',
+                'commandId': commandId,
+                'error': 'No consumer found within $timeout seconds',
+              });
+            } else {
+              // Either consumer found or exception flag not set
+              responsePort.send({'status': 'success', 'commandId': commandId});
+            }
           } catch (e) {
-            sendPort.send({
+            print('Outlet worker waitForConsumer error: $e');
+            responsePort.send({
               'status': 'error',
               'commandId': commandId,
               'error': e.toString(),
@@ -253,6 +307,8 @@ class LSL {
       sourceId: msg.streamInfo.sourceId,
     );
     streamInfo.create();
+
+    print('Inlet worker creating inlet for stream: ${streamInfo.streamName}');
 
     LSLStreamInlet inlet;
     switch (streamInfo.channelFormat.dartType) {
@@ -286,10 +342,16 @@ class LSL {
     }
 
     inlet.create();
+    print('Inlet worker ready, starting to process messages...');
 
     // Handle messages
     await for (final data in receivePort) {
+      print(
+        'Inlet worker received message: ${data is Map ? data['command'] : data}',
+      );
+
       if (data == 'destroy') {
+        print('Inlet worker received destroy command, cleaning up...');
         inlet.destroy();
         lsl.destroy();
         Isolate.exit();
@@ -297,9 +359,13 @@ class LSL {
         if (data['command'] == 'pullSample') {
           final timeout = data['timeout'] as double;
           final commandId = data['commandId'] as String;
+          final responsePort = data['responsePort'] as SendPort;
+
           try {
+            print('Inlet worker pulling sample with timeout: $timeout');
             final sample = await inlet.pullSample(timeout: timeout);
-            sendPort.send({
+            print('Inlet worker pulled sample: ${sample.data}');
+            responsePort.send({
               'status': 'success',
               'commandId': commandId,
               'data': sample.data,
@@ -307,7 +373,8 @@ class LSL {
               'errorCode': sample.errorCode,
             });
           } catch (e) {
-            sendPort.send({
+            print('Inlet worker pull error: $e');
+            responsePort.send({
               'status': 'error',
               'commandId': commandId,
               'error': e.toString(),
@@ -315,15 +382,17 @@ class LSL {
           }
         } else if (data['command'] == 'flush') {
           final commandId = data['commandId'] as String;
+          final responsePort = data['responsePort'] as SendPort;
+
           try {
             final result = inlet.flush();
-            sendPort.send({
+            responsePort.send({
               'status': 'success',
               'commandId': commandId,
               'result': result,
             });
           } catch (e) {
-            sendPort.send({
+            responsePort.send({
               'status': 'error',
               'commandId': commandId,
               'error': e.toString(),
@@ -331,15 +400,17 @@ class LSL {
           }
         } else if (data['command'] == 'samplesAvailable') {
           final commandId = data['commandId'] as String;
+          final responsePort = data['responsePort'] as SendPort;
+
           try {
             final result = inlet.samplesAvailable();
-            sendPort.send({
+            responsePort.send({
               'status': 'success',
               'commandId': commandId,
               'result': result,
             });
           } catch (e) {
-            sendPort.send({
+            responsePort.send({
               'status': 'error',
               'commandId': commandId,
               'error': e.toString(),
@@ -355,6 +426,8 @@ class LSL {
     final sendPort = message['sendPort'] as SendPort;
     final receivePort = ReceivePort();
 
+    print('Resolver worker starting with config: ${msg.toMap()}');
+
     sendPort.send({'port': receivePort.sendPort, 'status': 'ready'});
 
     // Create the resolver
@@ -364,6 +437,8 @@ class LSL {
       forgetAfter: msg.forgetAfter,
     );
     resolver.create();
+
+    print('Resolver worker initialized resolver');
 
     // If continuous mode, set up a Timer to periodically check for streams
     Timer? periodicCheck;
@@ -397,7 +472,12 @@ class LSL {
 
     // Handle messages
     await for (final data in receivePort) {
+      print(
+        'Resolver worker received message: ${data is Map ? data['command'] : data}',
+      );
+
       if (data == 'destroy') {
+        print('Resolver worker received destroy command, cleaning up...');
         periodicCheck?.cancel();
         resolver.destroy();
         lsl.destroy();
@@ -406,8 +486,15 @@ class LSL {
         if (data['command'] == 'resolve') {
           final waitTime = data['waitTime'] as double;
           final commandId = data['commandId'] as String;
+          final responsePort = data['responsePort'] as SendPort;
+
           try {
+            print(
+              'Resolver worker resolving streams with wait time: $waitTime',
+            );
             final streams = await resolver.resolve(waitTime: waitTime);
+            print('Resolver worker found ${streams.length} streams');
+
             final streamMaps =
                 streams
                     .map(
@@ -422,13 +509,14 @@ class LSL {
                     )
                     .toList();
 
-            sendPort.send({
+            responsePort.send({
               'status': 'success',
               'commandId': commandId,
               'streams': streamMaps,
             });
           } catch (e) {
-            sendPort.send({
+            print('Resolver worker resolve error: $e');
+            responsePort.send({
               'status': 'error',
               'commandId': commandId,
               'error': e.toString(),
@@ -640,6 +728,10 @@ class LSL {
     final resolverId = 'resolver_${DateTime.now().millisecondsSinceEpoch}';
     final receivePort = ReceivePort();
 
+    print(
+      'Starting stream resolution with waitTime: $waitTime, maxStreams: $maxStreams',
+    );
+
     // Prepare config for the isolate
     final config = _ResolverMsg(
       waitTime: waitTime,
@@ -654,59 +746,91 @@ class LSL {
       'sendPort': receivePort.sendPort,
     }, debugName: resolverId);
 
-    // Wait for the isolate to initialize
-    final isolateInfo = await receivePort.first as Map<String, dynamic>;
-    final sendPort = isolateInfo['port'] as SendPort;
-
-    // Request stream resolution
-    final commandId = 'resolve_${DateTime.now().millisecondsSinceEpoch}';
-    sendPort.send({
-      'command': 'resolve',
-      'waitTime': waitTime,
-      'commandId': commandId,
-    });
-
-    // Wait for the response
-    final responsePort = ReceivePort();
-    final completer = Completer<List<LSLStreamInfo>>();
-
-    receivePort.listen((message) {
-      if (message is Map<String, dynamic> &&
-          message['status'] == 'success' &&
-          message['commandId'] == commandId) {
-        final streamMaps = List<Map<String, dynamic>>.from(message['streams']);
-        final streamInfos =
-            streamMaps.map((map) {
-              return LSLStreamInfo(
-                streamName: map['streamName'],
-                streamType: LSLContentType.values.firstWhere(
-                  (t) => t.value == map['streamType'],
-                  orElse: () => LSLContentType.custom(map['streamType']),
-                ),
-                channelCount: map['channelCount'],
-                sampleRate: map['sampleRate'],
-                channelFormat: LSLChannelFormat.values[map['channelFormat']],
-                sourceId: map['sourceId'],
-              )..create();
-            }).toList();
-
-        completer.complete(streamInfos);
-      } else if (message is Map<String, dynamic> &&
-          message['status'] == 'error') {
-        completer.completeError(LSLException(message['error']));
-      }
-    });
-
     try {
+      // Wait for the isolate to initialize
+      final initCompleter = Completer<SendPort>();
+
+      // Use a single subscription for initialization
+      final subscription = receivePort.listen((message) {
+        if (message is Map<String, dynamic> && message['status'] == 'ready') {
+          initCompleter.complete(message['port'] as SendPort);
+        }
+      });
+
+      // Wait for initialization with timeout
+      final sendPort = await initCompleter.future.timeout(
+        const Duration(seconds: 5),
+        onTimeout: () {
+          subscription.cancel();
+          receivePort.close();
+          isolate.kill();
+          throw TimeoutException('Resolver initialization timeout');
+        },
+      );
+
+      // Cancel the initialization subscription
+      await subscription.cancel();
+
+      // Create a new receive port for the resolution result
+      final resultPort = ReceivePort();
+      final commandId = 'resolve_${DateTime.now().millisecondsSinceEpoch}';
+
+      // Request stream resolution with the new result port
+      sendPort.send({
+        'command': 'resolve',
+        'waitTime': waitTime,
+        'commandId': commandId,
+        'responsePort': resultPort.sendPort,
+      });
+
+      // Wait for the response using a completer
+      final completer = Completer<List<LSLStreamInfo>>();
+
+      // Listen for the result
+      resultPort.listen((message) {
+        if (message is Map<String, dynamic> &&
+            message['status'] == 'success' &&
+            message['commandId'] == commandId) {
+          final streamMaps = List<Map<String, dynamic>>.from(
+            message['streams'],
+          );
+          final streamInfos =
+              streamMaps.map((map) {
+                return LSLStreamInfo(
+                  streamName: map['streamName'],
+                  streamType: LSLContentType.values.firstWhere(
+                    (t) => t.value == map['streamType'],
+                    orElse: () => LSLContentType.custom(map['streamType']),
+                  ),
+                  channelCount: map['channelCount'],
+                  sampleRate: map['sampleRate'],
+                  channelFormat: LSLChannelFormat.values[map['channelFormat']],
+                  sourceId: map['sourceId'],
+                )..create();
+              }).toList();
+
+          completer.complete(streamInfos);
+          resultPort.close();
+        } else if (message is Map<String, dynamic> &&
+            message['status'] == 'error') {
+          completer.completeError(LSLException(message['error']));
+          resultPort.close();
+        }
+      });
+
+      // Wait for the result with timeout
       return await completer.future.timeout(
-        Duration(seconds: waitTime.toInt() + 1),
+        Duration(seconds: waitTime.ceil() + 5),
+        onTimeout: () {
+          resultPort.close();
+          throw TimeoutException('Stream resolution timeout');
+        },
       );
     } finally {
-      // Clean up
-      sendPort.send('destroy');
+      // Always clean up
       receivePort.close();
-      responsePort.close();
       isolate.kill();
+      print('Stream resolution completed, resources cleaned up');
     }
   }
 
@@ -846,6 +970,7 @@ class _ProxyStreamOutlet extends LSLStreamOutlet {
   @override
   create() {
     // No-op, already created in constructor
+    super.create();
     return this;
   }
 
@@ -861,8 +986,13 @@ class _ProxyStreamOutlet extends LSLStreamOutlet {
     final responsePort = ReceivePort();
     final completer = Completer<int>();
 
-    // Send the sample to the isolate
-    sendPort.send({'command': 'push', 'data': data, 'commandId': commandId});
+    // Send the sample to the isolate WITH the response port
+    sendPort.send({
+      'command': 'push',
+      'data': data,
+      'commandId': commandId,
+      'responsePort': responsePort.sendPort, // This is the missing piece
+    });
 
     // Listen for the response
     responsePort.listen((message) {
@@ -877,7 +1007,16 @@ class _ProxyStreamOutlet extends LSLStreamOutlet {
       }
     });
 
-    return completer.future;
+    // Add a timeout to prevent indefinite waits
+    return completer.future.timeout(
+      const Duration(seconds: 5),
+      onTimeout: () {
+        responsePort.close();
+        throw TimeoutException(
+          'Operation timed out waiting for outlet response',
+        );
+      },
+    );
   }
 
   @override
@@ -890,28 +1029,44 @@ class _ProxyStreamOutlet extends LSLStreamOutlet {
     final responsePort = ReceivePort();
     final completer = Completer<void>();
 
-    // Send the command to the isolate
+    print('Sending waitForConsumer command with timeout: $timeout');
+
+    // Send the command to the isolate WITH the response port
     sendPort.send({
       'command': 'waitForConsumer',
       'timeout': timeout,
       'exception': exception,
       'commandId': commandId,
+      'responsePort': responsePort.sendPort, // Add this!
     });
 
     // Listen for the response
     responsePort.listen((message) {
+      print('Received waitForConsumer response: $message');
       if (message is Map<String, dynamic> &&
           message['commandId'] == commandId) {
         if (message['status'] == 'success') {
           completer.complete();
         } else if (message['status'] == 'error') {
           completer.completeError(LSLException(message['error']));
+        } else if (message['status'] == 'timeout') {
+          completer.completeError(LSLTimeout(message['error']));
         }
         responsePort.close();
       }
     });
 
-    return completer.future;
+    // Add a timeout to prevent indefinite waits
+    return completer.future.timeout(
+      Duration(seconds: timeout.ceil() + 1),
+      onTimeout: () {
+        print('waitForConsumer timed out after ${timeout.ceil() + 1} seconds');
+        responsePort.close();
+        if (exception) {
+          throw LSLTimeout('No consumer found within $timeout seconds');
+        }
+      },
+    );
   }
 
   @override
@@ -944,6 +1099,7 @@ class _ProxyStreamInlet<T> extends LSLStreamInlet<T> {
   @override
   create() {
     // No-op, already created in constructor
+    super.create();
     return this;
   }
 
@@ -953,11 +1109,12 @@ class _ProxyStreamInlet<T> extends LSLStreamInlet<T> {
     final responsePort = ReceivePort();
     final completer = Completer<LSLSample<T>>();
 
-    // Send the command to the isolate
+    // Send the command to the isolate WITH the response port
     sendPort.send({
       'command': 'pullSample',
       'timeout': timeout,
       'commandId': commandId,
+      'responsePort': responsePort.sendPort,
     });
 
     // Listen for the response
@@ -977,7 +1134,16 @@ class _ProxyStreamInlet<T> extends LSLStreamInlet<T> {
       }
     });
 
-    return completer.future;
+    // Add a timeout to prevent indefinite waits
+    return completer.future.timeout(
+      Duration(seconds: (timeout > 0 ? timeout.ceil() + 1 : 5)),
+      onTimeout: () {
+        responsePort.close();
+        throw TimeoutException(
+          'Operation timed out waiting for inlet response',
+        );
+      },
+    );
   }
 
   @override
