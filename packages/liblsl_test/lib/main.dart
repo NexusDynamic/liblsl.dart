@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
-import 'package:liblsl/native_liblsl.dart';
+import 'package:liblsl/lsl.dart';
+import 'dart:math';
 
 void main() {
   runApp(const MyApp());
@@ -23,6 +26,7 @@ class MyApp2 extends StatefulWidget {
 
 class _MyApp2State extends State<MyApp2> {
   late Future<int> _lslver;
+  Completer<void>? _completer;
 
   @override
   void initState() {
@@ -58,11 +62,69 @@ class _MyApp2State extends State<MyApp2> {
             }
           },
         ),
+
+        ElevatedButton(
+          key: const Key('start_streaming'),
+          onPressed: () async {
+            _completer = Completer<void>();
+            // Start sending data in the background
+            final senderFuture = startStream(_completer!);
+          },
+          child: const Text('Start Stream'),
+        ),
+        ElevatedButton(
+          key: const Key('stop_streaming'),
+          onPressed: () async {
+            if (_completer != null && !_completer!.isCompleted) {
+              _completer!.complete();
+            }
+          },
+          child: const Text('Stop Stream'),
+        ),
+        // add resolve and other LSL functions here
       ],
     );
   }
 }
 
 Future<int> setupLSL() async {
-  return lsl_library_version();
+  return LSL.version;
+}
+
+Future<void> startStream(Completer completer) async {
+  try {
+    // Create a stream info object
+    final streamInfo = await LSL.createStreamInfo(
+      streamName: 'FlutterApp',
+      channelCount: 2,
+      channelFormat: LSLChannelFormat.float32,
+      sampleRate: 5.0,
+      streamType: LSLContentType.eeg,
+      sourceId: 'FlutterAppDevice',
+    );
+
+    // Create an outlet
+    final outlet = await LSL.createOutlet(
+      streamInfo: streamInfo,
+      chunkSize: 0,
+      maxBuffer: 360,
+    );
+    final rng = Random();
+    while (!completer.isCompleted) {
+      await Future.delayed(const Duration(milliseconds: 200));
+      // Create a sample with random data
+      final sample = List<double>.generate(
+        streamInfo.channelCount,
+        (index) => rng.nextDouble(),
+      );
+      // Send the sample
+      await outlet.pushSample(sample);
+    }
+
+    // Clean up
+    outlet.destroy();
+    streamInfo.destroy();
+  } catch (e) {
+    print('Error: $e');
+  }
 }
