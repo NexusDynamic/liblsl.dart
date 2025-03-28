@@ -19,6 +19,9 @@ typedef DartLslPullSample<T extends NativeType> =
     );
 
 /// The base class for all LSL pull sample types.
+/// @TODO: Seperate the pointer alloc / native call from the sample creation.
+/// This prevents duplicating and sending objects between threads if we can
+/// just use a pointer instead.
 abstract class LslPullSample<T extends NativeType, D> {
   final DartLslPullSample<T> _pullFn;
 

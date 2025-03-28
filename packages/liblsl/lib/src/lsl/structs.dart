@@ -7,7 +7,7 @@ import 'package:liblsl/src/ffi/mem.dart';
 class LSLContentType {
   final String value;
   final bool isCustom;
-  static List<LSLContentType> _values = [
+  static final List<LSLContentType> _values = [
     eeg,
     mocap,
     nirs,
