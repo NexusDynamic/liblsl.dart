@@ -1,8 +1,20 @@
+import 'dart:io';
 import 'package:logging/logging.dart';
 import 'package:native_assets_cli/code_assets.dart';
 import 'package:native_toolchain_c/native_toolchain_c.dart';
 import 'package:native_toolchain_c/src/cbuilder/run_cbuilder.dart';
 import 'package:native_toolchain_c/src/native_toolchain/android_ndk.dart';
+
+/// This is the same as the one in the native_toolchain_c package
+/// with the exception of arm, which is just "arm", instead of
+/// "armv7a-linux-androideabi".
+const androidNdkArchABIMap = {
+  Architecture.arm: 'arm-linux-androideabi',
+  Architecture.arm64: 'aarch64-linux-android',
+  Architecture.ia32: 'i686-linux-android',
+  Architecture.x64: 'x86_64-linux-android',
+  Architecture.riscv64: 'riscv64-linux-android',
+};
 
 void main(List<String> args) async {
   await build(args, (input, output) async {
@@ -139,9 +151,15 @@ void main(List<String> args) async {
       for (final tool in aclang) {
         if (tool.tool.name == 'Clang') {
           final sysroot = tool.uri.resolve('../sysroot/').toString();
-          final androidArch =
-              RunCBuilder.androidNdkClangTargetFlags[targetArchitecture];
-          final libPath = '$sysroot/usr/lib/$androidArch/libc++_shared.so';
+          // use the arch from native_toolchain_c.
+          String libPath =
+              '${sysroot}usr/lib/${RunCBuilder.androidNdkClangTargetFlags[targetArchitecture]}/libc++_shared.so';
+          // check if path exists.
+          if (!File(libPath).existsSync()) {
+            // if not we can try the alternate map (this will only fix ARM).
+            libPath =
+                '${sysroot}usr/lib/${androidNdkArchABIMap[targetArchitecture]}/libc++_shared.so';
+          }
           output.assets.code.add(
             CodeAsset(
               package: packageName,
