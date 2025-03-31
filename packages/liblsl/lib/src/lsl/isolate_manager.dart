@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:isolate';
+import 'dart:ffi' show NativeType;
 
 import 'package:liblsl/src/lsl/isolated_inlet.dart';
 import 'package:liblsl/src/lsl/isolated_outlet.dart';
@@ -87,6 +88,28 @@ class LSLSerializer {
       List<T>.from(map['data'] as List),
       map['timestamp'] as double,
       map['errorCode'] as int,
+    );
+  }
+
+  /// Serialize LSLSamplePointer`<`T`>` (T extends NativeType).
+  static Map<String, dynamic> serializeSamplePointer<T extends NativeType>(
+    LSLSamplePointer<T> sample,
+  ) {
+    return {
+      'timestamp': sample.timestamp,
+      'errorCode': sample.errorCode,
+      'pointerAddress': sample.pointerAddress,
+    };
+  }
+
+  /// Deserialize LSLSamplePointer`<`T`>` (T extends NativeType).
+  static LSLSamplePointer<T> deserializeSamplePointer<T extends NativeType>(
+    Map<String, dynamic> map,
+  ) {
+    return LSLSamplePointer<T>(
+      map['timestamp'] as double,
+      map['errorCode'] as int,
+      map['pointerAddress'] as int,
     );
   }
 }

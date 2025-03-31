@@ -22,6 +22,7 @@ class LSLIsolatedInlet<T> extends LSLObj {
   final LSLInletIsolateManager _isolateManager = LSLInletIsolateManager();
   final double createTimeout;
   bool _initialized = false;
+  late final LslPullSample _pullFn;
 
   /// Creates a new LSLIsolatedInlet object
   ///
@@ -45,6 +46,8 @@ class LSLIsolatedInlet<T> extends LSLObj {
     if (streamInfo.streamInfo == null) {
       throw LSLException('StreamInfo not created');
     }
+
+    _pullFn = LSLMapper().streamPull(streamInfo);
 
     // Validate type parameter matches channel format
     final expectedType = _getExpectedType();
@@ -108,17 +111,52 @@ class LSLIsolatedInlet<T> extends LSLObj {
       throw LSLException('Inlet not created');
     }
 
+    // Allocate a buffer for the sample.
+    final buffer = _pullFn.allocBuffer(streamInfo.channelCount);
+
+    // Check if the buffer was allocated successfully.
+    if (buffer.isNullPointer && streamInfo.channelFormat.ffiType != Void) {
+      throw LSLException('Error allocating sample buffer');
+    }
+
+    // Send message to pull sample from the isolate
+    // and wait for the response.
+    // The buffer address is passed to the isolate for sample retrieval.
+    // The buffer has to be freed on this thread after the sample is pulled.
     final response = await _isolateManager.sendMessage(
-      LSLMessage(LSLMessageType.pullSample, {'timeout': timeout}),
+      LSLMessage(LSLMessageType.pullSample, {
+        'timeout': timeout,
+        'pointerAddr': buffer.address,
+      }),
     );
 
     if (!response.success) {
+      buffer.free();
       throw LSLException('Error pulling sample: ${response.error}');
     }
 
-    // Deserialize the sample
-    final sampleData = response.result as Map<String, dynamic>;
-    return LSLSerializer.deserializeSample<T>(sampleData);
+    // Deserialize the sample pointer object.
+    final samplePointer = LSLSerializer.deserializeSamplePointer(
+      response.result as Map<String, dynamic>,
+    );
+    // a timestamp of zero means no sample was retrieved.
+    if (samplePointer.timestamp == 0) {
+      buffer.free();
+      return LSLSample<T>([], 0, samplePointer.errorCode);
+    }
+
+    // Convert the buffer to a list of the appropriate type.
+    final sampleData =
+        _pullFn.bufferToList(buffer, streamInfo.channelCount) as List<T>;
+
+    buffer.free();
+
+    // Return the sample!
+    return LSLSample<T>(
+      sampleData,
+      samplePointer.timestamp,
+      samplePointer.errorCode,
+    );
   }
 
   /// Clears all samples from the inlet.
@@ -306,12 +344,17 @@ class LSLInletIsolate {
     }
 
     final timeout = data['timeout'] as double;
-
+    final samplePtr = Pointer.fromAddress(data['pointerAddr'] as int);
     // Pull the sample
-    final sample = _pullFn(_inlet!, _streamInfo!.channelCount, timeout);
+    final sample = _pullFn.pullSample(
+      samplePtr,
+      _inlet!,
+      _streamInfo!.channelCount,
+      timeout,
+    );
 
     // Return the serialized sample
-    return LSLSerializer.serializeSample(sample);
+    return LSLSerializer.serializeSamplePointer(sample);
   }
 
   Future<int> _flush() async {

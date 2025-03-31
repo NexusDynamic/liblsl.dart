@@ -107,9 +107,15 @@ class LSLIsolatedOutlet extends LSLObj {
       );
     }
 
+    // Allocate memory for the sample
+    final samplePtr = _allocSample(data);
+    if (samplePtr.isNullPointer && streamInfo.channelFormat.ffiType != Void) {
+      throw LSLException('Failed to allocate memory for sample');
+    }
     final response = await _isolateManager.sendMessage(
-      LSLMessage(LSLMessageType.pushSample, {'data': data}),
+      LSLMessage(LSLMessageType.pushSample, {'pointerAddr': samplePtr.address}),
     );
+    samplePtr.free();
 
     if (!response.success) {
       throw LSLException('Error pushing sample: ${response.error}');
@@ -137,6 +143,65 @@ class LSLIsolatedOutlet extends LSLObj {
     }
 
     super.destroy();
+  }
+
+  /// Allocates a sample of the appropriate type for the given data.
+  Pointer _allocSample(List<dynamic> data) {
+    switch (streamInfo.channelFormat.ffiType) {
+      case const (Float):
+        final ptr = allocate<Float>(streamInfo.channelCount);
+        for (var i = 0; i < streamInfo.channelCount; i++) {
+          ptr[i] = data[i];
+        }
+        return ptr;
+      case const (Double):
+        final ptr = allocate<Double>(streamInfo.channelCount);
+        for (var i = 0; i < streamInfo.channelCount; i++) {
+          ptr[i] = data[i];
+        }
+        return ptr;
+      case const (Int8):
+        final ptr = allocate<Int8>(streamInfo.channelCount);
+        for (var i = 0; i < streamInfo.channelCount; i++) {
+          ptr[i] = data[i];
+        }
+        return ptr;
+      case const (Int16):
+        final ptr = allocate<Int16>(streamInfo.channelCount);
+        for (var i = 0; i < streamInfo.channelCount; i++) {
+          ptr[i] = data[i];
+        }
+        return ptr;
+      case const (Int32):
+        final ptr = allocate<Int32>(streamInfo.channelCount);
+        for (var i = 0; i < streamInfo.channelCount; i++) {
+          ptr[i] = data[i];
+        }
+        return ptr;
+      case const (Int64):
+        final ptr = allocate<Int64>(streamInfo.channelCount);
+        for (var i = 0; i < streamInfo.channelCount; i++) {
+          ptr[i] = data[i];
+        }
+        return ptr;
+      case const (Pointer<Char>):
+        if (data.every((item) => item is String)) {
+          // For string data
+          final stringArray = allocate<Pointer<Char>>(streamInfo.channelCount);
+          for (var i = 0; i < streamInfo.channelCount; i++) {
+            final Pointer<Utf8> utf8String = (data[i] as String).toNativeUtf8(
+              allocator: allocate,
+            );
+            stringArray[i] = utf8String.cast<Char>();
+          }
+          return stringArray;
+        }
+        throw LSLException('Invalid string data type');
+      case const (Void):
+        return nullPtr<Void>();
+      default:
+        throw LSLException('Invalid sample type');
+    }
   }
 
   @override
@@ -264,28 +329,15 @@ class LSLOutletIsolate {
     if (_outlet == null || _streamInfo == null) {
       throw LSLException('Outlet not created');
     }
-
-    final sampleData = data['data'] as List<dynamic>;
-
-    if (sampleData.length != _streamInfo!.channelCount) {
-      throw LSLException(
-        'Data length (${sampleData.length}) does not match channel count (${_streamInfo!.channelCount})',
-      );
-    }
-
     // Allocate memory for the sample
-    final samplePtr = _allocSample(sampleData);
+    final samplePtr = Pointer.fromAddress(data['pointerAddr'] as int);
 
-    try {
-      // Push the sample
-      final int result = _pushFn(_outlet!, samplePtr);
-      if (LSLObj.error(result)) {
-        throw LSLException('Error pushing sample: $result');
-      }
-      return result;
-    } finally {
-      samplePtr.free();
+    // Push the sample
+    final int result = _pushFn(_outlet!, samplePtr);
+    if (LSLObj.error(result)) {
+      throw LSLException('Error pushing sample: $result');
     }
+    return result;
   }
 
   void _destroy() {
@@ -302,70 +354,5 @@ class LSLOutletIsolate {
     }
 
     _receivePort.close();
-  }
-
-  /// Allocates a sample of the appropriate type for the given data.
-  Pointer _allocSample(List<dynamic> data) {
-    if (_streamInfo == null) {
-      throw LSLException('Stream info not available');
-    }
-
-    switch (_streamInfo!.channelFormat.ffiType) {
-      case const (Float):
-        final ptr = allocate<Float>(_streamInfo!.channelCount);
-        for (var i = 0; i < _streamInfo!.channelCount; i++) {
-          ptr[i] = data[i];
-        }
-        return ptr;
-      case const (Double):
-        final ptr = allocate<Double>(_streamInfo!.channelCount);
-        for (var i = 0; i < _streamInfo!.channelCount; i++) {
-          ptr[i] = data[i];
-        }
-        return ptr;
-      case const (Int8):
-        final ptr = allocate<Int8>(_streamInfo!.channelCount);
-        for (var i = 0; i < _streamInfo!.channelCount; i++) {
-          ptr[i] = data[i];
-        }
-        return ptr;
-      case const (Int16):
-        final ptr = allocate<Int16>(_streamInfo!.channelCount);
-        for (var i = 0; i < _streamInfo!.channelCount; i++) {
-          ptr[i] = data[i];
-        }
-        return ptr;
-      case const (Int32):
-        final ptr = allocate<Int32>(_streamInfo!.channelCount);
-        for (var i = 0; i < _streamInfo!.channelCount; i++) {
-          ptr[i] = data[i];
-        }
-        return ptr;
-      case const (Int64):
-        final ptr = allocate<Int64>(_streamInfo!.channelCount);
-        for (var i = 0; i < _streamInfo!.channelCount; i++) {
-          ptr[i] = data[i];
-        }
-        return ptr;
-      case const (Pointer<Char>):
-        if (data.every((item) => item is String)) {
-          // For string data
-          final stringArray = allocate<Pointer<Char>>(
-            _streamInfo!.channelCount,
-          );
-          for (var i = 0; i < _streamInfo!.channelCount; i++) {
-            final Pointer<Utf8> utf8String = (data[i] as String).toNativeUtf8(
-              allocator: allocate,
-            );
-            stringArray[i] = utf8String.cast<Char>();
-          }
-          return stringArray;
-        }
-        throw LSLException('Invalid string data type');
-      case const (Void):
-        return nullPtr<Void>();
-      default:
-        throw LSLException('Invalid sample type');
-    }
   }
 }
