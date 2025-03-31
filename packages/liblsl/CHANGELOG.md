@@ -1,3 +1,8 @@
+# 0.4.1
+
+- Update `native_assets_cli` to `0.13.0`
+- Update `native_toolchain_c` to `0.10.0`
+
 # 0.4.0
 
 - Inlet and outlets now pass sample pointer addresses rather than sample objects, making them more efficient (note: this has no public facing changes to the API)
