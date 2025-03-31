@@ -1,3 +1,9 @@
+# 0.4.0
+
+- Inlet and outlets now pass sample pointer addresses rather than sample objects, making them more efficient (note: this has no public facing changes to the API)
+- Updated the `liblsl_test` package (android NDK version, entitlements, manifests)
+- Updated readme documentation, describing Android and iOS specifics
+
 # 0.3.0
 
 - Outlets and inlets now have to be destroyed by the user

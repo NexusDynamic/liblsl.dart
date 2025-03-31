@@ -13,7 +13,7 @@ It's currently considered experimental.
 - [x] Windows
 - [x] iOS
 - [x] Android
-- [ ] Web ❌ - Possibly in the future, see: [[native_assets_cli] build.dart / link.dart web backends and WasmCode and JsCode assets](https://github.com/dart-lang/native/issues/988)
+- [ ] ❌ Web - Possibly in the future, see: [[native_assets_cli] build.dart / link.dart web backends and WasmCode and JsCode assets](https://github.com/dart-lang/native/issues/988)
 
 Also confirmed working on Meta Quest 2 (Android).
 
@@ -64,7 +64,7 @@ Multicast packets may be blocked on various managed switches and routers, or by 
 
 ## API Usage
 
-More documentation will come, but see [liblsl_test.dart](./test/liblsl_test.dart) also see the [liblsl_test](../liblsl_test) package for a working example with flutter for all supported target devices.
+More documentation will come, but see [liblsl_example.dart](./example/liblsl_example.dart), [liblsl_test.dart](./test/liblsl_test.dart) also see the [liblsl_test](../liblsl_test) package for a working example with flutter for all supported target devices.
 
 ```dart
 import 'package:liblsl/liblsl.dart';
