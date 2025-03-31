@@ -89,11 +89,11 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "com.example" "\0"
+            VALUE "CompanyName", "com.zeyus" "\0"
             VALUE "FileDescription", "liblsl_test" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
             VALUE "InternalName", "liblsl_test" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2025 com.example. All rights reserved." "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2025 com.zeyus. All rights reserved." "\0"
             VALUE "OriginalFilename", "liblsl_test.exe" "\0"
             VALUE "ProductName", "liblsl_test" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"

@@ -3,9 +3,11 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:liblsl/lsl.dart';
 import 'dart:math';
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
+import 'package:flutter/services.dart';
 
 void main() {
-  runApp(const MyApp());
+  runApp(MyApp());
 }
 
 class MyApp extends StatelessWidget {
@@ -25,6 +27,8 @@ class MyApp2 extends StatefulWidget {
 }
 
 class _MyApp2State extends State<MyApp2> {
+  MethodChannel? rtNetworkingChannel;
+
   late Future<int> _lslver;
   Completer<void>? _completer;
 
@@ -32,6 +36,23 @@ class _MyApp2State extends State<MyApp2> {
   void initState() {
     super.initState();
     _lslver = setupLSL();
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      // get multicast lock
+      if (rtNetworkingChannel == null) {
+        rtNetworkingChannel = MethodChannel('com.zeyus.liblsl_test/Networking');
+
+        rtNetworkingChannel!
+            .invokeMethod('acquireMulticastLock')
+            .then((_) {
+              // ignore: avoid_print
+              print('acquireMulticastLock: success');
+            })
+            .catchError((e) {
+              // ignore: avoid_print
+              print('acquireMulticastLock: error: $e');
+            });
+      }
+    }
   }
 
   @override
@@ -68,7 +89,7 @@ class _MyApp2State extends State<MyApp2> {
           onPressed: () async {
             _completer = Completer<void>();
             // Start sending data in the background
-            final senderFuture = startStream(_completer!);
+            startStream(_completer!);
           },
           child: const Text('Start Stream'),
         ),
@@ -84,6 +105,23 @@ class _MyApp2State extends State<MyApp2> {
         // add resolve and other LSL functions here
       ],
     );
+  }
+
+  @override
+  void dispose() {
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      rtNetworkingChannel
+          ?.invokeMethod('releaseMulticastLock')
+          .then((_) {
+            // ignore: avoid_print
+            print('releaseMulticastLock: success');
+          })
+          .catchError((e) {
+            // ignore: avoid_print
+            print('releaseMulticastLock: error: $e');
+          });
+    }
+    super.dispose();
   }
 }
 
@@ -125,6 +163,7 @@ Future<void> startStream(Completer completer) async {
     outlet.destroy();
     streamInfo.destroy();
   } catch (e) {
+    // ignore: avoid_print
     print('Error: $e');
   }
 }
