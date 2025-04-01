@@ -5,6 +5,41 @@ import 'package:native_toolchain_c/native_toolchain_c.dart';
 import 'package:native_toolchain_c/src/cbuilder/run_cbuilder.dart';
 import 'package:native_toolchain_c/src/native_toolchain/android_ndk.dart';
 
+/// The default name prefix for dynamic libraries per [OS].
+const _dylibPrefix = {
+  OS.android: 'lib',
+  OS.fuchsia: 'lib',
+  OS.iOS: 'lib',
+  OS.linux: 'lib',
+  OS.macOS: 'lib',
+  OS.windows: '',
+};
+
+// extension OSLibraryPrefix on OS {
+//   /// The prefix for the library name on this OS.
+//   ///
+//   /// This is used to determine the library name when building a shared
+//   /// library.
+//   String get libraryPrefix {
+//     final prefix = _dylibPrefix[this];
+//     if (prefix == null) {
+//       throw UnsupportedError('OS $this does not have a library prefix');
+//     }
+//     return prefix;
+//   }
+// }
+
+String stripPrefix(OS os, String name) {
+  final prefix = _dylibPrefix[os];
+  if (prefix == null) {
+    throw UnsupportedError('OS $os does not have a library prefix');
+  }
+  if (name.startsWith(prefix)) {
+    return name.substring(prefix.length);
+  }
+  return name;
+}
+
 /// This is the same as the one in the native_toolchain_c package
 /// with the exception of arm, which is just "arm", instead of
 /// "armv7a-linux-androideabi".
@@ -22,8 +57,8 @@ void main(List<String> args) async {
     const String libLSLVersion = '1.16.2';
     const String libLSLBranch = '7e61a2e';
     const String libLSLPath = 'src/liblsl-$libLSLBranch';
-    final packageName = input.packageName;
     final OS targetOs = input.config.code.targetOS;
+    final packageName = stripPrefix(targetOs, input.packageName);
     final Architecture targetArchitecture =
         input.config.code.targetArchitecture;
 
