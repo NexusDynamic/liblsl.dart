@@ -1,3 +1,9 @@
+# 0.5.0
+
+- Generated dylib is now without the lib prefix (if it is the prefix on the platform). i.e. `libliblsl.so` is now just `liblsl.so`
+- Tested working on Raspberry Pi 4 (64bit)
+- Tests are now less chatty
+
 # 0.4.1
 
 - Update `native_assets_cli` to `0.13.0`
