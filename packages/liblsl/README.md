@@ -13,9 +13,18 @@ It's currently considered experimental.
 - [x] Windows
 - [x] iOS
 - [x] Android
-- [ ] ❌ Web - Possibly in the future, see: [[native_assets_cli] build.dart / link.dart web backends and WasmCode and JsCode assets](https://github.com/dart-lang/native/issues/988)
+- [ ] Web - Possibly in the future, see: [[native_assets_cli] build.dart / link.dart web backends and WasmCode and JsCode assets](https://github.com/dart-lang/native/issues/988)
 
-Also confirmed working on Meta Quest 2 (Android).
+Also confirmed working on:
+
+ - Meta Quest 2 (Android).
+ - Raspberry Pi 4 (Linux/Raspberry Pi OS), only dart tested so far:
+   
+   `sudo apt update && sudo apt install build-essential clang llvm `
+   
+   `dart --enable-experiment=native-assets test`
+   
+   ![screenshot of tests passing on RPi](./docs/image.png)
 
 ## Introduction
 
