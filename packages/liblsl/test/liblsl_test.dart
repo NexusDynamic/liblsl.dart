@@ -8,7 +8,6 @@ import 'dart:ffi';
 import 'package:ffi/ffi.dart' show StringUtf8Pointer, malloc;
 
 void main() {
-  // todo test object destruction, dealloc and free
   group('LSL ffi direct', () {
     test('Check lsl library version', () {
       expect(lsl_library_version(), 116);
@@ -77,7 +76,6 @@ void main() {
       // Find the right stream
       LSLStreamInfo? foundStreamInfo;
       for (final stream in streams) {
-        print(stream.toString());
         if (stream.streamName == 'DartLSLStream') {
           foundStreamInfo = stream;
           break;
@@ -91,91 +89,79 @@ void main() {
       outlet.destroy();
       streamInfo.destroy();
     });
-    test(
-      'create outlet, resolve stream, create inlet and pull sample',
+    test('outlet, resolve, inlet, pull sample', () async {
+      final oStreamInfo = await LSL.createStreamInfo(
+        streamName: 'TestStream',
+        channelCount: 2,
+        channelFormat: LSLChannelFormat.float32,
+        sampleRate: LSL_IRREGULAR_RATE,
+        streamType: LSLContentType.markers,
+      );
+      final outlet = await LSL.createOutlet(
+        streamInfo: oStreamInfo,
+        chunkSize: 1,
+        maxBuffer: 360,
+      );
+      expect(outlet, isNotNull);
+
+      final Completer<void> completer = Completer<void>();
+      // Start sending data in the background
+      // this works
+      // final senderFuture = () async {
+      //   // while (!completer.isCompleted) {
+      //   await Future.delayed(Duration(milliseconds: 200));
+      //   await outlet.pushSample([5.0, 8.0]);
+      //   // }
+      // }();
+
+      await Future.delayed(Duration(milliseconds: 10));
+
+      final streams = await LSL.resolveStreams(waitTime: 0.1);
+      expect(streams.length, greaterThan(0));
+      // Find and validate the stream
+      final streamInfo = streams.firstWhere(
+        (s) => s.streamName == 'TestStream',
+      );
+      expect(streamInfo, isNotNull);
+
+      // Create inlet and allow time for connection
+      final inlet = await LSL.createInlet<double>(
+        maxBufferSize: 360,
+        maxChunkLength: 1,
+        streamInfo: streamInfo,
+        recover: false,
+      );
+      // After creating the inlet
+      // Check how many samples are available before pulling
       () async {
-        final oStreamInfo = await LSL.createStreamInfo(
-          streamName: 'TestStream',
-          channelCount: 2,
-          channelFormat: LSLChannelFormat.float32,
-          sampleRate: LSL_IRREGULAR_RATE,
-          streamType: LSLContentType.markers,
-        );
-        final outlet = await LSL.createOutlet(
-          streamInfo: oStreamInfo,
-          chunkSize: 1,
-          maxBuffer: 360,
-        );
-        expect(outlet, isNotNull);
+        await Future.delayed(Duration(milliseconds: 100));
+        await outlet.pushSample([5.0, 8.0]);
+      }();
 
-        final Completer<void> completer = Completer<void>();
-        // Start sending data in the background
-        // this works
-        // final senderFuture = () async {
-        //   // while (!completer.isCompleted) {
-        //   await Future.delayed(Duration(milliseconds: 200));
-        //   await outlet.pushSample([5.0, 8.0]);
-        //   // }
-        // }();
+      final s = await inlet.pullSample(timeout: 5.0);
+      // Validate the sample
+      expect(s.length, 2);
+      expect(s[0], 5.0); // Adjust based on expected sample order
+      expect(s[1], 8.0);
 
-        await Future.delayed(Duration(milliseconds: 10));
-
-        final streams = await LSL.resolveStreams(waitTime: 0.1);
-        expect(streams.length, greaterThan(0));
-        // Find and validate the stream
-        final streamInfo = streams.firstWhere(
-          (s) => s.streamName == 'TestStream',
-        );
-        expect(streamInfo, isNotNull);
-
-        // Create inlet and allow time for connection
-        final inlet = await LSL.createInlet<double>(
-          maxBufferSize: 360,
-          maxChunkLength: 1,
-          streamInfo: streamInfo,
-          recover: false,
-        );
-        // After creating the inlet
-        print('Inlet created: $inlet');
-        // Check how many samples are available before pulling
-        () async {
-          await Future.delayed(Duration(milliseconds: 100));
-          await outlet.pushSample([5.0, 8.0]);
-        }();
-        print('Pushed sample');
-        print('Samples available: ${await inlet.samplesAvailable()}');
-
-        final s = await inlet.pullSample(timeout: 5.0);
-        print('Samples available: ${await inlet.samplesAvailable()}');
-        // Pull sample with timeout
-        print(s.toString());
-
+      inlet.pullSample(timeout: 5.0).then((s) {
         // Validate the sample
         expect(s.length, 2);
         expect(s[0], 5.0); // Adjust based on expected sample order
         expect(s[1], 8.0);
+      });
+      await Future.delayed(Duration(milliseconds: 50));
+      await outlet.pushSample([5.0, 8.0]);
 
-        inlet.pullSample(timeout: 5.0).then((s) {
-          print('Samples available: ${inlet.samplesAvailable()}');
-          print(s.toString());
-          // Validate the sample
-          expect(s.length, 2);
-          expect(s[0], 5.0); // Adjust based on expected sample order
-          expect(s[1], 8.0);
-        });
-        await Future.delayed(Duration(milliseconds: 50));
-        await outlet.pushSample([5.0, 8.0]);
+      completer.complete();
+      //await senderFuture; // Wait for the sender to finish
 
-        completer.complete();
-        //await senderFuture; // Wait for the sender to finish
-
-        // Clean up
-        inlet.destroy();
-        outlet.destroy();
-        oStreamInfo.destroy();
-        streamInfo.destroy();
-      },
-    );
+      // Clean up
+      inlet.destroy();
+      outlet.destroy();
+      oStreamInfo.destroy();
+      streamInfo.destroy();
+    });
     test('Direct FFI test for string sample', () {
       // Create a simple stream info
       final streamNamePtr = "TestStream".toNativeUtf8().cast<Char>();
