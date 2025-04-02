@@ -24,7 +24,7 @@ Also confirmed working on:
    
    `dart --enable-experiment=native-assets test`
    
-   ![screenshot of tests passing on RPi](./docs/image.png)
+   ![screenshot of tests passing on RPi](./doc/image.png)
 
 ## Introduction
 
