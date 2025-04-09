@@ -197,7 +197,7 @@ void main(List<String> args) async {
           }
           output.assets.code.add(
             CodeAsset(
-              package: packageName,
+              package: input.packageName,
               name: 'libc++_shared.so',
               file: Uri.parse(libPath),
               linkMode: DynamicLoadingBundled(),
