@@ -1,3 +1,10 @@
+# 0.5.1
+
+- Fix package name on Android
+- Update `ffigen` to `18.1.0`
+- Update `native_assets_cli` to `0.14.0`
+- Update `native_toolchain_c` to `0.11.0`
+
 # 0.5.0
 
 - Generated dylib is now without the lib prefix (if it is the prefix on the platform). i.e. `libliblsl.so` is now just `liblsl.so`
