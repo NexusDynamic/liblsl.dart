@@ -1,3 +1,6 @@
+/// The liblsl.dart Library for LSL (Lab Streaming Layer) functionality.
+library;
+
 export 'package:liblsl/src/lsl/structs.dart';
 export 'package:liblsl/src/lsl/stream_info.dart' show LSLStreamInfo;
 export 'package:liblsl/src/lsl/isolated_outlet.dart' show LSLIsolatedOutlet;

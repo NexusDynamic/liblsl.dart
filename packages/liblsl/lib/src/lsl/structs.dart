@@ -5,7 +5,11 @@ import 'package:liblsl/src/ffi/mem.dart';
 
 /// LSL content types used to identify the type of data being streamed.
 class LSLContentType {
+  /// The string representation of the content type.
   final String value;
+
+  /// Indicates whether the content type is custom or not.
+  /// @note Custom content types are not defined in the LSL / XDF standard.
   final bool isCustom;
   static final List<LSLContentType> _values = [
     eeg,

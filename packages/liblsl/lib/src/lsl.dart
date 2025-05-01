@@ -179,6 +179,7 @@ class LSL {
   /// Returns the local clock time, used to calculate offsets.
   static double localClock() => lsl_local_clock();
 
+  /// Returns the version of the LSL library.
   static String libraryInfo() {
     final version = lsl_library_info();
     if (version.isNullPointer) {
