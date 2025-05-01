@@ -41,7 +41,7 @@ class LSLIsolatedOutlet extends LSLObj {
   }
 
   @override
-  create() async {
+  Future<LSLIsolatedOutlet> create() async {
     if (created) {
       throw LSLException('Outlet already created');
     }

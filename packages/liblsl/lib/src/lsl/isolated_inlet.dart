@@ -72,7 +72,7 @@ class LSLIsolatedInlet<T> extends LSLObj {
   }
 
   @override
-  create() async {
+  Future<LSLIsolatedInlet<T>> create() async {
     if (created) {
       throw LSLException('Inlet already created');
     }

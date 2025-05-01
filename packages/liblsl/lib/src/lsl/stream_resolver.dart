@@ -5,11 +5,14 @@ import 'package:liblsl/src/lsl/exception.dart';
 import 'package:liblsl/src/lsl/stream_info.dart';
 import 'package:liblsl/src/ffi/mem.dart';
 
+/// A placeholder for now, until we flesh out more than one resolver type.
+mixin class LSLStreamResolver {}
+
 /// Representation of the lsl_continuous_resolver_ from the LSL C API.
 ///
 /// Stream resolution means finding streams available on the network for
 /// consumption.
-class LSLStreamResolverContinuous extends LSLObj {
+class LSLStreamResolverContinuous extends LSLObj with LSLStreamResolver {
   int maxStreams;
   final double forgetAfter;
   Pointer<lsl_streaminfo>? _streamInfoBuffer;
@@ -25,7 +28,7 @@ class LSLStreamResolverContinuous extends LSLObj {
   LSLStreamResolverContinuous({this.forgetAfter = 5.0, this.maxStreams = 5});
 
   @override
-  create() {
+  LSLStreamResolverContinuous create() {
     if (created) {
       throw LSLException('Resolver already created');
     }

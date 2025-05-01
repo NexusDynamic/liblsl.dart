@@ -80,7 +80,7 @@ class LSL {
   ///
   /// [streamInfo] is the [LSLStreamInfo] object to be used. Probably obtained
   ///   from a [LSLStreamResolver].
-  /// [maxBufferSize] this is the either seconds (if [streamInfo.sampleRate]
+  /// [maxBufferSize] this is the either seconds (if [streamInfo].sampleRate
   /// is specified) or 100s of samples (if not).
   /// [maxChunkLength] is the maximum number of samples. If 0, the default
   ///  chunk length from the stream is used.

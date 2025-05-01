@@ -49,7 +49,7 @@ class LSLStreamInfo extends LSLObj {
 
   /// Creates the stream info object, allocates memory, etc.
   @override
-  create() {
+  LSLStreamInfo create() {
     if (created) {
       throw LSLException('StreamInfo already created');
     }

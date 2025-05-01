@@ -114,7 +114,7 @@ external void lsl_destroy_inlet(lsl_inlet in$);
 /// Can be invoked at any time of the stream's lifetime.
 /// @param in The lsl_inlet object to act on.
 /// @param timeout Timeout of the operation. Use LSL_FOREVER to effectively disable it.
-/// @param[out] ec Error code: if nonzero, can be either lsl_timeout_error (if the timeout has
+/// @param ec Error code: if nonzero, can be either lsl_timeout_error (if the timeout has
 /// expired) or #lsl_lost_error (if the stream source has been lost).
 /// @return A copy of the full streaminfo of the inlet or NULL in the event that an error happened.
 /// @note It is the user's responsibility to destroy it when it is no longer needed.
@@ -133,7 +133,7 @@ external lsl_streaminfo lsl_get_fullinfo(
 /// opened implicitly).
 /// @param in The lsl_inlet object to act on.
 /// @param timeout Optional timeout of the operation. Use LSL_FOREVER to effectively disable it.
-/// @param[out] ec Error code: if nonzero, can be either #lsl_timeout_error (if the timeout has
+/// @param ec Error code: if nonzero, can be either #lsl_timeout_error (if the timeout has
 /// expired) or lsl_lost_error (if the stream source has been lost).
 @ffi.Native<NativeLsl_open_stream>()
 external void lsl_open_stream(
@@ -168,7 +168,7 @@ external void lsl_close_stream(lsl_inlet in$);
 /// @param in The lsl_inlet object to act on.
 /// @param timeout Timeout to acquire the first time-correction estimate.
 /// Use LSL_FOREVER to defuse the timeout.
-/// @param[out] ec Error code: if nonzero, can be either #lsl_timeout_error (if the timeout has
+/// @param ec Error code: if nonzero, can be either #lsl_timeout_error (if the timeout has
 /// expired) or lsl_lost_error (if the stream source has been lost).
 /// @return The time correction estimate.
 /// This is the number that needs to be added to a time stamp that was remotely generated via
@@ -215,13 +215,13 @@ external int lsl_set_postprocessing(lsl_inlet in$, int flags);
 /// Pull a sample from the inlet and read it into a pointer to values.
 /// Handles type checking & conversion.
 /// @param in The #lsl_inlet object to act on.
-/// @param[out] buffer A pointer to hold the resulting values.
+/// @param buffer A pointer to hold the resulting values.
 /// @param buffer_elements The number of samples allocated in the buffer.
 /// @attention It is the responsibility of the user to allocate enough memory.
 /// @param timeout The timeout for this operation, if any.
 /// Use #LSL_FOREVER to effectively disable it. It is also permitted to use 0.0 here;
 /// in this case a sample is only returned if one is currently buffered.
-/// @param[out] ec Error code: can be either no error or #lsl_lost_error
+/// @param ec Error code: can be either no error or #lsl_lost_error
 /// (if the stream source has been lost).<br>
 /// @note If the timeout expires before a new sample was received the function returns 0.0;
 /// ec is *not* set to #lsl_timeout_error (because this case is not considered an error condition).
@@ -311,12 +311,12 @@ external double lsl_pull_sample_buf(
 /// Overall size checking but no type checking or conversion are done.
 /// Do not use for variable-size/string-formatted streams.
 /// @param in The #lsl_inlet object to act on.
-/// @param[out] buffer A pointer to hold the resulting values.
+/// @param buffer A pointer to hold the resulting values.
 /// @param buffer_bytes Length of the array held by buffer in bytes, not items
 /// @param timeout The timeout for this operation, if any.
 /// Use #LSL_FOREVER to effectively disable it. It is also permitted to use 0.0 here;
 /// in this case a sample is only returned if one is currently buffered.
-/// @param[out] ec Error code: can be either no error or #lsl_lost_error
+/// @param ec Error code: can be either no error or #lsl_lost_error
 /// (if the stream source has been lost).<br>
 /// @note If the timeout expires before a new sample was received the function returns 0.0;
 /// ec is *not* set to #lsl_timeout_error (because this case is not considered an error condition).
@@ -339,8 +339,8 @@ external double lsl_pull_sample_v(
 /// @attention Note that the provided data buffer size is measured in channel values (e.g. floats)
 /// rather than in samples.
 /// @param in The lsl_inlet object to act on.
-/// @param[out] data_buffer A pointer to a buffer of data values where the results shall be stored.
-/// @param[out] timestamp_buffer A pointer to a double buffer where time stamps shall be stored.
+/// @param data_buffer A pointer to a buffer of data values where the results shall be stored.
+/// @param timestamp_buffer A pointer to a double buffer where time stamps shall be stored.
 ///
 /// If this is NULL, no time stamps will be returned.
 /// @param data_buffer_elements The size of the data buffer, in channel data elements (of type T).
@@ -353,7 +353,7 @@ external double lsl_pull_sample_v(
 ///
 /// When the timeout expires, the function may return before the entire buffer is filled.
 /// The default value of 0.0 will retrieve only data available for immediate pickup.
-/// @param[out] ec Error code: can be either no error or #lsl_lost_error (if the stream source has
+/// @param ec Error code: can be either no error or #lsl_lost_error (if the stream source has
 /// been lost).
 /// @note if the timeout expires before a new sample was received the function returns 0.0;
 /// ec is *not* set to #lsl_timeout_error (because this case is not considered an error condition).
@@ -443,8 +443,8 @@ external int lsl_pull_chunk_str(
 /// IMPORTANT: Note that the provided data buffer size is measured in channel values (e.g., floats)
 /// rather than in samples.
 /// @param in The lsl_inlet object to act on.
-/// @param[out] data_buffer A pointer to a buffer of data values where the results shall be stored.
-/// @param[out] lengths_buffer A pointer to an array that holds the resulting lengths for each
+/// @param data_buffer A pointer to a buffer of data values where the results shall be stored.
+/// @param lengths_buffer A pointer to an array that holds the resulting lengths for each
 /// returned binary string.
 /// @param timestamp_buffer A pointer to a buffer of timestamp values where time stamps shall be
 /// stored. If this is NULL, no time stamps will be returned.
@@ -457,7 +457,7 @@ external int lsl_pull_chunk_str(
 /// When the timeout expires, the function may return before the entire buffer is filled.
 ///
 /// The default value of 0.0 will retrieve only data available for immediate pickup.
-/// @param[out] ec Error code: can be either no error or #lsl_lost_error (if the stream source has
+/// @param ec Error code: can be either no error or #lsl_lost_error (if the stream source has
 /// been lost).
 /// @note If the timeout expires before a new sample was received the function returns 0.0; ec is
 /// *not* set to #lsl_timeout_error (because this case is not considered an error condition).
@@ -1242,7 +1242,7 @@ external void lsl_destroy_continuous_resolver(lsl_continuous_resolver res);
 /// These details may optionally be customized by the experimenter in a configuration file
 /// (see page Network Connectivity in the LSL wiki).
 /// This is the default mechanism used by the browsing programs and the recording program.
-/// @param[out] buffer A user-allocated buffer to hold the resolve results.
+/// @param buffer A user-allocated buffer to hold the resolve results.
 /// @attention It is the user's responsibility to either destroy the resulting streaminfo objects or
 /// to pass them back to the LSL during during creation of an inlet.
 ///
@@ -1268,7 +1268,7 @@ external int lsl_resolve_all(
 ///
 /// If the goal is to resolve a specific stream, this method is preferred over resolving all streams
 /// and then selecting the desired one.
-/// @param[out] buffer A user-allocated buffer to hold the resolve results.
+/// @param buffer A user-allocated buffer to hold the resolve results.
 /// @attention It is the user's responsibility to either destroy the resulting streaminfo objects or
 /// to pass them back to the LSL during during creation of an inlet.
 ///
@@ -1299,7 +1299,7 @@ external int lsl_resolve_byprop(
 /// Advanced query that allows to impose more conditions on the retrieved streams;
 /// the given string is an [XPath 1.0 predicate](http://en.wikipedia.org/w/index.php?title=XPath_1.0)
 /// for the `<info>` node (omitting the surrounding []'s)
-/// @param[out] buffer A user-allocated buffer to hold the resolve results.
+/// @param buffer A user-allocated buffer to hold the resolve results.
 /// @attention It is the user's responsibility to either destroy the resulting streaminfo objects or
 /// to pass them back to the LSL during during creation of an inlet.
 ///

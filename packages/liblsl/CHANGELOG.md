@@ -1,3 +1,10 @@
+# 0.6.1
+
+- Attempt to fix package issue on pub.dev
+- bump dart SDK constraint to ^3.9.0 due to `hooks` package
+- Added `LSLStreamResolver` mixin (empty for now).
+- Added `dartdoc` dev dependency, and added `doc` directory to `.gitignore`
+
 # 0.6.0
 
 - New `LSLIsolatedInlet.getTimeCorrection` method to get the LSL reported sample time correction

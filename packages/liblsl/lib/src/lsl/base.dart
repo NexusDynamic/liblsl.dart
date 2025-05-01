@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ffi';
 import 'package:liblsl/src/ffi/mem.dart';
 import 'package:liblsl/src/lsl/exception.dart';
@@ -23,7 +24,7 @@ abstract class LSLObj {
   /// destroyed.
   @mustCallSuper
   @mustBeOverridden
-  create() {
+  FutureOr<LSLObj> create() {
     if (_created) {
       throw LSLException('Object already created');
     }
