@@ -1,3 +1,12 @@
+# 0.6.0
+
+- New `LSLIsolatedInlet.getTimeCorrection` method to get the LSL reported sample time correction
+- Removed deprecated `LSLStreamInlet` and `LSLStreamOutlet` classes
+- Remove deprecated `native_assets_cli` dependency
+- Add `hooks` `0.19.0` dependency instead of `native_assets_cli`
+- Add `code_assets` `0.19.0`
+- Update `native_toolchain_c` to `^0.16.0`
+
 # 0.5.1
 
 - Fix package name on Android
