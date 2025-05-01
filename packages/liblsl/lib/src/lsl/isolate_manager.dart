@@ -18,6 +18,7 @@ enum LSLMessageType {
   resolveStreams,
   samplesAvailable,
   flush,
+  timeCorrection,
 }
 
 /// A message payload for communication between isolates

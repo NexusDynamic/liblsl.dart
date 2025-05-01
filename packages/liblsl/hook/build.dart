@@ -1,6 +1,7 @@
 import 'dart:io';
+import 'package:code_assets/code_assets.dart';
 import 'package:logging/logging.dart';
-import 'package:native_assets_cli/code_assets.dart';
+import 'package:hooks/hooks.dart';
 import 'package:native_toolchain_c/native_toolchain_c.dart';
 import 'package:native_toolchain_c/src/cbuilder/run_cbuilder.dart';
 import 'package:native_toolchain_c/src/native_toolchain/android_ndk.dart';
@@ -201,8 +202,6 @@ void main(List<String> args) async {
               name: 'libc++_shared.so',
               file: Uri.parse(libPath),
               linkMode: DynamicLoadingBundled(),
-              os: targetOs,
-              architecture: targetArchitecture,
             ),
           );
           break;

@@ -159,6 +159,23 @@ class LSLIsolatedInlet<T> extends LSLObj {
     );
   }
 
+  /// Get time correction for the inlet.
+  Future<double> getTimeCorrection(double timeout) async {
+    if (!_initialized) {
+      throw LSLException('Inlet not created');
+    }
+
+    final response = await _isolateManager.sendMessage(
+      LSLMessage(LSLMessageType.timeCorrection, {'timeout': timeout}),
+    );
+
+    if (!response.success) {
+      throw LSLException('Error getting time correction: ${response.error}');
+    }
+
+    return response.result as double;
+  }
+
   /// Clears all samples from the inlet.
   Future<int> flush() async {
     if (!_initialized) {
@@ -272,6 +289,11 @@ class LSLInletIsolate {
           _destroy();
           replyPort.send(LSLResponse.success(null).toMap());
           break;
+        case LSLMessageType.timeCorrection:
+          final timeout = data['timeout'] as double;
+          final result = await getTimeCorrection(timeout);
+          replyPort.send(LSLResponse.success(result).toMap());
+          break;
         default:
           replyPort.send(
             LSLResponse.error('Unsupported message type: $type').toMap(),
@@ -371,6 +393,22 @@ class LSLInletIsolate {
     }
 
     return lsl_samples_available(_inlet!);
+  }
+
+  /// Time correction
+  Future<double> getTimeCorrection(double timeout) async {
+    if (_inlet == null) {
+      throw LSLException('Inlet not created');
+    }
+    final Pointer<Int32> ec = allocate<Int32>();
+    final timeCorrection = lsl_time_correction(_inlet!, timeout, ec);
+    final result = ec.value;
+    ec.free();
+    // @todo: handle timeout code
+    if (result != 0) {
+      throw LSLException('Error getting time correction: $result');
+    }
+    return timeCorrection;
   }
 
   void _destroy() {
