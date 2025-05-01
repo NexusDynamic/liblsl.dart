@@ -1,3 +1,7 @@
+# 0.6.2
+
+- Make SDK constraint ^3.9.0-0
+
 # 0.6.1
 
 - Attempt to fix package issue on pub.dev
