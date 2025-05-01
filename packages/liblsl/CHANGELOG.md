@@ -1,4 +1,4 @@
-# 0.6.2
+# 0.6.2-dev.0
 
 - Make SDK constraint ^3.9.0-0
 
