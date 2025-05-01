@@ -4,6 +4,7 @@ import 'package:liblsl/src/ffi/mem.dart';
 import 'package:liblsl/src/lsl/base.dart';
 import 'package:liblsl/src/lsl/sample.dart';
 import 'package:ffi/ffi.dart' show Utf8, Utf8Pointer;
+import 'package:liblsl/src/meta/todo.dart';
 import 'package:meta/meta.dart';
 
 /// A function that pulls a sample from the inlet.
@@ -18,10 +19,8 @@ typedef DartLslPullSample<T extends NativeType> =
       Pointer<Int32> ec,
     );
 
+@Todo('zeyus', 'Seperate the pointer alloc / native call from sample creation.')
 /// The base class for all LSL pull sample types.
-/// @TODO: Seperate the pointer alloc / native call from the sample creation.
-/// This prevents duplicating and sending objects between threads if we can
-/// just use a pointer instead.
 abstract class LslPullSample<T extends NativeType, D> {
   final DartLslPullSample<T> _pullFn;
 
@@ -274,8 +273,7 @@ class LslPullSampleUndefined extends LslPullSample<Void, Null> {
     return nullPtr<Void>();
   }
 
-  // @TODO: Check out if this is right with the Void alloc...maybe it needs a
-  // length?
+  @Todo('zeyus', 'Confirm void sample creation works, add to tests.')
   @override
   LSLSample<Null> call(lsl_inlet inlet, int channels, double timeout) {
     final Pointer<Void> buffer = nullPtr<Void>();

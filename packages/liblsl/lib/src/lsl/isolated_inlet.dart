@@ -12,6 +12,7 @@ import 'package:liblsl/src/lsl/stream_info.dart';
 import 'package:liblsl/src/lsl/helper.dart';
 import 'package:liblsl/src/lsl/structs.dart';
 import 'package:liblsl/src/lsl/isolate_manager.dart';
+import 'package:liblsl/src/meta/todo.dart';
 
 /// An isolate-ready implementation of LSL inlet
 class LSLIsolatedInlet<T> extends LSLObj {
@@ -395,6 +396,7 @@ class LSLInletIsolate {
     return lsl_samples_available(_inlet!);
   }
 
+  @Todo('zeyus', 'handle timeout code')
   /// Time correction
   Future<double> getTimeCorrection(double timeout) async {
     if (_inlet == null) {
@@ -404,7 +406,6 @@ class LSLInletIsolate {
     final timeCorrection = lsl_time_correction(_inlet!, timeout, ec);
     final result = ec.value;
     ec.free();
-    // @todo: handle timeout code
     if (result != 0) {
       throw LSLException('Error getting time correction: $result');
     }
