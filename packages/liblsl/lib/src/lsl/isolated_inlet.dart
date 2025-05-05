@@ -13,6 +13,7 @@ import 'package:liblsl/src/lsl/helper.dart';
 import 'package:liblsl/src/lsl/structs.dart';
 import 'package:liblsl/src/lsl/isolate_manager.dart';
 import 'package:liblsl/src/meta/todo.dart';
+import 'package:liblsl/src/util/reusable_buffer.dart';
 
 /// An isolate-ready implementation of LSL inlet
 class LSLIsolatedInlet<T> extends LSLObj {
@@ -24,6 +25,7 @@ class LSLIsolatedInlet<T> extends LSLObj {
   final double createTimeout;
   bool _initialized = false;
   late final LslPullSample _pullFn;
+  late final LSLReusableBuffer _buffer;
 
   /// Creates a new LSLIsolatedInlet object
   ///
@@ -80,6 +82,7 @@ class LSLIsolatedInlet<T> extends LSLObj {
 
     // Initialize the isolate manager
     await _isolateManager.init();
+    _buffer = _pullFn.createReusableBuffer(streamInfo.channelCount);
 
     // Send message to create inlet in the isolate
     final response = await _isolateManager.sendMessage(
@@ -112,14 +115,6 @@ class LSLIsolatedInlet<T> extends LSLObj {
       throw LSLException('Inlet not created');
     }
 
-    // Allocate a buffer for the sample.
-    final buffer = _pullFn.allocBuffer(streamInfo.channelCount);
-
-    // Check if the buffer was allocated successfully.
-    if (buffer.isNullPointer && streamInfo.channelFormat.ffiType != Void) {
-      throw LSLException('Error allocating sample buffer');
-    }
-
     // Send message to pull sample from the isolate
     // and wait for the response.
     // The buffer address is passed to the isolate for sample retrieval.
@@ -127,12 +122,12 @@ class LSLIsolatedInlet<T> extends LSLObj {
     final response = await _isolateManager.sendMessage(
       LSLMessage(LSLMessageType.pullSample, {
         'timeout': timeout,
-        'pointerAddr': buffer.address,
+        'pointerAddr': _buffer.buffer.address,
+        'ecPointerAddr': _buffer.ec.address,
       }),
     );
 
     if (!response.success) {
-      buffer.free();
       throw LSLException('Error pulling sample: ${response.error}');
     }
 
@@ -142,15 +137,13 @@ class LSLIsolatedInlet<T> extends LSLObj {
     );
     // a timestamp of zero means no sample was retrieved.
     if (samplePointer.timestamp == 0) {
-      buffer.free();
       return LSLSample<T>([], 0, samplePointer.errorCode);
     }
 
     // Convert the buffer to a list of the appropriate type.
     final sampleData =
-        _pullFn.bufferToList(buffer, streamInfo.channelCount) as List<T>;
-
-    buffer.free();
+        _pullFn.bufferToList(_buffer.buffer, streamInfo.channelCount)
+            as List<T>;
 
     // Return the sample!
     return LSLSample<T>(
@@ -368,12 +361,14 @@ class LSLInletIsolate {
 
     final timeout = data['timeout'] as double;
     final samplePtr = Pointer.fromAddress(data['pointerAddr'] as int);
+    final ecPtr = Pointer<Int32>.fromAddress(data['ecPointerAddr'] as int);
     // Pull the sample
-    final sample = _pullFn.pullSample(
+    final sample = await _pullFn.pullSampleInto(
       samplePtr,
       _inlet!,
       _streamInfo!.channelCount,
       timeout,
+      ecPtr,
     );
 
     // Return the serialized sample

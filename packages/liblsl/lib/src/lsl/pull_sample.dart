@@ -5,6 +5,7 @@ import 'package:liblsl/src/lsl/base.dart';
 import 'package:liblsl/src/lsl/sample.dart';
 import 'package:ffi/ffi.dart' show Utf8, Utf8Pointer;
 import 'package:liblsl/src/meta/todo.dart';
+import 'package:liblsl/src/util/reusable_buffer.dart';
 import 'package:meta/meta.dart';
 
 /// A function that pulls a sample from the inlet.
@@ -49,6 +50,39 @@ abstract class LslPullSample<T extends NativeType, D> {
     }
     ec.free();
     return LSLSamplePointer<T>(timestamp, errorCode, buffer.address);
+  }
+
+  /// Pulls a sample into the provided reusable buffer.
+  /// @param [buffer] The buffer / [LSLReusableBuffer.buffer] to store the
+  ///         sample.
+  /// @param [inlet] The inlet to pull the sample from.
+  /// @param [channels] The number of channels in the sample.
+  /// @param [timeout] The timeout in seconds.
+  /// @return [LSLSample] The sample.
+  /// @note This function is asynchronous and returns a [Future].
+  /// @note The [buffer] must be allocated with the same number of channels
+  ///       as the sample.
+  /// @note The [buffer] must be freed after use.
+  Future<LSLSamplePointer<T>> pullSampleInto(
+    Pointer<T> buffer,
+    lsl_inlet inlet,
+    int channels,
+    double timeout,
+    Pointer<Int32> ec,
+  ) async {
+    final double timestamp = _pullFn(inlet, buffer, channels, timeout, ec);
+    final int errorCode = ec.value;
+    if (LSLObj.error(errorCode)) {
+      return LSLSamplePointer<T>(timestamp, errorCode, 0);
+    }
+    return LSLSamplePointer<T>(timestamp, errorCode, buffer.address);
+  }
+
+  @mustBeOverridden
+  LSLReusableBuffer<T> createReusableBuffer(int channels) {
+    throw UnimplementedError(
+      'createReusableBuffer() must be implemented in subclass',
+    );
   }
 
   @protected
@@ -105,6 +139,11 @@ class LslPullSampleFloat extends LslPullSample<Float, double> {
     final Pointer<Float> buffer = allocate<Float>(channels);
     return createSample(buffer, inlet, channels, timeout);
   }
+
+  @override
+  LSLReusableBuffer<Float> createReusableBuffer(int channels) {
+    return LSLReusableBufferFloat(channels);
+  }
 }
 
 /// Pulls a sample of type [Double] from the inlet and returns it as a list
@@ -131,6 +170,11 @@ class LslPullSampleDouble extends LslPullSample<Double, double> {
     final Pointer<Double> buffer = allocate<Double>(channels);
     return createSample(buffer, inlet, channels, timeout);
   }
+
+  @override
+  LSLReusableBuffer<Double> createReusableBuffer(int channels) {
+    return LSLReusableBufferDouble(channels);
+  }
 }
 
 /// Pulls a sample of type [Int8] from the inlet and returns it as a list
@@ -155,6 +199,11 @@ class LslPullSampleInt8 extends LslPullSample<Char, int> {
   LSLSample<int> call(lsl_inlet inlet, int channels, double timeout) {
     final Pointer<Char> buffer = allocate<Char>(channels);
     return createSample(buffer, inlet, channels, timeout);
+  }
+
+  @override
+  LSLReusableBuffer<Char> createReusableBuffer(int channels) {
+    return LSLReusableBufferInt8(channels);
   }
 }
 
@@ -181,6 +230,11 @@ class LslPullSampleInt16 extends LslPullSample<Int16, int> {
     final Pointer<Int16> buffer = allocate<Int16>(channels);
     return createSample(buffer, inlet, channels, timeout);
   }
+
+  @override
+  LSLReusableBuffer<Int16> createReusableBuffer(int channels) {
+    return LSLReusableBufferInt16(channels);
+  }
 }
 
 /// Pulls a sample of type [Int32] from the inlet and returns it as a list
@@ -206,6 +260,11 @@ class LslPullSampleInt32 extends LslPullSample<Int32, int> {
     final Pointer<Int32> buffer = allocate<Int32>(channels);
     return createSample(buffer, inlet, channels, timeout);
   }
+
+  @override
+  LSLReusableBuffer<Int32> createReusableBuffer(int channels) {
+    return LSLReusableBufferInt32(channels);
+  }
 }
 
 /// Pulls a sample of type [Int64] from the inlet and returns it as a list
@@ -230,6 +289,11 @@ class LslPullSampleInt64 extends LslPullSample<Int64, int> {
   LSLSample<int> call(lsl_inlet inlet, int channels, double timeout) {
     final Pointer<Int64> buffer = allocate<Int64>(channels);
     return createSample(buffer, inlet, channels, timeout);
+  }
+
+  @override
+  LSLReusableBuffer<Int64> createReusableBuffer(int channels) {
+    return LSLReusableBufferInt64(channels);
   }
 }
 
@@ -257,6 +321,11 @@ class LslPullSampleString extends LslPullSample<Pointer<Char>, String> {
     final Pointer<Pointer<Char>> buffer = allocate<Pointer<Char>>(channels);
     return createSample(buffer, inlet, channels, timeout);
   }
+
+  @override
+  LSLReusableBuffer<Pointer<Char>> createReusableBuffer(int channels) {
+    return LSLReusableBufferString(channels);
+  }
 }
 
 /// Pulls a sample of type [Void] from the inlet and returns it as a list
@@ -278,5 +347,10 @@ class LslPullSampleUndefined extends LslPullSample<Void, Null> {
   LSLSample<Null> call(lsl_inlet inlet, int channels, double timeout) {
     final Pointer<Void> buffer = nullPtr<Void>();
     return createSample(buffer, inlet, channels, timeout);
+  }
+
+  @override
+  LSLReusableBuffer<Void> createReusableBuffer(int channels) {
+    return LSLReusableBufferVoid(channels);
   }
 }

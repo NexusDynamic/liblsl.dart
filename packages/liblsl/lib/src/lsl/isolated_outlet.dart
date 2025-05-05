@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:ffi';
 import 'dart:isolate';
 
-import 'package:ffi/ffi.dart' show Utf8, StringUtf8Pointer;
 import 'package:liblsl/native_liblsl.dart';
 import 'package:liblsl/src/ffi/mem.dart';
 import 'package:liblsl/src/lsl/base.dart';
@@ -20,6 +19,8 @@ class LSLIsolatedOutlet extends LSLObj {
   final int maxBuffer;
   final LSLOutletIsolateManager _isolateManager = LSLOutletIsolateManager();
   bool _initialized = false;
+  late final Pointer<NativeType> _buffer;
+  late final LslPushSample _pushFn;
 
   /// Creates a new LSLIsolatedOutlet object
   ///
@@ -60,6 +61,11 @@ class LSLIsolatedOutlet extends LSLObj {
       throw LSLException('Error creating outlet: ${response.error}');
     }
 
+    _pushFn = LSLMapper().streamPush(streamInfo);
+    _buffer = _pushFn.allocBuffer(streamInfo.channelCount);
+    if (_buffer.isNullPointer && _pushFn is! LslPushSampleVoid) {
+      throw LSLException('Failed to allocate memory for buffer');
+    }
     _initialized = true;
     super.create();
     return this;
@@ -107,15 +113,12 @@ class LSLIsolatedOutlet extends LSLObj {
       );
     }
 
-    // Allocate memory for the sample
-    final samplePtr = _allocSample(data);
-    if (samplePtr.isNullPointer && streamInfo.channelFormat.ffiType != Void) {
-      throw LSLException('Failed to allocate memory for sample');
-    }
+    // Set the sample data in the buffer
+    _pushFn.listToBuffer(data, _buffer);
+
     final response = await _isolateManager.sendMessage(
-      LSLMessage(LSLMessageType.pushSample, {'pointerAddr': samplePtr.address}),
+      LSLMessage(LSLMessageType.pushSample, {'pointerAddr': _buffer.address}),
     );
-    samplePtr.free();
 
     if (!response.success) {
       throw LSLException('Error pushing sample: ${response.error}');
@@ -143,65 +146,6 @@ class LSLIsolatedOutlet extends LSLObj {
     }
 
     super.destroy();
-  }
-
-  /// Allocates a sample of the appropriate type for the given data.
-  Pointer _allocSample(List<dynamic> data) {
-    switch (streamInfo.channelFormat.ffiType) {
-      case const (Float):
-        final ptr = allocate<Float>(streamInfo.channelCount);
-        for (var i = 0; i < streamInfo.channelCount; i++) {
-          ptr[i] = data[i];
-        }
-        return ptr;
-      case const (Double):
-        final ptr = allocate<Double>(streamInfo.channelCount);
-        for (var i = 0; i < streamInfo.channelCount; i++) {
-          ptr[i] = data[i];
-        }
-        return ptr;
-      case const (Int8):
-        final ptr = allocate<Int8>(streamInfo.channelCount);
-        for (var i = 0; i < streamInfo.channelCount; i++) {
-          ptr[i] = data[i];
-        }
-        return ptr;
-      case const (Int16):
-        final ptr = allocate<Int16>(streamInfo.channelCount);
-        for (var i = 0; i < streamInfo.channelCount; i++) {
-          ptr[i] = data[i];
-        }
-        return ptr;
-      case const (Int32):
-        final ptr = allocate<Int32>(streamInfo.channelCount);
-        for (var i = 0; i < streamInfo.channelCount; i++) {
-          ptr[i] = data[i];
-        }
-        return ptr;
-      case const (Int64):
-        final ptr = allocate<Int64>(streamInfo.channelCount);
-        for (var i = 0; i < streamInfo.channelCount; i++) {
-          ptr[i] = data[i];
-        }
-        return ptr;
-      case const (Pointer<Char>):
-        if (data.every((item) => item is String)) {
-          // For string data
-          final stringArray = allocate<Pointer<Char>>(streamInfo.channelCount);
-          for (var i = 0; i < streamInfo.channelCount; i++) {
-            final Pointer<Utf8> utf8String = (data[i] as String).toNativeUtf8(
-              allocator: allocate,
-            );
-            stringArray[i] = utf8String.cast<Char>();
-          }
-          return stringArray;
-        }
-        throw LSLException('Invalid string data type');
-      case const (Void):
-        return nullPtr<Void>();
-      default:
-        throw LSLException('Invalid sample type');
-    }
   }
 
   @override

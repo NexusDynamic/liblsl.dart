@@ -1,5 +1,4 @@
 import 'dart:ffi';
-import 'package:liblsl/native_liblsl.dart';
 import 'package:liblsl/src/lsl/exception.dart';
 import 'package:liblsl/src/lsl/pull_sample.dart';
 import 'package:liblsl/src/lsl/push_sample.dart';
@@ -16,14 +15,14 @@ class LSLMapper {
 
   /// Map of [StreamInfo.channelFormat] to [LslPushSample].
   static final Map<LSLChannelFormat, LslPushSample> _pushSampleMap = {
-    LSLChannelFormat.float32: LslPushSample<Float>(lsl_push_sample_f),
-    LSLChannelFormat.double64: LslPushSample<Double>(lsl_push_sample_d),
-    LSLChannelFormat.int8: LslPushSample<Char>(lsl_push_sample_c),
-    LSLChannelFormat.int16: LslPushSample<Int16>(lsl_push_sample_s),
-    LSLChannelFormat.int32: LslPushSample<Int32>(lsl_push_sample_i),
-    LSLChannelFormat.int64: LslPushSample<Int64>(lsl_push_sample_l),
-    LSLChannelFormat.string: LslPushSample<Pointer<Char>>(lsl_push_sample_str),
-    LSLChannelFormat.undefined: LslPushSample<Void>(lsl_push_sample_v),
+    LSLChannelFormat.float32: LslPushSampleFloat(),
+    LSLChannelFormat.double64: LslPushSampleDouble(),
+    LSLChannelFormat.int8: LslPushSampleInt8(),
+    LSLChannelFormat.int16: LslPushSampleInt16(),
+    LSLChannelFormat.int32: LslPushSampleInt32(),
+    LSLChannelFormat.int64: LslPushSampleInt64(),
+    LSLChannelFormat.string: LslPushSampleString(),
+    LSLChannelFormat.undefined: LslPushSampleVoid(),
   };
 
   /// Map of [StreamInfo.channelFormat] to [LslPullSample].
