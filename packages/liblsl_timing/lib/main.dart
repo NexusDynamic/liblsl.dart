@@ -1,122 +1,463 @@
 import 'package:flutter/material.dart';
+import 'package:liblsl/lsl.dart';
+import 'package:liblsl_timing/src/test_config.dart';
+import 'package:liblsl_timing/src/timing_manager.dart';
+import 'package:liblsl_timing/src/visualization/results_view.dart';
+import 'package:liblsl_timing/src/tests/test_registry.dart';
+import 'package:liblsl_timing/src/device_settings_page.dart';
+import 'package:liblsl_timing/src/device_sync_page.dart';
+import 'package:liblsl_timing/src/test_report_page.dart';
+import 'package:liblsl_timing/src/utils/external_hardware_manager.dart';
 
 void main() {
-  runApp(const MyApp());
+  runApp(const LSLTimingApp());
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+class LSLTimingApp extends StatelessWidget {
+  const LSLTimingApp({super.key});
 
-  // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Flutter Demo',
+      title: 'LSL Timing Tests',
       theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // TRY THIS: Try running your application with "flutter run". You'll see
-        // the application has a purple toolbar. Then, without quitting the app,
-        // try changing the seedColor in the colorScheme below to Colors.green
-        // and then invoke "hot reload" (save your changes or press the "hot
-        // reload" button in a Flutter-supported IDE, or press "r" if you used
-        // the command line to start the app).
-        //
-        // Notice that the counter didn't reset back to zero; the application
-        // state is not lost during the reload. To reset the state, use hot
-        // restart instead.
-        //
-        // This works for code too, not just values: Most code changes can be
-        // tested with just a hot reload.
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
+        useMaterial3: true,
       ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
+      home: const TimingTestHome(),
     );
   }
 }
 
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
-
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
-  final String title;
+class TimingTestHome extends StatefulWidget {
+  const TimingTestHome({super.key});
 
   @override
-  State<MyHomePage> createState() => _MyHomePageState();
+  State<TimingTestHome> createState() => _TimingTestHomeState();
 }
 
-class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
+class _TimingTestHomeState extends State<TimingTestHome> {
+  final TimingManager _timingManager = TimingManager();
+  final TestConfiguration _config = TestConfiguration();
+  final ExternalHardwareManager _hardwareManager = ExternalHardwareManager(
+    TimingManager(),
+  );
 
-  void _incrementCounter() {
+  bool _isRunningTest = false;
+  String _currentTestName = "";
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeLSL();
+  }
+
+  Future<void> _initializeLSL() async {
+    // Initialize LSL library
+    print('LSL Library Version: ${LSL.version}');
+    print('LSL Library Info: ${LSL.libraryInfo()}');
+
+    // Initialize hardware manager
+    await _hardwareManager.initialize();
+  }
+
+  void _startTest(String testName) async {
     setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
+      _isRunningTest = true;
+      _currentTestName = testName;
     });
+
+    final test = TestRegistry.getTest(testName);
+    if (test != null) {
+      await test.runTest(_timingManager, _config);
+
+      setState(() {
+        _isRunningTest = false;
+      });
+
+      // Show test report
+      if (mounted) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => TestReportPage(
+              timingManager: _timingManager,
+              testName: testName,
+            ),
+          ),
+        );
+      }
+    } else {
+      setState(() {
+        _isRunningTest = false;
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
     return Scaffold(
       appBar: AppBar(
-        // TRY THIS: Try changing the color here to a specific color (to
-        // Colors.amber, perhaps?) and trigger a hot reload to see the AppBar
-        // change color while the other colors stay the same.
+        title: const Text('LSL Timing Tests'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
-        title: Text(widget.title),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.sync),
+            onPressed: () async {
+              final result = await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => DeviceSyncPage(config: _config),
+                ),
+              );
+
+              if (result != null && result == 'ClockSyncTest') {
+                _startTest('Clock Synchronization');
+              }
+            },
+            tooltip: 'Device Synchronization',
+          ),
+          IconButton(
+            icon: const Icon(Icons.settings),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => DeviceSettingsPage(
+                    config: _config,
+                    onConfigUpdated: () {
+                      setState(() {});
+                    },
+                  ),
+                ),
+              );
+            },
+            tooltip: 'Device Settings',
+          ),
+        ],
       ),
-      body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
+      body: _isRunningTest ? _buildRunningTestView() : _buildMainTestView(),
+    );
+  }
+
+  Widget _buildRunningTestView() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(
+            'Running test: $_currentTestName',
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+          const SizedBox(height: 20),
+          const CircularProgressIndicator(),
+          const SizedBox(height: 30),
+          if (_config.showTimingMarker)
+            Container(
+              width: _config.timingMarkerSizePixels,
+              height: _config.timingMarkerSizePixels,
+              color: Colors.white, // Initially white, test will control this
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMainTestView() {
+    return Column(
+      children: [
+        // Configuration panel
+        Expanded(
+          flex: 2,
+          child: ConfigurationPanel(
+            config: _config,
+            onConfigChanged: () {
+              setState(() {});
+            },
+          ),
+        ),
+
+        // Test selection
+        Expanded(
+          flex: 3,
+          child: TestSelectionPanel(onTestSelected: _startTest),
+        ),
+
+        // Results visualization (shows last run)
+        Expanded(flex: 4, child: ResultsView(timingManager: _timingManager)),
+      ],
+    );
+  }
+
+  @override
+  void dispose() {
+    _hardwareManager.dispose();
+    super.dispose();
+  }
+}
+
+class TestSelectionPanel extends StatelessWidget {
+  final Function(String) onTestSelected;
+
+  const TestSelectionPanel({super.key, required this.onTestSelected});
+
+  @override
+  Widget build(BuildContext context) {
+    final tests = TestRegistry.availableTests;
+
+    return Card(
+      margin: const EdgeInsets.all(8.0),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
         child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          //
-          // TRY THIS: Invoke "debug painting" (choose the "Toggle Debug Paint"
-          // action in the IDE, or press "p" in the console), to see the
-          // wireframe for each widget.
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            const Text('You have pushed the button this many times:'),
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
             Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headlineMedium,
+              'Available Tests',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 8),
+            Expanded(
+              child: GridView.builder(
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 2,
+                  childAspectRatio: 2.5,
+                  crossAxisSpacing: 10,
+                  mainAxisSpacing: 10,
+                ),
+                itemCount: tests.length,
+                itemBuilder: (context, index) {
+                  return Tooltip(
+                    message: tests[index].description,
+                    child: ElevatedButton(
+                      onPressed: () => onTestSelected(tests[index].name),
+                      style: ElevatedButton.styleFrom(
+                        foregroundColor: Theme.of(
+                          context,
+                        ).colorScheme.onPrimary,
+                        backgroundColor: Theme.of(context).colorScheme.primary,
+                      ),
+                      child: Text(tests[index].name),
+                    ),
+                  );
+                },
+              ),
             ),
           ],
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
-      ), // This trailing comma makes auto-formatting nicer for build methods.
+    );
+  }
+}
+
+class ConfigurationPanel extends StatelessWidget {
+  final TestConfiguration config;
+  final VoidCallback onConfigChanged;
+
+  const ConfigurationPanel({
+    super.key,
+    required this.config,
+    required this.onConfigChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.all(8.0),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Test Configuration',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                ElevatedButton.icon(
+                  icon: const Icon(Icons.save),
+                  label: const Text('Save Config'),
+                  onPressed: onConfigChanged,
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Expanded(
+              child: ListView(
+                children: [
+                  _buildNumberInput(
+                    context,
+                    'Sample Rate (Hz)',
+                    config.sampleRate.toString(),
+                    (value) {
+                      config.sampleRate = double.tryParse(value) ?? 100.0;
+                      onConfigChanged();
+                    },
+                  ),
+                  _buildNumberInput(
+                    context,
+                    'Number of Channels',
+                    config.channelCount.toString(),
+                    (value) {
+                      config.channelCount = int.tryParse(value) ?? 1;
+                      onConfigChanged();
+                    },
+                  ),
+                  _buildDropdown(
+                    context,
+                    'Stream Type',
+                    LSLContentType.values.map((t) => t.value).toList(),
+                    config.streamType.value,
+                    (value) {
+                      config.streamType = LSLContentType.values.firstWhere(
+                        (t) => t.value == value,
+                        orElse: () => LSLContentType.eeg,
+                      );
+                      onConfigChanged();
+                    },
+                  ),
+                  _buildDropdown(
+                    context,
+                    'Channel Format',
+                    LSLChannelFormat.values.map((f) => f.name).toList(),
+                    config.channelFormat.name,
+                    (value) {
+                      config.channelFormat = LSLChannelFormat.values.firstWhere(
+                        (f) => f.name == value,
+                        orElse: () => LSLChannelFormat.float32,
+                      );
+                      onConfigChanged();
+                    },
+                  ),
+                  _buildNumberInput(
+                    context,
+                    'Test Duration (sec)',
+                    config.testDurationSeconds.toString(),
+                    (value) {
+                      config.testDurationSeconds = int.tryParse(value) ?? 10;
+                      onConfigChanged();
+                    },
+                  ),
+
+                  const Divider(),
+
+                  // Device role indicators
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [
+                      Chip(
+                        label: const Text('Producer'),
+                        backgroundColor: config.isProducer
+                            ? Colors.green.withOpacity(0.2)
+                            : Colors.grey.withOpacity(0.2),
+                        avatar: Icon(
+                          Icons.upload,
+                          color: config.isProducer ? Colors.green : Colors.grey,
+                        ),
+                      ),
+                      Chip(
+                        label: const Text('Consumer'),
+                        backgroundColor: config.isConsumer
+                            ? Colors.blue.withOpacity(0.2)
+                            : Colors.grey.withOpacity(0.2),
+                        avatar: Icon(
+                          Icons.download,
+                          color: config.isConsumer ? Colors.blue : Colors.grey,
+                        ),
+                      ),
+                      Chip(
+                        label: const Text('Timing Marker'),
+                        backgroundColor: config.showTimingMarker
+                            ? Colors.purple.withOpacity(0.2)
+                            : Colors.grey.withOpacity(0.2),
+                        avatar: Icon(
+                          Icons.circle,
+                          color: config.showTimingMarker
+                              ? Colors.purple
+                              : Colors.grey,
+                          size: 14,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNumberInput(
+    BuildContext context,
+    String label,
+    String value,
+    Function(String) onChanged,
+  ) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      child: Row(
+        children: [
+          SizedBox(width: 150, child: Text(label)),
+          Expanded(
+            child: TextField(
+              controller: TextEditingController(text: value),
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
+              ),
+              onChanged: onChanged,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDropdown(
+    BuildContext context,
+    String label,
+    List<String> options,
+    String value,
+    Function(String) onChanged,
+  ) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      child: Row(
+        children: [
+          SizedBox(width: 150, child: Text(label)),
+          Expanded(
+            child: DropdownButtonFormField<String>(
+              value: value,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
+              ),
+              items: options.map((String option) {
+                return DropdownMenuItem<String>(
+                  value: option,
+                  child: Text(option),
+                );
+              }).toList(),
+              onChanged: (String? newValue) {
+                if (newValue != null) {
+                  onChanged(newValue);
+                }
+              },
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
