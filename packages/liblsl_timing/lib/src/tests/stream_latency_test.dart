@@ -80,7 +80,7 @@ class StreamLatencyTest extends TimingTest {
           timer.cancel();
           // Give some time for the last samples to be received
           Future.delayed(const Duration(seconds: 2), () {
-            completer!.complete();
+            if (!completer!.isCompleted) completer.complete();
           });
           return;
         }
@@ -165,6 +165,11 @@ class StreamLatencyTest extends TimingTest {
       inlet.destroy();
       outlet.destroy();
       streamInfo.destroy();
+
+      // Ensure completer is completed
+      if (!completer.isCompleted) {
+        completer.complete();
+      }
     }
 
     // Calculate metrics

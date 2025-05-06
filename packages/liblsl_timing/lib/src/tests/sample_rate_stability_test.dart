@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:math';
+import 'dart:math' as math;
 import 'package:liblsl/lsl.dart';
 import 'package:liblsl_timing/src/test_config.dart';
 import 'package:liblsl_timing/src/timing_manager.dart';
@@ -75,6 +75,7 @@ class SampleRateStabilityTest extends TimingTest {
     // Create a list to store expected vs actual sample times
     final expectedTimes = <double>[];
     final actualTimes = <double>[];
+    final receivedTimestamps = <double>[];
 
     // Calculate the interval between samples in milliseconds
     final sampleIntervalMs = 1000.0 / config.sampleRate;
@@ -92,7 +93,7 @@ class SampleRateStabilityTest extends TimingTest {
           timer.cancel();
           // Give some time for the last samples to be received
           Future.delayed(const Duration(seconds: 2), () {
-            completer!.complete();
+            if (!completer!.isCompleted) completer.complete();
           });
           return;
         }
@@ -138,8 +139,6 @@ class SampleRateStabilityTest extends TimingTest {
     );
 
     // Set up a pull loop to receive samples
-    final receivedTimestamps = <double>[];
-
     void pullSamples() async {
       while (!completer!.isCompleted) {
         try {
@@ -186,14 +185,18 @@ class SampleRateStabilityTest extends TimingTest {
       // Record error in timing manager
       timingManager.recordEvent('test_error', description: e.toString());
     } finally {
-      // Cancel the send timer
+      // Cancel the send timer if it's still active
       sendTimer.cancel();
+
       // Clean up
       inlet.destroy();
       outlet.destroy();
       streamInfo.destroy();
-      // Stop the pull loop
-      completer.complete();
+
+      // Ensure completer is completed
+      if (!completer.isCompleted) {
+        completer.complete();
+      }
     }
 
     // Calculate and record jitter statistics
@@ -208,15 +211,15 @@ class SampleRateStabilityTest extends TimingTest {
       // Calculate statistics
       final avgDeviation =
           deviations.reduce((a, b) => a + b) / deviations.length;
-      final maxDeviation = deviations.reduce(max);
-      final minDeviation = deviations.reduce(min);
+      final maxDeviation = deviations.reduce(math.max);
+      final minDeviation = deviations.reduce(math.min);
 
       // Calculate standard deviation
       final sumSquaredDiff = deviations.fold(
         0.0,
-        (sum, value) => sum + pow(value - avgDeviation, 2),
+        (sum, value) => sum + math.pow(value - avgDeviation, 2),
       );
-      final stdDev = sqrt(sumSquaredDiff / deviations.length);
+      final stdDev = math.sqrt(sumSquaredDiff / deviations.length);
 
       // Record these stats
       timingManager.recordEvent(
@@ -242,15 +245,15 @@ class SampleRateStabilityTest extends TimingTest {
       // Calculate statistics for send intervals
       final avgSendInterval =
           sendIntervals.reduce((a, b) => a + b) / sendIntervals.length;
-      final maxSendInterval = sendIntervals.reduce(max);
-      final minSendInterval = sendIntervals.reduce(min);
+      final maxSendInterval = sendIntervals.reduce(math.max);
+      final minSendInterval = sendIntervals.reduce(math.min);
 
       // Calculate standard deviation
       final sumSquaredDiff = sendIntervals.fold(
         0.0,
-        (sum, value) => sum + pow(value - avgSendInterval, 2),
+        (sum, value) => sum + math.pow(value - avgSendInterval, 2),
       );
-      final stdDevSend = sqrt(sumSquaredDiff / sendIntervals.length);
+      final stdDevSend = math.sqrt(sumSquaredDiff / sendIntervals.length);
 
       // Record send interval stats
       timingManager.recordEvent(
@@ -277,15 +280,15 @@ class SampleRateStabilityTest extends TimingTest {
       // Calculate statistics for receive intervals
       final avgReceiveInterval =
           receiveIntervals.reduce((a, b) => a + b) / receiveIntervals.length;
-      final maxReceiveInterval = receiveIntervals.reduce(max);
-      final minReceiveInterval = receiveIntervals.reduce(min);
+      final maxReceiveInterval = receiveIntervals.reduce(math.max);
+      final minReceiveInterval = receiveIntervals.reduce(math.min);
 
       // Calculate standard deviation
       final sumSquaredDiff = receiveIntervals.fold(
         0.0,
-        (sum, value) => sum + pow(value - avgReceiveInterval, 2),
+        (sum, value) => sum + math.pow(value - avgReceiveInterval, 2),
       );
-      final stdDevReceive = sqrt(sumSquaredDiff / receiveIntervals.length);
+      final stdDevReceive = math.sqrt(sumSquaredDiff / receiveIntervals.length);
 
       // Record receive interval stats
       timingManager.recordEvent(

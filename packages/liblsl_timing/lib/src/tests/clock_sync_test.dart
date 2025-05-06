@@ -132,7 +132,7 @@ class ClockSyncTest extends TimingTest {
           _calculateTimeCorrectionStats(timingManager, timeCorrections);
 
           // Complete the test
-          completer!.complete();
+          if (!completer!.isCompleted) completer.complete();
           return;
         }
 
@@ -170,6 +170,7 @@ class ClockSyncTest extends TimingTest {
         completer: completer,
       );
     }
+
     try {
       // Test operations
       await completer.future;
@@ -178,12 +179,22 @@ class ClockSyncTest extends TimingTest {
       // Record error in timing manager
       timingManager.recordEvent('test_error', description: e.toString());
     } finally {
+      // Cancel the send timer if it's still active
+      sendTimer.cancel();
+
+      // Clean up resources
       for (final inlet in inlets.values) {
         inlet.destroy();
       }
       outlet.destroy();
       streamInfo.destroy();
+
+      // Ensure completer is completed
+      if (!completer.isCompleted) {
+        completer.complete();
+      }
     }
+
     // Calculate metrics
     timingManager.calculateMetrics();
   }

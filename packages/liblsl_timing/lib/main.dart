@@ -115,11 +115,30 @@ class _TimingTestHomeState extends State<TimingTestHome> {
           });
 
           // Run the test with the completer
-          await test.runTestWithTimeout(
-            _timingManager,
-            _config,
-            completer: testCompleter,
-          );
+          test
+              .runTestWithTimeout(
+                _timingManager,
+                _config,
+                completer: testCompleter,
+              )
+              .then((_) async {
+                if (!testCompleter.isCompleted) testCompleter.complete();
+                setState(() {
+                  _isRunningTest = false;
+                  _currentTestWidget = null;
+                });
+                if (mounted) {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => TestReportPage(
+                        timingManager: _timingManager,
+                        testName: testName,
+                      ),
+                    ),
+                  );
+                }
+              });
 
           // Clean up resources
           outlet.destroy();
@@ -139,11 +158,30 @@ class _TimingTestHomeState extends State<TimingTestHome> {
             );
           });
 
-          await test.runTestWithTimeout(
-            _timingManager,
-            _config,
-            completer: testCompleter,
-          );
+          test
+              .runTestWithTimeout(
+                _timingManager,
+                _config,
+                completer: testCompleter,
+              )
+              .then((_) async {
+                if (!testCompleter.isCompleted) testCompleter.complete();
+                setState(() {
+                  _isRunningTest = false;
+                  _currentTestWidget = null;
+                });
+                if (mounted) {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => TestReportPage(
+                        timingManager: _timingManager,
+                        testName: testName,
+                      ),
+                    ),
+                  );
+                }
+              });
         } else {
           // For non-UI tests, show a simple progress indicator
           setState(() {
@@ -162,25 +200,30 @@ class _TimingTestHomeState extends State<TimingTestHome> {
           });
 
           // Run the test with timeout
-          await test.runTestWithTimeout(_timingManager, _config);
-        }
-
-        // Test completed, show results
-        setState(() {
-          _isRunningTest = false;
-          _currentTestWidget = null;
-        });
-
-        if (mounted) {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => TestReportPage(
-                timingManager: _timingManager,
-                testName: testName,
-              ),
-            ),
-          );
+          test
+              .runTestWithTimeout(
+                _timingManager,
+                _config,
+                completer: testCompleter,
+              )
+              .then((_) async {
+                if (!testCompleter.isCompleted) testCompleter.complete();
+                setState(() {
+                  _isRunningTest = false;
+                  _currentTestWidget = null;
+                });
+                if (mounted) {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => TestReportPage(
+                        timingManager: _timingManager,
+                        testName: testName,
+                      ),
+                    ),
+                  );
+                }
+              });
         }
       } catch (e) {
         print('Error running test: $e');
@@ -188,10 +231,11 @@ class _TimingTestHomeState extends State<TimingTestHome> {
           _isRunningTest = false;
           _currentTestWidget = null;
         });
-
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Test failed: $e')));
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('Test failed: $e')));
+        }
       }
     } else {
       setState(() {
@@ -455,8 +499,8 @@ class ConfigurationPanel extends StatelessWidget {
                       Chip(
                         label: const Text('Producer'),
                         backgroundColor: config.isProducer
-                            ? Colors.green.withOpacity(0.2)
-                            : Colors.grey.withOpacity(0.2),
+                            ? Colors.green.withAlpha(50)
+                            : Colors.grey.withAlpha(50),
                         avatar: Icon(
                           Icons.upload,
                           color: config.isProducer ? Colors.green : Colors.grey,
@@ -465,8 +509,8 @@ class ConfigurationPanel extends StatelessWidget {
                       Chip(
                         label: const Text('Consumer'),
                         backgroundColor: config.isConsumer
-                            ? Colors.blue.withOpacity(0.2)
-                            : Colors.grey.withOpacity(0.2),
+                            ? Colors.blue.withAlpha(50)
+                            : Colors.grey.withAlpha(50),
                         avatar: Icon(
                           Icons.download,
                           color: config.isConsumer ? Colors.blue : Colors.grey,
@@ -475,8 +519,8 @@ class ConfigurationPanel extends StatelessWidget {
                       Chip(
                         label: const Text('Timing Marker'),
                         backgroundColor: config.showTimingMarker
-                            ? Colors.purple.withOpacity(0.2)
-                            : Colors.grey.withOpacity(0.2),
+                            ? Colors.purple.withAlpha(50)
+                            : Colors.grey.withAlpha(50),
                         avatar: Icon(
                           Icons.circle,
                           color: config.showTimingMarker

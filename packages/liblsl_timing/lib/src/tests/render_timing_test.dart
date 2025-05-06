@@ -42,30 +42,21 @@ class RenderTimingTest extends TimingTest {
     // Complete when test is done
     completer ??= Completer<void>();
 
-    // Create a BuildContext-independent widget to show
-    final testWidget = MaterialApp(
-      home: Scaffold(
-        body: RenderTimingTestWidget(
-          timingManager: timingManager,
-          flashDurationMs: _flashDurationMs,
-          intervalBetweenFlashesMs: _intervalMs,
-          flashCount: _flashCount,
-          markerSize: config.timingMarkerSizePixels,
-          onTestComplete: () {
-            completer!.complete();
-          },
-        ),
-      ),
-    );
+    // The actual test will be displayed by the widget which will call
+    // onTestComplete which will complete the completer
 
-    // The actual widget will be shown by the parent test runner
     try {
-      // Test operations
+      // Wait for the widget to complete the test
       await completer.future;
     } catch (e) {
       print('Error during test: $e');
       // Record error in timing manager
       timingManager.recordEvent('test_error', description: e.toString());
+
+      // Make sure completer is completed
+      if (!completer.isCompleted) {
+        completer.complete();
+      }
     }
 
     // Calculate metrics
