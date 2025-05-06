@@ -14,6 +14,7 @@ import 'package:liblsl/src/lsl/structs.dart';
 import 'package:liblsl/src/lsl/isolate_manager.dart';
 import 'package:liblsl/src/meta/todo.dart';
 import 'package:liblsl/src/util/reusable_buffer.dart';
+import 'package:meta/meta.dart';
 
 /// An isolate-ready implementation of LSL inlet
 class LSLIsolatedInlet<T> extends LSLObj {
@@ -60,6 +61,9 @@ class LSLIsolatedInlet<T> extends LSLObj {
       );
     }
   }
+
+  bool get initialized => _initialized;
+  LSLInletIsolateManager get isolateManager => _isolateManager;
 
   Type _getExpectedType() {
     switch (streamInfo.channelFormat.dartType) {
@@ -111,9 +115,7 @@ class LSLIsolatedInlet<T> extends LSLObj {
   /// If [timeout] is 0, the function will return immediately with available
   /// samples, but there is no guarantee that it will return a sample.
   Future<LSLSample<T>> pullSample({double timeout = 0.0}) async {
-    if (!_initialized) {
-      throw LSLException('Inlet not created');
-    }
+    _ensureInitialized();
 
     // Send message to pull sample from the isolate
     // and wait for the response.
@@ -155,12 +157,13 @@ class LSLIsolatedInlet<T> extends LSLObj {
 
   /// Get time correction for the inlet.
   Future<double> getTimeCorrection(double timeout) async {
-    if (!_initialized) {
-      throw LSLException('Inlet not created');
-    }
+    _ensureInitialized();
 
     final response = await _isolateManager.sendMessage(
-      LSLMessage(LSLMessageType.timeCorrection, {'timeout': timeout}),
+      LSLMessage(LSLMessageType.timeCorrection, {
+        'timeout': timeout,
+        'ecPointerAddr': _buffer.ec.address,
+      }),
     );
 
     if (!response.success) {
@@ -172,9 +175,7 @@ class LSLIsolatedInlet<T> extends LSLObj {
 
   /// Clears all samples from the inlet.
   Future<int> flush() async {
-    if (!_initialized) {
-      throw LSLException('Inlet not created');
-    }
+    _ensureInitialized();
 
     final response = await _isolateManager.sendMessage(
       LSLMessage(LSLMessageType.flush, {}),
@@ -187,14 +188,18 @@ class LSLIsolatedInlet<T> extends LSLObj {
     return response.result as int;
   }
 
+  void _ensureInitialized() {
+    if (!_initialized) {
+      throw LSLException('Inlet not created');
+    }
+  }
+
   /// Gets the number of samples available in the inlet.
   /// This will either be the number of available samples (if supported by the
   /// platform) or it will be 1 if there are samples available, or 0 if there
   /// are no samples available.
   Future<int> samplesAvailable() async {
-    if (!_initialized) {
-      throw LSLException('Inlet not created');
-    }
+    _ensureInitialized();
 
     final response = await _isolateManager.sendMessage(
       LSLMessage(LSLMessageType.samplesAvailable, {}),
@@ -243,9 +248,23 @@ class LSLInletIsolate {
   late final LslPullSample _pullFn;
   late final bool _isStreamInfoOwner;
 
+  final Map<LSLMessageType, Future Function(Map<String, dynamic>)> _handlers =
+      {};
+
   LSLInletIsolate(this._sendPort) {
+    _registerHandlers();
     _listen();
     _sendPort.send(_receivePort.sendPort);
+  }
+
+  void _registerHandlers() {
+    _handlers[LSLMessageType.createInlet] = _createInlet;
+    _handlers[LSLMessageType.pullSample] = _pullSample;
+    _handlers[LSLMessageType.flush] = _flush;
+    _handlers[LSLMessageType.timeCorrection] = _timeCorrection;
+    _handlers[LSLMessageType.samplesAvailable] = _samplesAvailable;
+    _handlers[LSLMessageType.destroy] = _destroy;
+    _handlers[LSLMessageType.pullChunk] = pullChunk;
   }
 
   void _listen() {
@@ -262,41 +281,21 @@ class LSLInletIsolate {
     final SendPort replyPort = message['replyPort'] as SendPort;
 
     try {
-      switch (type) {
-        case LSLMessageType.createInlet:
-          final result = await _createInlet(data);
-          replyPort.send(LSLResponse.success(result).toMap());
-          break;
-        case LSLMessageType.pullSample:
-          final result = await _pullSample(data);
-          replyPort.send(LSLResponse.success(result).toMap());
-          break;
-        case LSLMessageType.flush:
-          final result = await _flush();
-          replyPort.send(LSLResponse.success(result).toMap());
-          break;
-        case LSLMessageType.samplesAvailable:
-          final result = await _samplesAvailable();
-          replyPort.send(LSLResponse.success(result).toMap());
-          break;
-        case LSLMessageType.destroy:
-          _destroy();
-          replyPort.send(LSLResponse.success(null).toMap());
-          break;
-        case LSLMessageType.timeCorrection:
-          final timeout = data['timeout'] as double;
-          final result = await getTimeCorrection(timeout);
-          replyPort.send(LSLResponse.success(result).toMap());
-          break;
-        default:
-          replyPort.send(
-            LSLResponse.error('Unsupported message type: $type').toMap(),
-          );
+      if (_handlers.containsKey(type)) {
+        final result = await _handlers[type]!(data);
+        replyPort.send(LSLResponse.success(result).toMap());
+      } else {
+        replyPort.send(
+          LSLResponse.error('Unsupported message type: $type').toMap(),
+        );
       }
     } catch (e) {
       replyPort.send(LSLResponse.error(e.toString()).toMap());
     }
   }
+
+  @protected
+  external Future<dynamic> pullChunk(Map<String, dynamic> data);
 
   Future<bool> _createInlet(Map<String, dynamic> data) async {
     // Deserialize stream info
@@ -375,7 +374,7 @@ class LSLInletIsolate {
     return LSLSerializer.serializeSamplePointer(sample);
   }
 
-  Future<int> _flush() async {
+  Future<int> _flush(Map<String, dynamic>? data) async {
     if (_inlet == null) {
       throw LSLException('Inlet not created');
     }
@@ -383,7 +382,7 @@ class LSLInletIsolate {
     return lsl_inlet_flush(_inlet!);
   }
 
-  Future<int> _samplesAvailable() async {
+  Future<int> _samplesAvailable(Map<String, dynamic>? data) async {
     if (_inlet == null) {
       throw LSLException('Inlet not created');
     }
@@ -393,21 +392,18 @@ class LSLInletIsolate {
 
   @Todo('zeyus', 'handle timeout code')
   /// Time correction
-  Future<double> getTimeCorrection(double timeout) async {
-    if (_inlet == null) {
-      throw LSLException('Inlet not created');
-    }
-    final Pointer<Int32> ec = allocate<Int32>();
-    final timeCorrection = lsl_time_correction(_inlet!, timeout, ec);
-    final result = ec.value;
-    ec.free();
+  Future<double> _timeCorrection(Map<String, dynamic> data) async {
+    final timeout = data['timeout'] as double;
+    final ecPtr = Pointer<Int32>.fromAddress(data['ecPointerAddr'] as int);
+    final timeCorrection = lsl_time_correction(_inlet!, timeout, ecPtr);
+    final result = ecPtr.value;
     if (result != 0) {
       throw LSLException('Error getting time correction: $result');
     }
     return timeCorrection;
   }
 
-  void _destroy() {
+  Future<void> _destroy(Map<String, dynamic>? data) async {
     if (_inlet != null) {
       lsl_close_stream(_inlet!);
       lsl_destroy_inlet(_inlet!);

@@ -11,7 +11,9 @@ import 'package:liblsl/src/lsl/stream_info.dart';
 enum LSLMessageType {
   createOutlet,
   createInlet,
+  pushChunk,
   pushSample,
+  pullChunk,
   pullSample,
   waitForConsumer,
   destroy,
