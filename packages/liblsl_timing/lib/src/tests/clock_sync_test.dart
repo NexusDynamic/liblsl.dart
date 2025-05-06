@@ -5,7 +5,7 @@ import 'package:liblsl_timing/src/test_config.dart';
 import 'package:liblsl_timing/src/timing_manager.dart';
 import 'package:liblsl_timing/src/tests/test_registry.dart';
 
-class ClockSyncTest implements TimingTest {
+class ClockSyncTest extends TimingTest {
   @override
   String get name => 'Clock Synchronization';
 
@@ -16,8 +16,9 @@ class ClockSyncTest implements TimingTest {
   @override
   Future<void> runTest(
     TimingManager timingManager,
-    TestConfiguration config,
-  ) async {
+    TestConfiguration config, {
+    Completer<void>? completer,
+  }) async {
     timingManager.reset();
 
     // Create a stream info specifically for clock sync testing
@@ -59,7 +60,7 @@ class ClockSyncTest implements TimingTest {
     }
 
     // Complete when test is done
-    final completer = Completer<void>();
+    completer ??= Completer<void>();
 
     // Counter for sync markers
     int syncCounter = 0;
@@ -131,7 +132,7 @@ class ClockSyncTest implements TimingTest {
           _calculateTimeCorrectionStats(timingManager, timeCorrections);
 
           // Complete the test
-          completer.complete();
+          completer!.complete();
           return;
         }
 
@@ -169,17 +170,20 @@ class ClockSyncTest implements TimingTest {
         completer: completer,
       );
     }
-
-    // Wait until the test completes
-    await completer.future;
-
-    // Clean up
-    for (final inlet in inlets.values) {
-      inlet.destroy();
+    try {
+      // Test operations
+      await completer.future;
+    } catch (e) {
+      print('Error during test: $e');
+      // Record error in timing manager
+      timingManager.recordEvent('test_error', description: e.toString());
+    } finally {
+      for (final inlet in inlets.values) {
+        inlet.destroy();
+      }
+      outlet.destroy();
+      streamInfo.destroy();
     }
-    outlet.destroy();
-    streamInfo.destroy();
-
     // Calculate metrics
     timingManager.calculateMetrics();
   }

@@ -5,7 +5,7 @@ import 'package:liblsl_timing/src/test_config.dart';
 import 'package:liblsl_timing/src/timing_manager.dart';
 import 'package:liblsl_timing/src/tests/test_registry.dart';
 
-class UIToLSLTest implements TimingTest {
+class UIToLSLTest extends TimingTest {
   @override
   String get name => 'UI to LSL Latency';
 
@@ -16,56 +16,45 @@ class UIToLSLTest implements TimingTest {
   @override
   Future<void> runTest(
     TimingManager timingManager,
-    TestConfiguration config,
-  ) async {
+    TestConfiguration config, {
+    Completer<void>? completer,
+  }) async {
     timingManager.reset();
 
-    // Create outlet with the specified configuration
-    final streamInfo = await LSL.createStreamInfo(
-      streamName: config.streamName,
-      streamType: config.streamType,
-      channelCount: config.channelCount,
-      sampleRate: config.sampleRate,
-      channelFormat: config.channelFormat,
-      sourceId: config.sourceId,
-    );
-
-    final LSLIsolatedOutlet outlet = await LSL.createOutlet(
-      streamInfo: streamInfo,
-      chunkSize: 0,
-      maxBuffer: 360,
-    );
-
     // Will be set by the UI when a button is pressed
-    final completer = Completer<void>();
-
-    // Create a BuildContext-independent widget to show
-    final testWidget = MaterialApp(
-      home: Scaffold(
-        body: UILatencyTestWidget(
-          timingManager: timingManager,
-          outlet: outlet,
-          testDurationSeconds: config.testDurationSeconds,
-          onTestComplete: () {
-            completer.complete();
-          },
-          showTimingMarker: config.showTimingMarker,
-          markerSize: config.timingMarkerSizePixels,
-        ),
-      ),
-    );
+    completer ??= Completer<void>();
 
     // The actual widget will be shown by the parent test runner
 
-    // Wait for the test to complete
-    await completer.future;
-
-    // Clean up
-    outlet.destroy();
-    streamInfo.destroy();
+    try {
+      // Test operations
+      await completer.future;
+    } catch (e) {
+      print('Error during test: $e');
+      // Record error in timing manager
+      timingManager.recordEvent('test_error', description: e.toString());
+    }
 
     // Calculate timing metrics
     timingManager.calculateMetrics();
+  }
+
+  Widget createTestWidget({
+    required TimingManager timingManager,
+    required LSLIsolatedOutlet outlet,
+    required int testDurationSeconds,
+    required VoidCallback onTestComplete,
+    required bool showTimingMarker,
+    required double markerSize,
+  }) {
+    return UILatencyTestWidget(
+      timingManager: timingManager,
+      outlet: outlet,
+      testDurationSeconds: testDurationSeconds,
+      onTestComplete: onTestComplete,
+      showTimingMarker: showTimingMarker,
+      markerSize: markerSize,
+    );
   }
 
   @override

@@ -5,7 +5,7 @@ import 'package:liblsl_timing/src/test_config.dart';
 import 'package:liblsl_timing/src/timing_manager.dart';
 import 'package:liblsl_timing/src/tests/test_registry.dart';
 
-class RenderTimingTest implements TimingTest {
+class RenderTimingTest extends TimingTest {
   @override
   String get name => 'Render Timing Test';
 
@@ -34,12 +34,13 @@ class RenderTimingTest implements TimingTest {
   @override
   Future<void> runTest(
     TimingManager timingManager,
-    TestConfiguration config,
-  ) async {
+    TestConfiguration config, {
+    Completer<void>? completer,
+  }) async {
     timingManager.reset();
 
     // Complete when test is done
-    final completer = Completer<void>();
+    completer ??= Completer<void>();
 
     // Create a BuildContext-independent widget to show
     final testWidget = MaterialApp(
@@ -51,16 +52,21 @@ class RenderTimingTest implements TimingTest {
           flashCount: _flashCount,
           markerSize: config.timingMarkerSizePixels,
           onTestComplete: () {
-            completer.complete();
+            completer!.complete();
           },
         ),
       ),
     );
 
     // The actual widget will be shown by the parent test runner
-
-    // Wait for the test to complete
-    await completer.future;
+    try {
+      // Test operations
+      await completer.future;
+    } catch (e) {
+      print('Error during test: $e');
+      // Record error in timing manager
+      timingManager.recordEvent('test_error', description: e.toString());
+    }
 
     // Calculate metrics
     timingManager.calculateMetrics();

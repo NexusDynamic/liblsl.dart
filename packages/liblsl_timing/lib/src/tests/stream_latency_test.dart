@@ -1,11 +1,10 @@
 import 'dart:async';
-import 'package:flutter/material.dart';
 import 'package:liblsl/lsl.dart';
 import 'package:liblsl_timing/src/test_config.dart';
 import 'package:liblsl_timing/src/timing_manager.dart';
 import 'package:liblsl_timing/src/tests/test_registry.dart';
 
-class StreamLatencyTest implements TimingTest {
+class StreamLatencyTest extends TimingTest {
   @override
   String get name => 'Stream Latency Test';
 
@@ -16,8 +15,9 @@ class StreamLatencyTest implements TimingTest {
   @override
   Future<void> runTest(
     TimingManager timingManager,
-    TestConfiguration config,
-  ) async {
+    TestConfiguration config, {
+    Completer<void>? completer,
+  }) async {
     timingManager.reset();
 
     // Create the stream info for our outlet
@@ -50,6 +50,10 @@ class StreamLatencyTest implements TimingTest {
     }
 
     if (resolvedStreamInfo == null) {
+      timingManager.recordEvent(
+        'stream_resolution_failed',
+        description: 'Could not find our own stream',
+      );
       throw Exception('Could not find our own stream for loopback testing');
     }
 
@@ -62,7 +66,7 @@ class StreamLatencyTest implements TimingTest {
     );
 
     // Complete when test is done
-    final completer = Completer<void>();
+    completer ??= Completer<void>();
 
     // Set up a timer to continuously send samples
     int sampleCounter = 0;
@@ -76,7 +80,7 @@ class StreamLatencyTest implements TimingTest {
           timer.cancel();
           // Give some time for the last samples to be received
           Future.delayed(const Duration(seconds: 2), () {
-            completer.complete();
+            completer!.complete();
           });
           return;
         }
@@ -112,7 +116,7 @@ class StreamLatencyTest implements TimingTest {
 
     // Set up a pull loop to receive samples
     void pullSamples() async {
-      while (!completer.isCompleted) {
+      while (!completer!.isCompleted) {
         try {
           // Pull sample with a small timeout
           final sample = await inlet.pullSample(timeout: 0.1);
@@ -149,13 +153,19 @@ class StreamLatencyTest implements TimingTest {
     // Start the pull loop
     pullSamples();
 
-    // Wait until the test completes
-    await completer.future;
-
-    // Clean up
-    inlet.destroy();
-    outlet.destroy();
-    streamInfo.destroy();
+    try {
+      // Test operations
+      await completer.future;
+    } catch (e) {
+      print('Error during test: $e');
+      // Record error in timing manager
+      timingManager.recordEvent('test_error', description: e.toString());
+    } finally {
+      // Clean up
+      inlet.destroy();
+      outlet.destroy();
+      streamInfo.destroy();
+    }
 
     // Calculate metrics
     timingManager.calculateMetrics();

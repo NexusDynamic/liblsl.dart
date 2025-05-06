@@ -5,7 +5,7 @@ import 'package:liblsl_timing/src/test_config.dart';
 import 'package:liblsl_timing/src/timing_manager.dart';
 import 'package:liblsl_timing/src/tests/test_registry.dart';
 
-class SampleRateStabilityTest implements TimingTest {
+class SampleRateStabilityTest extends TimingTest {
   @override
   String get name => 'Sample Rate Stability';
 
@@ -16,8 +16,9 @@ class SampleRateStabilityTest implements TimingTest {
   @override
   Future<void> runTest(
     TimingManager timingManager,
-    TestConfiguration config,
-  ) async {
+    TestConfiguration config, {
+    Completer<void>? completer,
+  }) async {
     timingManager.reset();
 
     // Create the stream info
@@ -33,12 +34,12 @@ class SampleRateStabilityTest implements TimingTest {
     // Create the outlet
     final outlet = await LSL.createOutlet(
       streamInfo: streamInfo,
-      chunkSize: 0,
+      chunkSize: 1,
       maxBuffer: 360,
     );
 
     // Find our own stream
-    final streams = await LSL.resolveStreams(waitTime: 1.0, maxStreams: 5);
+    final streams = await LSL.resolveStreams(waitTime: 2.0, maxStreams: 5);
 
     // Find the right stream
     LSLStreamInfo? resolvedStreamInfo;
@@ -50,6 +51,10 @@ class SampleRateStabilityTest implements TimingTest {
     }
 
     if (resolvedStreamInfo == null) {
+      timingManager.recordEvent(
+        'stream_resolution_failed',
+        description: 'Could not find our own stream',
+      );
       throw Exception('Could not find our own stream for loopback testing');
     }
 
@@ -62,7 +67,7 @@ class SampleRateStabilityTest implements TimingTest {
     );
 
     // Complete when test is done
-    final completer = Completer<void>();
+    completer ??= Completer<void>();
 
     // Set up a timer to continuously send samples at the specified rate
     int sampleCounter = 0;
@@ -87,7 +92,7 @@ class SampleRateStabilityTest implements TimingTest {
           timer.cancel();
           // Give some time for the last samples to be received
           Future.delayed(const Duration(seconds: 2), () {
-            completer.complete();
+            completer!.complete();
           });
           return;
         }
@@ -136,7 +141,7 @@ class SampleRateStabilityTest implements TimingTest {
     final receivedTimestamps = <double>[];
 
     void pullSamples() async {
-      while (!completer.isCompleted) {
+      while (!completer!.isCompleted) {
         try {
           // Pull sample with a small timeout
           final sample = await inlet.pullSample(timeout: 0.1);
@@ -173,8 +178,23 @@ class SampleRateStabilityTest implements TimingTest {
     // Start the pull loop
     pullSamples();
 
-    // Wait until the test completes
-    await completer.future;
+    try {
+      // Test operations
+      await completer.future;
+    } catch (e) {
+      print('Error during test: $e');
+      // Record error in timing manager
+      timingManager.recordEvent('test_error', description: e.toString());
+    } finally {
+      // Cancel the send timer
+      sendTimer.cancel();
+      // Clean up
+      inlet.destroy();
+      outlet.destroy();
+      streamInfo.destroy();
+      // Stop the pull loop
+      completer.complete();
+    }
 
     // Calculate and record jitter statistics
     if (expectedTimes.length > 1 &&
@@ -281,11 +301,6 @@ class SampleRateStabilityTest implements TimingTest {
         },
       );
     }
-
-    // Clean up
-    inlet.destroy();
-    outlet.destroy();
-    streamInfo.destroy();
 
     // Calculate metrics
     timingManager.calculateMetrics();

@@ -1,6 +1,13 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:liblsl/lsl.dart';
 import 'package:liblsl_timing/src/test_config.dart';
+import 'package:liblsl_timing/src/tests/clock_sync_test.dart';
+import 'package:liblsl_timing/src/tests/render_timing_test.dart';
+import 'package:liblsl_timing/src/tests/sample_rate_stability_test.dart';
+import 'package:liblsl_timing/src/tests/stream_latency_test.dart';
+import 'package:liblsl_timing/src/tests/ui_to_lsl_test.dart';
 import 'package:liblsl_timing/src/timing_manager.dart';
 import 'package:liblsl_timing/src/visualization/results_view.dart';
 import 'package:liblsl_timing/src/tests/test_registry.dart';
@@ -45,6 +52,7 @@ class _TimingTestHomeState extends State<TimingTestHome> {
 
   bool _isRunningTest = false;
   String _currentTestName = "";
+  Widget? _currentTestWidget;
 
   @override
   void initState() {
@@ -65,32 +73,134 @@ class _TimingTestHomeState extends State<TimingTestHome> {
     setState(() {
       _isRunningTest = true;
       _currentTestName = testName;
+      _currentTestWidget = null;
     });
 
     final test = TestRegistry.getTest(testName);
     if (test != null) {
-      await test.runTest(_timingManager, _config);
+      // Create a completer that will be passed to the test
+      final testCompleter = Completer<void>();
 
-      setState(() {
-        _isRunningTest = false;
-      });
+      try {
+        // For UI tests, we need to create and display the widget
+        if (test is UIToLSLTest) {
+          // Create outlet and other resources
+          final streamInfo = await LSL.createStreamInfo(
+            streamName: _config.streamName,
+            streamType: _config.streamType,
+            channelCount: _config.channelCount,
+            sampleRate: _config.sampleRate,
+            channelFormat: _config.channelFormat,
+            sourceId: _config.sourceId,
+          );
 
-      // Show test report
-      if (mounted) {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => TestReportPage(
+          final outlet = await LSL.createOutlet(
+            streamInfo: streamInfo,
+            chunkSize: 0,
+            maxBuffer: 360,
+          );
+
+          // Create and display the test widget
+          setState(() {
+            _currentTestWidget = UILatencyTestWidget(
               timingManager: _timingManager,
-              testName: testName,
+              outlet: outlet,
+              testDurationSeconds: _config.testDurationSeconds,
+              onTestComplete: () {
+                if (!testCompleter.isCompleted) testCompleter.complete();
+              },
+              showTimingMarker: _config.showTimingMarker,
+              markerSize: _config.timingMarkerSizePixels,
+            );
+          });
+
+          // Run the test with the completer
+          await test.runTestWithTimeout(
+            _timingManager,
+            _config,
+            completer: testCompleter,
+          );
+
+          // Clean up resources
+          outlet.destroy();
+          streamInfo.destroy();
+        } else if (test is RenderTimingTest) {
+          // Similar approach for RenderTimingTest
+          setState(() {
+            _currentTestWidget = RenderTimingTestWidget(
+              timingManager: _timingManager,
+              flashDurationMs: 100,
+              intervalBetweenFlashesMs: 500,
+              flashCount: 50,
+              markerSize: _config.timingMarkerSizePixels,
+              onTestComplete: () {
+                if (!testCompleter.isCompleted) testCompleter.complete();
+              },
+            );
+          });
+
+          await test.runTestWithTimeout(
+            _timingManager,
+            _config,
+            completer: testCompleter,
+          );
+        } else {
+          // For non-UI tests, show a simple progress indicator
+          setState(() {
+            _currentTestWidget = Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const CircularProgressIndicator(),
+                  const SizedBox(height: 20),
+                  Text('Running test: $_currentTestName'),
+                  const SizedBox(height: 10),
+                  Text('Please wait...'),
+                ],
+              ),
+            );
+          });
+
+          // Run the test with timeout
+          await test.runTestWithTimeout(_timingManager, _config);
+        }
+
+        // Test completed, show results
+        setState(() {
+          _isRunningTest = false;
+          _currentTestWidget = null;
+        });
+
+        if (mounted) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => TestReportPage(
+                timingManager: _timingManager,
+                testName: testName,
+              ),
             ),
-          ),
-        );
+          );
+        }
+      } catch (e) {
+        print('Error running test: $e');
+        setState(() {
+          _isRunningTest = false;
+          _currentTestWidget = null;
+        });
+
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Test failed: $e')));
       }
     } else {
       setState(() {
         _isRunningTest = false;
       });
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Test "$testName" not found')));
     }
   }
 
@@ -141,26 +251,21 @@ class _TimingTestHomeState extends State<TimingTestHome> {
   }
 
   Widget _buildRunningTestView() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text(
-            'Running test: $_currentTestName',
-            style: Theme.of(context).textTheme.titleLarge,
-          ),
-          const SizedBox(height: 20),
-          const CircularProgressIndicator(),
-          const SizedBox(height: 30),
-          if (_config.showTimingMarker)
-            Container(
-              width: _config.timingMarkerSizePixels,
-              height: _config.timingMarkerSizePixels,
-              color: Colors.white, // Initially white, test will control this
+    return _currentTestWidget != null
+        ? _currentTestWidget!
+        : Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  'Running test: $_currentTestName',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 20),
+                const CircularProgressIndicator(),
+              ],
             ),
-        ],
-      ),
-    );
+          );
   }
 
   Widget _buildMainTestView() {
