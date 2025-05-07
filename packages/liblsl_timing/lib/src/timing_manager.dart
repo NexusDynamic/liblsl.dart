@@ -21,11 +21,11 @@ class TimingManager {
   Stream<TimingEvent> get eventStream => _eventStreamController.stream;
 
   /// Adds a new timing event with the current timestamp
-  void recordEvent(
+  Future<void> recordEvent(
     String eventType, {
     String? description,
     Map<String, dynamic>? metadata,
-  }) {
+  }) async {
     final event = TimingEvent(
       timestamp: DateTime.now().microsecondsSinceEpoch / 1000000,
       eventType: eventType,
@@ -120,6 +120,19 @@ class TimingManager {
       'lsl_to_receive',
       'lsl_timestamp',
       'sample_received',
+    );
+
+    // Calculate latency between sample creation and LSL reported timestamp
+    _calculateLatencyBetweenEvents(
+      'created_to_lsl_reported',
+      'sample_created',
+      'received_lsl_timestamp',
+    );
+
+    _calculateLatencyBetweenEvents(
+      'recieved_to_lsl_reported',
+      'sample_processed',
+      'lsl_timestamp',
     );
 
     // Calculate end-to-end latency

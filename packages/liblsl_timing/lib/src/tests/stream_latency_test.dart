@@ -33,16 +33,30 @@ class StreamLatencyTest extends TimingTest {
     // Create the outlet
     final outlet = await LSL.createOutlet(
       streamInfo: streamInfo,
-      chunkSize: 0,
-      maxBuffer: 360,
+      chunkSize: 1,
+      maxBuffer: 10,
+    );
+
+    // Push a sample to ensure the outlet is ready
+    final initialSample = List.generate(
+      config.channelCount,
+      (index) => index.toDouble(),
+    );
+    await outlet.pushSample(initialSample);
+    timingManager.recordEvent(
+      'initial_sample_sent',
+      description: 'Initial sample sent to LSL',
+      metadata: {'sampleId': 0},
     );
 
     // Find our own stream
-    final streams = await LSL.resolveStreams(waitTime: 1.0, maxStreams: 5);
+    final streams = await LSL.resolveStreams(waitTime: 5.0, maxStreams: 5);
 
     // Find the right stream
     LSLStreamInfo? resolvedStreamInfo;
     for (final stream in streams) {
+      print('Found stream: ${stream.streamName}');
+      print('  Type: ${stream.streamType}');
       if (stream.streamName == config.streamName) {
         resolvedStreamInfo = stream;
         break;
@@ -95,22 +109,29 @@ class StreamLatencyTest extends TimingTest {
         );
 
         // Push the sample with the counter as value
-        outlet.pushSample([sampleCounter.toDouble()]).then((_) {
-          // Record the time when the sample was sent
-          timingManager.recordEvent(
-            'sample_sent',
-            description: 'Sample $sampleCounter sent to LSL',
-            metadata: {'sampleId': sampleCounter},
-          );
+        outlet
+            .pushSample(
+              List.generate(
+                config.channelCount,
+                (index) => sampleCounter.toDouble(),
+              ),
+            )
+            .then((_) {
+              // Record the time when the sample was sent
+              timingManager.recordEvent(
+                'sample_sent',
+                description: 'Sample $sampleCounter sent to LSL',
+                metadata: {'sampleId': sampleCounter},
+              );
 
-          // Record what the LSL timestamp would be
-          timingManager.recordTimestampedEvent(
-            'lsl_timestamp',
-            LSL.localClock(),
-            description: 'LSL timestamp for sample $sampleCounter',
-            metadata: {'sampleId': sampleCounter},
-          );
-        });
+              // Record what the LSL timestamp would be
+              timingManager.recordTimestampedEvent(
+                'lsl_timestamp',
+                LSL.localClock(),
+                description: 'LSL timestamp for sample $sampleCounter',
+                metadata: {'sampleId': sampleCounter},
+              );
+            });
       },
     );
 
@@ -127,8 +148,9 @@ class StreamLatencyTest extends TimingTest {
             final sampleId = sample[0].toInt();
 
             // Record the receive time
-            timingManager.recordEvent(
-              'sample_received',
+            timingManager.recordTimestampedEvent(
+              'received_lsl_timestamp',
+              sample.timestamp,
               description: 'Sample $sampleId received',
               metadata: {'sampleId': sampleId, 'timestamp': sample.timestamp},
             );

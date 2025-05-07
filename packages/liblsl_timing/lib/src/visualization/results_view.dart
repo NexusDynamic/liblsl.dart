@@ -34,6 +34,7 @@ class _ResultsViewState extends State<ResultsView> {
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
+          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
@@ -102,12 +103,14 @@ class _ResultsViewState extends State<ResultsView> {
             const SizedBox(height: 16),
 
             // Visualization
-            Expanded(
-              child: values.isEmpty
-                  ? const Center(
-                      child: Text('No data available. Run a test first.'),
-                    )
-                  : _buildVisualization(context, values),
+            Row(
+              children: [
+                values.isEmpty
+                    ? const Center(
+                        child: Text('No data available. Run a test first.'),
+                      )
+                    : _buildVisualization(context, values),
+              ],
             ),
 
             // Raw data (if enabled)

@@ -1,6 +1,8 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:liblsl/lsl.dart';
 import 'package:liblsl_timing/src/test_config.dart';
 import 'package:liblsl_timing/src/tests/clock_sync_test.dart';
@@ -15,8 +17,21 @@ import 'package:liblsl_timing/src/device_settings_page.dart';
 import 'package:liblsl_timing/src/device_sync_page.dart';
 import 'package:liblsl_timing/src/test_report_page.dart';
 import 'package:liblsl_timing/src/utils/external_hardware_manager.dart';
+import 'package:liblsl_timing/src/utils/list_map_indexed.dart';
 
 void main() {
+  if (defaultTargetPlatform == TargetPlatform.android) {
+    WidgetsFlutterBinding.ensureInitialized();
+    final MethodChannel rtNetworkingChannel = MethodChannel(
+      'com.zeyus.liblsl_timing/Networking',
+    );
+    try {
+      rtNetworkingChannel.invokeMethod('acquireMulticastLock');
+      print('Acquired multicast lock');
+    } on PlatformException catch (e) {
+      print('Failed to acquire multicast lock: ${e.message}');
+    }
+  }
   runApp(const LSLTimingApp());
 }
 
@@ -53,11 +68,17 @@ class _TimingTestHomeState extends State<TimingTestHome> {
   bool _isRunningTest = false;
   String _currentTestName = "";
   Widget? _currentTestWidget;
+  final List<bool> _isExpanded = [];
 
   @override
   void initState() {
     super.initState();
     _initializeLSL();
+    _isExpanded.addAll([
+      true, // Configuration panel
+      false, // Test selection
+      false, // Results visualization
+    ]);
   }
 
   Future<void> _initializeLSL() async {
@@ -127,6 +148,7 @@ class _TimingTestHomeState extends State<TimingTestHome> {
                   _isRunningTest = false;
                   _currentTestWidget = null;
                 });
+                WidgetsBinding.instance.scheduleFrame();
                 if (mounted) {
                   Navigator.push(
                     context,
@@ -170,6 +192,7 @@ class _TimingTestHomeState extends State<TimingTestHome> {
                   _isRunningTest = false;
                   _currentTestWidget = null;
                 });
+                WidgetsBinding.instance.scheduleFrame();
                 if (mounted) {
                   Navigator.push(
                     context,
@@ -212,6 +235,7 @@ class _TimingTestHomeState extends State<TimingTestHome> {
                   _isRunningTest = false;
                   _currentTestWidget = null;
                 });
+                WidgetsBinding.instance.scheduleFrame();
                 if (mounted) {
                   Navigator.push(
                     context,
@@ -231,6 +255,7 @@ class _TimingTestHomeState extends State<TimingTestHome> {
           _isRunningTest = false;
           _currentTestWidget = null;
         });
+        WidgetsBinding.instance.scheduleFrame();
         if (mounted) {
           ScaffoldMessenger.of(
             context,
@@ -240,12 +265,15 @@ class _TimingTestHomeState extends State<TimingTestHome> {
     } else {
       setState(() {
         _isRunningTest = false;
+        _currentTestWidget = null;
       });
-
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Test "$testName" not found')));
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Test "$testName" not found')));
+      }
     }
+    WidgetsBinding.instance.scheduleFrame();
   }
 
   @override
@@ -313,28 +341,65 @@ class _TimingTestHomeState extends State<TimingTestHome> {
   }
 
   Widget _buildMainTestView() {
-    return Column(
-      children: [
-        // Configuration panel
-        Expanded(
-          flex: 2,
-          child: ConfigurationPanel(
-            config: _config,
-            onConfigChanged: () {
-              setState(() {});
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(8.0),
+      child: ExpansionPanelList(
+        expansionCallback: (int index, bool isExpanded) {
+          setState(() {
+            _isExpanded[index] = isExpanded;
+          });
+        },
+        children: [
+          // Configuration panel
+          ExpansionPanel(
+            isExpanded: _isExpanded[0],
+            canTapOnHeader: true,
+            headerBuilder: (BuildContext context, bool isExpanded) {
+              return ListTile(
+                title: Text(
+                  'Configuration',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+              );
             },
+            body: ConfigurationPanel(
+              config: _config,
+              onConfigChanged: () {
+                setState(() {});
+              },
+            ),
           ),
-        ),
 
-        // Test selection
-        Expanded(
-          flex: 3,
-          child: TestSelectionPanel(onTestSelected: _startTest),
-        ),
-
-        // Results visualization (shows last run)
-        Expanded(flex: 4, child: ResultsView(timingManager: _timingManager)),
-      ],
+          // Test selection
+          ExpansionPanel(
+            isExpanded: _isExpanded[1],
+            canTapOnHeader: true,
+            headerBuilder: (BuildContext context, bool isExpanded) {
+              return ListTile(
+                title: Text(
+                  'Test Selection',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+              );
+            },
+            body: TestSelectionPanel(onTestSelected: _startTest),
+          ),
+          // Results visualization (shows last run)
+          ExpansionPanel(
+            isExpanded: _isExpanded[2],
+            canTapOnHeader: true,
+            headerBuilder: (BuildContext context, bool isExpanded) {
+              return ListTile(
+                title: Text(
+                  'Results Visualization',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+              );
+            },
+            body: ResultsView(timingManager: _timingManager),
+          ),
+        ],
+      ),
     );
   }
 
@@ -366,31 +431,30 @@ class TestSelectionPanel extends StatelessWidget {
               style: Theme.of(context).textTheme.titleLarge,
             ),
             const SizedBox(height: 8),
-            Expanded(
-              child: GridView.builder(
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 2,
-                  childAspectRatio: 2.5,
-                  crossAxisSpacing: 10,
-                  mainAxisSpacing: 10,
-                ),
-                itemCount: tests.length,
-                itemBuilder: (context, index) {
-                  return Tooltip(
-                    message: tests[index].description,
-                    child: ElevatedButton(
-                      onPressed: () => onTestSelected(tests[index].name),
-                      style: ElevatedButton.styleFrom(
-                        foregroundColor: Theme.of(
-                          context,
-                        ).colorScheme.onPrimary,
-                        backgroundColor: Theme.of(context).colorScheme.primary,
+
+            Wrap(
+              alignment: WrapAlignment.center,
+              spacing: 8.0,
+              runSpacing: 8.0,
+              children: tests
+                  .map<Widget>(
+                    (test) => Tooltip(
+                      message: test.description,
+                      child: ElevatedButton(
+                        onPressed: () => onTestSelected(test.name),
+                        style: ElevatedButton.styleFrom(
+                          foregroundColor: Theme.of(
+                            context,
+                          ).colorScheme.onPrimary,
+                          backgroundColor: Theme.of(
+                            context,
+                          ).colorScheme.primary,
+                        ),
+                        child: Text(test.name),
                       ),
-                      child: Text(tests[index].name),
                     ),
-                  );
-                },
-              ),
+                  )
+                  .toList(growable: false),
             ),
           ],
         ),
@@ -433,106 +497,105 @@ class ConfigurationPanel extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 8),
-            Expanded(
-              child: ListView(
-                children: [
-                  _buildNumberInput(
-                    context,
-                    'Sample Rate (Hz)',
-                    config.sampleRate.toString(),
-                    (value) {
-                      config.sampleRate = double.tryParse(value) ?? 100.0;
-                      onConfigChanged();
-                    },
-                  ),
-                  _buildNumberInput(
-                    context,
-                    'Number of Channels',
-                    config.channelCount.toString(),
-                    (value) {
-                      config.channelCount = int.tryParse(value) ?? 1;
-                      onConfigChanged();
-                    },
-                  ),
-                  _buildDropdown(
-                    context,
-                    'Stream Type',
-                    LSLContentType.values.map((t) => t.value).toList(),
-                    config.streamType.value,
-                    (value) {
-                      config.streamType = LSLContentType.values.firstWhere(
-                        (t) => t.value == value,
-                        orElse: () => LSLContentType.eeg,
-                      );
-                      onConfigChanged();
-                    },
-                  ),
-                  _buildDropdown(
-                    context,
-                    'Channel Format',
-                    LSLChannelFormat.values.map((f) => f.name).toList(),
-                    config.channelFormat.name,
-                    (value) {
-                      config.channelFormat = LSLChannelFormat.values.firstWhere(
-                        (f) => f.name == value,
-                        orElse: () => LSLChannelFormat.float32,
-                      );
-                      onConfigChanged();
-                    },
-                  ),
-                  _buildNumberInput(
-                    context,
-                    'Test Duration (sec)',
-                    config.testDurationSeconds.toString(),
-                    (value) {
-                      config.testDurationSeconds = int.tryParse(value) ?? 10;
-                      onConfigChanged();
-                    },
-                  ),
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _buildNumberInput(
+                  context,
+                  'Sample Rate (Hz)',
+                  config.sampleRate.toString(),
+                  (value) {
+                    config.sampleRate = double.tryParse(value) ?? 100.0;
+                    onConfigChanged();
+                  },
+                ),
+                _buildNumberInput(
+                  context,
+                  'Number of Channels',
+                  config.channelCount.toString(),
+                  (value) {
+                    config.channelCount = int.tryParse(value) ?? 1;
+                    onConfigChanged();
+                  },
+                ),
+                _buildDropdown(
+                  context,
+                  'Stream Type',
+                  LSLContentType.values.map((t) => t.value).toList(),
+                  config.streamType.value,
+                  (value) {
+                    config.streamType = LSLContentType.values.firstWhere(
+                      (t) => t.value == value,
+                      orElse: () => LSLContentType.eeg,
+                    );
+                    onConfigChanged();
+                  },
+                ),
+                _buildDropdown(
+                  context,
+                  'Channel Format',
+                  LSLChannelFormat.values.map((f) => f.name).toList(),
+                  config.channelFormat.name,
+                  (value) {
+                    config.channelFormat = LSLChannelFormat.values.firstWhere(
+                      (f) => f.name == value,
+                      orElse: () => LSLChannelFormat.float32,
+                    );
+                    onConfigChanged();
+                  },
+                ),
+                _buildNumberInput(
+                  context,
+                  'Test Duration (sec)',
+                  config.testDurationSeconds.toString(),
+                  (value) {
+                    config.testDurationSeconds = int.tryParse(value) ?? 10;
+                    onConfigChanged();
+                  },
+                ),
 
-                  const Divider(),
+                const Divider(),
 
-                  // Device role indicators
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceAround,
-                    children: [
-                      Chip(
-                        label: const Text('Producer'),
-                        backgroundColor: config.isProducer
-                            ? Colors.green.withAlpha(50)
-                            : Colors.grey.withAlpha(50),
-                        avatar: Icon(
-                          Icons.upload,
-                          color: config.isProducer ? Colors.green : Colors.grey,
-                        ),
+                // Device role indicators
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    Chip(
+                      label: const Text('Producer'),
+                      backgroundColor: config.isProducer
+                          ? Colors.green.withAlpha(50)
+                          : Colors.grey.withAlpha(50),
+                      avatar: Icon(
+                        Icons.upload,
+                        color: config.isProducer ? Colors.green : Colors.grey,
                       ),
-                      Chip(
-                        label: const Text('Consumer'),
-                        backgroundColor: config.isConsumer
-                            ? Colors.blue.withAlpha(50)
-                            : Colors.grey.withAlpha(50),
-                        avatar: Icon(
-                          Icons.download,
-                          color: config.isConsumer ? Colors.blue : Colors.grey,
-                        ),
+                    ),
+                    Chip(
+                      label: const Text('Consumer'),
+                      backgroundColor: config.isConsumer
+                          ? Colors.blue.withAlpha(50)
+                          : Colors.grey.withAlpha(50),
+                      avatar: Icon(
+                        Icons.download,
+                        color: config.isConsumer ? Colors.blue : Colors.grey,
                       ),
-                      Chip(
-                        label: const Text('Timing Marker'),
-                        backgroundColor: config.showTimingMarker
-                            ? Colors.purple.withAlpha(50)
-                            : Colors.grey.withAlpha(50),
-                        avatar: Icon(
-                          Icons.circle,
-                          color: config.showTimingMarker
-                              ? Colors.purple
-                              : Colors.grey,
-                          size: 14,
-                        ),
+                    ),
+                    Chip(
+                      label: const Text('Timing Marker'),
+                      backgroundColor: config.showTimingMarker
+                          ? Colors.purple.withAlpha(50)
+                          : Colors.grey.withAlpha(50),
+                      avatar: Icon(
+                        Icons.circle,
+                        color: config.showTimingMarker
+                            ? Colors.purple
+                            : Colors.grey,
+                        size: 14,
                       ),
-                    ],
-                  ),
-                ],
-              ),
+                    ),
+                  ],
+                ),
+              ],
             ),
           ],
         ),
@@ -547,22 +610,31 @@ class ConfigurationPanel extends StatelessWidget {
     Function(String) onChanged,
   ) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      padding: const EdgeInsets.symmetric(vertical: 4.0),
       child: Row(
         children: [
           SizedBox(width: 150, child: Text(label)),
-          Expanded(
-            child: TextField(
-              controller: TextEditingController(text: value),
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                border: OutlineInputBorder(),
-                contentPadding: EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 8,
+          Flexible(
+            child: SizedBox(
+              height: 25,
+              child: TextField(
+                scrollPadding: const EdgeInsets.all(2),
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurface,
+                  height: 1.2,
+                  fontSize: Theme.of(context).textTheme.bodySmall?.fontSize,
                 ),
+                controller: TextEditingController(text: value),
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  border: OutlineInputBorder(),
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: 1,
+                    vertical: 1,
+                  ),
+                ),
+                onChanged: onChanged,
               ),
-              onChanged: onChanged,
             ),
           ),
         ],
@@ -578,31 +650,57 @@ class ConfigurationPanel extends StatelessWidget {
     Function(String) onChanged,
   ) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      padding: const EdgeInsets.symmetric(vertical: 4.0),
       child: Row(
         children: [
           SizedBox(width: 150, child: Text(label)),
-          Expanded(
-            child: DropdownButtonFormField<String>(
-              value: value,
-              decoration: const InputDecoration(
-                border: OutlineInputBorder(),
-                contentPadding: EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 8,
+
+          Flexible(
+            child: SizedBox(
+              height: 25,
+              child: DropdownButtonFormField<String>(
+                value: value,
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurface,
+                  height: 1.2,
+                  fontSize: Theme.of(context).textTheme.bodySmall?.fontSize,
                 ),
+                padding: const EdgeInsets.all(0),
+                decoration: const InputDecoration(
+                  border: OutlineInputBorder(),
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: 1,
+                    vertical: 1,
+                  ),
+                ),
+                items: options.map((String option) {
+                  return DropdownMenuItem<String>(
+                    value: option,
+                    child: Text(
+                      option,
+                      strutStyle: StrutStyle(
+                        forceStrutHeight: true,
+                        height: 1.2,
+                        fontSize: Theme.of(
+                          context,
+                        ).textTheme.bodySmall?.fontSize,
+                      ),
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurface,
+                        height: 1.2,
+                        fontSize: Theme.of(
+                          context,
+                        ).textTheme.bodySmall?.fontSize,
+                      ),
+                    ),
+                  );
+                }).toList(),
+                onChanged: (String? newValue) {
+                  if (newValue != null) {
+                    onChanged(newValue);
+                  }
+                },
               ),
-              items: options.map((String option) {
-                return DropdownMenuItem<String>(
-                  value: option,
-                  child: Text(option),
-                );
-              }).toList(),
-              onChanged: (String? newValue) {
-                if (newValue != null) {
-                  onChanged(newValue);
-                }
-              },
             ),
           ),
         ],

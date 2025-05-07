@@ -195,8 +195,7 @@ class _UILatencyTestWidgetState extends State<UILatencyTestWidget>
   Widget build(BuildContext context) {
     return Listener(
       onPointerDown: _handleTap,
-      child: Container(
-        color: Colors.white,
+      child: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [

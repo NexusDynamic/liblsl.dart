@@ -187,8 +187,7 @@ class _RenderTimingTestWidgetState extends State<RenderTimingTestWidget>
       metadata: {'flashId': _flashCounter, 'showMarker': _showMarker},
     );
 
-    return Container(
-      color: Colors.white,
+    return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         crossAxisAlignment: CrossAxisAlignment.center,
