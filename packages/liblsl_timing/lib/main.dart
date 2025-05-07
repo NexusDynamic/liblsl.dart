@@ -5,19 +5,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:liblsl/lsl.dart';
 import 'package:liblsl_timing/src/test_config.dart';
-import 'package:liblsl_timing/src/tests/clock_sync_test.dart';
 import 'package:liblsl_timing/src/tests/render_timing_test.dart';
-import 'package:liblsl_timing/src/tests/sample_rate_stability_test.dart';
-import 'package:liblsl_timing/src/tests/stream_latency_test.dart';
 import 'package:liblsl_timing/src/tests/ui_to_lsl_test.dart';
 import 'package:liblsl_timing/src/timing_manager.dart';
 import 'package:liblsl_timing/src/visualization/results_view.dart';
-import 'package:liblsl_timing/src/tests/test_registry.dart';
+import 'package:liblsl_timing/src/tests/base/test_registry.dart';
 import 'package:liblsl_timing/src/device_settings_page.dart';
 import 'package:liblsl_timing/src/device_sync_page.dart';
 import 'package:liblsl_timing/src/test_report_page.dart';
 import 'package:liblsl_timing/src/utils/external_hardware_manager.dart';
-import 'package:liblsl_timing/src/utils/list_map_indexed.dart';
 
 void main() {
   if (defaultTargetPlatform == TargetPlatform.android) {

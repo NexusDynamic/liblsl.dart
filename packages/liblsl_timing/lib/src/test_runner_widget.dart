@@ -1,7 +1,5 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:liblsl_timing/src/test_config.dart';
-import 'package:liblsl_timing/src/timing_manager.dart';
 
 class TestRunnerWidget extends StatefulWidget {
   final Widget testWidget;

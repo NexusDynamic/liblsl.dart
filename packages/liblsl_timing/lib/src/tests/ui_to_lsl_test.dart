@@ -3,9 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:liblsl/lsl.dart';
 import 'package:liblsl_timing/src/test_config.dart';
 import 'package:liblsl_timing/src/timing_manager.dart';
-import 'package:liblsl_timing/src/tests/test_registry.dart';
+import 'package:liblsl_timing/src/tests/base/timing_test.dart';
 
-class UIToLSLTest extends TimingTest {
+class UIToLSLTest extends BaseTimingTest {
   @override
   String get name => 'UI to LSL Latency';
 
@@ -14,29 +14,26 @@ class UIToLSLTest extends TimingTest {
       'Measures latency from UI event to LSL timestamp, including touch events and button presses';
 
   @override
-  Future<void> runTest(
+  Future<void> setupTestResources(
     TimingManager timingManager,
-    TestConfiguration config, {
-    Completer<void>? completer,
-  }) async {
+    TestConfiguration config,
+  ) async {
+    // Reset the timing manager
     timingManager.reset();
+  }
 
-    // Will be set by the UI when a button is pressed
-    completer ??= Completer<void>();
+  @override
+  Future<void> runTestImplementation(
+    TimingManager timingManager,
+    TestConfiguration config,
+    Completer<void> completer,
+  ) async {
+    await completer.future;
+  }
 
-    // The actual widget will be shown by the parent test runner
-
-    try {
-      // Test operations
-      await completer.future;
-    } catch (e) {
-      print('Error during test: $e');
-      // Record error in timing manager
-      timingManager.recordEvent('test_error', description: e.toString());
-    }
-
-    // Calculate timing metrics
-    timingManager.calculateMetrics();
+  @override
+  Future<void> cleanupTestResources() async {
+    // No specific cleanup needed for this test
   }
 
   Widget createTestWidget({
@@ -142,6 +139,7 @@ class _UILatencyTestWidgetState extends State<UILatencyTestWidget>
       setState(() {
         _showMarker = true;
       });
+      WidgetsBinding.instance.scheduleFrame();
 
       // Record the frame start time
       widget.timingManager.recordEvent(
@@ -155,12 +153,11 @@ class _UILatencyTestWidgetState extends State<UILatencyTestWidget>
           setState(() {
             _showMarker = false;
           });
+          WidgetsBinding.instance.scheduleFrame();
         }
       });
     }
 
-    // Create and send the sample
-    final currentTime = DateTime.now().microsecondsSinceEpoch / 1000000;
     widget.timingManager.recordEvent(
       'sample_created',
       description: 'Sample created for tap $_tapCount',

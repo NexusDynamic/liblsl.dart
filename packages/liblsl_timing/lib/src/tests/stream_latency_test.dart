@@ -1,10 +1,14 @@
 import 'dart:async';
 import 'package:liblsl/lsl.dart';
 import 'package:liblsl_timing/src/test_config.dart';
+import 'package:liblsl_timing/src/tests/base/lsl_test.dart';
 import 'package:liblsl_timing/src/timing_manager.dart';
-import 'package:liblsl_timing/src/tests/test_registry.dart';
+import 'package:liblsl_timing/src/tests/base/timing_test.dart';
 
-class StreamLatencyTest extends TimingTest {
+class StreamLatencyTest extends BaseTimingTest with LSLStreamHelper {
+  Timer? sendTimer;
+  int sampleCounter = 0;
+
   @override
   String get name => 'Stream Latency Test';
 
@@ -13,36 +17,18 @@ class StreamLatencyTest extends TimingTest {
       'Measures latency between sending data through LSL and receiving it';
 
   @override
-  Future<void> runTest(
+  Future<void> setupTestResources(
     TimingManager timingManager,
-    TestConfiguration config, {
-    Completer<void>? completer,
-  }) async {
+    TestConfiguration config,
+  ) async {
     timingManager.reset();
-
+    sampleCounter = 0;
     // Create the stream info for our outlet
-    final streamInfo = await LSL.createStreamInfo(
-      streamName: config.streamName,
-      streamType: config.streamType,
-      channelCount: config.channelCount,
-      sampleRate: config.sampleRate,
-      channelFormat: config.channelFormat,
-      sourceId: config.sourceId,
-    );
+    final outletStreamInfo = await createStreamInfo(config);
 
     // Create the outlet
-    final outlet = await LSL.createOutlet(
-      streamInfo: streamInfo,
-      chunkSize: 1,
-      maxBuffer: 10,
-    );
+    await createOutlet(outletStreamInfo);
 
-    // Push a sample to ensure the outlet is ready
-    final initialSample = List.generate(
-      config.channelCount,
-      (index) => index.toDouble(),
-    );
-    await outlet.pushSample(initialSample);
     timingManager.recordEvent(
       'initial_sample_sent',
       description: 'Initial sample sent to LSL',
@@ -50,20 +36,10 @@ class StreamLatencyTest extends TimingTest {
     );
 
     // Find our own stream
-    final streams = await LSL.resolveStreams(waitTime: 5.0, maxStreams: 5);
 
-    // Find the right stream
-    LSLStreamInfo? resolvedStreamInfo;
-    for (final stream in streams) {
-      print('Found stream: ${stream.streamName}');
-      print('  Type: ${stream.streamType}');
-      if (stream.streamName == config.streamName) {
-        resolvedStreamInfo = stream;
-        break;
-      }
-    }
+    LSLStreamInfo? streamInfo = await findStream(config.streamName);
 
-    if (resolvedStreamInfo == null) {
+    if (streamInfo == null) {
       timingManager.recordEvent(
         'stream_resolution_failed',
         description: 'Could not find our own stream',
@@ -72,19 +48,18 @@ class StreamLatencyTest extends TimingTest {
     }
 
     // Create an inlet from the resolved stream info
-    final inlet = await LSL.createInlet<double>(
-      streamInfo: resolvedStreamInfo,
-      maxBufferSize: 360,
-      maxChunkLength: 0,
-      recover: true,
-    );
+    await createInlet(streamInfo);
+  }
 
-    // Complete when test is done
-    completer ??= Completer<void>();
-
+  @override
+  Future<void> runTestImplementation(
+    TimingManager timingManager,
+    TestConfiguration config,
+    Completer<void> completer,
+  ) async {
     // Set up a timer to continuously send samples
-    int sampleCounter = 0;
-    final sendTimer = Timer.periodic(
+
+    sendTimer = Timer.periodic(
       Duration(milliseconds: (1000 / config.sampleRate).round()),
       (timer) {
         // Generate sample with counter as ID
@@ -94,14 +69,12 @@ class StreamLatencyTest extends TimingTest {
           timer.cancel();
           // Give some time for the last samples to be received
           Future.delayed(const Duration(seconds: 2), () {
-            if (!completer!.isCompleted) completer.complete();
+            if (!completer.isCompleted) completer.complete();
           });
           return;
         }
 
         // Record when sample is created in our app
-        final sampleCreationTime =
-            DateTime.now().microsecondsSinceEpoch / 1000000;
         timingManager.recordEvent(
           'sample_created',
           description: 'Sample $sampleCounter created',
@@ -109,7 +82,7 @@ class StreamLatencyTest extends TimingTest {
         );
 
         // Push the sample with the counter as value
-        outlet
+        outletCache.values.first
             .pushSample(
               List.generate(
                 config.channelCount,
@@ -137,10 +110,10 @@ class StreamLatencyTest extends TimingTest {
 
     // Set up a pull loop to receive samples
     void pullSamples() async {
-      while (!completer!.isCompleted) {
+      while (!completer.isCompleted) {
         try {
           // Pull sample with a small timeout
-          final sample = await inlet.pullSample(timeout: 0.1);
+          final sample = await inletCache.values.first.pullSample(timeout: 0.1);
 
           // Only process if we got a valid sample
           if (sample.isNotEmpty) {
@@ -175,31 +148,18 @@ class StreamLatencyTest extends TimingTest {
     // Start the pull loop
     pullSamples();
 
-    try {
-      // Test operations
-      await completer.future;
-    } catch (e) {
-      print('Error during test: $e');
-      // Record error in timing manager
-      timingManager.recordEvent('test_error', description: e.toString());
-    } finally {
-      // Clean up
-      inlet.destroy();
-      outlet.destroy();
-      streamInfo.destroy();
-
-      // Ensure completer is completed
-      if (!completer.isCompleted) {
-        completer.complete();
-      }
-    }
-
-    // Calculate metrics
-    timingManager.calculateMetrics();
+    // Wait for the test to complete
+    await completer.future;
   }
 
   @override
-  void setTestSpecificConfig(Map<String, dynamic> config) {}
+  Future<void> cleanupTestResources() async {
+    // Clean up the inlet and outlet
+    await cleanupLSL();
+    sendTimer?.cancel();
+    sendTimer = null;
+    sampleCounter = 0;
+  }
 
   @override
   Map<String, dynamic>? get testSpecificConfig => throw UnimplementedError();

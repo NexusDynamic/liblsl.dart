@@ -1,11 +1,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:liblsl/lsl.dart';
 import 'package:liblsl_timing/src/test_config.dart';
 import 'package:liblsl_timing/src/timing_manager.dart';
-import 'package:liblsl_timing/src/tests/test_registry.dart';
+import 'package:liblsl_timing/src/tests/base/timing_test.dart';
 
-class RenderTimingTest extends TimingTest {
+class RenderTimingTest extends BaseTimingTest {
   @override
   String get name => 'Render Timing Test';
 
@@ -20,47 +19,27 @@ class RenderTimingTest extends TimingTest {
     'flashCount': 50,
   };
 
-  int _flashDurationMs = 100;
-  int _intervalMs = 500;
-  int _flashCount = 50;
-
   @override
-  void setTestSpecificConfig(Map<String, dynamic> config) {
-    _flashDurationMs = config['flashDurationMs'] ?? 100;
-    _intervalMs = config['intervalBetweenFlashesMs'] ?? 500;
-    _flashCount = config['flashCount'] ?? 50;
+  Future<void> setupTestResources(
+    TimingManager timingManager,
+    TestConfiguration config,
+  ) async {
+    // Reset the timing manager
+    timingManager.reset();
   }
 
   @override
-  Future<void> runTest(
+  Future<void> runTestImplementation(
     TimingManager timingManager,
-    TestConfiguration config, {
-    Completer<void>? completer,
-  }) async {
-    timingManager.reset();
+    TestConfiguration config,
+    Completer<void> completer,
+  ) async {
+    await completer.future;
+  }
 
-    // Complete when test is done
-    completer ??= Completer<void>();
-
-    // The actual test will be displayed by the widget which will call
-    // onTestComplete which will complete the completer
-
-    try {
-      // Wait for the widget to complete the test
-      await completer.future;
-    } catch (e) {
-      print('Error during test: $e');
-      // Record error in timing manager
-      timingManager.recordEvent('test_error', description: e.toString());
-
-      // Make sure completer is completed
-      if (!completer.isCompleted) {
-        completer.complete();
-      }
-    }
-
-    // Calculate metrics
-    timingManager.calculateMetrics();
+  @override
+  Future<void> cleanupTestResources() async {
+    // No specific cleanup needed for this test
   }
 }
 

@@ -2,10 +2,14 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'package:liblsl/lsl.dart';
 import 'package:liblsl_timing/src/test_config.dart';
+import 'package:liblsl_timing/src/tests/base/lsl_test.dart';
+import 'package:liblsl_timing/src/tests/base/timing_test.dart';
 import 'package:liblsl_timing/src/timing_manager.dart';
-import 'package:liblsl_timing/src/tests/test_registry.dart';
 
-class ClockSyncTest extends TimingTest {
+class ClockSyncTest extends BaseTimingTest with LSLStreamHelper {
+  final Map<String, List<double>> timeCorrections = {};
+  int syncCounter = 0;
+
   @override
   String get name => 'Clock Synchronization';
 
@@ -14,16 +18,16 @@ class ClockSyncTest extends TimingTest {
       'Tests the clock synchronization between LSL devices';
 
   @override
-  Future<void> runTest(
+  Future<void> setupTestResources(
     TimingManager timingManager,
-    TestConfiguration config, {
-    Completer<void>? completer,
-  }) async {
+    TestConfiguration config,
+  ) async {
+    // Reset the timing manager
     timingManager.reset();
-
+    syncCounter = 0;
     // Create a stream info specifically for clock sync testing
-    final streamInfo = await LSL.createStreamInfo(
-      streamName: 'ClockSyncTest',
+    final streamInfo = await createStreamInfoFromValues(
+      streamName: '${config.sourceId}_clocksync',
       streamType: LSLContentType.markers,
       channelCount: 1,
       sampleRate: LSL_IRREGULAR_RATE,
@@ -32,11 +36,7 @@ class ClockSyncTest extends TimingTest {
     );
 
     // Create the outlet
-    final outlet = await LSL.createOutlet(
-      streamInfo: streamInfo,
-      chunkSize: 0,
-      maxBuffer: 360,
-    );
+    await createOutlet(streamInfo);
 
     // Find all available streams (including our own)
     final streams = await LSL.resolveStreams(waitTime: 1.0, maxStreams: 10);
@@ -59,45 +59,28 @@ class ClockSyncTest extends TimingTest {
       );
     }
 
-    // Complete when test is done
-    completer ??= Completer<void>();
-
     // Counter for sync markers
-    int syncCounter = 0;
 
     // Maps to store time correction values
     final timeCorrections = <String, List<double>>{};
-
-    // Create an inlet for each stream for clock sync testing
-    final inlets = <String, dynamic>{};
-    final inletCreationFutures = <Future>[];
-
+    await createInlets(streams);
     for (final stream in streams) {
-      inletCreationFutures.add(
-        LSL
-            .createInlet<String>(
-              streamInfo: stream,
-              maxBufferSize: 360,
-              maxChunkLength: 0,
-              recover: true,
-            )
-            .then((inlet) {
-              inlets[stream.streamName] = inlet;
-              timeCorrections[stream.streamName] = [];
-            }),
-      );
+      timeCorrections[streamKey(stream)] = [];
     }
+  }
 
-    // Wait for all inlets to be created
-    await Future.wait(inletCreationFutures);
-
+  @override
+  Future<void> runTestImplementation(
+    TimingManager timingManager,
+    TestConfiguration config,
+    Completer<void> completer,
+  ) async {
     // Function to query time correction for all inlets
     Future<void> queryTimeCorrections() async {
-      for (final streamName in inlets.keys) {
-        final inlet = inlets[streamName];
+      for (final inlet in inletCache.values) {
+        final streamName = streamKey(inlet.streamInfo);
         try {
           final timeCorrection = await inlet.getTimeCorrection(1.0);
-
           timeCorrections[streamName]?.add(timeCorrection);
 
           timingManager.recordEvent(
@@ -132,7 +115,7 @@ class ClockSyncTest extends TimingTest {
           _calculateTimeCorrectionStats(timingManager, timeCorrections);
 
           // Complete the test
-          if (!completer!.isCompleted) completer.complete();
+          if (!completer.isCompleted) completer.complete();
           return;
         }
 
@@ -149,7 +132,7 @@ class ClockSyncTest extends TimingTest {
         );
 
         // Send the marker
-        await outlet.pushSample([markerData]);
+        await outletCache.values.first.pushSample([markerData]);
 
         // Every few markers, query time correction
         if (syncCounter % 5 == 0) {
@@ -159,8 +142,8 @@ class ClockSyncTest extends TimingTest {
     );
 
     // Start receiving sync markers from all streams
-    for (final streamName in inlets.keys) {
-      final inlet = inlets[streamName];
+    for (final inlet in inletCache.values) {
+      final streamName = streamKey(inlet.streamInfo);
 
       // Start a pull loop for this inlet
       _pullSamples(
@@ -171,32 +154,20 @@ class ClockSyncTest extends TimingTest {
       );
     }
 
-    try {
-      // Test operations
-      await completer.future;
-    } catch (e) {
-      print('Error during test: $e');
-      // Record error in timing manager
-      timingManager.recordEvent('test_error', description: e.toString());
-    } finally {
-      // Cancel the send timer if it's still active
-      sendTimer.cancel();
+    await completer.future;
 
-      // Clean up resources
-      for (final inlet in inlets.values) {
-        inlet.destroy();
-      }
-      outlet.destroy();
-      streamInfo.destroy();
+    // Cancel the send timer if it's still active
+    sendTimer.cancel();
+  }
 
-      // Ensure completer is completed
-      if (!completer.isCompleted) {
-        completer.complete();
-      }
-    }
+  @override
+  Future<void> cleanupTestResources() async {
+    // Clean up resources
+    await cleanupLSL();
 
-    // Calculate metrics
-    timingManager.calculateMetrics();
+    // Reset the sync counter
+    syncCounter = 0;
+    timeCorrections.clear();
   }
 
   void _pullSamples({
