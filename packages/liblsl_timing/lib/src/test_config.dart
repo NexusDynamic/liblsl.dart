@@ -1,4 +1,5 @@
 import 'package:liblsl/lsl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Configuration parameters for LSL timing tests
 class TestConfiguration {
@@ -59,6 +60,32 @@ class TestConfiguration {
     };
   }
 
+  // Save config to SharedPreferences
+  Future<void> saveToPreferences() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    // Convert to JSON first
+    final configJson = toJson();
+
+    // Save each property
+    for (final key in configJson.keys) {
+      final value = configJson[key];
+
+      if (value is String) {
+        await prefs.setString(key, value);
+      } else if (value is int) {
+        await prefs.setInt(key, value);
+      } else if (value is double) {
+        await prefs.setDouble(key, value);
+      } else if (value is bool) {
+        await prefs.setBool(key, value);
+      } else {
+        // For complex types, convert to string
+        await prefs.setString(key, value.toString());
+      }
+    }
+  }
+
   factory TestConfiguration.fromJson(Map<String, dynamic> json) {
     final config = TestConfiguration();
 
@@ -87,5 +114,37 @@ class TestConfiguration {
     config.timingMarkerSizePixels = json['timingMarkerSizePixels'] ?? 50;
 
     return config;
+  }
+
+  // Load config from SharedPreferences
+  Future<void> loadFromPreferences() async {
+    final prefs = await SharedPreferences.getInstance();
+    streamName = prefs.getString('streamName') ?? streamName;
+    streamType = LSLContentType.values.firstWhere(
+      (t) => t.value == prefs.getString('streamType'),
+      orElse: () => streamType,
+    );
+    channelCount = prefs.getInt('channelCount') ?? channelCount;
+    sampleRate = prefs.getDouble('sampleRate') ?? sampleRate;
+    channelFormat = LSLChannelFormat.values.firstWhere(
+      (f) => f.name == prefs.getString('channelFormat'),
+      orElse: () => channelFormat,
+    );
+    sourceId = prefs.getString('sourceId') ?? sourceId;
+    testDurationSeconds =
+        prefs.getInt('testDurationSeconds') ?? testDurationSeconds;
+    recordToFile = prefs.getBool('recordToFile') ?? recordToFile;
+    outputDirectory = prefs.getString('outputDirectory') ?? outputDirectory;
+    useLocalNetworkOnly =
+        prefs.getBool('useLocalNetworkOnly') ?? useLocalNetworkOnly;
+    isProducer = prefs.getBool('isProducer') ?? isProducer;
+    isConsumer = prefs.getBool('isConsumer') ?? isConsumer;
+    stimulusIntervalMs =
+        prefs.getDouble('stimulusIntervalMs') ?? stimulusIntervalMs;
+    enableCsvExport = prefs.getBool('enableCsvExport') ?? enableCsvExport;
+    enableClockSync = prefs.getBool('enableClockSync') ?? enableClockSync;
+    showTimingMarker = prefs.getBool('showTimingMarker') ?? showTimingMarker;
+    timingMarkerSizePixels =
+        prefs.getDouble('timingMarkerSizePixels') ?? timingMarkerSizePixels;
   }
 }

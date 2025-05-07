@@ -134,6 +134,11 @@ class SampleRateStabilityTest extends TimingTest {
               'lslTime': lslTime,
             },
           );
+          timingManager.recordEvent(
+            'sample_sent',
+            description: 'Sample $sampleCounter sent to LSL',
+            metadata: {'sampleId': sampleCounter, 'lslTime': lslTime},
+          );
         });
       },
     );

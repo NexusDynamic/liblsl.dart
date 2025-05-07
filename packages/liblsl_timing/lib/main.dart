@@ -73,12 +73,20 @@ class _TimingTestHomeState extends State<TimingTestHome> {
   @override
   void initState() {
     super.initState();
+
+    _initConfig();
+
     _initializeLSL();
     _isExpanded.addAll([
       true, // Configuration panel
       false, // Test selection
       false, // Results visualization
     ]);
+  }
+
+  Future<void> _initConfig() async {
+    await _config.loadFromPreferences();
+    setState(() => {});
   }
 
   Future<void> _initializeLSL() async {
@@ -307,8 +315,10 @@ class _TimingTestHomeState extends State<TimingTestHome> {
                 MaterialPageRoute(
                   builder: (context) => DeviceSettingsPage(
                     config: _config,
-                    onConfigUpdated: () {
-                      setState(() {});
+                    onConfigUpdated: () async {
+                      _config.saveToPreferences().then((_) {
+                        setState(() {});
+                      });
                     },
                   ),
                 ),
@@ -364,8 +374,15 @@ class _TimingTestHomeState extends State<TimingTestHome> {
             },
             body: ConfigurationPanel(
               config: _config,
-              onConfigChanged: () {
-                setState(() {});
+              onConfigChanged: () async {
+                _config.saveToPreferences().then((_) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(
+                      context,
+                    ).showSnackBar(SnackBar(content: Text('Config saved')));
+                  }
+                  setState(() {});
+                });
               },
             ),
           ),
@@ -506,7 +523,6 @@ class ConfigurationPanel extends StatelessWidget {
                   config.sampleRate.toString(),
                   (value) {
                     config.sampleRate = double.tryParse(value) ?? 100.0;
-                    onConfigChanged();
                   },
                 ),
                 _buildNumberInput(
@@ -515,7 +531,6 @@ class ConfigurationPanel extends StatelessWidget {
                   config.channelCount.toString(),
                   (value) {
                     config.channelCount = int.tryParse(value) ?? 1;
-                    onConfigChanged();
                   },
                 ),
                 _buildDropdown(
@@ -528,7 +543,6 @@ class ConfigurationPanel extends StatelessWidget {
                       (t) => t.value == value,
                       orElse: () => LSLContentType.eeg,
                     );
-                    onConfigChanged();
                   },
                 ),
                 _buildDropdown(
@@ -541,7 +555,6 @@ class ConfigurationPanel extends StatelessWidget {
                       (f) => f.name == value,
                       orElse: () => LSLChannelFormat.float32,
                     );
-                    onConfigChanged();
                   },
                 ),
                 _buildNumberInput(
@@ -550,7 +563,6 @@ class ConfigurationPanel extends StatelessWidget {
                   config.testDurationSeconds.toString(),
                   (value) {
                     config.testDurationSeconds = int.tryParse(value) ?? 10;
-                    onConfigChanged();
                   },
                 ),
 

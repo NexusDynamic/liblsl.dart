@@ -130,15 +130,21 @@ class TimingManager {
     );
 
     _calculateLatencyBetweenEvents(
-      'recieved_to_lsl_reported',
-      'sample_processed',
+      'lsl_to_lsl',
       'lsl_timestamp',
+      'received_lsl_timestamp',
     );
 
     // Calculate end-to-end latency
     _calculateLatencyBetweenEvents(
-      'end_to_end',
+      'end_to_end_ui',
       'ui_event',
+      'sample_processed',
+    );
+
+    _calculateLatencyBetweenEvents(
+      'end_to_end_sample_comms',
+      'sample_sent',
       'sample_processed',
     );
 
