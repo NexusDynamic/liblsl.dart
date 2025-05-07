@@ -29,6 +29,7 @@
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_dartVmService._tcp</string>
+		<string>_dartVmService._udp</string>
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Allow Flutter Connection</string>

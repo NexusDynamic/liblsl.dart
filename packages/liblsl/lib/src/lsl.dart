@@ -63,7 +63,7 @@ class LSL {
   /// this should be set as close as possible to the rate of consumption.
   static Future<LSLIsolatedOutlet> createOutlet({
     required LSLStreamInfo streamInfo,
-    int chunkSize = 0,
+    int chunkSize = 1,
     int maxBuffer = 360,
   }) async {
     final streamOutlet = LSLIsolatedOutlet(
