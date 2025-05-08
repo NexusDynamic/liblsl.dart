@@ -35,7 +35,7 @@ class TestCoordinator {
         .where(
           (s) =>
               s.streamName == 'TestCoordination' &&
-              s.streamType.value == 'Control',
+              s.streamType == LSLContentType.markers,
         )
         .toList();
 
@@ -57,7 +57,7 @@ class TestCoordinator {
     // Create control stream
     _controlStreamInfo = await LSL.createStreamInfo(
       streamName: 'TestCoordination',
-      streamType: LSLContentType.custom('Control'),
+      streamType: LSLContentType.markers,
       channelCount: 1,
       sampleRate: LSL_IRREGULAR_RATE,
       channelFormat: LSLChannelFormat.string,
@@ -66,7 +66,7 @@ class TestCoordinator {
 
     _controlOutlet = await LSL.createOutlet(
       streamInfo: _controlStreamInfo!,
-      chunkSize: 0,
+      chunkSize: 1,
       maxBuffer: 360,
     );
 
@@ -90,7 +90,7 @@ class TestCoordinator {
     // Announce presence to coordinator
     _controlStreamInfo = await LSL.createStreamInfo(
       streamName: 'DeviceAnnounce',
-      streamType: LSLContentType.custom('Control'),
+      streamType: LSLContentType.markers,
       channelCount: 1,
       sampleRate: LSL_IRREGULAR_RATE,
       channelFormat: LSLChannelFormat.string,
@@ -99,7 +99,7 @@ class TestCoordinator {
 
     _controlOutlet = await LSL.createOutlet(
       streamInfo: _controlStreamInfo!,
-      chunkSize: 0,
+      chunkSize: 1,
       maxBuffer: 360,
     );
 
@@ -265,13 +265,15 @@ class _DeviceCoordinationPanelState extends State<DeviceCoordinationPanel> {
   }
 
   Future<void> _initializeCoordinator() async {
-    try {
-      await widget.coordinator.initialize();
-      setState(() {}); // Refresh UI
-    } catch (e) {
-      setState(() {
-        _messages.add('Error initializing coordinator: $e');
-      });
+    if (mounted) {
+      try {
+        await widget.coordinator.initialize();
+        setState(() {}); // Refresh UI
+      } catch (e) {
+        setState(() {
+          _messages.add('Error initializing coordinator: $e');
+        });
+      }
     }
   }
 
@@ -388,10 +390,12 @@ class _DeviceCoordinationPanelState extends State<DeviceCoordinationPanel> {
                   onPressed: _isReady
                       ? null
                       : () {
-                          setState(() {
-                            _isReady = true;
-                          });
-                          widget.coordinator.signalReady();
+                          if (mounted) {
+                            setState(() {
+                              _isReady = true;
+                            });
+                            widget.coordinator.signalReady();
+                          }
                         },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.green,

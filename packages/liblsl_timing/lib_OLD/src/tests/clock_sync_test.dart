@@ -408,7 +408,7 @@ class EnhancedClockSyncTest extends ClockSyncTest {
 
   void _pullEnhancedSamples({
     required TimingManager timingManager,
-    required dynamic inlet,
+    required LSLIsolatedInlet inlet,
     required String streamName,
     required Map<String, List<Map<String, dynamic>>> deviceTimeOffsets,
     required Completer<void> completer,
@@ -420,6 +420,7 @@ class EnhancedClockSyncTest extends ClockSyncTest {
         if (sample.isNotEmpty) {
           // Extract the marker data
           final markerJson = sample[0];
+          if (markerJson.toString().isEmpty) continue;
 
           if (markerJson is String) {
             try {
@@ -532,13 +533,25 @@ class EnhancedClockSyncTest extends ClockSyncTest {
 
       // Calculate statistics
       final lslTimeDiffs = offsets
-          .map((o) => o['lslTimeDiff'] as double)
+          .map(
+            (o) => o['lslTimeDiff'] != null
+                ? o['lslTimeDiff'] as double
+                : double.nan,
+          )
           .toList();
       final localTimeDiffs = offsets
-          .map((o) => o['localTimeDiff'] as double)
+          .map(
+            (o) => o['localTimeDiff'] != null
+                ? o['localTimeDiff'] as double
+                : double.nan,
+          )
           .toList();
       final offsetDiffs = offsets
-          .map((o) => o['offsetDiff'] as double)
+          .map(
+            (o) => o['offsetDiff'] != null
+                ? o['offsetDiff'] as double
+                : double.nan,
+          )
           .toList();
 
       final lslDiffStats = _calculateStats(lslTimeDiffs);
