@@ -13,6 +13,7 @@ class TestRegistry {
     RenderTimingTest(),
     SampleRateStabilityTest(),
     ClockSyncTest(),
+    EnhancedClockSyncTest(),
   ];
 
   static List<TimingTest> get availableTests => List.unmodifiable(_tests);

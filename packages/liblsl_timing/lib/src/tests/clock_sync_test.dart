@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math' as math;
 import 'package:liblsl/lsl.dart';
 import 'package:liblsl_timing/src/test_config.dart';
@@ -283,4 +284,301 @@ class ClockSyncTest extends BaseTimingTest with LSLStreamHelper {
 
   @override
   Map<String, dynamic>? get testSpecificConfig => throw UnimplementedError();
+}
+
+class EnhancedClockSyncTest extends ClockSyncTest {
+  @override
+  String get name => 'Enhanced Clock Synchronization';
+
+  @override
+  String get description =>
+      'Advanced clock synchronization analysis between LSL devices';
+
+  @override
+  Future<void> runTestImplementation(
+    TimingManager timingManager,
+    TestConfiguration config,
+    Completer<void> completer,
+  ) async {
+    // Create a map to track time offset progression for each device
+    final deviceTimeOffsets = <String, List<Map<String, dynamic>>>{};
+
+    // For each connected device, track a series of timestamps
+    for (final inlet in inletCache.values) {
+      final sKey = streamKey(inlet.streamInfo);
+      deviceTimeOffsets[sKey] = [];
+    }
+
+    // Send sync markers at regular intervals
+    final sendTimer = Timer.periodic(
+      Duration(milliseconds: (config.stimulusIntervalMs).round()),
+      (timer) async {
+        syncCounter++;
+
+        if (syncCounter >
+            config.testDurationSeconds * 1000 / config.stimulusIntervalMs) {
+          timer.cancel();
+
+          // Analyze time drifts and corrections
+          _analyzeTimeSynchronization(timingManager, deviceTimeOffsets);
+
+          // Complete the test
+          if (!completer.isCompleted) completer.complete();
+          return;
+        }
+
+        // Create timestamp references
+        final localTime = DateTime.now().microsecondsSinceEpoch / 1000000;
+        final lslTime = LSL.localClock();
+        final systemOffset = lslTime - localTime;
+
+        // Send sync marker with multiple time references
+        final markerData = {
+          'syncId': syncCounter,
+          'localTime': localTime,
+          'lslTime': lslTime,
+          'systemOffset': systemOffset,
+          'sourceId': config.sourceId,
+        };
+
+        // Encode as JSON for transmission
+        final markerJson = jsonEncode(markerData);
+
+        timingManager.recordEvent(
+          'sync_marker_sent',
+          description: 'Enhanced sync marker $syncCounter sent',
+          metadata: markerData,
+        );
+
+        // Send the marker
+        await outletCache.values.first.pushSample([markerJson]);
+
+        // For each connected device, poll time correction
+        for (final inlet in inletCache.values) {
+          final streamName = streamKey(inlet.streamInfo);
+          try {
+            final timeCorrection = await inlet.getTimeCorrection(1.0);
+
+            // Get the remote time
+            final remoteTime = lslTime - timeCorrection;
+
+            // Record time offset info
+            deviceTimeOffsets[streamName]?.add({
+              'syncId': syncCounter,
+              'localTime': localTime,
+              'lslTime': lslTime,
+              'timeCorrection': timeCorrection,
+              'remoteTime': remoteTime,
+              'estimatedOffset': lslTime - remoteTime,
+            });
+
+            timingManager.recordEvent(
+              'time_sync_measurement',
+              description: 'Time sync measurement for $streamName',
+              metadata: {
+                'syncId': syncCounter,
+                'streamName': streamName,
+                'timeCorrection': timeCorrection,
+                'remoteTime': remoteTime,
+                'estimatedOffset': lslTime - remoteTime,
+              },
+            );
+          } catch (e) {
+            print('Error getting time correction for $streamName: $e');
+          }
+        }
+      },
+    );
+
+    // Start receiving sync markers from all streams
+    for (final inlet in inletCache.values) {
+      final streamName = streamKey(inlet.streamInfo);
+      _pullEnhancedSamples(
+        timingManager: timingManager,
+        inlet: inlet,
+        streamName: streamName,
+        deviceTimeOffsets: deviceTimeOffsets,
+        completer: completer,
+      );
+    }
+
+    await completer.future;
+    sendTimer.cancel();
+  }
+
+  void _pullEnhancedSamples({
+    required TimingManager timingManager,
+    required dynamic inlet,
+    required String streamName,
+    required Map<String, List<Map<String, dynamic>>> deviceTimeOffsets,
+    required Completer<void> completer,
+  }) async {
+    while (!completer.isCompleted) {
+      try {
+        final sample = await inlet.pullSample(timeout: 0.1);
+
+        if (sample.isNotEmpty) {
+          // Extract the marker data
+          final markerJson = sample[0];
+
+          if (markerJson is String) {
+            try {
+              // Parse the JSON data
+              final markerData = jsonDecode(markerJson) as Map<String, dynamic>;
+              final syncId = markerData['syncId'];
+              final senderLocalTime = markerData['localTime'];
+              final senderLslTime = markerData['lslTime'];
+              final senderOffset = markerData['systemOffset'];
+              final sourceId = markerData['sourceId'];
+
+              // Local references
+              final receiveLocalTime =
+                  DateTime.now().microsecondsSinceEpoch / 1000000;
+              final receiveLslTime = LSL.localClock();
+              final localOffset = receiveLslTime - receiveLocalTime;
+
+              // Calculate time differences
+              final localTimeDiff = receiveLocalTime - senderLocalTime;
+              final lslTimeDiff = receiveLslTime - senderLslTime;
+              final offsetDiff = localOffset - senderOffset;
+
+              // Record comprehensive sync data
+              timingManager.recordEvent(
+                'enhanced_sync_received',
+                description: 'Enhanced sync marker received from $sourceId',
+                metadata: {
+                  'syncId': syncId,
+                  'sourceId': sourceId,
+                  'senderLocalTime': senderLocalTime,
+                  'senderLslTime': senderLslTime,
+                  'senderOffset': senderOffset,
+                  'receiveLocalTime': receiveLocalTime,
+                  'receiveLslTime': receiveLslTime,
+                  'localOffset': localOffset,
+                  'localTimeDiff': localTimeDiff,
+                  'lslTimeDiff': lslTimeDiff,
+                  'offsetDiff': offsetDiff,
+                  'sampleTimestamp': sample.timestamp,
+                },
+              );
+
+              // Add to device offset tracking
+              final deviceKey = '$streamName:$sourceId';
+              if (!deviceTimeOffsets.containsKey(deviceKey)) {
+                deviceTimeOffsets[deviceKey] = [];
+              }
+
+              deviceTimeOffsets[deviceKey]?.add({
+                'syncId': syncId,
+                'localTimeDiff': localTimeDiff,
+                'lslTimeDiff': lslTimeDiff,
+                'offsetDiff': offsetDiff,
+                'timestamp': receiveLocalTime,
+              });
+            } catch (e) {
+              print('Error parsing marker JSON: $e');
+            }
+          }
+        }
+      } catch (e) {
+        print('Error pulling sample from $streamName: $e');
+      }
+
+      await Future.delayed(const Duration(milliseconds: 1));
+    }
+  }
+
+  void _analyzeTimeSynchronization(
+    TimingManager timingManager,
+    Map<String, List<Map<String, dynamic>>> deviceTimeOffsets,
+  ) {
+    for (final deviceKey in deviceTimeOffsets.keys) {
+      final offsets = deviceTimeOffsets[deviceKey];
+      if (offsets == null || offsets.isEmpty) continue;
+
+      // Calculate drift over time
+      double? initialLslDiff;
+      double? finalLslDiff;
+      double? initialLocalDiff;
+      double? finalLocalDiff;
+      double? initialTime;
+      double? finalTime;
+
+      if (offsets.length > 1) {
+        initialLslDiff = offsets.first['lslTimeDiff'];
+        finalLslDiff = offsets.last['lslTimeDiff'];
+        initialLocalDiff = offsets.first['localTimeDiff'];
+        finalLocalDiff = offsets.last['localTimeDiff'];
+        initialTime = offsets.first['timestamp'];
+        finalTime = offsets.last['timestamp'];
+      }
+
+      // Calculate drift rates if we have time data
+      double? lslDriftRate;
+      double? localDriftRate;
+
+      if (initialTime != null &&
+          finalTime != null &&
+          initialLslDiff != null &&
+          finalLslDiff != null &&
+          initialLocalDiff != null &&
+          finalLocalDiff != null) {
+        final timeSpan = finalTime - initialTime;
+        if (timeSpan > 0) {
+          lslDriftRate = (finalLslDiff - initialLslDiff) / timeSpan;
+          localDriftRate = (finalLocalDiff - initialLocalDiff) / timeSpan;
+        }
+      }
+
+      // Calculate statistics
+      final lslTimeDiffs = offsets
+          .map((o) => o['lslTimeDiff'] as double)
+          .toList();
+      final localTimeDiffs = offsets
+          .map((o) => o['localTimeDiff'] as double)
+          .toList();
+      final offsetDiffs = offsets
+          .map((o) => o['offsetDiff'] as double)
+          .toList();
+
+      final lslDiffStats = _calculateStats(lslTimeDiffs);
+      final localDiffStats = _calculateStats(localTimeDiffs);
+      final offsetDiffStats = _calculateStats(offsetDiffs);
+
+      // Record the analysis
+      timingManager.recordEvent(
+        'clock_sync_analysis',
+        description: 'Clock synchronization analysis for $deviceKey',
+        metadata: {
+          'deviceKey': deviceKey,
+          'measurements': offsets.length,
+          'lslTimeDiffStats': lslDiffStats,
+          'localTimeDiffStats': localDiffStats,
+          'offsetDiffStats': offsetDiffStats,
+          'lslDriftRate': lslDriftRate,
+          'localDriftRate': localDriftRate,
+          'timeSpan': finalTime != null && initialTime != null
+              ? finalTime - initialTime
+              : null,
+        },
+      );
+    }
+  }
+
+  Map<String, double> _calculateStats(List<double> values) {
+    if (values.isEmpty) return {};
+
+    final mean = values.reduce((a, b) => a + b) / values.length;
+    final min = values.reduce(math.min);
+    final max = values.reduce(math.max);
+
+    // Calculate standard deviation
+    final sumSquaredDiff = values.fold(
+      0.0,
+      (sum, value) => sum + math.pow(value - mean, 2),
+    );
+    final stdDev = math.sqrt(sumSquaredDiff / values.length);
+
+    return {'mean': mean, 'min': min, 'max': max, 'stdDev': stdDev};
+  }
 }

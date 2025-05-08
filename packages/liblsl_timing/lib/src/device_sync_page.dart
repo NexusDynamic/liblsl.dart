@@ -3,11 +3,14 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:liblsl/lsl.dart';
 import 'package:liblsl_timing/src/test_config.dart';
+import 'package:liblsl_timing/src/tests/base/test_coordinator.dart';
+import 'package:liblsl_timing/src/timing_manager.dart';
 
 class DeviceSyncPage extends StatefulWidget {
   final TestConfiguration config;
+  final TestCoordinator? coordinator; // Add this parameter
 
-  const DeviceSyncPage({super.key, required this.config});
+  const DeviceSyncPage({super.key, required this.config, this.coordinator});
 
   @override
   State<DeviceSyncPage> createState() => _DeviceSyncPageState();
@@ -18,12 +21,21 @@ class _DeviceSyncPageState extends State<DeviceSyncPage> {
   bool _isScanning = false;
   String _status = 'Ready to scan';
   Timer? _refreshTimer;
+  TestCoordinator? _localCoordinator;
 
   @override
   void initState() {
     super.initState();
     _startPeriodicScan();
+
+    // Initialize coordinator if not provided
+    if (widget.coordinator == null) {
+      _localCoordinator = TestCoordinator(widget.config, TimingManager());
+      _localCoordinator!.initialize();
+    }
   }
+
+  TestCoordinator get coordinator => widget.coordinator ?? _localCoordinator!;
 
   void _startPeriodicScan() {
     // Scan for devices every 5 seconds
@@ -75,10 +87,32 @@ class _DeviceSyncPageState extends State<DeviceSyncPage> {
     }
   }
 
-  @override
-  void dispose() {
-    _refreshTimer?.cancel();
-    super.dispose();
+  void _showStreamDetails(BuildContext context, LSLStreamInfo stream) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(stream.streamName),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Type: ${stream.streamType.value}'),
+            Text('Source ID: ${stream.sourceId}'),
+            Text('Hostname: ${stream.hostname}'),
+            Text('UID: ${stream.uid}'),
+            Text('Channel count: ${stream.channelCount}'),
+            Text('Channel format: ${stream.channelFormat}'),
+            Text('Sample rate: ${stream.sampleRate} Hz'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -159,7 +193,7 @@ class _DeviceSyncPageState extends State<DeviceSyncPage> {
                   ),
           ),
 
-          // Current device info
+          // Current device info with coordination status
           Container(
             color: Colors.green.withAlpha(25),
             padding: const EdgeInsets.all(16.0),
@@ -193,6 +227,39 @@ class _DeviceSyncPageState extends State<DeviceSyncPage> {
                     ),
                   ],
                 ),
+
+                // Show coordination status
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text('Coordination role:'),
+                    Text(
+                      coordinator.isInitialized
+                          ? (coordinator.isCoordinator
+                                ? 'Coordinator'
+                                : 'Participant')
+                          : 'Not initialized',
+                      style: TextStyle(
+                        color: coordinator.isInitialized
+                            ? (coordinator.isCoordinator
+                                  ? Colors.green
+                                  : Colors.blue)
+                            : Colors.grey,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+
+                // Show connected devices
+                if (coordinator.isInitialized &&
+                    coordinator.connectedDevices.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    'Connected devices: ${coordinator.connectedDevices.join(", ")}',
+                  ),
+                ],
               ],
             ),
           ),
@@ -202,34 +269,6 @@ class _DeviceSyncPageState extends State<DeviceSyncPage> {
         onPressed: _startSyncTest,
         label: const Text('Run Sync Test'),
         icon: const Icon(Icons.sync),
-      ),
-    );
-  }
-
-  void _showStreamDetails(BuildContext context, LSLStreamInfo stream) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(stream.streamName),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Type: ${stream.streamType.value}'),
-            Text('Source ID: ${stream.sourceId}'),
-            Text('Hostname: ${stream.hostname}'),
-            Text('UID: ${stream.uid}'),
-            Text('Channel count: ${stream.channelCount}'),
-            Text('Channel format: ${stream.channelFormat}'),
-            Text('Sample rate: ${stream.sampleRate} Hz'),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
-          ),
-        ],
       ),
     );
   }
@@ -244,7 +283,20 @@ class _DeviceSyncPageState extends State<DeviceSyncPage> {
       return;
     }
 
-    // Navigate to the Clock Sync test
-    Navigator.pop(context, 'ClockSyncTest');
+    // Signal readiness in the coordinator
+    if (coordinator.isInitialized && !coordinator.isReady) {
+      coordinator.signalReady();
+    }
+
+    // Navigate to the Enhanced Clock Sync test
+    Navigator.pop(context, 'EnhancedClockSyncTest');
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    // Only dispose the local coordinator if we created it
+    _localCoordinator?.dispose();
+    super.dispose();
   }
 }

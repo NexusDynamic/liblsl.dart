@@ -14,8 +14,9 @@ class ResultsView extends StatefulWidget {
 class _ResultsViewState extends State<ResultsView> {
   String _selectedMetric = 'end_to_end';
   bool _showRawData = false;
+  bool _useCorrectedMetrics = true; // Add this
 
-  final List<String> _availableMetrics = [
+  final List<String> _baseMetrics = [
     'end_to_end',
     'ui_to_sample',
     'sample_to_lsl',
@@ -23,12 +24,35 @@ class _ResultsViewState extends State<ResultsView> {
     'frame_latency',
   ];
 
+  // Compute the available metrics based on what's in the timing manager
+  List<String> get _availableMetrics {
+    final metrics = List<String>.from(_baseMetrics);
+
+    // Add corrected metrics if they exist
+    if (_useCorrectedMetrics) {
+      for (final metric in _baseMetrics) {
+        final correctedMetric = '${metric}_corrected';
+        if (widget.timingManager.timingMetrics.containsKey(correctedMetric)) {
+          if (!metrics.contains(correctedMetric)) {
+            metrics.add(correctedMetric);
+          }
+        }
+      }
+    }
+
+    // Add any other metrics that might exist
+    for (final metric in widget.timingManager.timingMetrics.keys) {
+      if (!metrics.contains(metric) && !metric.endsWith('_corrected')) {
+        metrics.add(metric);
+      }
+    }
+
+    return metrics;
+  }
+
   @override
   Widget build(BuildContext context) {
-    // Get stats for the selected metric
-    final stats = widget.timingManager.getMetricStats(_selectedMetric);
-    final values = widget.timingManager.timingMetrics[_selectedMetric] ?? [];
-
+    // Update UI to include toggle for corrected metrics
     return Card(
       margin: const EdgeInsets.all(8.0),
       child: Padding(
@@ -46,7 +70,11 @@ class _ResultsViewState extends State<ResultsView> {
                     const Text('Metric:'),
                     const SizedBox(width: 8),
                     DropdownButton<String>(
-                      value: _selectedMetric,
+                      value: _availableMetrics.contains(_selectedMetric)
+                          ? _selectedMetric
+                          : (_availableMetrics.isNotEmpty
+                                ? _availableMetrics.first
+                                : null),
                       items: _availableMetrics.map((metric) {
                         return DropdownMenuItem<String>(
                           value: metric,
@@ -61,75 +89,72 @@ class _ResultsViewState extends State<ResultsView> {
                         }
                       },
                     ),
-                    const SizedBox(width: 16),
-                    Row(
-                      children: [
-                        Checkbox(
-                          value: _showRawData,
-                          onChanged: (value) {
-                            setState(() {
-                              _showRawData = value ?? false;
-                            });
-                          },
-                        ),
-                        const Text('Show Raw Data'),
-                      ],
-                    ),
                   ],
                 ),
               ],
             ),
+            const SizedBox(height: 8),
+
+            // Add toggle for corrected metrics if we have them
+            if (widget.timingManager.timingMetrics.keys.any(
+              (k) => k.endsWith('_corrected'),
+            ))
+              Row(
+                children: [
+                  Checkbox(
+                    value: _useCorrectedMetrics,
+                    onChanged: (value) {
+                      setState(() {
+                        _useCorrectedMetrics = value ?? true;
+
+                        // If we're turning off corrected metrics and using one, switch to base
+                        if (!_useCorrectedMetrics &&
+                            _selectedMetric.endsWith('_corrected')) {
+                          _selectedMetric = _selectedMetric.substring(
+                            0,
+                            _selectedMetric.length - '_corrected'.length,
+                          );
+                        }
+                      });
+                    },
+                  ),
+                  const Text('Use corrected metrics'),
+                  Tooltip(
+                    message:
+                        'Time-corrected metrics compensate for system clock differences between LSL and Flutter',
+                    child: Icon(Icons.info_outline, size: 16),
+                  ),
+                  const SizedBox(width: 16),
+                  Row(
+                    children: [
+                      Checkbox(
+                        value: _showRawData,
+                        onChanged: (value) {
+                          setState(() {
+                            _showRawData = value ?? false;
+                          });
+                        },
+                      ),
+                      const Text('Show Raw Data'),
+                    ],
+                  ),
+                ],
+              ),
+
             const SizedBox(height: 16),
 
             // Summary statistics
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                _buildStatCard(
-                  context,
-                  'Mean',
-                  _formatTime(stats['mean'] ?? 0),
-                ),
-                _buildStatCard(context, 'Min', _formatTime(stats['min'] ?? 0)),
-                _buildStatCard(context, 'Max', _formatTime(stats['max'] ?? 0)),
-                _buildStatCard(
-                  context,
-                  'Std Dev',
-                  _formatTime(stats['stdDev'] ?? 0),
-                ),
-                _buildStatCard(context, 'Count', '${values.length}'),
-              ],
+              children: _buildStatCards(context),
             ),
             const SizedBox(height: 16),
 
             // Visualization
-            Row(
-              children: [
-                values.isEmpty
-                    ? const Center(
-                        child: Text('No data available. Run a test first.'),
-                      )
-                    : _buildVisualization(context, values),
-              ],
-            ),
+            _buildVisualizationSection(context),
 
             // Raw data (if enabled)
-            if (_showRawData && values.isNotEmpty)
-              SizedBox(
-                height: 100,
-                child: ListView.builder(
-                  itemCount: math.min(
-                    values.length,
-                    100,
-                  ), // Limit to 100 entries
-                  itemBuilder: (context, index) {
-                    return Text(
-                      'Sample ${index + 1}: ${_formatTime(values[index])}',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    );
-                  },
-                ),
-              ),
+            if (_showRawData) _buildRawDataSection(context),
           ],
         ),
       ),
@@ -159,52 +184,38 @@ class _ResultsViewState extends State<ResultsView> {
     final max = values.reduce((a, b) => a > b ? a : b);
     final min = values.reduce((a, b) => a < b ? a : b);
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          '${_formatMetricName(_selectedMetric)} Distribution',
-          style: Theme.of(context).textTheme.titleMedium,
-        ),
-        const SizedBox(height: 8),
-        Expanded(
-          child: CustomPaint(
-            painter: TimeDistributionPainter(
-              values: values,
-              min: min,
-              max: max,
-              numBins: 30,
-            ),
-            size: Size.infinite,
+    return Expanded(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '${_formatMetricName(_selectedMetric)} Distribution',
+            style: Theme.of(context).textTheme.titleMedium,
           ),
-        ),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(_formatTime(min)),
-            Text(_formatTime((min + max) / 2)),
-            Text(_formatTime(max)),
-          ],
-        ),
-      ],
+          const SizedBox(height: 8),
+          SizedBox(
+            height: 200,
+            child: CustomPaint(
+              painter: TimeDistributionPainter(
+                values: values,
+                min: min,
+                max: max,
+                numBins: 30,
+              ),
+              size: const Size(double.infinity, 200),
+            ),
+          ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(_formatTime(min)),
+              Text(_formatTime((min + max) / 2)),
+              Text(_formatTime(max)),
+            ],
+          ),
+        ],
+      ),
     );
-  }
-
-  String _formatMetricName(String metric) {
-    switch (metric) {
-      case 'end_to_end':
-        return 'End-to-End Latency';
-      case 'ui_to_sample':
-        return 'UI to Sample Creation';
-      case 'sample_to_lsl':
-        return 'Sample to LSL Timestamp';
-      case 'lsl_to_receive':
-        return 'LSL to Sample Reception';
-      case 'frame_latency':
-        return 'Frame Rendering Latency';
-      default:
-        return metric;
-    }
   }
 
   String _formatTime(double timeInSeconds) {
@@ -222,6 +233,84 @@ class _ResultsViewState extends State<ResultsView> {
       return '${(ms / 1000).toStringAsFixed(2)} s';
     }
   }
+
+  List<Widget> _buildStatCards(BuildContext context) {
+    // Get stats for the selected metric
+    final stats = widget.timingManager.getMetricStats(_selectedMetric);
+    final values = widget.timingManager.timingMetrics[_selectedMetric] ?? [];
+
+    return [
+      _buildStatCard(context, 'Mean', _formatTime(stats['mean'] ?? 0)),
+      _buildStatCard(context, 'Min', _formatTime(stats['min'] ?? 0)),
+      _buildStatCard(context, 'Max', _formatTime(stats['max'] ?? 0)),
+      _buildStatCard(context, 'Std Dev', _formatTime(stats['stdDev'] ?? 0)),
+      _buildStatCard(context, 'Count', '${values.length}'),
+    ];
+  }
+
+  Widget _buildVisualizationSection(BuildContext context) {
+    final values = widget.timingManager.timingMetrics[_selectedMetric] ?? [];
+
+    return Row(
+      children: [
+        values.isEmpty
+            ? const Center(child: Text('No data available. Run a test first.'))
+            : _buildVisualization(context, values),
+      ],
+    );
+  }
+
+  Widget _buildRawDataSection(BuildContext context) {
+    final values = widget.timingManager.timingMetrics[_selectedMetric] ?? [];
+
+    if (values.isEmpty) return const SizedBox();
+
+    return SizedBox(
+      height: 100,
+      child: ListView.builder(
+        itemCount: math.min(values.length, 100), // Limit to 100 entries
+        itemBuilder: (context, index) {
+          return Text(
+            'Sample ${index + 1}: ${_formatTime(values[index])}',
+            style: Theme.of(context).textTheme.bodySmall,
+          );
+        },
+      ),
+    );
+  }
+
+  String _formatMetricName(String metric) {
+    // Handle corrected metrics
+    if (metric.endsWith('_corrected')) {
+      final baseName = metric.substring(0, metric.length - '_corrected'.length);
+      return '${_formatBaseMetricName(baseName)} (Corrected)';
+    }
+
+    return _formatBaseMetricName(metric);
+  }
+
+  String _formatBaseMetricName(String metric) {
+    switch (metric) {
+      case 'end_to_end':
+        return 'End-to-End Latency';
+      case 'ui_to_sample':
+        return 'UI to Sample Creation';
+      case 'sample_to_lsl':
+        return 'Sample to LSL Timestamp';
+      case 'lsl_to_receive':
+        return 'LSL to Sample Reception';
+      case 'frame_latency':
+        return 'Frame Rendering Latency';
+      case 'created_to_lsl_reported':
+        return 'Creation to LSL Report';
+      case 'lsl_to_lsl':
+        return 'LSL to LSL Transfer';
+      default:
+        return metric;
+    }
+  }
+
+  // Rest of the class remains the same...
 }
 
 class TimeDistributionPainter extends CustomPainter {

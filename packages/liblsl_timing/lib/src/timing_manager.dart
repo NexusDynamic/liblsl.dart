@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/widgets.dart';
+import 'package:liblsl/lsl.dart';
 
 /// A class that manages timing measurements for LSL testing
 class TimingManager {
@@ -222,5 +223,103 @@ class TimingEvent {
   @override
   String toString() {
     return 'TimingEvent{timestamp: $timestamp, type: $eventType, description: $description}';
+  }
+}
+
+class ImprovedTimingManager extends TimingManager {
+  // Base time offset to align LSL and Flutter times
+  double _timeBaseOffset = 0.0;
+  bool _timeBaseCalibrated = false;
+
+  bool _isInitialized = false;
+  bool get isInitialized => _isInitialized;
+
+  /// Calibrate the time base between LSL and Flutter
+  Future<void> calibrateTimeBase() async {
+    // Take multiple measurements to improve accuracy
+    final int measurements = 10;
+    double totalOffset = 0.0;
+
+    for (int i = 0; i < measurements; i++) {
+      final flutterTime = DateTime.now().microsecondsSinceEpoch / 1000000;
+      final lslTime = LSL.localClock();
+      totalOffset += (lslTime - flutterTime);
+      await Future.delayed(const Duration(milliseconds: 50));
+    }
+
+    _timeBaseOffset = totalOffset / measurements;
+    _timeBaseCalibrated = true;
+
+    recordEvent(
+      'time_base_calibrated',
+      description: 'Time base calibrated between Flutter and LSL',
+      metadata: {'offset': _timeBaseOffset},
+    );
+    _isInitialized = true;
+  }
+
+  /// Convert Flutter time to LSL equivalent time
+  double flutterTimeToLSLTime(double flutterTime) {
+    if (!_timeBaseCalibrated) {
+      throw Exception(
+        'Time base not calibrated. Call calibrateTimeBase() first.',
+      );
+    }
+    return flutterTime + _timeBaseOffset;
+  }
+
+  /// Convert LSL time to Flutter equivalent time
+  double lslTimeToFlutterTime(double lslTime) {
+    if (!_timeBaseCalibrated) {
+      throw Exception(
+        'Time base not calibrated. Call calibrateTimeBase() first.',
+      );
+    }
+    return lslTime - _timeBaseOffset;
+  }
+
+  @override
+  void calculateMetrics() {
+    super.calculateMetrics();
+
+    // For timing metrics that compare LSL and Flutter times, apply correction
+    if (_timeBaseCalibrated) {
+      _correctCrossSystemTimingMetrics();
+    }
+  }
+
+  void _correctCrossSystemTimingMetrics() {
+    // Identify metrics that cross system boundaries
+    final crossSystemMetrics = [
+      'ui_to_sample',
+      'sample_to_lsl',
+      'end_to_end',
+      'created_to_lsl_reported',
+    ];
+
+    for (final metricName in crossSystemMetrics) {
+      if (_timingMetrics.containsKey(metricName)) {
+        final values = _timingMetrics[metricName]!;
+        final correctedValues = <double>[];
+
+        for (final value in values) {
+          // Apply correction based on metric type
+          double correctedValue = value;
+          if (metricName == 'ui_to_sample' || metricName == 'end_to_end') {
+            // Flutter → LSL direction
+            correctedValue = value - _timeBaseOffset;
+          } else if (metricName == 'sample_to_lsl' ||
+              metricName == 'created_to_lsl_reported') {
+            // LSL → Flutter direction
+            correctedValue = value + _timeBaseOffset;
+          }
+          correctedValues.add(
+            correctedValue.abs(),
+          ); // Use abs to avoid negative values
+        }
+
+        _timingMetrics['${metricName}_corrected'] = correctedValues;
+      }
+    }
   }
 }
