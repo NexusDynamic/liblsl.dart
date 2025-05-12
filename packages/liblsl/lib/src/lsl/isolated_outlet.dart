@@ -11,6 +11,7 @@ import 'package:liblsl/src/lsl/stream_info.dart';
 import 'package:liblsl/src/lsl/helper.dart';
 import 'package:liblsl/src/lsl/structs.dart';
 import 'package:liblsl/src/lsl/isolate_manager.dart';
+import 'package:liblsl/src/meta/todo.dart';
 
 /// An isolate-ready implementation of LSL outlet
 class LSLIsolatedOutlet extends LSLObj {
@@ -209,6 +210,7 @@ class LSLOutletIsolate {
     }
   }
 
+  @Todo('zeyus', 'Fix custom LSLContentType')
   Future<bool> _createOutlet(Map<String, dynamic> data) async {
     // Deserialize stream info
     final streamInfoData = data['streamInfo'] as Map<String, dynamic>;
@@ -225,6 +227,7 @@ class LSLOutletIsolate {
       // Create new stream info
       _streamInfo = LSLStreamInfo(
         streamName: streamInfoData['streamName'] as String,
+        //
         streamType: LSLContentType.values.firstWhere(
           (t) => t.value == streamInfoData['streamType'],
         ),

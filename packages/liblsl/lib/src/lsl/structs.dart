@@ -56,11 +56,18 @@ class LSLContentType {
   /// LSL / XDF standard, e.g. "State" or "Stimulus".
   factory LSLContentType.custom(String value) {
     final customType = LSLContentType._(value, isCustom: true);
-    if (_values.any((type) => type.value == value)) {
+    if (_values.any((type) => type.value == value && !type.isCustom)) {
+      // If a default type with the same name exists, throw an error.
+      // This is to prevent conflicts with existing LSL content types.
       throw ArgumentError(
         'Custom content type "$value" conflicts with existing LSL content types.',
       );
     }
+    if (_values.any((type) => type.value == value && type.isCustom)) {
+      // If a custom type with the same name already exists, return it.
+      return _values.firstWhere((type) => type.value == value);
+    }
+    // If no conflicts, add the new custom type to the list.
     _values.add(customType);
     return customType;
   }
