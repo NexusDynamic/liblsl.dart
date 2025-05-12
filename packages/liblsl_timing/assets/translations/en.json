@@ -1,0 +1,22 @@
+{
+    "TITLE": "LSL Timing Tester",
+    "CONN_DEV": "Connected Devices",
+    "ROLE": "Role",
+    "DEV_ROLE": "Device Role",
+    "ROLE_COORD": "Coordinator",
+    "ROLE_PART": "Participant",
+    "SIG_READY": "Signal Ready",
+    "RESULTS_VIEW": "View Results",
+    "DATA_EXPORT": "Export Data",
+    "CANCEL": "Cancel",
+    "START_COORD_ONLY": "Only the coordinator can start tests",
+    "SETTINGS_DEV": "Device Settings",
+    "EXPORTED_TO": "Data exported to",
+    "ERR_EXPORT": "Export error",
+    "DEV_NAME": "Device Name",
+    "DEV_ID": "Device ID",
+    "STREAM_NAME": "Stream Name",
+    "STREAM_TYPE": "Stream Type",
+    "CHANNEL_COUNT": "Channel Count",
+    "SAMPLE_RATE_HZ": "Sample Rate (Hz)"
+}

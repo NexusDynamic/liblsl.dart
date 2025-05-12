@@ -5,6 +5,7 @@ import 'package:liblsl/lsl.dart';
 import 'src/config/app_config.dart';
 import 'src/data/timing_manager.dart';
 import 'src/ui/home_page.dart';
+import 'package:easy_localization/easy_localization.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -21,7 +22,16 @@ void main() async {
     print('LSL Library Info: ${LSL.libraryInfo()}');
   }
 
-  runApp(LSLTimingApp(config: config, timingManager: timingManager));
+  runApp(
+    EasyLocalization(
+      supportedLocales: [Locale('en'), Locale('da')],
+      path: 'assets/translations',
+      fallbackLocale: Locale('en'),
+      startLocale: Locale('en'),
+      useOnlyLangCode: true,
+      child: LSLTimingApp(config: config, timingManager: timingManager),
+    ),
+  );
 }
 
 class LSLTimingApp extends StatelessWidget {
@@ -38,6 +48,9 @@ class LSLTimingApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'LSL Timing Tester',
+      localizationsDelegates: context.localizationDelegates,
+      supportedLocales: context.supportedLocales,
+      locale: context.locale,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
         useMaterial3: true,

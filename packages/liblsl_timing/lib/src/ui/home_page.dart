@@ -1,4 +1,5 @@
 // lib/src/ui/home_page.dart
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:liblsl_timing/src/ui/test_page.dart';
 import '../config/constants.dart';
@@ -52,51 +53,51 @@ class _HomePageState extends State<HomePage> {
     await widget.timingManager.calibrateTimeBase();
 
     // Initialize device coordinator
-    await _coordinator.initialize();
+    _coordinator.initialize().then((_) {
+      // Listen for coordinator messages
+      _coordinator.messageStream.listen((message) {
+        setState(() {
+          _messages.add(message);
+          if (_messages.length > 100) {
+            _messages.removeAt(0);
+          }
+        });
+      });
 
-    // Listen for coordinator messages
-    _coordinator.messageStream.listen((message) {
-      setState(() {
-        _messages.add(message);
-        if (_messages.length > 100) {
-          _messages.removeAt(0);
+      _coordinator.onNavigateToTest((testType) {
+        // Only navigate if we're not the coordinator (coordinator already navigates in _startTest)
+        if (!_coordinator.isCoordinator) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder:
+                  (context) => TestPage(
+                    testType: testType,
+                    testController: _testController,
+                    timingManager: widget.timingManager,
+                  ),
+            ),
+          );
         }
       });
-    });
 
-    _coordinator.onNavigateToTest((testType) {
-      // Only navigate if we're not the coordinator (coordinator already navigates in _startTest)
-      if (!_coordinator.isCoordinator) {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder:
-                (context) => TestPage(
-                  testType: testType,
-                  testController: _testController,
-                  timingManager: widget.timingManager,
-                ),
-          ),
-        );
-      }
-    });
-
-    // Update connected devices when the list might have changed
-    _connectedDevices = _coordinator.connectedDevices;
-
-    // Listen for test status updates
-    _testController.statusStream.listen((status) {
-      setState(() {
-        _messages.add(status);
-        if (_messages.length > 100) {
-          _messages.removeAt(0);
-        }
-      });
-    });
-
-    setState(() {
-      _isInitializing = false;
+      // Update connected devices when the list might have changed
       _connectedDevices = _coordinator.connectedDevices;
+
+      // Listen for test status updates
+      _testController.statusStream.listen((status) {
+        setState(() {
+          _messages.add(status);
+          if (_messages.length > 100) {
+            _messages.removeAt(0);
+          }
+        });
+      });
+
+      setState(() {
+        _isInitializing = false;
+        _connectedDevices = _coordinator.connectedDevices;
+      });
     });
   }
 
@@ -104,7 +105,7 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('LSL Timing Tester - ${widget.config.deviceName}'),
+        title: Text('${'TITLE'.tr()} - ${widget.config.deviceName}'),
         actions: [
           IconButton(
             icon: const Icon(Icons.settings),
@@ -138,7 +139,7 @@ class _HomePageState extends State<HomePage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Connected Devices (${_connectedDevices.length}):',
+                '${'CONN_DEV'.tr()} (${_connectedDevices.length}):',
                 style: const TextStyle(fontWeight: FontWeight.bold),
               ),
               Wrap(
@@ -159,8 +160,8 @@ class _HomePageState extends State<HomePage> {
                 children: [
                   Text(
                     _coordinator.isCoordinator
-                        ? 'Role: Coordinator'
-                        : 'Role: Participant',
+                        ? '${'ROLE'.tr()}: ${'ROLE_COORD'.tr()}'
+                        : '${'ROLE'.tr()}: ${'ROLE_PART'.tr()}',
                     style: TextStyle(
                       color:
                           _coordinator.isCoordinator
@@ -172,7 +173,7 @@ class _HomePageState extends State<HomePage> {
                   if (!_isReady && !_testController.isTestRunning)
                     ElevatedButton(
                       onPressed: _signalReady,
-                      child: const Text('Signal Ready'),
+                      child: Text('SIG_READY'.tr()),
                     ),
                 ],
               ),
@@ -209,11 +210,11 @@ class _HomePageState extends State<HomePage> {
                     ),
                   );
                 },
-                child: const Text('View Results'),
+                child: Text('RESULTS_VIEW'.tr()),
               ),
               ElevatedButton(
                 onPressed: _exportData,
-                child: const Text('Export Data'),
+                child: Text('DATA_EXPORT'.tr()),
               ),
             ],
           ),
@@ -252,7 +253,7 @@ class _HomePageState extends State<HomePage> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
+              child: Text('CANCEL'.tr()),
             ),
           ],
         );
@@ -276,9 +277,9 @@ class _HomePageState extends State<HomePage> {
         ),
       );
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Only the coordinator can start tests')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('START_COORD_ONLY')));
     }
   }
 
@@ -288,7 +289,7 @@ class _HomePageState extends State<HomePage> {
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: const Text('Device Settings'),
+          title: Text('SETTINGS_DEV'.tr()),
           content: SingleChildScrollView(
             child: _SettingsForm(
               config: widget.config,
@@ -310,7 +311,7 @@ class _HomePageState extends State<HomePage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Data exported to:\n$eventsPath\n$metricsPath'),
+            content: Text('${'EXPORTED_TO'.tr()}:\n$eventsPath\n$metricsPath'),
           ),
         );
       }
@@ -318,7 +319,7 @@ class _HomePageState extends State<HomePage> {
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('Export error: $e')));
+        ).showSnackBar(SnackBar(content: Text('${'ERR_EXPORT'.tr()}: $e')));
       }
     }
   }
@@ -375,31 +376,31 @@ class _SettingsFormState extends State<_SettingsForm> {
       children: [
         TextField(
           controller: _deviceNameController,
-          decoration: const InputDecoration(labelText: 'Device Name'),
+          decoration: InputDecoration(labelText: 'DEV_NAME'.tr()),
         ),
         TextField(
           controller: _deviceIdController,
-          decoration: const InputDecoration(labelText: 'Device ID'),
+          decoration: InputDecoration(labelText: 'DEV_ID'.tr()),
           enabled: true,
         ),
         TextField(
           controller: _streamNameController,
-          decoration: const InputDecoration(labelText: 'Stream Name'),
+          decoration: InputDecoration(labelText: 'STREAM_NAME'.tr()),
         ),
         TextField(
           controller: _channelCountController,
-          decoration: const InputDecoration(labelText: 'Channel Count'),
+          decoration: InputDecoration(labelText: 'CHANNEL_COUNT'.tr()),
           keyboardType: TextInputType.number,
         ),
         TextField(
           controller: _sampleRateController,
-          decoration: const InputDecoration(labelText: 'Sample Rate (Hz)'),
+          decoration: InputDecoration(labelText: 'SAMPLE_RATE_HZ'.tr()),
           keyboardType: TextInputType.number,
         ),
         const SizedBox(height: 16),
 
         // Device role
-        Text('Device Role:', style: Theme.of(context).textTheme.titleSmall),
+        Text('DEV_ROLE'.tr(), style: Theme.of(context).textTheme.titleSmall),
         CheckboxListTile(
           title: const Text('Producer (sends data)'),
           value: widget.config.isProducer,
