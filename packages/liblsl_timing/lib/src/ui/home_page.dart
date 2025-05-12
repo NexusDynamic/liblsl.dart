@@ -1,5 +1,6 @@
 // lib/src/ui/home_page.dart
 import 'package:flutter/material.dart';
+import 'package:liblsl_timing/src/ui/test_page.dart';
 import '../config/constants.dart';
 import '../config/app_config.dart';
 import '../coordination/device_coordinator.dart';
@@ -27,7 +28,7 @@ class _HomePageState extends State<HomePage> {
   late TestController _testController;
   late DataExporter _dataExporter;
 
-  List<String> _messages = [];
+  final List<String> _messages = [];
   List<String> _connectedDevices = [];
   bool _isInitializing = true;
   bool _isReady = false;
@@ -63,6 +64,26 @@ class _HomePageState extends State<HomePage> {
       });
     });
 
+    _coordinator.onNavigateToTest((testType) {
+      // Only navigate if we're not the coordinator (coordinator already navigates in _startTest)
+      if (!_coordinator.isCoordinator) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder:
+                (context) => TestPage(
+                  testType: testType,
+                  testController: _testController,
+                  timingManager: widget.timingManager,
+                ),
+          ),
+        );
+      }
+    });
+
+    // Update connected devices when the list might have changed
+    _connectedDevices = _coordinator.connectedDevices;
+
     // Listen for test status updates
     _testController.statusStream.listen((status) {
       setState(() {
@@ -92,16 +113,17 @@ class _HomePageState extends State<HomePage> {
           IconButton(icon: const Icon(Icons.save), onPressed: _exportData),
         ],
       ),
-      body: _isInitializing
-          ? const Center(child: CircularProgressIndicator())
-          : _buildBody(),
+      body:
+          _isInitializing
+              ? const Center(child: CircularProgressIndicator())
+              : _buildBody(),
       floatingActionButton:
           _coordinator.isCoordinator && !_testController.isTestRunning
-          ? FloatingActionButton(
-              onPressed: _showTestSelection,
-              child: const Icon(Icons.play_arrow),
-            )
-          : null,
+              ? FloatingActionButton(
+                onPressed: _showTestSelection,
+                child: const Icon(Icons.play_arrow),
+              )
+              : null,
     );
   }
 
@@ -111,7 +133,7 @@ class _HomePageState extends State<HomePage> {
         // Connected devices section
         Container(
           padding: const EdgeInsets.all(8),
-          color: Colors.blueGrey.withOpacity(0.2),
+          color: Colors.blueGrey.withAlpha(51),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -121,14 +143,16 @@ class _HomePageState extends State<HomePage> {
               ),
               Wrap(
                 spacing: 8,
-                children: _connectedDevices.map((device) {
-                  return Chip(
-                    label: Text(device),
-                    backgroundColor: device == widget.config.deviceId
-                        ? Colors.green.withOpacity(0.3)
-                        : Colors.grey.withOpacity(0.3),
-                  );
-                }).toList(),
+                children:
+                    _connectedDevices.map((device) {
+                      return Chip(
+                        label: Text(device),
+                        backgroundColor:
+                            device == widget.config.deviceId
+                                ? Colors.green.withAlpha(76)
+                                : Colors.grey.withAlpha(76),
+                      );
+                    }).toList(),
               ),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -138,9 +162,10 @@ class _HomePageState extends State<HomePage> {
                         ? 'Role: Coordinator'
                         : 'Role: Participant',
                     style: TextStyle(
-                      color: _coordinator.isCoordinator
-                          ? Colors.green
-                          : Colors.blue,
+                      color:
+                          _coordinator.isCoordinator
+                              ? Colors.green
+                              : Colors.blue,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
@@ -176,10 +201,11 @@ class _HomePageState extends State<HomePage> {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (context) => ResultsPage(
-                        timingManager: widget.timingManager,
-                        dataExporter: _dataExporter,
-                      ),
+                      builder:
+                          (context) => ResultsPage(
+                            timingManager: widget.timingManager,
+                            dataExporter: _dataExporter,
+                          ),
                     ),
                   );
                 },
@@ -237,6 +263,18 @@ class _HomePageState extends State<HomePage> {
   void _startTest(TestType testType) {
     if (_coordinator.isCoordinator) {
       _coordinator.startTest(testType);
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder:
+              (context) => TestPage(
+                testType: testType,
+                testController: _testController,
+                timingManager: widget.timingManager,
+              ),
+        ),
+      );
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Only the coordinator can start tests')),
@@ -269,14 +307,19 @@ class _HomePageState extends State<HomePage> {
     try {
       final eventsPath = await _dataExporter.exportEventsToCSV();
       final metricsPath = await _dataExporter.exportMetricsToCSV();
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Data exported to:\n$eventsPath\n$metricsPath')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Data exported to:\n$eventsPath\n$metricsPath'),
+          ),
+        );
+      }
     } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Export error: $e')));
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Export error: $e')));
+      }
     }
   }
 
@@ -292,8 +335,7 @@ class _SettingsForm extends StatefulWidget {
   final AppConfig config;
   final VoidCallback onSaved;
 
-  const _SettingsForm({Key? key, required this.config, required this.onSaved})
-    : super(key: key);
+  const _SettingsForm({required this.config, required this.onSaved});
 
   @override
   _SettingsFormState createState() => _SettingsFormState();
@@ -301,6 +343,7 @@ class _SettingsForm extends StatefulWidget {
 
 class _SettingsFormState extends State<_SettingsForm> {
   late TextEditingController _deviceNameController;
+  late TextEditingController _deviceIdController;
   late TextEditingController _streamNameController;
   late TextEditingController _channelCountController;
   late TextEditingController _sampleRateController;
@@ -321,6 +364,7 @@ class _SettingsFormState extends State<_SettingsForm> {
     _sampleRateController = TextEditingController(
       text: widget.config.sampleRate.toString(),
     );
+    _deviceIdController = TextEditingController(text: widget.config.deviceId);
   }
 
   @override
@@ -332,6 +376,11 @@ class _SettingsFormState extends State<_SettingsForm> {
         TextField(
           controller: _deviceNameController,
           decoration: const InputDecoration(labelText: 'Device Name'),
+        ),
+        TextField(
+          controller: _deviceIdController,
+          decoration: const InputDecoration(labelText: 'Device ID'),
+          enabled: true,
         ),
         TextField(
           controller: _streamNameController,
@@ -397,6 +446,7 @@ class _SettingsFormState extends State<_SettingsForm> {
 
   Future<void> _saveConfig() async {
     widget.config.deviceName = _deviceNameController.text;
+    widget.config.deviceId = _deviceIdController.text;
     widget.config.streamName = _streamNameController.text;
     widget.config.channelCount =
         int.tryParse(_channelCountController.text) ?? 1;
@@ -410,6 +460,7 @@ class _SettingsFormState extends State<_SettingsForm> {
   @override
   void dispose() {
     _deviceNameController.dispose();
+    _deviceIdController.dispose();
     _streamNameController.dispose();
     _channelCountController.dispose();
     _sampleRateController.dispose();

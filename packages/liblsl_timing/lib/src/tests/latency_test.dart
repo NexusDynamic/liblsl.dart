@@ -1,10 +1,9 @@
 // lib/src/tests/latency_test.dart
 import 'dart:async';
 import 'dart:math' as math;
+import 'package:flutter/foundation.dart';
 import 'package:liblsl/lsl.dart';
-import '../config/constants.dart';
-import '../config/app_config.dart';
-import '../data/timing_manager.dart';
+import 'package:liblsl_timing/src/config/constants.dart';
 import 'base_test.dart';
 
 class LatencyTest extends BaseTest {
@@ -18,8 +17,7 @@ class LatencyTest extends BaseTest {
   Timer? _sendTimer;
   bool _isRunning = false;
 
-  LatencyTest(AppConfig config, TimingManager timingManager)
-    : super(config, timingManager);
+  LatencyTest(super.config, super.timingManager);
 
   @override
   String get name => 'Latency Test';
@@ -46,7 +44,7 @@ class LatencyTest extends BaseTest {
     if (config.isProducer) {
       _outlet = await LSL.createOutlet(
         streamInfo: _streamInfo!,
-        chunkSize: 0,
+        chunkSize: 1,
         maxBuffer: 360,
       );
     }
@@ -60,14 +58,16 @@ class LatencyTest extends BaseTest {
       // Try to find a stream with our name but not our device ID
       final otherStream = streams.firstWhere(
         (s) =>
-            s.streamName == config.streamName && s.sourceId != config.deviceId,
+            s.streamName == config.streamName &&
+            s.sourceId != config.deviceId &&
+            s.channelFormat == config.channelFormat,
         orElse: () => streams.first,
       );
 
-      _inlet = await LSL.createInlet<double>(
+      _inlet = await LSL.createInlet(
         streamInfo: otherStream,
         maxBufferSize: 360,
-        maxChunkLength: 0,
+        maxChunkLength: 1,
         recover: true,
       );
     }
@@ -122,7 +122,7 @@ class LatencyTest extends BaseTest {
     _sampleCounter++;
 
     // Create a unique sample ID
-    final sampleId = '${config.deviceId}_${_sampleCounter}';
+    final sampleId = '${config.deviceId}_$_sampleCounter';
 
     // Record when the sample is created
     timingManager.recordEvent(
@@ -178,7 +178,9 @@ class LatencyTest extends BaseTest {
           );
         }
       } catch (e) {
-        print('Error receiving sample: $e');
+        if (kDebugMode) {
+          print('Error receiving sample: $e');
+        }
       }
 
       await Future.delayed(const Duration(milliseconds: 1));

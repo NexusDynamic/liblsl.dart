@@ -21,7 +21,7 @@ class AppConfig {
   int testDurationSeconds = 30;
 
   // Create a unique device ID for this session
-  final String deviceId;
+  String deviceId;
 
   AppConfig({
     this.deviceName = 'Device',
@@ -32,7 +32,8 @@ class AppConfig {
     this.channelFormat = LSLChannelFormat.float32,
     this.isProducer = true,
     this.isConsumer = true,
-  }) : deviceId = '${math.Random().nextInt(10000)}_$deviceName';
+    this.deviceId = '',
+  });
 
   // Load from SharedPreferences
   static Future<AppConfig> load() async {
@@ -52,6 +53,9 @@ class AppConfig {
       channelFormat: _getChannelFormat(
         prefs.getString(ConfigKeys.channelFormat),
       ),
+      deviceId:
+          prefs.getString(ConfigKeys.deviceId) ??
+          '${math.Random().nextInt(1000)}_DID',
       isProducer: prefs.getBool(ConfigKeys.isProducer) ?? true,
       isConsumer: prefs.getBool(ConfigKeys.isConsumer) ?? true,
     );
@@ -71,6 +75,7 @@ class AppConfig {
     await prefs.setString(ConfigKeys.channelFormat, channelFormat.name);
     await prefs.setBool(ConfigKeys.isProducer, isProducer);
     await prefs.setBool(ConfigKeys.isConsumer, isConsumer);
+    await prefs.setString(ConfigKeys.deviceId, deviceId);
   }
 
   // Helper methods for conversion

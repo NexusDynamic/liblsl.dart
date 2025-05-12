@@ -62,4 +62,5 @@ class ConfigKeys {
   static const String channelFormat = 'channel_format';
   static const String isProducer = 'is_producer';
   static const String isConsumer = 'is_consumer';
+  static const String deviceId = 'device_id';
 }

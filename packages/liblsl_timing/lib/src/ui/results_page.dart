@@ -8,10 +8,10 @@ class ResultsPage extends StatefulWidget {
   final DataExporter dataExporter;
 
   const ResultsPage({
-    Key? key,
+    super.key,
     required this.timingManager,
     required this.dataExporter,
-  }) : super(key: key);
+  });
 
   @override
   State<ResultsPage> createState() => _ResultsPageState();
@@ -44,9 +44,10 @@ class _ResultsPageState extends State<ResultsPage> {
           IconButton(icon: const Icon(Icons.save), onPressed: _exportData),
         ],
       ),
-      body: widget.timingManager.events.isEmpty
-          ? const Center(child: Text('No test data available'))
-          : _buildResultsView(),
+      body:
+          widget.timingManager.events.isEmpty
+              ? const Center(child: Text('No test data available'))
+              : _buildResultsView(),
     );
   }
 
@@ -86,12 +87,13 @@ class _ResultsPageState extends State<ResultsPage> {
             ),
             DropdownButton<String>(
               value: _selectedMetric,
-              items: widget.timingManager.metrics.keys.map((metric) {
-                return DropdownMenuItem<String>(
-                  value: metric,
-                  child: Text(_formatMetricName(metric)),
-                );
-              }).toList(),
+              items:
+                  widget.timingManager.metrics.keys.map((metric) {
+                    return DropdownMenuItem<String>(
+                      value: metric,
+                      child: Text(_formatMetricName(metric)),
+                    );
+                  }).toList(),
               onChanged: (value) {
                 if (value != null) {
                   setState(() {
@@ -169,7 +171,7 @@ class _ResultsPageState extends State<ResultsPage> {
     return Container(
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
-        border: Border.all(color: Colors.grey.withOpacity(0.3)),
+        border: Border.all(color: Colors.grey.withAlpha(76)),
         borderRadius: BorderRadius.circular(4),
       ),
       child: Column(
@@ -190,9 +192,8 @@ class _ResultsPageState extends State<ResultsPage> {
 
   Widget _buildRecentEvents() {
     final events = widget.timingManager.events;
-    final displayedEvents = events.length > 100
-        ? events.sublist(events.length - 100)
-        : events;
+    final displayedEvents =
+        events.length > 100 ? events.sublist(events.length - 100) : events;
 
     return SizedBox(
       height: 200,
@@ -239,14 +240,19 @@ class _ResultsPageState extends State<ResultsPage> {
     try {
       final eventsPath = await widget.dataExporter.exportEventsToCSV();
       final metricsPath = await widget.dataExporter.exportMetricsToCSV();
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Data exported to:\n$eventsPath\n$metricsPath')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Data exported to:\n$eventsPath\n$metricsPath'),
+          ),
+        );
+      }
     } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Export error: $e')));
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Export error: $e')));
+      }
     }
   }
 }
@@ -260,9 +266,10 @@ class HistogramPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     if (values.isEmpty) return;
 
-    final paint = Paint()
-      ..color = Colors.blue
-      ..style = PaintingStyle.fill;
+    final paint =
+        Paint()
+          ..color = Colors.blue
+          ..style = PaintingStyle.fill;
 
     // Calculate min/max
     double min = values.first;

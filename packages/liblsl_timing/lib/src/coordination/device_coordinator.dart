@@ -1,6 +1,7 @@
 // lib/src/coordination/device_coordinator.dart
 import 'dart:async';
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:liblsl/lsl.dart';
 import '../config/constants.dart';
 import '../config/app_config.dart';
@@ -19,6 +20,7 @@ class DeviceCoordinator {
   bool _isCoordinator = false;
   bool _isInitialized = false;
   bool _isReady = false;
+  bool _isTestRunning = false;
   final List<String> _connectedDevices = [];
 
   // Stream controller for messages
@@ -32,21 +34,27 @@ class DeviceCoordinator {
   List<String> get connectedDevices => List.unmodifiable(_connectedDevices);
   Stream<String> get messageStream => _messageStreamController.stream;
 
+  Function(TestType)? _onNavigateToTest;
+
   DeviceCoordinator(this.config, this.timingManager);
 
   /// Initialize the coordinator and discover existing control streams
   Future<void> initialize() async {
     // Look for an existing control stream
-    final streams = await LSL.resolveStreams(waitTime: 2.0, maxStreams: 10);
+    final streams = await LSL.resolveStreams(waitTime: 10.0, maxStreams: 100);
 
-    final controlStreams = streams
-        .where(
-          (s) =>
-              s.streamName == StreamDefaults.controlStreamName &&
-              s.streamType == LSLContentType.markers,
-        )
-        .toList();
-
+    final controlStreams =
+        streams
+            .where(
+              (s) =>
+                  s.streamName == StreamDefaults.controlStreamName &&
+                  s.streamType == LSLContentType.markers &&
+                  s.sourceId != 'Coordinator_${config.deviceId}',
+            )
+            .toList();
+    if (kDebugMode) {
+      print(controlStreams);
+    }
     if (controlStreams.isEmpty) {
       // No existing coordinator, become the coordinator
       _isCoordinator = true;
@@ -62,11 +70,17 @@ class DeviceCoordinator {
 
     timingManager.recordEvent(
       EventType.testStarted,
-      description: _isCoordinator
-          ? 'Initialized as coordinator'
-          : 'Joined coordination network',
+      description:
+          _isCoordinator
+              ? 'Initialized as coordinator'
+              : 'Joined coordination network',
       metadata: {'isCoordinator': _isCoordinator},
     );
+  }
+
+  /// Set callback for navigating to the test page
+  void onNavigateToTest(Function(TestType) callback) {
+    _onNavigateToTest = callback;
   }
 
   Future<void> _setupCoordinator() async {
@@ -90,13 +104,39 @@ class DeviceCoordinator {
     _connectedDevices.add(config.deviceId);
 
     // Send coordinator announcement
+    _startBroadcasting();
+
+    _messageStreamController.add('You are the test coordinator');
+  }
+
+  Future<void> _sendDiscoveryMessage(bool isCoordinator) async {
     await _sendMessage(CoordinationMessageType.discovery, {
       'deviceId': config.deviceId,
       'deviceName': config.deviceName,
-      'isCoordinator': true,
+      'isCoordinator': isCoordinator,
+    });
+  }
+
+  Future<void> _startBroadcasting() async {
+    if (_controlOutlet == null) {
+      throw Exception('Control outlet not initialized');
+    }
+    if (kDebugMode) {
+      print('Starting broadcast');
+    }
+    _isTestRunning = false;
+
+    // Broadcast discovery message every 1 second
+    Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!_isInitialized || _isTestRunning) {
+        timer.cancel();
+        return;
+      }
+
+      _sendDiscoveryMessage(true);
     });
 
-    _messageStreamController.add('You are the test coordinator');
+    _messageStreamController.add('Broadcasting discovery message');
   }
 
   Future<void> _joinCoordination(LSLStreamInfo controlStream) async {
@@ -125,10 +165,7 @@ class DeviceCoordinator {
     );
 
     // Send join message
-    await _sendMessage(CoordinationMessageType.join, {
-      'deviceId': config.deviceId,
-      'deviceName': config.deviceName,
-    });
+    await _sendDiscoveryMessage(false);
 
     _messageStreamController.add('Joined test coordination network');
   }
@@ -143,7 +180,9 @@ class DeviceCoordinator {
           _handleMessage(message);
         }
       } catch (e) {
-        print('Error in coordination message handling: $e');
+        if (kDebugMode) {
+          print('Error in coordination message handling: $e');
+        }
       }
 
       await Future.delayed(const Duration(milliseconds: 10));
@@ -183,14 +222,16 @@ class DeviceCoordinator {
           break;
       }
     } catch (e) {
-      print('Error parsing message: $e');
+      if (kDebugMode) {
+        print('Error parsing message: $e');
+      }
     }
   }
 
   void _handleDiscoveryMessage(Map<String, dynamic> payload) {
     final deviceId = payload['deviceId'] as String?;
     final deviceName = payload['deviceName'] as String?;
-    final isMessageCoordinator = payload['isCoordinator'] as bool? ?? false;
+    //final isMessageCoordinator = payload['isCoordinator'] as bool? ?? false;
 
     if (deviceId == null || deviceName == null) return;
 
@@ -301,7 +342,7 @@ class DeviceCoordinator {
     final notification =
         'Starting ${testType.displayName} in ${delayMs > 0 ? '$delayMs ms' : 'immediately'}';
     _messageStreamController.add(notification);
-
+    _isTestRunning = true;
     // Schedule the test start
     if (delayMs > 0) {
       Future.delayed(Duration(milliseconds: delayMs), () {
@@ -321,9 +362,12 @@ class DeviceCoordinator {
       description: notification,
       metadata: {'testType': testType.toString(), 'config': testConfig},
     );
-
+    _isTestRunning = true;
     // Test started event - this will be picked up by the TestController
     _onTestStart?.call(testType, testConfig);
+
+    // Navigate to test page if callback is set
+    _onNavigateToTest?.call(testType);
   }
 
   void _handleStopTestMessage(Map<String, dynamic> payload) {
@@ -341,7 +385,7 @@ class DeviceCoordinator {
       description: notification,
       metadata: {'testType': testType.toString()},
     );
-
+    _startBroadcasting();
     // Test stopped event
     _onTestStop?.call(testType);
   }
@@ -399,7 +443,7 @@ class DeviceCoordinator {
         'sampleRate': config.sampleRate,
       },
     });
-
+    _isTestRunning = true;
     _messageStreamController.add('Starting test in 3 seconds');
   }
 

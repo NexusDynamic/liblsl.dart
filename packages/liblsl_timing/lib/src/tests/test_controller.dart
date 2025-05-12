@@ -33,10 +33,14 @@ class TestController {
   void _setupCoordinationHandlers() {
     coordinator.onTestStart((testType, testConfig) {
       startTest(testType);
+
+      // Notify listeners that a test has started
+      _statusStreamController.add('Test started: ${testType.displayName}');
     });
 
     coordinator.onTestStop((testType) {
       stopTest();
+      _statusStreamController.add('Test stopped: ${testType.displayName}');
     });
   }
 

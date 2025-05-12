@@ -10,18 +10,18 @@ class TestPage extends StatefulWidget {
   final TimingManager timingManager;
 
   const TestPage({
-    Key? key,
+    super.key,
     required this.testType,
     required this.testController,
     required this.timingManager,
-  }) : super(key: key);
+  });
 
   @override
   State<TestPage> createState() => _TestPageState();
 }
 
 class _TestPageState extends State<TestPage> {
-  List<String> _statusMessages = [];
+  final List<String> _statusMessages = [];
   int _eventsCount = 0;
   bool _testCompleted = false;
 
@@ -69,7 +69,7 @@ class _TestPageState extends State<TestPage> {
           // Test status indicator
           Container(
             padding: const EdgeInsets.all(16),
-            color: Colors.blue.withOpacity(0.1),
+            color: Colors.blue.withAlpha(25),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -93,9 +93,7 @@ class _TestPageState extends State<TestPage> {
             height: 150,
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              border: Border(
-                top: BorderSide(color: Colors.grey.withOpacity(0.3)),
-              ),
+              border: Border(top: BorderSide(color: Colors.grey.withAlpha(76))),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -144,21 +142,20 @@ class _TestPageState extends State<TestPage> {
         return _buildLatencyTestUI();
       case TestType.synchronization:
         return _buildSyncTestUI();
-      default:
-        return const Center(child: Text('Unknown test type'));
     }
   }
 
   Widget _buildLatencyTestUI() {
     // Get most recent latency events
-    final latencyEvents = widget.timingManager.events
-        .where(
-          (e) =>
-              e.eventType == EventType.sampleSent ||
-              e.eventType == EventType.sampleReceived,
-        )
-        .take(50)
-        .toList();
+    final latencyEvents =
+        widget.timingManager.events
+            .where(
+              (e) =>
+                  e.eventType == EventType.sampleSent ||
+                  e.eventType == EventType.sampleReceived,
+            )
+            .take(50)
+            .toList();
 
     return Column(
       children: [
@@ -173,32 +170,34 @@ class _TestPageState extends State<TestPage> {
 
         // Show real-time latency indicators
         Expanded(
-          child: latencyEvents.isEmpty
-              ? const Center(child: CircularProgressIndicator())
-              : ListView.builder(
-                  itemCount: latencyEvents.length,
-                  itemBuilder: (context, index) {
-                    final event = latencyEvents[index];
-                    return ListTile(
-                      leading: Icon(
-                        event.eventType == EventType.sampleSent
-                            ? Icons.arrow_upward
-                            : Icons.arrow_downward,
-                        color: event.eventType == EventType.sampleSent
-                            ? Colors.blue
-                            : Colors.green,
-                      ),
-                      title: Text(
-                        event.eventType.toString(),
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                      subtitle: Text(event.description ?? ''),
-                      trailing: Text(
-                        '${(event.timestamp % 10000).toStringAsFixed(3)}s',
-                      ),
-                    );
-                  },
-                ),
+          child:
+              latencyEvents.isEmpty
+                  ? const Center(child: CircularProgressIndicator())
+                  : ListView.builder(
+                    itemCount: latencyEvents.length,
+                    itemBuilder: (context, index) {
+                      final event = latencyEvents[index];
+                      return ListTile(
+                        leading: Icon(
+                          event.eventType == EventType.sampleSent
+                              ? Icons.arrow_upward
+                              : Icons.arrow_downward,
+                          color:
+                              event.eventType == EventType.sampleSent
+                                  ? Colors.blue
+                                  : Colors.green,
+                        ),
+                        title: Text(
+                          event.eventType.toString(),
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        subtitle: Text(event.description ?? ''),
+                        trailing: Text(
+                          '${(event.timestamp % 10000).toStringAsFixed(3)}s',
+                        ),
+                      );
+                    },
+                  ),
         ),
       ],
     );
@@ -206,15 +205,16 @@ class _TestPageState extends State<TestPage> {
 
   Widget _buildSyncTestUI() {
     // Get most recent clock correction events
-    final syncEvents = widget.timingManager.events
-        .where(
-          (e) =>
-              e.eventType == EventType.clockCorrection ||
-              e.eventType == EventType.markerSent ||
-              e.eventType == EventType.markerReceived,
-        )
-        .take(50)
-        .toList();
+    final syncEvents =
+        widget.timingManager.events
+            .where(
+              (e) =>
+                  e.eventType == EventType.clockCorrection ||
+                  e.eventType == EventType.markerSent ||
+                  e.eventType == EventType.markerReceived,
+            )
+            .take(50)
+            .toList();
 
     // Collect device IDs with clock corrections
     final deviceIds = <String>{};
@@ -248,12 +248,13 @@ class _TestPageState extends State<TestPage> {
                 ),
                 Wrap(
                   spacing: 8,
-                  children: deviceIds.map((deviceId) {
-                    return Chip(
-                      label: Text(deviceId),
-                      backgroundColor: Colors.blue.withOpacity(0.2),
-                    );
-                  }).toList(),
+                  children:
+                      deviceIds.map((deviceId) {
+                        return Chip(
+                          label: Text(deviceId),
+                          backgroundColor: Colors.blue.withAlpha(51),
+                        );
+                      }).toList(),
                 ),
               ],
             ),
@@ -261,51 +262,52 @@ class _TestPageState extends State<TestPage> {
 
         // Show sync events
         Expanded(
-          child: syncEvents.isEmpty
-              ? const Center(child: CircularProgressIndicator())
-              : ListView.builder(
-                  itemCount: syncEvents.length,
-                  itemBuilder: (context, index) {
-                    final event = syncEvents[index];
-                    IconData iconData;
-                    Color iconColor;
+          child:
+              syncEvents.isEmpty
+                  ? const Center(child: CircularProgressIndicator())
+                  : ListView.builder(
+                    itemCount: syncEvents.length,
+                    itemBuilder: (context, index) {
+                      final event = syncEvents[index];
+                      IconData iconData;
+                      Color iconColor;
 
-                    switch (event.eventType) {
-                      case EventType.clockCorrection:
-                        iconData = Icons.sync;
-                        iconColor = Colors.purple;
-                        break;
-                      case EventType.markerSent:
-                        iconData = Icons.send;
-                        iconColor = Colors.blue;
-                        break;
-                      case EventType.markerReceived:
-                        iconData = Icons.download;
-                        iconColor = Colors.green;
-                        break;
-                      default:
-                        iconData = Icons.info;
-                        iconColor = Colors.grey;
-                    }
+                      switch (event.eventType) {
+                        case EventType.clockCorrection:
+                          iconData = Icons.sync;
+                          iconColor = Colors.purple;
+                          break;
+                        case EventType.markerSent:
+                          iconData = Icons.send;
+                          iconColor = Colors.blue;
+                          break;
+                        case EventType.markerReceived:
+                          iconData = Icons.download;
+                          iconColor = Colors.green;
+                          break;
+                        default:
+                          iconData = Icons.info;
+                          iconColor = Colors.grey;
+                      }
 
-                    return ListTile(
-                      leading: Icon(iconData, color: iconColor),
-                      title: Text(
-                        event.eventType.toString(),
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                      subtitle: Text(
-                        event.description ?? '',
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      trailing: Text(
-                        '${(event.timestamp % 10000).toStringAsFixed(3)}s',
-                      ),
-                      onTap: () => _showEventDetails(event),
-                    );
-                  },
-                ),
+                      return ListTile(
+                        leading: Icon(iconData, color: iconColor),
+                        title: Text(
+                          event.eventType.toString(),
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        subtitle: Text(
+                          event.description ?? '',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        trailing: Text(
+                          '${(event.timestamp % 10000).toStringAsFixed(3)}s',
+                        ),
+                        onTap: () => _showEventDetails(event),
+                      );
+                    },
+                  ),
         ),
       ],
     );

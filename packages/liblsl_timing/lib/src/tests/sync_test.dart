@@ -2,6 +2,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
+import 'package:flutter/foundation.dart';
 import 'package:liblsl/lsl.dart';
 import '../config/constants.dart';
 import 'base_test.dart';
@@ -48,7 +49,7 @@ class SynchronizationTest extends BaseTest {
     // Create an outlet for sync markers
     _syncOutlet = await LSL.createOutlet(
       streamInfo: _syncStreamInfo!,
-      chunkSize: 0,
+      chunkSize: 1,
       maxBuffer: 360,
     );
 
@@ -56,9 +57,8 @@ class SynchronizationTest extends BaseTest {
     await Future.delayed(const Duration(milliseconds: 500));
     final streams = await LSL.resolveStreams(waitTime: 1.0, maxStreams: 20);
 
-    final syncStreams = streams
-        .where((s) => s.streamType.value == 'Sync')
-        .toList();
+    final syncStreams =
+        streams.where((s) => s.streamType.value == 'Sync').toList();
 
     // Create inlets for each sync stream
     _syncInlets = [];
@@ -67,7 +67,7 @@ class SynchronizationTest extends BaseTest {
         final inlet = await LSL.createInlet(
           streamInfo: stream,
           maxBufferSize: 360,
-          maxChunkLength: 0,
+          maxChunkLength: 1,
           recover: true,
         );
         _syncInlets.add(inlet);
@@ -188,7 +188,9 @@ class SynchronizationTest extends BaseTest {
         },
       );
     } catch (e) {
-      print('Error measuring time correction: $e');
+      if (kDebugMode) {
+        print('Error measuring time correction: $e');
+      }
     }
   }
 
@@ -256,11 +258,15 @@ class SynchronizationTest extends BaseTest {
               'timestamp': receiveLocalTime,
             });
           } catch (e) {
-            print('Error parsing marker data: $e');
+            if (kDebugMode) {
+              print('Error parsing marker data: $e');
+            }
           }
         }
       } catch (e) {
-        print('Error receiving marker: $e');
+        if (kDebugMode) {
+          print('Error receiving marker: $e');
+        }
       }
 
       await Future.delayed(const Duration(milliseconds: 1));
@@ -330,13 +336,11 @@ class SynchronizationTest extends BaseTest {
       }
 
       // Calculate statistics for LSL time differences
-      final lslTimeDiffs = offsets
-          .map((o) => o['lslTimeDiff'] as double)
-          .toList();
+      final lslTimeDiffs =
+          offsets.map((o) => o['lslTimeDiff'] as double).toList();
 
-      final localTimeDiffs = offsets
-          .map((o) => o['localTimeDiff'] as double)
-          .toList();
+      final localTimeDiffs =
+          offsets.map((o) => o['localTimeDiff'] as double).toList();
 
       final lslDiffStats = _calculateStats(lslTimeDiffs);
       final localDiffStats = _calculateStats(localTimeDiffs);
@@ -352,9 +356,10 @@ class SynchronizationTest extends BaseTest {
           'localTimeDiffStats': localDiffStats,
           'lslDriftRate': lslDriftRate,
           'localDriftRate': localDriftRate,
-          'timeSpan': finalTime != null && initialTime != null
-              ? finalTime - initialTime
-              : null,
+          'timeSpan':
+              finalTime != null && initialTime != null
+                  ? finalTime - initialTime
+                  : null,
         },
       );
     }
@@ -381,9 +386,10 @@ class SynchronizationTest extends BaseTest {
       sumSquaredDiffs += (value - mean) * (value - mean);
     }
 
-    final stdDev = (values.length > 1)
-        ? (sumSquaredDiffs / (values.length - 1)).sqrt()
-        : 0.0;
+    final stdDev =
+        (values.length > 1)
+            ? (sumSquaredDiffs / (values.length - 1)).sqrt()
+            : 0.0;
 
     return {'mean': mean, 'min': min ?? 0, 'max': max ?? 0, 'stdDev': stdDev};
   }

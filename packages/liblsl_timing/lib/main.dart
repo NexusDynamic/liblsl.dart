@@ -1,4 +1,5 @@
 // lib/main.dart
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:liblsl/lsl.dart';
 import 'src/config/app_config.dart';
@@ -15,8 +16,10 @@ void main() async {
   final timingManager = TimingManager();
 
   // Initialize LSL library
-  print('LSL Library Version: ${LSL.version}');
-  print('LSL Library Info: ${LSL.libraryInfo()}');
+  if (kDebugMode) {
+    print('LSL Library Version: ${LSL.version}');
+    print('LSL Library Info: ${LSL.libraryInfo()}');
+  }
 
   runApp(LSLTimingApp(config: config, timingManager: timingManager));
 }
@@ -26,10 +29,10 @@ class LSLTimingApp extends StatelessWidget {
   final TimingManager timingManager;
 
   const LSLTimingApp({
-    Key? key,
+    super.key,
     required this.config,
     required this.timingManager,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
