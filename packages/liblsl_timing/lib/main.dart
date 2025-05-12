@@ -31,12 +31,13 @@ void main() async {
     print('LSL Library Info: ${LSL.libraryInfo()}');
   }
 
+  await EasyLocalization.ensureInitialized();
+
   runApp(
     EasyLocalization(
       supportedLocales: [Locale('en'), Locale('da')],
       path: 'assets/translations',
       fallbackLocale: Locale('en'),
-      startLocale: Locale('en'),
       useOnlyLangCode: true,
       useFallbackTranslations: true,
       child: LSLTimingApp(config: config, timingManager: timingManager),
@@ -57,13 +58,12 @@ class LSLTimingApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'TITLE'.tr(),
+      title: 'LSL Timing Tests',
       localizationsDelegates: context.localizationDelegates,
       supportedLocales: context.supportedLocales,
       locale: context.locale,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
-        useMaterial3: true,
       ),
       home: HomePage(config: config, timingManager: timingManager),
     );

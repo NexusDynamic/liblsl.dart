@@ -62,6 +62,8 @@ class TimingManager {
   Stream<TimingEvent> get eventStream => _eventStreamController.stream;
 
   /// Calibrate time base between LSL and Flutter
+  /// In theory, this should be the same, but with a potentially different time
+  /// scale.
   Future<void> calibrateTimeBase() async {
     const measurements = 10;
     double totalOffset = 0.0;
@@ -217,9 +219,8 @@ class TimingManager {
 
   void _calculateTimeCorrectionStats() {
     // Filter events for time correction data
-    final correctionEvents = _events
-        .where((e) => e.eventType == EventType.clockCorrection)
-        .toList();
+    final correctionEvents =
+        _events.where((e) => e.eventType == EventType.clockCorrection).toList();
 
     if (correctionEvents.isEmpty) return;
 

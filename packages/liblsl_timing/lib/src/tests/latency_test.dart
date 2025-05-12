@@ -10,7 +10,8 @@ class LatencyTest extends BaseTest {
   // LSL resources
   LSLStreamInfo? _streamInfo;
   LSLIsolatedOutlet? _outlet;
-  LSLIsolatedInlet? _inlet;
+  List<LSLIsolatedInlet> _inlets = [];
+  final String _srcSuffix = '_LatencyTest';
 
   // Test variables
   int _sampleCounter = 0;
@@ -37,7 +38,7 @@ class LatencyTest extends BaseTest {
       channelCount: config.channelCount,
       sampleRate: config.sampleRate,
       channelFormat: config.channelFormat,
-      sourceId: config.deviceId,
+      sourceId: '${config.deviceId}$_srcSuffix',
     );
 
     // Create outlet if this device is a producer
@@ -51,25 +52,35 @@ class LatencyTest extends BaseTest {
 
     // Find available streams
     await Future.delayed(const Duration(milliseconds: 500));
-    final streams = await LSL.resolveStreams(waitTime: 1.0, maxStreams: 10);
+    final streams = await LSL.resolveStreams(
+      waitTime: config.streamMaxWaitTimeSeconds,
+      maxStreams: config.streamMaxStreams,
+    );
 
     // Create inlet if this device is a consumer
     if (config.isConsumer && streams.isNotEmpty) {
-      // Try to find a stream with our name but not our device ID
-      final otherStream = streams.firstWhere(
+      // Find all matching streams
+      final otherStreams = streams.where(
         (s) =>
             s.streamName == config.streamName &&
-            s.sourceId != config.deviceId &&
+            s.sourceId.endsWith(_srcSuffix) &&
             s.channelFormat == config.channelFormat,
-        orElse: () => streams.first,
       );
 
-      _inlet = await LSL.createInlet(
-        streamInfo: otherStream,
-        maxBufferSize: 360,
-        maxChunkLength: 1,
-        recover: true,
-      );
+      if (otherStreams.isNotEmpty) {
+        // Create inlets for each matching stream
+        for (final stream in otherStreams) {
+          final inlet = await LSL.createInlet(
+            streamInfo: stream,
+            maxBufferSize: 360,
+          );
+          _inlets.add(inlet);
+        }
+      } else {
+        if (kDebugMode) {
+          print('No matching streams found.');
+        }
+      }
     }
 
     timingManager.recordEvent(
@@ -93,7 +104,7 @@ class LatencyTest extends BaseTest {
     }
 
     // Start receiving samples if this device is a consumer
-    if (config.isConsumer && _inlet != null) {
+    if (config.isConsumer && _inlets.isNotEmpty) {
       _startReceiving();
     }
 
@@ -158,24 +169,28 @@ class LatencyTest extends BaseTest {
   void _startReceiving() async {
     while (_isRunning) {
       try {
-        final sample = await _inlet!.pullSample(timeout: 0.1);
+        for (LSLIsolatedInlet inlet in _inlets) {
+          final sample = await inlet.pullSample();
 
-        if (sample.isNotEmpty) {
-          // Extract the counter value (first channel)
-          final counter = sample[0].toInt();
-          final sampleId = '${_inlet!.streamInfo.sourceId}_$counter';
+          if (sample.isNotEmpty) {
+            // Extract the counter value (first channel)
+            final counter = sample[0].toInt();
+            final sampleId = '${inlet.streamInfo.sourceId}_$counter';
 
-          // Record the receive time
-          timingManager.recordEvent(
-            EventType.sampleReceived,
-            description: 'Sample $sampleId received',
-            metadata: {
-              'sampleId': sampleId,
-              'counter': counter,
-              'lslTimestamp': sample.timestamp,
-              'data': sample.data,
-            },
-          );
+            // Record the receive time
+            timingManager.recordEvent(
+              EventType.sampleReceived,
+              description: 'Sample $sampleId received',
+              metadata: {
+                'sampleId': sampleId,
+                'counter': counter,
+                'flutterTime': DateTime.now().microsecondsSinceEpoch / 1000000,
+                'lslTime': LSL.localClock(),
+                'lslTimestamp': sample.timestamp,
+                'data': sample.data,
+              },
+            );
+          }
         }
       } catch (e) {
         if (kDebugMode) {
@@ -194,11 +209,13 @@ class LatencyTest extends BaseTest {
     _sendTimer?.cancel();
     _sendTimer = null;
 
-    _inlet?.destroy();
+    for (LSLIsolatedInlet inlet in _inlets) {
+      inlet.destroy();
+    }
     _outlet?.destroy();
     _streamInfo?.destroy();
 
-    _inlet = null;
+    _inlets.clear();
     _outlet = null;
     _streamInfo = null;
   }

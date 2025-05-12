@@ -56,6 +56,3 @@ abstract class BaseTest {
     timingManager.calculateMetrics();
   }
 }
-
-// Helper function to avoid 'unawaited Future' warning
-void unawaited(Future<void> future) {}

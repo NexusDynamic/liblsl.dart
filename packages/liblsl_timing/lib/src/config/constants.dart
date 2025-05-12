@@ -63,4 +63,7 @@ class ConfigKeys {
   static const String isProducer = 'is_producer';
   static const String isConsumer = 'is_consumer';
   static const String deviceId = 'device_id';
+  static const String streamMaxWaitTimeSeconds = 'stream_max_wait_time';
+  static const String streamMaxStreams = 'stream_max_streams';
+  static const String testDurationSeconds = 'test_duration_seconds';
 }

@@ -18,7 +18,11 @@ class AppConfig {
   bool isConsumer;
 
   // Test configuration
-  int testDurationSeconds = 30;
+  int testDurationSeconds;
+
+  // Stream configuration
+  double streamMaxWaitTimeSeconds;
+  int streamMaxStreams;
 
   // Create a unique device ID for this session
   String deviceId;
@@ -33,6 +37,9 @@ class AppConfig {
     this.isProducer = true,
     this.isConsumer = true,
     this.deviceId = '',
+    this.testDurationSeconds = 10,
+    this.streamMaxWaitTimeSeconds = 5.0,
+    this.streamMaxStreams = 10,
   });
 
   // Load from SharedPreferences
@@ -58,6 +65,10 @@ class AppConfig {
           '${math.Random().nextInt(1000)}_DID',
       isProducer: prefs.getBool(ConfigKeys.isProducer) ?? true,
       isConsumer: prefs.getBool(ConfigKeys.isConsumer) ?? true,
+      testDurationSeconds: prefs.getInt(ConfigKeys.testDurationSeconds) ?? 30,
+      streamMaxWaitTimeSeconds:
+          prefs.getDouble(ConfigKeys.streamMaxWaitTimeSeconds) ?? 5.0,
+      streamMaxStreams: prefs.getInt(ConfigKeys.streamMaxStreams) ?? 15,
     );
 
     return config;
@@ -76,6 +87,12 @@ class AppConfig {
     await prefs.setBool(ConfigKeys.isProducer, isProducer);
     await prefs.setBool(ConfigKeys.isConsumer, isConsumer);
     await prefs.setString(ConfigKeys.deviceId, deviceId);
+    await prefs.setInt(ConfigKeys.testDurationSeconds, testDurationSeconds);
+    await prefs.setDouble(
+      ConfigKeys.streamMaxWaitTimeSeconds,
+      streamMaxWaitTimeSeconds,
+    );
+    await prefs.setInt(ConfigKeys.streamMaxStreams, streamMaxStreams);
   }
 
   // Helper methods for conversion

@@ -451,6 +451,38 @@ class _SettingsFormState extends State<_SettingsForm> {
           },
         ),
         Text('${widget.config.testDurationSeconds} seconds'),
+        // Stream settings
+        Text('Stream Settings:', style: Theme.of(context).textTheme.titleSmall),
+        Text('Max Wait Time (seconds):'),
+        Slider(
+          value: widget.config.streamMaxWaitTimeSeconds.toDouble(),
+          min: 1,
+          max: 60,
+          divisions: 59,
+          label: '${widget.config.streamMaxWaitTimeSeconds} seconds',
+          onChanged: (value) {
+            setState(() {
+              widget.config.streamMaxWaitTimeSeconds = value;
+            });
+          },
+        ),
+
+        Text('${widget.config.streamMaxWaitTimeSeconds} seconds'),
+        Text('Max Streams:'),
+        Slider(
+          value: widget.config.streamMaxStreams.toDouble(),
+          min: 1,
+          max: 100,
+          divisions: 99,
+          label: '${widget.config.streamMaxStreams} streams',
+          onChanged: (value) {
+            setState(() {
+              widget.config.streamMaxStreams = value.round();
+            });
+          },
+        ),
+
+        Text('${widget.config.streamMaxStreams} streams'),
 
         const SizedBox(height: 16),
         ElevatedButton(

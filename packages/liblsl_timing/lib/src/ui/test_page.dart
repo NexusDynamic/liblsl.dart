@@ -1,5 +1,6 @@
 // lib/src/ui/test_page.dart
 import 'package:flutter/material.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 import '../config/constants.dart';
 import '../data/timing_manager.dart';
 import '../tests/test_controller.dart';
@@ -50,6 +51,9 @@ class _TestPageState extends State<TestPage> {
       });
     });
 
+    // Ensure wakelock so the device doesn't sleep during the test,
+    // this is safe to call multiple times.
+    WakelockPlus.enable();
     // Start the test
     widget.testController.startTest(widget.testType);
   }

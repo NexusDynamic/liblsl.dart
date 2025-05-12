@@ -15,6 +15,7 @@ class DeviceCoordinator {
   LSLStreamInfo? _controlStreamInfo;
   LSLIsolatedOutlet? _controlOutlet;
   LSLIsolatedInlet? _controlInlet;
+  final List<LSLIsolatedInlet> _participantInlets = [];
 
   // Coordination state
   bool _isCoordinator = false;
@@ -41,7 +42,10 @@ class DeviceCoordinator {
   /// Initialize the coordinator and discover existing control streams
   Future<void> initialize() async {
     // Look for an existing control stream
-    final streams = await LSL.resolveStreams(waitTime: 10.0, maxStreams: 100);
+    final streams = await LSL.resolveStreams(
+      waitTime: config.streamMaxWaitTimeSeconds,
+      maxStreams: config.streamMaxStreams,
+    );
 
     final controlStreams =
         streams
@@ -96,7 +100,7 @@ class DeviceCoordinator {
 
     _controlOutlet = await LSL.createOutlet(
       streamInfo: _controlStreamInfo!,
-      chunkSize: 0,
+      chunkSize: 1,
       maxBuffer: 360,
     );
 
@@ -117,6 +121,43 @@ class DeviceCoordinator {
     });
   }
 
+  Future<void> _findParticipantStreams() async {
+    // Look for participant streams
+    final streams = await LSL.resolveStreams(
+      waitTime: 1,
+      maxStreams: config.streamMaxStreams,
+    );
+
+    // Filter for participant streams
+    final foundParticipantInlets = streams.where(
+      (s) =>
+          s.streamName == StreamDefaults.streamName &&
+          !s.sourceId.startsWith('Coordinator_'),
+    );
+    if (foundParticipantInlets.isNotEmpty) {
+      // Check if we already have inlets for these streams
+      for (final stream in foundParticipantInlets) {
+        if (_participantInlets.any(
+          (inlet) => inlet.streamInfo.sourceId == stream.sourceId,
+        )) {
+          continue;
+        }
+
+        // Create inlet for each participant stream
+        final inlet = await LSL.createInlet(
+          streamInfo: stream,
+          maxBufferSize: 360,
+          maxChunkLength: 1,
+          recover: true,
+        );
+        _participantInlets.add(inlet);
+      }
+      if (kDebugMode) {
+        print('Found participant streams: ${_participantInlets.length}');
+      }
+    }
+  }
+
   Future<void> _startBroadcasting() async {
     if (_controlOutlet == null) {
       throw Exception('Control outlet not initialized');
@@ -127,13 +168,13 @@ class DeviceCoordinator {
     _isTestRunning = false;
 
     // Broadcast discovery message every 1 second
-    Timer.periodic(const Duration(seconds: 1), (timer) {
+    Timer.periodic(const Duration(seconds: 2), (timer) async {
       if (!_isInitialized || _isTestRunning) {
         timer.cancel();
         return;
       }
-
-      _sendDiscoveryMessage(true);
+      await _findParticipantStreams();
+      await _sendDiscoveryMessage(true);
     });
 
     _messageStreamController.add('Broadcasting discovery message');
@@ -144,23 +185,23 @@ class DeviceCoordinator {
     _controlInlet = await LSL.createInlet<String>(
       streamInfo: controlStream,
       maxBufferSize: 360,
-      maxChunkLength: 0,
+      maxChunkLength: 1,
       recover: true,
     );
 
     // Create outlet for sending messages
     _controlStreamInfo = await LSL.createStreamInfo(
-      streamName: 'DeviceMessage',
+      streamName: StreamDefaults.controlStreamName,
       streamType: LSLContentType.markers,
       channelCount: 1,
       sampleRate: LSL_IRREGULAR_RATE,
       channelFormat: LSLChannelFormat.string,
-      sourceId: config.deviceId,
+      sourceId: 'Participant_${config.deviceId}',
     );
 
     _controlOutlet = await LSL.createOutlet(
       streamInfo: _controlStreamInfo!,
-      chunkSize: 0,
+      chunkSize: 1,
       maxBuffer: 360,
     );
 
@@ -173,11 +214,22 @@ class DeviceCoordinator {
   void _startListening() async {
     while (_isInitialized && !_messageStreamController.isClosed) {
       try {
-        final sample = await _controlInlet?.pullSample(timeout: 0.1);
+        if (!_isCoordinator) {
+          final sample = await _controlInlet?.pullSample(timeout: 0.1);
 
-        if (sample != null && sample.isNotEmpty) {
-          final message = sample[0] as String;
-          _handleMessage(message);
+          if (sample != null && sample.isNotEmpty) {
+            final message = sample[0] as String;
+            _handleMessage(message);
+          }
+        } else {
+          // Listen for messages from participant inlets
+          for (final inlet in _participantInlets) {
+            final sample = await inlet.pullSample(timeout: 0.1);
+            if (sample.isNotEmpty) {
+              final message = sample[0] as String;
+              _handleMessage(message);
+            }
+          }
         }
       } catch (e) {
         if (kDebugMode) {
@@ -231,24 +283,26 @@ class DeviceCoordinator {
   void _handleDiscoveryMessage(Map<String, dynamic> payload) {
     final deviceId = payload['deviceId'] as String?;
     final deviceName = payload['deviceName'] as String?;
-    //final isMessageCoordinator = payload['isCoordinator'] as bool? ?? false;
+    final isMessageCoordinator = payload['isCoordinator'] as bool? ?? false;
 
     if (deviceId == null || deviceName == null) return;
-
-    if (!_connectedDevices.contains(deviceId)) {
-      _connectedDevices.add(deviceId);
-      final notification = 'Device $deviceName ($deviceId) discovered';
-      _messageStreamController.add(notification);
-
-      timingManager.recordEvent(
-        EventType.testStarted,
-        description: notification,
-        metadata: {'deviceId': deviceId, 'deviceName': deviceName},
-      );
+    if (isMessageCoordinator) {
+      _messageStreamController.add('Discovered coordinator: $deviceName');
     }
 
     // If we're the coordinator, send the current device list
     if (_isCoordinator) {
+      if (!_connectedDevices.contains(deviceId)) {
+        _connectedDevices.add(deviceId);
+        final notification = 'Device $deviceName ($deviceId) discovered';
+        _messageStreamController.add(notification);
+
+        timingManager.recordEvent(
+          EventType.testStarted,
+          description: notification,
+          metadata: {'deviceId': deviceId, 'deviceName': deviceName},
+        );
+      }
       _sendMessage(CoordinationMessageType.deviceList, {
         'devices': _connectedDevices,
       });
@@ -476,6 +530,9 @@ class DeviceCoordinator {
     _controlInlet?.destroy();
     _controlOutlet?.destroy();
     _controlStreamInfo?.destroy();
+    for (var inlet in _participantInlets) {
+      inlet.destroy();
+    }
 
     if (!_messageStreamController.isClosed) {
       _messageStreamController.close();
