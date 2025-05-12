@@ -374,6 +374,22 @@ class _SettingsFormState extends State<_SettingsForm> {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        // Langage selection
+        DropdownButton(
+          value: context.locale,
+          items:
+              context.supportedLocales.map((locale) {
+                return DropdownMenuItem(
+                  value: locale,
+                  child: Text(locale.languageCode.toUpperCase()),
+                );
+              }).toList(),
+          onChanged: (locale) {
+            if (locale != null) {
+              context.setLocale(locale);
+            }
+          },
+        ),
         TextField(
           controller: _deviceNameController,
           decoration: InputDecoration(labelText: 'DEV_NAME'.tr()),

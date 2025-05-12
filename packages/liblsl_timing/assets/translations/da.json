@@ -1,0 +1,22 @@
+{
+    "TITLE": "LSL Tidstester",
+    "CONN_DEV": "Tilsluttede enheder",
+    "ROLE": "Rolle",
+    "DEV_ROLE": "Enhedsrolle",
+    "ROLE_COORD": "Koordinator",
+    "ROLE_PART": "Deltager",
+    "SIG_READY": "Signal klar",
+    "RESULTS_VIEW": "Vis resultater",
+    "DATA_EXPORT": "Eksporter data",
+    "CANCEL": "Annuller",
+    "START_COORD_ONLY": "Kun koordinatoren kan starte tests",
+    "SETTINGS_DEV": "Enhedsindstillinger",
+    "EXPORTED_TO": "Data eksporteret til",
+    "ERR_EXPORT": "Eksportfejl",
+    "DEV_NAME": "Enhedsnavn",
+    "DEV_ID": "Enheds-id",
+    "STREAM_NAME": "Streamnavn",
+    "STREAM_TYPE": "Streamtype",
+    "CHANNEL_COUNT": "Antal kanaler",
+    "SAMPLE_RATE_HZ": "Prøvefrekvens (Hz)"
+}
