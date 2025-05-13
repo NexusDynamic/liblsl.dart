@@ -4,13 +4,15 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:liblsl/lsl.dart';
 import 'package:liblsl_timing/src/config/constants.dart';
+import 'package:synchronized/synchronized.dart';
 import 'base_test.dart';
 
 class LatencyTest extends BaseTest {
   // LSL resources
   LSLStreamInfo? _streamInfo;
   LSLIsolatedOutlet? _outlet;
-  List<LSLIsolatedInlet> _inlets = [];
+  final List<LSLIsolatedInlet> _inlets = [];
+  final Lock _lock = Lock();
   final String _srcSuffix = '_LatencyTest';
 
   // Test variables
@@ -74,7 +76,9 @@ class LatencyTest extends BaseTest {
             streamInfo: stream,
             maxBufferSize: 360,
           );
-          _inlets.add(inlet);
+          await _lock.synchronized(() {
+            _inlets.add(inlet);
+          });
         }
       } else {
         if (kDebugMode) {
@@ -124,7 +128,7 @@ class LatencyTest extends BaseTest {
     );
   }
 
-  void _sendSample(Timer timer) {
+  void _sendSample(Timer timer) async {
     if (!_isRunning) {
       timer.cancel();
       return;
@@ -169,7 +173,7 @@ class LatencyTest extends BaseTest {
   void _startReceiving() async {
     while (_isRunning) {
       try {
-        for (LSLIsolatedInlet inlet in _inlets) {
+        for (final LSLIsolatedInlet inlet in List.unmodifiable(_inlets)) {
           final sample = await inlet.pullSample();
 
           if (sample.isNotEmpty) {
@@ -195,6 +199,8 @@ class LatencyTest extends BaseTest {
       } catch (e) {
         if (kDebugMode) {
           print('Error receiving sample: $e');
+          // print backtrace
+          print(StackTrace.current);
         }
       }
 
@@ -208,14 +214,16 @@ class LatencyTest extends BaseTest {
 
     _sendTimer?.cancel();
     _sendTimer = null;
-
-    for (LSLIsolatedInlet inlet in _inlets) {
-      inlet.destroy();
-    }
+    // no further operations should be performed on the inlets
+    await _lock.synchronized(() {
+      for (LSLIsolatedInlet inlet in _inlets) {
+        inlet.destroy();
+      }
+      _inlets.clear();
+    });
     _outlet?.destroy();
     _streamInfo?.destroy();
 
-    _inlets.clear();
     _outlet = null;
     _streamInfo = null;
   }

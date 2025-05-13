@@ -1,4 +1,5 @@
 // lib/src/ui/home_page.dart
+import 'package:collection/collection.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:liblsl_timing/src/ui/test_page.dart';
@@ -31,6 +32,7 @@ class _HomePageState extends State<HomePage> {
 
   final List<String> _messages = [];
   List<String> _connectedDevices = [];
+  List<bool> _readyDevices = [];
   bool _isInitializing = true;
   bool _isReady = false;
 
@@ -57,6 +59,9 @@ class _HomePageState extends State<HomePage> {
       // Listen for coordinator messages
       _coordinator.messageStream.listen((message) {
         setState(() {
+          _readyDevices = _coordinator.readyDevices;
+          _connectedDevices = _coordinator.connectedDevices;
+
           _messages.add(message);
           if (_messages.length > 100) {
             _messages.removeAt(0);
@@ -66,22 +71,21 @@ class _HomePageState extends State<HomePage> {
 
       _coordinator.onNavigateToTest((testType) {
         // Only navigate if we're not the coordinator (coordinator already navigates in _startTest)
-        if (!_coordinator.isCoordinator) {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder:
-                  (context) => TestPage(
-                    testType: testType,
-                    testController: _testController,
-                    timingManager: widget.timingManager,
-                  ),
+
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => TestPage(
+              testType: testType,
+              testController: _testController,
+              timingManager: widget.timingManager,
             ),
-          );
-        }
+          ),
+        );
       });
 
       // Update connected devices when the list might have changed
+      _readyDevices = _coordinator.readyDevices;
       _connectedDevices = _coordinator.connectedDevices;
 
       // Listen for test status updates
@@ -96,6 +100,7 @@ class _HomePageState extends State<HomePage> {
 
       setState(() {
         _isInitializing = false;
+        _readyDevices = _coordinator.readyDevices;
         _connectedDevices = _coordinator.connectedDevices;
       });
     });
@@ -114,17 +119,16 @@ class _HomePageState extends State<HomePage> {
           IconButton(icon: const Icon(Icons.save), onPressed: _exportData),
         ],
       ),
-      body:
-          _isInitializing
-              ? const Center(child: CircularProgressIndicator())
-              : _buildBody(),
+      body: _isInitializing
+          ? const Center(child: CircularProgressIndicator())
+          : _buildBody(),
       floatingActionButton:
           _coordinator.isCoordinator && !_testController.isTestRunning
-              ? FloatingActionButton(
-                onPressed: _showTestSelection,
-                child: const Icon(Icons.play_arrow),
-              )
-              : null,
+          ? FloatingActionButton(
+              onPressed: _showTestSelection,
+              child: const Icon(Icons.play_arrow),
+            )
+          : null,
     );
   }
 
@@ -144,16 +148,23 @@ class _HomePageState extends State<HomePage> {
               ),
               Wrap(
                 spacing: 8,
-                children:
-                    _connectedDevices.map((device) {
-                      return Chip(
-                        label: Text(device),
-                        backgroundColor:
-                            device == widget.config.deviceId
-                                ? Colors.green.withAlpha(76)
-                                : Colors.grey.withAlpha(76),
-                      );
-                    }).toList(),
+                children: _connectedDevices.mapIndexed((index, device) {
+                  final isReady = _readyDevices[index];
+                  return Chip(
+                    label: Text(device),
+                    deleteIcon: isReady
+                        ? const Icon(Icons.check_circle, color: Colors.green)
+                        : const Icon(Icons.remove_circle, color: Colors.red),
+                    onDeleted: () {},
+                    backgroundColor: device == widget.config.deviceId
+                        ? _coordinator.isCoordinator
+                              ? Colors.blue.withAlpha(76)
+                              : Colors.green.withAlpha(76)
+                        : device == _coordinator.coordinatorId
+                        ? Colors.blue.withAlpha(76)
+                        : Colors.grey.withAlpha(76),
+                  );
+                }).toList(),
               ),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -163,10 +174,9 @@ class _HomePageState extends State<HomePage> {
                         ? '${'ROLE'.tr()}: ${'ROLE_COORD'.tr()}'
                         : '${'ROLE'.tr()}: ${'ROLE_PART'.tr()}',
                     style: TextStyle(
-                      color:
-                          _coordinator.isCoordinator
-                              ? Colors.green
-                              : Colors.blue,
+                      color: _coordinator.isCoordinator
+                          ? Colors.blue
+                          : Colors.green,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
@@ -202,11 +212,10 @@ class _HomePageState extends State<HomePage> {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder:
-                          (context) => ResultsPage(
-                            timingManager: widget.timingManager,
-                            dataExporter: _dataExporter,
-                          ),
+                      builder: (context) => ResultsPage(
+                        timingManager: widget.timingManager,
+                        dataExporter: _dataExporter,
+                      ),
                     ),
                   );
                 },
@@ -268,12 +277,11 @@ class _HomePageState extends State<HomePage> {
       Navigator.push(
         context,
         MaterialPageRoute(
-          builder:
-              (context) => TestPage(
-                testType: testType,
-                testController: _testController,
-                timingManager: widget.timingManager,
-              ),
+          builder: (context) => TestPage(
+            testType: testType,
+            testController: _testController,
+            timingManager: widget.timingManager,
+          ),
         ),
       );
     } else {
@@ -377,13 +385,12 @@ class _SettingsFormState extends State<_SettingsForm> {
         // Langage selection
         DropdownButton(
           value: context.locale,
-          items:
-              context.supportedLocales.map((locale) {
-                return DropdownMenuItem(
-                  value: locale,
-                  child: Text(locale.languageCode.toUpperCase()),
-                );
-              }).toList(),
+          items: context.supportedLocales.map((locale) {
+            return DropdownMenuItem(
+              value: locale,
+              child: Text(locale.languageCode.toUpperCase()),
+            );
+          }).toList(),
           onChanged: (locale) {
             if (locale != null) {
               context.setLocale(locale);

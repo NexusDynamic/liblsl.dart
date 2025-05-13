@@ -2,6 +2,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
+import 'package:synchronized/synchronized.dart';
 import 'package:flutter/widgets.dart';
 import 'package:liblsl/lsl.dart';
 import '../config/constants.dart';
@@ -44,6 +45,8 @@ class TimingEvent {
 class TimingManager {
   // Collection to store all timing events
   final List<TimingEvent> _events = [];
+
+  final _lock = Lock();
 
   // Metrics calculated from events
   final Map<String, List<double>> _metrics = {};
@@ -99,20 +102,21 @@ class TimingManager {
       metadata: metadata,
       eventId: eventId,
     );
-
-    _events.add(event);
+    await _lock.synchronized(() {
+      _events.add(event);
+    });
     _eventStreamController.add(event);
     return event;
   }
 
   /// Record an event with a specific timestamp
-  TimingEvent recordTimestampedEvent(
+  Future<TimingEvent> recordTimestampedEvent(
     EventType eventType,
     double timestamp, {
     String? description,
     Map<String, dynamic>? metadata,
     String? eventId,
-  }) {
+  }) async {
     final event = TimingEvent(
       timestamp: timestamp,
       eventType: eventType,
@@ -120,8 +124,9 @@ class TimingManager {
       metadata: metadata,
       eventId: eventId,
     );
-
-    _events.add(event);
+    await _lock.synchronized(() {
+      _events.add(event);
+    });
     _eventStreamController.add(event);
     return event;
   }
@@ -131,7 +136,7 @@ class TimingManager {
     PointerEvent pointerEvent, {
     String? description,
     String? eventId,
-  }) {
+  }) async {
     final localTime = DateTime.now().microsecondsSinceEpoch / 1000000;
     final platformTime = pointerEvent.timeStamp.inMicroseconds / 1000000;
 
@@ -145,14 +150,17 @@ class TimingManager {
       },
       eventId: eventId,
     );
-
-    _events.add(event);
+    await _lock.synchronized(() {
+      _events.add(event);
+    });
     _eventStreamController.add(event);
   }
 
   /// Reset all collected timing data
-  void reset() {
-    _events.clear();
+  void reset() async {
+    await _lock.synchronized(() {
+      _events.clear();
+    });
     _metrics.clear();
   }
 
@@ -183,7 +191,7 @@ class TimingManager {
     if (matchById) {
       final startEvents = <String, TimingEvent>{};
 
-      for (final event in _events) {
+      for (final event in events) {
         final sampleId = event.metadata?['sampleId'] as String?;
         if (sampleId == null) continue;
 
@@ -197,13 +205,14 @@ class TimingManager {
         }
       }
     } else {
+      final evts = events;
       // Simple sequential matching
-      for (int i = 0; i < _events.length; i++) {
-        final event = _events[i];
+      for (int i = 0; i < evts.length; i++) {
+        final event = evts[i];
         if (event.eventType == startEventType) {
           // Find the next matching end event
-          for (int j = i + 1; j < _events.length; j++) {
-            final endEvent = _events[j];
+          for (int j = i + 1; j < evts.length; j++) {
+            final endEvent = evts[j];
             if (endEvent.eventType == endEventType) {
               final latency = endEvent.timestamp - event.timestamp;
               latencies.add(latency);
@@ -219,8 +228,9 @@ class TimingManager {
 
   void _calculateTimeCorrectionStats() {
     // Filter events for time correction data
-    final correctionEvents =
-        _events.where((e) => e.eventType == EventType.clockCorrection).toList();
+    final correctionEvents = events
+        .where((e) => e.eventType == EventType.clockCorrection)
+        .toList();
 
     if (correctionEvents.isEmpty) return;
 

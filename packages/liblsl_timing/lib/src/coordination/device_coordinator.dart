@@ -16,13 +16,14 @@ class DeviceCoordinator {
   LSLIsolatedOutlet? _controlOutlet;
   LSLIsolatedInlet? _controlInlet;
   final List<LSLIsolatedInlet> _participantInlets = [];
-
+  String _coordinatorId = '';
   // Coordination state
   bool _isCoordinator = false;
   bool _isInitialized = false;
   bool _isReady = false;
   bool _isTestRunning = false;
   final List<String> _connectedDevices = [];
+  final List<bool> _readyDevices = [];
 
   // Stream controller for messages
   final StreamController<String> _messageStreamController =
@@ -32,7 +33,9 @@ class DeviceCoordinator {
   bool get isCoordinator => _isCoordinator;
   bool get isInitialized => _isInitialized;
   bool get isReady => _isReady;
+  String get coordinatorId => _coordinatorId;
   List<String> get connectedDevices => List.unmodifiable(_connectedDevices);
+  List<bool> get readyDevices => List.unmodifiable(_readyDevices);
   Stream<String> get messageStream => _messageStreamController.stream;
 
   Function(TestType)? _onNavigateToTest;
@@ -47,37 +50,41 @@ class DeviceCoordinator {
       maxStreams: config.streamMaxStreams,
     );
 
-    final controlStreams =
-        streams
-            .where(
-              (s) =>
-                  s.streamName == StreamDefaults.controlStreamName &&
-                  s.streamType == LSLContentType.markers &&
-                  s.sourceId != 'Coordinator_${config.deviceId}',
-            )
-            .toList();
+    final controlStreams = streams
+        .where(
+          (s) =>
+              s.streamName == StreamDefaults.controlStreamName &&
+              s.streamType == LSLContentType.markers &&
+              s.sourceId != 'Coordinator_${config.deviceId}' &&
+              !s.sourceId.startsWith('Participant_'),
+        )
+        .toList();
     if (kDebugMode) {
       print(controlStreams);
     }
     if (controlStreams.isEmpty) {
       // No existing coordinator, become the coordinator
       _isCoordinator = true;
+      _coordinatorId = config.deviceId;
       await _setupCoordinator();
     } else {
       // Join existing coordination network
+      _isCoordinator = false;
+      _coordinatorId = controlStreams.first.sourceId.replaceFirst(
+        'Coordinator_',
+        '',
+      );
       await _joinCoordination(controlStreams.first);
     }
-
-    // Start listening for coordination messages
-    _startListening();
     _isInitialized = true;
+    // Start listening for coordination messages
+    unawaited(_startListening());
 
     timingManager.recordEvent(
       EventType.testStarted,
-      description:
-          _isCoordinator
-              ? 'Initialized as coordinator'
-              : 'Joined coordination network',
+      description: _isCoordinator
+          ? 'Initialized as coordinator'
+          : 'Joined coordination network',
       metadata: {'isCoordinator': _isCoordinator},
     );
   }
@@ -106,19 +113,25 @@ class DeviceCoordinator {
 
     // Add self to connected devices
     _connectedDevices.add(config.deviceId);
+    _readyDevices.add(false);
 
     // Send coordinator announcement
-    _startBroadcasting();
+    unawaited(_startBroadcasting());
 
     _messageStreamController.add('You are the test coordinator');
   }
 
-  Future<void> _sendDiscoveryMessage(bool isCoordinator) async {
-    await _sendMessage(CoordinationMessageType.discovery, {
-      'deviceId': config.deviceId,
-      'deviceName': config.deviceName,
-      'isCoordinator': isCoordinator,
-    });
+  Future<void> _sendDiscoveryMessage() async {
+    await _sendMessage(
+      _isCoordinator
+          ? CoordinationMessageType.discovery
+          : CoordinationMessageType.join,
+      {
+        'deviceId': config.deviceId,
+        'deviceName': config.deviceName,
+        'isCoordinator': _isCoordinator,
+      },
+    );
   }
 
   Future<void> _findParticipantStreams() async {
@@ -127,11 +140,17 @@ class DeviceCoordinator {
       waitTime: 1,
       maxStreams: config.streamMaxStreams,
     );
+    if (streams.isEmpty) {
+      if (kDebugMode) {
+        print('No participant streams found');
+      }
+      return;
+    }
 
     // Filter for participant streams
     final foundParticipantInlets = streams.where(
       (s) =>
-          s.streamName == StreamDefaults.streamName &&
+          s.streamName == StreamDefaults.controlStreamName &&
           !s.sourceId.startsWith('Coordinator_'),
     );
     if (foundParticipantInlets.isNotEmpty) {
@@ -142,7 +161,9 @@ class DeviceCoordinator {
         )) {
           continue;
         }
-
+        if (kDebugMode) {
+          print('Found new participant stream: ${stream.sourceId}');
+        }
         // Create inlet for each participant stream
         final inlet = await LSL.createInlet(
           streamInfo: stream,
@@ -151,9 +172,6 @@ class DeviceCoordinator {
           recover: true,
         );
         _participantInlets.add(inlet);
-      }
-      if (kDebugMode) {
-        print('Found participant streams: ${_participantInlets.length}');
       }
     }
   }
@@ -173,8 +191,10 @@ class DeviceCoordinator {
         timer.cancel();
         return;
       }
-      await _findParticipantStreams();
-      await _sendDiscoveryMessage(true);
+      if (_isCoordinator) {
+        await _findParticipantStreams();
+      }
+      await _sendDiscoveryMessage();
     });
 
     _messageStreamController.add('Broadcasting discovery message');
@@ -206,38 +226,43 @@ class DeviceCoordinator {
     );
 
     // Send join message
-    await _sendDiscoveryMessage(false);
+    _startBroadcasting();
 
     _messageStreamController.add('Joined test coordination network');
   }
 
-  void _startListening() async {
+  Future<void> _startListening() async {
     while (_isInitialized && !_messageStreamController.isClosed) {
-      try {
-        if (!_isCoordinator) {
-          final sample = await _controlInlet?.pullSample(timeout: 0.1);
+      // Don't listen for messages if the test is running
+      if (!_isTestRunning) {
+        try {
+          if (!_isCoordinator) {
+            final sample = await _controlInlet?.pullSample();
 
-          if (sample != null && sample.isNotEmpty) {
-            final message = sample[0] as String;
-            _handleMessage(message);
-          }
-        } else {
-          // Listen for messages from participant inlets
-          for (final inlet in _participantInlets) {
-            final sample = await inlet.pullSample(timeout: 0.1);
-            if (sample.isNotEmpty) {
+            if (sample != null && sample.isNotEmpty) {
               final message = sample[0] as String;
               _handleMessage(message);
             }
+          } else {
+            // Listen for messages from participant inlets
+            for (final LSLIsolatedInlet inlet in List.unmodifiable(
+              _participantInlets,
+            )) {
+              final sample = await inlet.pullSample();
+              if (sample.isNotEmpty) {
+                final message = sample[0] as String;
+                _handleMessage(message);
+              }
+            }
           }
-        }
-      } catch (e) {
-        if (kDebugMode) {
-          print('Error in coordination message handling: $e');
+        } catch (e) {
+          if (kDebugMode) {
+            print('Error in coordination message handling: $e');
+          }
         }
       }
 
-      await Future.delayed(const Duration(milliseconds: 10));
+      await Future.delayed(const Duration(milliseconds: 50));
     }
   }
 
@@ -281,35 +306,11 @@ class DeviceCoordinator {
   }
 
   void _handleDiscoveryMessage(Map<String, dynamic> payload) {
-    final deviceId = payload['deviceId'] as String?;
-    final deviceName = payload['deviceName'] as String?;
-    final isMessageCoordinator = payload['isCoordinator'] as bool? ?? false;
-
-    if (deviceId == null || deviceName == null) return;
-    if (isMessageCoordinator) {
-      _messageStreamController.add('Discovered coordinator: $deviceName');
-    }
-
-    // If we're the coordinator, send the current device list
-    if (_isCoordinator) {
-      if (!_connectedDevices.contains(deviceId)) {
-        _connectedDevices.add(deviceId);
-        final notification = 'Device $deviceName ($deviceId) discovered';
-        _messageStreamController.add(notification);
-
-        timingManager.recordEvent(
-          EventType.testStarted,
-          description: notification,
-          metadata: {'deviceId': deviceId, 'deviceName': deviceName},
-        );
-      }
-      _sendMessage(CoordinationMessageType.deviceList, {
-        'devices': _connectedDevices,
-      });
-    }
+    return;
   }
 
-  void _handleJoinMessage(Map<String, dynamic> payload) {
+  void _handleJoinMessage(Map<String, dynamic> payload) async {
+    if (!_isCoordinator) return;
     final deviceId = payload['deviceId'] as String?;
     final deviceName = payload['deviceName'] as String?;
 
@@ -317,6 +318,7 @@ class DeviceCoordinator {
 
     if (!_connectedDevices.contains(deviceId)) {
       _connectedDevices.add(deviceId);
+      _readyDevices.add(false);
       final notification = 'Device $deviceName ($deviceId) joined';
       _messageStreamController.add(notification);
 
@@ -326,46 +328,80 @@ class DeviceCoordinator {
         metadata: {'deviceId': deviceId, 'deviceName': deviceName},
       );
 
-      // If we're the coordinator, send the updated device list
-      if (_isCoordinator) {
-        _sendMessage(CoordinationMessageType.deviceList, {
-          'devices': _connectedDevices,
-        });
-      }
+      // Send the updated device list to participants.
+      await _sendMessage(CoordinationMessageType.deviceList, {
+        'devices': _connectedDevices,
+        'readyDevices': _readyDevices,
+      });
     }
   }
 
   void _handleDeviceListMessage(Map<String, dynamic> payload) {
+    if (_isCoordinator) return;
     final devices = payload['devices'] as List<dynamic>?;
+    final readyDevices = payload['readyDevices'] as List<dynamic>?;
 
+    if (kDebugMode) {
+      print('Received device list: $devices');
+    }
     if (devices == null) return;
 
     _connectedDevices.clear();
     _connectedDevices.addAll(devices.cast<String>());
 
+    if (readyDevices != null) {
+      _readyDevices.clear();
+      _readyDevices.addAll(readyDevices.cast<bool>());
+    }
+
     final notification = 'Updated device list: ${_connectedDevices.join(', ')}';
     _messageStreamController.add(notification);
   }
 
-  void _handleReadyMessage(Map<String, dynamic> payload) {
+  void _handleReadyMessage(Map<String, dynamic> payload) async {
+    if (!_isCoordinator) return;
     final deviceId = payload['deviceId'] as String?;
     final deviceName = payload['deviceName'] as String?;
 
     if (deviceId == null || deviceName == null) return;
 
+    // Mark the device as ready
+    final index = _connectedDevices.indexOf(deviceId);
+    if (index != -1) {
+      _readyDevices[index] = true;
+    }
+
     final notification = 'Device $deviceName ($deviceId) is ready';
     _messageStreamController.add(notification);
+    // Send the updated device list to participants.
+    await _sendMessage(CoordinationMessageType.deviceList, {
+      'devices': _connectedDevices,
+      'readyDevices': _readyDevices,
+    });
 
     // If coordinator, check if all devices are ready
     if (_isCoordinator && _allDevicesReady()) {
       _messageStreamController.add(
-        'All devices ready, starting test in 3 seconds',
+        'All devices ready, starting test in 5 seconds',
       );
 
       // Schedule test start
-      Future.delayed(const Duration(seconds: 3), () {
-        final testStartTime = DateTime.now().millisecondsSinceEpoch + 1000;
+      Future.delayed(const Duration(seconds: 3), () async {
+        final testStartTime = DateTime.now().millisecondsSinceEpoch + 2000;
+        _readyDevices.fillRange(0, _connectedDevices.length, false);
+        await _sendMessage(CoordinationMessageType.deviceList, {
+          'devices': _connectedDevices,
+          'readyDevices': _readyDevices,
+        });
         _sendMessage(CoordinationMessageType.startTest, {
+          'testType': TestType.latency.index,
+          'startTimeMs': testStartTime,
+          'testConfig': {
+            'durationSeconds': config.testDurationSeconds,
+            'sampleRate': config.sampleRate,
+          },
+        });
+        _handleStartTestMessage({
           'testType': TestType.latency.index,
           'startTimeMs': testStartTime,
           'testConfig': {
@@ -378,8 +414,8 @@ class DeviceCoordinator {
   }
 
   bool _allDevicesReady() {
-    // In a real implementation, track ready state for each device
-    return true;
+    // Check if all devices are ready (excluding the coordinator)
+    return _connectedDevices.length - 1 == _readyDevices.where((r) => r).length;
   }
 
   void _handleStartTestMessage(Map<String, dynamic> payload) {
@@ -388,6 +424,7 @@ class DeviceCoordinator {
     final testConfig = payload['testConfig'] as Map<String, dynamic>?;
 
     if (testTypeIndex == null || startTimeMs == null) return;
+    _isReady = false;
 
     final testType = TestType.values[testTypeIndex];
     final now = DateTime.now().millisecondsSinceEpoch;
@@ -407,7 +444,7 @@ class DeviceCoordinator {
     }
   }
 
-  void _startTest(TestType testType, Map<String, dynamic>? testConfig) {
+  void _startTest(TestType testType, Map<String, dynamic>? testConfig) async {
     final notification = 'TEST STARTED: ${testType.displayName}';
     _messageStreamController.add(notification);
 
@@ -424,7 +461,7 @@ class DeviceCoordinator {
     _onNavigateToTest?.call(testType);
   }
 
-  void _handleStopTestMessage(Map<String, dynamic> payload) {
+  void _handleStopTestMessage(Map<String, dynamic> payload) async {
     final testTypeIndex = payload['testType'] as int?;
 
     if (testTypeIndex == null) return;
@@ -486,6 +523,12 @@ class DeviceCoordinator {
     if (!_isCoordinator) {
       throw Exception('Only the coordinator can start tests');
     }
+    _isReady = false;
+    _readyDevices.fillRange(0, _connectedDevices.length, false);
+    await _sendMessage(CoordinationMessageType.deviceList, {
+      'devices': _connectedDevices,
+      'readyDevices': _readyDevices,
+    });
 
     final startTimeMs = DateTime.now().millisecondsSinceEpoch + 3000;
 
@@ -499,6 +542,14 @@ class DeviceCoordinator {
     });
     _isTestRunning = true;
     _messageStreamController.add('Starting test in 3 seconds');
+    _handleStartTestMessage({
+      'testType': testType.index,
+      'startTimeMs': startTimeMs,
+      'testConfig': {
+        'durationSeconds': config.testDurationSeconds,
+        'sampleRate': config.sampleRate,
+      },
+    });
   }
 
   /// Send test results to other devices
