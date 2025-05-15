@@ -563,6 +563,20 @@ class DeviceCoordinator {
     _onTestStop = callback;
   }
 
+  void testCompleted(TestType testType) {
+    _isTestRunning = false;
+    _isReady = false;
+    _messageStreamController.add('Test completed: ${testType.displayName}');
+    timingManager.recordEvent(
+      EventType.testCompleted,
+      description: 'Test completed: ${testType.displayName}',
+      metadata: {'testType': testType.toString()},
+    );
+    _startBroadcasting();
+    _startListening();
+    _onTestStop?.call(testType);
+  }
+
   /// Dispose resources
   void dispose() {
     _isInitialized = false;

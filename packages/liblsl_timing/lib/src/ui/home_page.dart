@@ -95,8 +95,6 @@ class _HomePageState extends State<HomePage> {
       });
 
       _coordinator.onNavigateToTest((testType) {
-        // Only navigate if we're not the coordinator (coordinator already navigates in _startTest)
-
         Navigator.push(
           context,
           MaterialPageRoute(
@@ -298,17 +296,6 @@ class _HomePageState extends State<HomePage> {
   void _startTest(TestType testType) {
     if (_coordinator.isCoordinator) {
       _coordinator.startTest(testType);
-
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => TestPage(
-            testType: testType,
-            testController: _testController,
-            timingManager: widget.timingManager,
-          ),
-        ),
-      );
     } else {
       ScaffoldMessenger.of(
         context,
@@ -337,12 +324,18 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Future<void> _shareFile(String path, String description) async {
-    final box = context.findRenderObject() as RenderBox?;
+  Future<void> _shareFiles(List<String> paths, String description) async {
+    final Size windowSize = MediaQueryData.fromView(View.of(context)).size;
     final params = ShareParams(
-      text: 'Exported $description file.',
-      files: [XFile(path)],
-      sharePositionOrigin: box!.localToGlobal(Offset.zero) & box.size,
+      subject: 'Exported $description',
+      title: 'Exported $description',
+      files: paths.map((file) => XFile(file)).toList(),
+      sharePositionOrigin: Rect.fromLTWH(
+        windowSize.width / 2 - 100,
+        windowSize.height - 200,
+        200,
+        100,
+      ),
     );
     // await until dialog is closed
     await SharePlus.instance.share(params);
@@ -358,8 +351,7 @@ class _HomePageState extends State<HomePage> {
             content: Text('${'EXPORTED_TO'.tr()}:\n$eventsPath\n$metricsPath'),
           ),
         );
-        await _shareFile(eventsPath, 'events');
-        await _shareFile(metricsPath, 'metrics');
+        await _shareFiles([eventsPath, metricsPath], 'events and metrics');
       }
     } catch (e) {
       if (mounted) {

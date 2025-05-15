@@ -39,7 +39,7 @@ class SynchronizationTest extends BaseTest {
     // Create a sync stream
     _syncStreamInfo = await LSL.createStreamInfo(
       streamName: '${config.deviceName}_Sync',
-      streamType: LSLContentType.custom('Sync'),
+      streamType: LSLContentType.markers,
       channelCount: 1,
       sampleRate: LSL_IRREGULAR_RATE,
       channelFormat: LSLChannelFormat.string,
@@ -54,8 +54,8 @@ class SynchronizationTest extends BaseTest {
     );
 
     // Find all available sync streams
-    await Future.delayed(const Duration(milliseconds: 500));
-    final streams = await LSL.resolveStreams(waitTime: 1.0, maxStreams: 20);
+    await Future.delayed(const Duration(milliseconds: 1000));
+    final streams = await LSL.resolveStreams(waitTime: 5.0, maxStreams: 20);
 
     final syncStreams = streams
         .where((s) => s.streamType.value == 'Sync')
@@ -219,6 +219,7 @@ class SynchronizationTest extends BaseTest {
             final receiveLocalTime =
                 DateTime.now().microsecondsSinceEpoch / 1000000;
             final receiveLslTime = LSL.localClock();
+            final sendLslTimestamp = sample.timestamp;
             final localOffset = receiveLslTime - receiveLocalTime;
 
             // Calculate time differences
@@ -243,6 +244,7 @@ class SynchronizationTest extends BaseTest {
                 'lslTimeDiff': lslTimeDiff,
                 'offsetDiff': offsetDiff,
                 'sampleTimestamp': sample.timestamp,
+                'sendLslTimestamp': sendLslTimestamp,
               },
             );
 
