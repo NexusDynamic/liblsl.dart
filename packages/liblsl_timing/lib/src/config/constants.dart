@@ -40,6 +40,7 @@ enum EventType {
   markerSent,
   markerReceived,
   clockCorrection,
+  initialized,
 }
 
 // LSL Stream configuration defaults

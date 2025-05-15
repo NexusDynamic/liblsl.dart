@@ -2,6 +2,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
+import 'package:liblsl_timing/src/config/app_config.dart';
 import 'package:synchronized/synchronized.dart';
 import 'package:flutter/widgets.dart';
 import 'package:liblsl/lsl.dart';
@@ -55,6 +56,8 @@ class TimingManager {
   final StreamController<TimingEvent> _eventStreamController =
       StreamController<TimingEvent>.broadcast();
 
+  AppConfig config;
+
   // Base time offset to align LSL and Flutter times
   double _timeBaseOffset = 0.0;
   bool _timeBaseCalibrated = false;
@@ -63,6 +66,9 @@ class TimingManager {
   List<TimingEvent> get events => List.unmodifiable(_events);
   Map<String, List<double>> get metrics => Map.unmodifiable(_metrics);
   Stream<TimingEvent> get eventStream => _eventStreamController.stream;
+
+  /// Initialize the timing manager
+  TimingManager(this.config);
 
   /// Calibrate time base between LSL and Flutter
   /// In theory, this should be the same, but with a potentially different time
@@ -88,6 +94,13 @@ class TimingManager {
     );
   }
 
+  Map<String, dynamic> _injectMetadata(Map<String, dynamic>? metadata) {
+    final injectedMetadata = metadata ?? {};
+    injectedMetadata['reportingDeviceId'] = config.deviceId;
+    injectedMetadata['reportingDeviceName'] = config.deviceName;
+    return injectedMetadata;
+  }
+
   /// Record a new timing event with the current timestamp
   Future<TimingEvent> recordEvent(
     EventType eventType, {
@@ -99,7 +112,7 @@ class TimingManager {
       timestamp: DateTime.now().microsecondsSinceEpoch / 1000000,
       eventType: eventType,
       description: description,
-      metadata: metadata,
+      metadata: _injectMetadata(metadata),
       eventId: eventId,
     );
     await _lock.synchronized(() {
@@ -121,7 +134,7 @@ class TimingManager {
       timestamp: timestamp,
       eventType: eventType,
       description: description,
-      metadata: metadata,
+      metadata: _injectMetadata(metadata),
       eventId: eventId,
     );
     await _lock.synchronized(() {
@@ -139,15 +152,16 @@ class TimingManager {
   }) async {
     final localTime = DateTime.now().microsecondsSinceEpoch / 1000000;
     final platformTime = pointerEvent.timeStamp.inMicroseconds / 1000000;
+    final Map<String, dynamic> metadata = {
+      'platformTimestamp': platformTime,
+      'position': [pointerEvent.position.dx, pointerEvent.position.dy],
+    };
 
     final event = TimingEvent(
       timestamp: localTime,
       eventType: EventType.sampleCreated,
       description: description ?? 'UI Event',
-      metadata: {
-        'platformTimestamp': platformTime,
-        'position': [pointerEvent.position.dx, pointerEvent.position.dy],
-      },
+      metadata: _injectMetadata(metadata),
       eventId: eventId,
     );
     await _lock.synchronized(() {

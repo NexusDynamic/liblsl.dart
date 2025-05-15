@@ -396,18 +396,12 @@ class DeviceCoordinator {
         _sendMessage(CoordinationMessageType.startTest, {
           'testType': TestType.latency.index,
           'startTimeMs': testStartTime,
-          'testConfig': {
-            'durationSeconds': config.testDurationSeconds,
-            'sampleRate': config.sampleRate,
-          },
+          'testConfig': config.toMap(),
         });
         _handleStartTestMessage({
           'testType': TestType.latency.index,
           'startTimeMs': testStartTime,
-          'testConfig': {
-            'durationSeconds': config.testDurationSeconds,
-            'sampleRate': config.sampleRate,
-          },
+          'testConfig': config.toMap(),
         });
       });
     }
@@ -535,20 +529,14 @@ class DeviceCoordinator {
     await _sendMessage(CoordinationMessageType.startTest, {
       'testType': testType.index,
       'startTimeMs': startTimeMs,
-      'testConfig': {
-        'durationSeconds': config.testDurationSeconds,
-        'sampleRate': config.sampleRate,
-      },
+      'testConfig': config.toMap(),
     });
     _isTestRunning = true;
     _messageStreamController.add('Starting test in 3 seconds');
     _handleStartTestMessage({
       'testType': testType.index,
       'startTimeMs': startTimeMs,
-      'testConfig': {
-        'durationSeconds': config.testDurationSeconds,
-        'sampleRate': config.sampleRate,
-      },
+      'testConfig': config.toMap(),
     });
   }
 

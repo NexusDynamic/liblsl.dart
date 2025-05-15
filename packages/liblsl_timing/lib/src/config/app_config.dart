@@ -42,6 +42,29 @@ class AppConfig {
     this.streamMaxStreams = 10,
   });
 
+  AppConfig copyMerged(Map<String, dynamic> overrides) {
+    return AppConfig(
+      deviceName: overrides['deviceName'] ?? deviceName,
+      streamName: overrides['streamName'] ?? streamName,
+      streamType: overrides['streamType']
+          ? _getStreamType(overrides['streamType'])
+          : streamType,
+      channelCount: overrides['channelCount'] ?? channelCount,
+      sampleRate: overrides['sampleRate'] ?? sampleRate,
+      channelFormat: overrides['channelFormat']
+          ? _getChannelFormat(overrides['channelFormat'])
+          : channelFormat,
+      isProducer: overrides['isProducer'] ?? isProducer,
+      isConsumer: overrides['isConsumer'] ?? isConsumer,
+      deviceId: overrides['deviceId'] ?? deviceId,
+      testDurationSeconds:
+          overrides['testDurationSeconds'] ?? testDurationSeconds,
+      streamMaxWaitTimeSeconds:
+          overrides['streamMaxWaitTimeSeconds'] ?? streamMaxWaitTimeSeconds,
+      streamMaxStreams: overrides['streamMaxStreams'] ?? streamMaxStreams,
+    );
+  }
+
   // Load from SharedPreferences
   static Future<AppConfig> load() async {
     final prefs = await SharedPreferences.getInstance();
@@ -120,6 +143,23 @@ class AppConfig {
     } catch (_) {
       return LSLChannelFormat.float32;
     }
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      ConfigKeys.deviceName: deviceName,
+      ConfigKeys.streamName: streamName,
+      ConfigKeys.streamType: streamType.value,
+      ConfigKeys.channelCount: channelCount,
+      ConfigKeys.sampleRate: sampleRate,
+      ConfigKeys.channelFormat: channelFormat.name,
+      ConfigKeys.isProducer: isProducer,
+      ConfigKeys.isConsumer: isConsumer,
+      ConfigKeys.deviceId: deviceId,
+      ConfigKeys.testDurationSeconds: testDurationSeconds,
+      ConfigKeys.streamMaxWaitTimeSeconds: streamMaxWaitTimeSeconds,
+      ConfigKeys.streamMaxStreams: streamMaxStreams,
+    };
   }
 
   @override

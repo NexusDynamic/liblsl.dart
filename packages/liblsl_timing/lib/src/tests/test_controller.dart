@@ -32,7 +32,7 @@ class TestController {
 
   void _setupCoordinationHandlers() {
     coordinator.onTestStart((testType, testConfig) {
-      startTest(testType);
+      startTest(testType, testConfig: testConfig);
 
       // Notify listeners that a test has started
       _statusStreamController.add('Test started: ${testType.displayName}');
@@ -44,7 +44,10 @@ class TestController {
     });
   }
 
-  Future<void> startTest(TestType testType) async {
+  Future<void> startTest(
+    TestType testType, {
+    Map<String, dynamic>? testConfig,
+  }) async {
     if (_isTestRunning) {
       _statusStreamController.add('A test is already running');
       return;
@@ -55,10 +58,16 @@ class TestController {
     // Create the appropriate test
     switch (testType) {
       case TestType.latency:
-        _currentTest = LatencyTest(config, timingManager);
+        _currentTest = LatencyTest(
+          testConfig != null ? config.copyMerged(testConfig) : config,
+          timingManager,
+        );
         break;
       case TestType.synchronization:
-        _currentTest = SynchronizationTest(config, timingManager);
+        _currentTest = SynchronizationTest(
+          testConfig != null ? config.copyMerged(testConfig) : config,
+          timingManager,
+        );
         break;
     }
 

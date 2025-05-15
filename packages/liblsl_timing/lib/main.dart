@@ -23,7 +23,7 @@ void main() async {
   final config = await AppConfig.load();
 
   // Initialize TimingManager
-  final timingManager = TimingManager();
+  final timingManager = TimingManager(config);
 
   // Initialize LSL library
   if (kDebugMode) {
