@@ -1,8 +1,10 @@
 // lib/src/ui/home_page.dart
 import 'package:collection/collection.dart';
 import 'package:easy_localization/easy_localization.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:liblsl_timing/src/ui/test_page.dart';
+import 'package:network_info_plus/network_info_plus.dart';
 import '../config/constants.dart';
 import '../config/app_config.dart';
 import '../coordination/device_coordinator.dart';
@@ -35,6 +37,7 @@ class _HomePageState extends State<HomePage> {
   List<bool> _readyDevices = [];
   bool _isInitializing = true;
   bool _isReady = false;
+  String _wifiIp = '';
 
   @override
   void initState() {
@@ -46,8 +49,29 @@ class _HomePageState extends State<HomePage> {
       coordinator: _coordinator,
     );
     _dataExporter = DataExporter(widget.timingManager);
-
+    _getWifiIp();
     _initialize();
+  }
+
+  Future<void> _getWifiIp() async {
+    try {
+      final info = NetworkInfo();
+      final wifiIp = await info.getWifiIP();
+      if (kDebugMode) {
+        print('NetworkInfo: $info');
+      }
+      if (wifiIp != null) {
+        setState(() {
+          _wifiIp = wifiIp;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error getting WiFi IP: $e')));
+      }
+    }
   }
 
   Future<void> _initialize() async {
@@ -110,7 +134,7 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('${'TITLE'.tr()} - ${widget.config.deviceName}'),
+        title: Text('${'TITLE'.tr()} - ${widget.config.deviceName} ($_wifiIp)'),
         actions: [
           IconButton(
             icon: const Icon(Icons.settings),

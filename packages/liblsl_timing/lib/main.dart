@@ -10,6 +10,7 @@ import 'src/ui/home_page.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter_fullscreen/flutter_fullscreen.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -18,6 +19,22 @@ void main() async {
   if (Platform.isAndroid || Platform.isIOS || Platform.isFuchsia) {
     // Enable full-screen mode for mobile platforms
     FullScreen.setFullScreen(true);
+    // request permissions.
+    final notificationStatus = await Permission.notification.request();
+    final nearbyDevicesStatus = await Permission.location.request();
+    if (notificationStatus.isDenied || nearbyDevicesStatus.isDenied) {
+      // Handle the case where permissions are denied
+      if (kDebugMode) {
+        print('Notification permission status: $notificationStatus');
+        print('Nearby devices permission status: $nearbyDevicesStatus');
+      }
+    } else {
+      // Permissions granted, proceed with app initialization
+      if (kDebugMode) {
+        print('Notification permission granted: $notificationStatus');
+        print('Nearby devices permission granted: $nearbyDevicesStatus');
+      }
+    }
   }
   // Load configuration
   final config = await AppConfig.load();

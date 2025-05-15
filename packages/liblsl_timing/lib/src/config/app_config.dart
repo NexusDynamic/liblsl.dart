@@ -42,9 +42,14 @@ class AppConfig {
     this.streamMaxStreams = 10,
   });
 
-  AppConfig copyMerged(Map<String, dynamic> overrides) {
+  AppConfig copyMerged(
+    Map<String, dynamic> overrides, {
+    bool excludeDeviceSpecific = false,
+  }) {
     return AppConfig(
-      deviceName: overrides['deviceName'] ?? deviceName,
+      deviceName: overrides['deviceName'] && !excludeDeviceSpecific
+          ? overrides['deviceName']
+          : deviceName,
       streamName: overrides['streamName'] ?? streamName,
       streamType: overrides['streamType']
           ? _getStreamType(overrides['streamType'])
@@ -54,9 +59,15 @@ class AppConfig {
       channelFormat: overrides['channelFormat']
           ? _getChannelFormat(overrides['channelFormat'])
           : channelFormat,
-      isProducer: overrides['isProducer'] ?? isProducer,
-      isConsumer: overrides['isConsumer'] ?? isConsumer,
-      deviceId: overrides['deviceId'] ?? deviceId,
+      isProducer: overrides['isProducer'] && !excludeDeviceSpecific
+          ? overrides['isProducer']
+          : isProducer,
+      isConsumer: overrides['isConsumer'] && !excludeDeviceSpecific
+          ? overrides['isConsumer']
+          : isConsumer,
+      deviceId: overrides['deviceId'] && !excludeDeviceSpecific
+          ? overrides['deviceId']
+          : deviceId,
       testDurationSeconds:
           overrides['testDurationSeconds'] ?? testDurationSeconds,
       streamMaxWaitTimeSeconds:
