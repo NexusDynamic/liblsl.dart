@@ -59,13 +59,17 @@ class TestController {
     switch (testType) {
       case TestType.latency:
         _currentTest = LatencyTest(
-          testConfig != null ? config.copyMerged(testConfig) : config,
+          testConfig != null
+              ? config.copyMerged(testConfig, excludeDeviceSpecific: true)
+              : config,
           timingManager,
         );
         break;
       case TestType.synchronization:
         _currentTest = SynchronizationTest(
-          testConfig != null ? config.copyMerged(testConfig) : config,
+          testConfig != null
+              ? config.copyMerged(testConfig, excludeDeviceSpecific: true)
+              : config,
           timingManager,
         );
         break;
