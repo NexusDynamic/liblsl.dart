@@ -57,8 +57,9 @@ class SynchronizationTest extends BaseTest {
     await Future.delayed(const Duration(milliseconds: 500));
     final streams = await LSL.resolveStreams(waitTime: 1.0, maxStreams: 20);
 
-    final syncStreams =
-        streams.where((s) => s.streamType.value == 'Sync').toList();
+    final syncStreams = streams
+        .where((s) => s.streamType.value == 'Sync')
+        .toList();
 
     // Create inlets for each sync stream
     _syncInlets = [];
@@ -80,10 +81,11 @@ class SynchronizationTest extends BaseTest {
     timingManager.recordEvent(
       EventType.testStarted,
       description: 'Synchronization test setup completed',
-      metadata: {
-        'syncStreams': syncStreams.length,
-        'syncInlets': _syncInlets.length,
-      },
+      metadata: config.toMap()
+        ..addAll({
+          'syncStreams': syncStreams.length,
+          'syncInlets': _syncInlets.length,
+        }),
     );
   }
 
@@ -336,11 +338,13 @@ class SynchronizationTest extends BaseTest {
       }
 
       // Calculate statistics for LSL time differences
-      final lslTimeDiffs =
-          offsets.map((o) => o['lslTimeDiff'] as double).toList();
+      final lslTimeDiffs = offsets
+          .map((o) => o['lslTimeDiff'] as double)
+          .toList();
 
-      final localTimeDiffs =
-          offsets.map((o) => o['localTimeDiff'] as double).toList();
+      final localTimeDiffs = offsets
+          .map((o) => o['localTimeDiff'] as double)
+          .toList();
 
       final lslDiffStats = _calculateStats(lslTimeDiffs);
       final localDiffStats = _calculateStats(localTimeDiffs);
@@ -356,10 +360,9 @@ class SynchronizationTest extends BaseTest {
           'localTimeDiffStats': localDiffStats,
           'lslDriftRate': lslDriftRate,
           'localDriftRate': localDriftRate,
-          'timeSpan':
-              finalTime != null && initialTime != null
-                  ? finalTime - initialTime
-                  : null,
+          'timeSpan': finalTime != null && initialTime != null
+              ? finalTime - initialTime
+              : null,
         },
       );
     }
@@ -386,10 +389,9 @@ class SynchronizationTest extends BaseTest {
       sumSquaredDiffs += (value - mean) * (value - mean);
     }
 
-    final stdDev =
-        (values.length > 1)
-            ? (sumSquaredDiffs / (values.length - 1)).sqrt()
-            : 0.0;
+    final stdDev = (values.length > 1)
+        ? (sumSquaredDiffs / (values.length - 1)).sqrt()
+        : 0.0;
 
     return {'mean': mean, 'min': min ?? 0, 'max': max ?? 0, 'stdDev': stdDev};
   }

@@ -12,6 +12,7 @@ import '../data/timing_manager.dart';
 import '../data/data_exporter.dart';
 import '../tests/test_controller.dart';
 import 'results_page.dart';
+import 'package:share_plus/share_plus.dart';
 
 class HomePage extends StatefulWidget {
   final AppConfig config;
@@ -336,6 +337,17 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  Future<void> _shareFile(String path, String description) async {
+    final box = context.findRenderObject() as RenderBox?;
+    final params = ShareParams(
+      text: 'Exported $description file.',
+      files: [XFile(path)],
+      sharePositionOrigin: box!.localToGlobal(Offset.zero) & box.size,
+    );
+    // await until dialog is closed
+    await SharePlus.instance.share(params);
+  }
+
   Future<void> _exportData() async {
     try {
       final eventsPath = await _dataExporter.exportEventsToCSV();
@@ -346,6 +358,8 @@ class _HomePageState extends State<HomePage> {
             content: Text('${'EXPORTED_TO'.tr()}:\n$eventsPath\n$metricsPath'),
           ),
         );
+        await _shareFile(eventsPath, 'events');
+        await _shareFile(metricsPath, 'metrics');
       }
     } catch (e) {
       if (mounted) {

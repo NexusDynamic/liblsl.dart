@@ -47,32 +47,37 @@ class AppConfig {
     bool excludeDeviceSpecific = false,
   }) {
     return AppConfig(
-      deviceName: overrides['deviceName'] && !excludeDeviceSpecific
-          ? overrides['deviceName']
+      deviceName:
+          overrides[ConfigKeys.deviceName] != null && !excludeDeviceSpecific
+          ? overrides[ConfigKeys.deviceName]
           : deviceName,
-      streamName: overrides['streamName'] ?? streamName,
-      streamType: overrides['streamType']
-          ? _getStreamType(overrides['streamType'])
+      streamName: overrides[ConfigKeys.streamName] ?? streamName,
+      streamType: overrides[ConfigKeys.streamType] != null
+          ? _getStreamType(overrides[ConfigKeys.streamType])
           : streamType,
-      channelCount: overrides['channelCount'] ?? channelCount,
-      sampleRate: overrides['sampleRate'] ?? sampleRate,
-      channelFormat: overrides['channelFormat']
-          ? _getChannelFormat(overrides['channelFormat'])
+      channelCount: overrides[ConfigKeys.channelCount] ?? channelCount,
+      sampleRate: overrides[ConfigKeys.sampleRate] ?? sampleRate,
+      channelFormat: overrides[ConfigKeys.channelFormat] != null
+          ? _getChannelFormat(overrides[ConfigKeys.channelFormat])
           : channelFormat,
-      isProducer: overrides['isProducer'] && !excludeDeviceSpecific
-          ? overrides['isProducer']
+      isProducer:
+          overrides[ConfigKeys.isProducer] != null && !excludeDeviceSpecific
+          ? overrides[ConfigKeys.isProducer]
           : isProducer,
-      isConsumer: overrides['isConsumer'] && !excludeDeviceSpecific
-          ? overrides['isConsumer']
+      isConsumer:
+          overrides[ConfigKeys.isConsumer] != null && !excludeDeviceSpecific
+          ? overrides[ConfigKeys.isConsumer]
           : isConsumer,
-      deviceId: overrides['deviceId'] && !excludeDeviceSpecific
-          ? overrides['deviceId']
+      deviceId: overrides[ConfigKeys.deviceId] != null && !excludeDeviceSpecific
+          ? overrides[ConfigKeys.deviceId]
           : deviceId,
       testDurationSeconds:
-          overrides['testDurationSeconds'] ?? testDurationSeconds,
+          overrides[ConfigKeys.testDurationSeconds] ?? testDurationSeconds,
       streamMaxWaitTimeSeconds:
-          overrides['streamMaxWaitTimeSeconds'] ?? streamMaxWaitTimeSeconds,
-      streamMaxStreams: overrides['streamMaxStreams'] ?? streamMaxStreams,
+          overrides[ConfigKeys.streamMaxWaitTimeSeconds] ??
+          streamMaxWaitTimeSeconds,
+      streamMaxStreams:
+          overrides[ConfigKeys.streamMaxStreams] ?? streamMaxStreams,
     );
   }
 
@@ -175,6 +180,19 @@ class AppConfig {
 
   @override
   String toString() {
-    return 'AppConfig{deviceName: $deviceName, streamName: $streamName, deviceId: $deviceId}';
+    return 'AppConfig{'
+        'deviceName: $deviceName, '
+        'streamName: $streamName, '
+        'deviceId: $deviceId, '
+        'streamType: $streamType, '
+        'channelCount: $channelCount, '
+        'sampleRate: $sampleRate, '
+        'channelFormat: $channelFormat, '
+        'isProducer: $isProducer, '
+        'isConsumer: $isConsumer, '
+        'testDurationSeconds: $testDurationSeconds, '
+        'streamMaxWaitTimeSeconds: $streamMaxWaitTimeSeconds, '
+        'streamMaxStreams: $streamMaxStreams'
+        '}';
   }
 }

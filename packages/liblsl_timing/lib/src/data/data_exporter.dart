@@ -3,22 +3,12 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:share_plus/share_plus.dart';
 import 'timing_manager.dart';
 
 class DataExporter {
   final TimingManager timingManager;
 
   DataExporter(this.timingManager);
-
-  Future<void> _shareFile(String path, String description) async {
-    final params = ShareParams(
-      text: 'Exported $description file.',
-      files: [XFile(path)],
-    );
-    // await until dialog is closed
-    await SharePlus.instance.share(params);
-  }
 
   Future<File> _getFile(String fileBaseName) async {
     Directory? directory = await getDownloadsDirectory();
@@ -70,7 +60,6 @@ class DataExporter {
     // Save to file
     final file = await _getFile('lsl_events');
     await file.writeAsString(buffer.toString());
-    await _shareFile(file.path, 'events');
     return file.path;
   }
 
@@ -108,7 +97,6 @@ class DataExporter {
     // Save to file
     final file = await _getFile('lsl_metrics');
     await file.writeAsString(buffer.toString());
-    await _shareFile(file.path, 'metrics');
     return file.path;
   }
 

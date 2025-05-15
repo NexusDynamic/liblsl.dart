@@ -32,7 +32,9 @@ class LatencyTest extends BaseTest {
   Future<void> setup() async {
     _sampleCounter = 0;
     _isRunning = false;
-
+    if (kDebugMode) {
+      print('Setting up Latency Test for device: $config');
+    }
     // Create stream info
     _streamInfo = await LSL.createStreamInfo(
       streamName: config.streamName,
@@ -90,11 +92,7 @@ class LatencyTest extends BaseTest {
     timingManager.recordEvent(
       EventType.testStarted,
       description: 'Latency test setup completed',
-      metadata: {
-        'isProducer': config.isProducer,
-        'isConsumer': config.isConsumer,
-        'streamName': config.streamName,
-      },
+      metadata: config.toMap(),
     );
   }
 

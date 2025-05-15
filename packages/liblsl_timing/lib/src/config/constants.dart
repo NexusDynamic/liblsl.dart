@@ -41,6 +41,7 @@ enum EventType {
   markerReceived,
   clockCorrection,
   initialized,
+  coordination,
 }
 
 // LSL Stream configuration defaults

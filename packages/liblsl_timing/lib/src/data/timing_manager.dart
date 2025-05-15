@@ -14,6 +14,7 @@ class TimingEvent {
   final String? description;
   final Map<String, dynamic>? metadata;
   final String eventId;
+  final double eventTimestamp = DateTime.now().microsecondsSinceEpoch / 1000000;
 
   TimingEvent({
     required this.timestamp,
@@ -29,6 +30,7 @@ class TimingEvent {
 
   Map<String, dynamic> toJson() {
     return {
+      'eventTimestamp': eventTimestamp,
       'timestamp': timestamp,
       'eventType': eventType.toString(),
       'description': description,

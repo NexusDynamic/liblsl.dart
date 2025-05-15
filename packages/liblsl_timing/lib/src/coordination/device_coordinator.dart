@@ -81,7 +81,7 @@ class DeviceCoordinator {
     unawaited(_startListening());
 
     timingManager.recordEvent(
-      EventType.testStarted,
+      EventType.coordination,
       description: _isCoordinator
           ? 'Initialized as coordinator'
           : 'Joined coordination network',
@@ -323,7 +323,7 @@ class DeviceCoordinator {
       _messageStreamController.add(notification);
 
       timingManager.recordEvent(
-        EventType.testStarted,
+        EventType.coordination,
         description: notification,
         metadata: {'deviceId': deviceId, 'deviceName': deviceName},
       );
@@ -443,7 +443,7 @@ class DeviceCoordinator {
     _messageStreamController.add(notification);
 
     timingManager.recordEvent(
-      EventType.testStarted,
+      EventType.coordination,
       description: notification,
       metadata: {'testType': testType.toString(), 'config': testConfig},
     );
