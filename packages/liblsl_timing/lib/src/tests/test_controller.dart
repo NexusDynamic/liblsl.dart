@@ -1,5 +1,7 @@
 // lib/src/tests/test_controller.dart
 import 'dart:async';
+import 'package:flutter/foundation.dart';
+
 import '../config/constants.dart';
 import '../config/app_config.dart';
 import '../data/timing_manager.dart';
@@ -89,6 +91,12 @@ class TestController {
       _statusStreamController.add('Test completed');
     } catch (e) {
       _statusStreamController.add('Test error: $e');
+
+      if (kDebugMode) {
+        print('Error in test: $e');
+        // backtrace print
+        print('Backtrace: ${StackTrace.current}');
+      }
     } finally {
       _isTestRunning = false;
       _currentTest = null;

@@ -195,6 +195,8 @@ class SynchronizationTest extends BaseTest {
     } catch (e) {
       if (kDebugMode) {
         print('Error measuring time correction: $e');
+        // backtrace
+        print('Stack trace: ${StackTrace.current}');
       }
     }
   }
@@ -267,12 +269,16 @@ class SynchronizationTest extends BaseTest {
           } catch (e) {
             if (kDebugMode) {
               print('Error parsing marker data: $e');
+              // backtrace
+              print('Stack trace: ${StackTrace.current}');
             }
           }
         }
       } catch (e) {
         if (kDebugMode) {
           print('Error receiving marker: $e');
+          // backtrace
+          print('Stack trace: ${StackTrace.current}');
         }
       }
 
@@ -288,8 +294,15 @@ class SynchronizationTest extends BaseTest {
     _syncTimer = null;
 
     // Analyze time synchronization data
-    _analyzeTimeSynchronization();
-
+    try {
+      _analyzeTimeSynchronization();
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error analyzing time synchronization: $e');
+        // backtrace
+        print('Stack trace: ${StackTrace.current}');
+      }
+    }
     // Clean up LSL resources
     for (final inlet in _syncInlets) {
       inlet.destroy();
@@ -344,11 +357,11 @@ class SynchronizationTest extends BaseTest {
 
       // Calculate statistics for LSL time differences
       final lslTimeDiffs = offsets
-          .map((o) => o['lslTimeDiff'] as double)
+          .map((o) => o['lslTimeDiff'] as double?)
           .toList();
 
       final localTimeDiffs = offsets
-          .map((o) => o['localTimeDiff'] as double)
+          .map((o) => o['localTimeDiff'] as double?)
           .toList();
 
       final lslDiffStats = _calculateStats(lslTimeDiffs);
@@ -373,29 +386,31 @@ class SynchronizationTest extends BaseTest {
     }
   }
 
-  Map<String, double> _calculateStats(List<double> values) {
-    if (values.isEmpty) return {};
+  Map<String, double> _calculateStats(List<double?> values) {
+    // Remove nulls from the list
+    final filteredValues = values.whereType<double>().toList();
+    if (filteredValues.isEmpty) return {};
 
     // Calculate mean
-    final mean = values.reduce((a, b) => a + b) / values.length;
+    final mean = filteredValues.reduce((a, b) => a + b) / filteredValues.length;
 
     // Find min and max
     double? min;
     double? max;
 
-    for (final value in values) {
+    for (final value in filteredValues) {
       min = (min != null) ? (value < min ? value : min) : value;
       max = (max != null) ? (value > max ? value : max) : value;
     }
 
     // Calculate standard deviation
     double sumSquaredDiffs = 0;
-    for (final value in values) {
+    for (final value in filteredValues) {
       sumSquaredDiffs += (value - mean) * (value - mean);
     }
 
-    final stdDev = (values.length > 1)
-        ? (sumSquaredDiffs / (values.length - 1)).sqrt()
+    final stdDev = (filteredValues.length > 1)
+        ? (sumSquaredDiffs / (filteredValues.length - 1)).sqrt()
         : 0.0;
 
     return {'mean': mean, 'min': min ?? 0, 'max': max ?? 0, 'stdDev': stdDev};
