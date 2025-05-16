@@ -43,7 +43,7 @@ class SynchronizationTest extends BaseTest {
       channelCount: 1,
       sampleRate: LSL_IRREGULAR_RATE,
       channelFormat: LSLChannelFormat.string,
-      sourceId: config.deviceId,
+      sourceId: '${config.deviceId}_Sync',
     );
 
     // Create an outlet for sync markers
@@ -58,24 +58,27 @@ class SynchronizationTest extends BaseTest {
     final streams = await LSL.resolveStreams(waitTime: 5.0, maxStreams: 20);
 
     final syncStreams = streams
-        .where((s) => s.streamType.value == 'Sync')
+        .where(
+          (s) =>
+              s.streamType == LSLContentType.markers &&
+              s.sourceId != '${config.deviceId}_Sync' &&
+              s.streamName.endsWith('_Sync'),
+        )
         .toList();
 
     // Create inlets for each sync stream
     _syncInlets = [];
     for (final stream in syncStreams) {
-      if (stream.sourceId != config.deviceId) {
-        final inlet = await LSL.createInlet(
-          streamInfo: stream,
-          maxBufferSize: 360,
-          maxChunkLength: 1,
-          recover: true,
-        );
-        _syncInlets.add(inlet);
+      final inlet = await LSL.createInlet(
+        streamInfo: stream,
+        maxBufferSize: 360,
+        maxChunkLength: 1,
+        recover: true,
+      );
+      _syncInlets.add(inlet);
 
-        // Initialize time offset tracking for this device
-        _deviceTimeOffsets[stream.sourceId] = [];
-      }
+      // Initialize time offset tracking for this device
+      _deviceTimeOffsets[stream.sourceId] = [];
     }
 
     timingManager.recordEvent(
