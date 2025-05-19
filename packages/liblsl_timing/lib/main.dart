@@ -20,19 +20,20 @@ void main() async {
   await FullScreen.ensureInitialized();
   await WakelockPlus.enable();
   // prepare LSL config
-  Directory writablePath = await getApplicationSupportDirectory();
-  // write the default config file if it doesn't exist
-  final configFile = File('${writablePath.path}/lsl_api.cfg');
-  if (kDebugMode) {
-    print('Current directory: ${writablePath.path}');
-  }
-  // if (!await configFile.exists()) {
-  await configFile.writeAsString(
-    '[ports]\nIPv6=disable',
-    encoding: Encoding.getByName('US-ASCII') ?? utf8,
-    flush: true,
-  );
-  LSL.setConfigFilename(configFile.path);
+  // Directory writablePath = await getApplicationSupportDirectory();
+  // // write the default config file if it doesn't exist
+  // final configFile = File('${writablePath.path}/lsl_api.cfg');
+  // if (kDebugMode) {
+  //   print('Current directory: ${writablePath.path}');
+  // }
+  // // if (!await configFile.exists()) {
+  // await configFile.writeAsString(
+  //   '[ports]\nIPv6=disable',
+  //   encoding: Encoding.getByName('US-ASCII') ?? utf8,
+  //   flush: true,
+  // );
+  String configFile = '[ports]\nIPv6=disable';
+  LSL.setConfigContent(configFile);
 
   if (Platform.isAndroid || Platform.isIOS || Platform.isFuchsia) {
     // Enable full-screen mode for mobile platforms
