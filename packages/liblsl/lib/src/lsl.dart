@@ -21,6 +21,12 @@ class LSL {
   /// [LSL.createOutlet], or [LSL.createInlet] instead.
   LSL._();
 
+  /// Sets the configuration filename for the LSL library.
+  ///
+  /// @param [filename] The path to the configuration file.
+  ///
+  /// @note: This should be called before any other LSL operations.
+  /// @note: see https://labstreaminglayer.readthedocs.io/info/lslapicfg.html#configuration-file-contents
   static void setConfigFilename(String filename) {
     final filenamePtr = filename.toNativeUtf8();
     lsl_set_config_filename(filenamePtr.cast());
