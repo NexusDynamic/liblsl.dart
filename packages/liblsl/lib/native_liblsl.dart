@@ -58,6 +58,16 @@ external void lsl_destroy_string(ffi.Pointer<ffi.Char> s);
 @ffi.Native<NativeLsl_set_config_filename>()
 external void lsl_set_config_filename(ffi.Pointer<ffi.Char> filename);
 
+/// Set the content of the configuration file to be used.
+///
+/// This is a global setting that will be used by all LSL
+/// after this function is called. If, and only if, this function
+/// is called before the first call to any other LSL function.
+///
+/// @note the configuration content is wiped after LSL has initialized.
+@ffi.Native<NativeLsl_set_config_content>()
+external void lsl_set_config_content(ffi.Pointer<ffi.Char> content);
+
 /// Construct a new stream inlet from a resolved stream info.
 /// @param info A resolved stream info object (as coming from one of the resolver functions).
 /// @note The inlet makes a copy of the info object at its construction.
@@ -1838,6 +1848,10 @@ typedef NativeLsl_set_config_filename =
     ffi.Void Function(ffi.Pointer<ffi.Char> filename);
 typedef DartLsl_set_config_filename =
     void Function(ffi.Pointer<ffi.Char> filename);
+typedef NativeLsl_set_config_content =
+    ffi.Void Function(ffi.Pointer<ffi.Char> content);
+typedef DartLsl_set_config_content =
+    void Function(ffi.Pointer<ffi.Char> content);
 
 final class lsl_streaminfo_struct_ extends ffi.Opaque {}
 

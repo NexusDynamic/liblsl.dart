@@ -33,6 +33,18 @@ class LSL {
     filenamePtr.free();
   }
 
+  /// Sets the configuration content for the LSL library.
+  ///
+  /// @param [content] The content of the configuration file as a string.
+  ///
+  /// @note: This should be called before any other LSL operations.
+  /// @note: see https://labstreaminglayer.readthedocs.io/info/lslapicfg.html#configuration-file-contents
+  static void setConfigContent(String content) {
+    final contentPtr = content.toNativeUtf8();
+    lsl_set_config_content(contentPtr.cast());
+    contentPtr.free();
+  }
+
   /// Creates a new [LSLStreamInfo] object.
   ///
   /// [streamName] is the name of the stream.
