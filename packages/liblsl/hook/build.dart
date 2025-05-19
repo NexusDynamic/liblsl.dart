@@ -56,7 +56,7 @@ void main(List<String> args) async {
   await build(args, (input, output) async {
     // This needs to be manually copied from CMakeLists.txt.
     const String libLSLVersion = '1.16.2';
-    const String libLSLBranch = '7e61a2e';
+    const String libLSLBranch = 'b87173c0';
     const String libLSLPath = 'src/liblsl-$libLSLBranch';
     final OS targetOs = input.config.code.targetOS;
     final packageName = stripPrefix(targetOs, input.packageName);
@@ -173,10 +173,9 @@ void main(List<String> args) async {
     await builder.run(
       input: input,
       output: output,
-      logger:
-          Logger('')
-            ..level = Level.ALL
-            ..onRecord.listen((record) => print(record.message)),
+      logger: Logger('')
+        ..level = Level.ALL
+        ..onRecord.listen((record) => print(record.message)),
     );
 
     if (targetOs == OS.android) {

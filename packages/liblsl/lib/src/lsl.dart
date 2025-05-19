@@ -7,7 +7,7 @@ import 'package:liblsl/src/lsl/isolated_inlet.dart';
 import 'package:liblsl/src/lsl/isolated_outlet.dart';
 import 'package:liblsl/src/lsl/stream_resolver.dart';
 import 'package:liblsl/src/lsl/structs.dart';
-import 'package:ffi/ffi.dart' show Utf8, Utf8Pointer;
+import 'package:ffi/ffi.dart' show Utf8, Utf8Pointer, StringUtf8Pointer;
 
 // Export LSL constants for public use
 export 'package:liblsl/native_liblsl.dart' show LSL_FOREVER, LSL_IRREGULAR_RATE;
@@ -20,6 +20,12 @@ class LSL {
   /// Don't use this constructor directly, use [LSL.createStreamInfo],
   /// [LSL.createOutlet], or [LSL.createInlet] instead.
   LSL._();
+
+  static void setConfigFilename(String filename) {
+    final filenamePtr = filename.toNativeUtf8();
+    lsl_set_config_filename(filenamePtr.cast());
+    filenamePtr.free();
+  }
 
   /// Creates a new [LSLStreamInfo] object.
   ///

@@ -50,6 +50,14 @@ external double lsl_local_clock();
 @ffi.Native<NativeLsl_destroy_string>()
 external void lsl_destroy_string(ffi.Pointer<ffi.Char> s);
 
+/// Set the name of the configuration file to be used.
+///
+/// This is a global setting that will be used by all LSL
+/// after this function is called. If, and only if, this function
+/// is called before the first call to any other LSL function.
+@ffi.Native<NativeLsl_set_config_filename>()
+external void lsl_set_config_filename(ffi.Pointer<ffi.Char> filename);
+
 /// Construct a new stream inlet from a resolved stream info.
 /// @param info A resolved stream info object (as coming from one of the resolver functions).
 /// @note The inlet makes a copy of the info object at its construction.
@@ -114,7 +122,7 @@ external void lsl_destroy_inlet(lsl_inlet in$);
 /// Can be invoked at any time of the stream's lifetime.
 /// @param in The lsl_inlet object to act on.
 /// @param timeout Timeout of the operation. Use LSL_FOREVER to effectively disable it.
-/// @param ec Error code: if nonzero, can be either lsl_timeout_error (if the timeout has
+/// @param[out] ec Error code: if nonzero, can be either lsl_timeout_error (if the timeout has
 /// expired) or #lsl_lost_error (if the stream source has been lost).
 /// @return A copy of the full streaminfo of the inlet or NULL in the event that an error happened.
 /// @note It is the user's responsibility to destroy it when it is no longer needed.
@@ -133,7 +141,7 @@ external lsl_streaminfo lsl_get_fullinfo(
 /// opened implicitly).
 /// @param in The lsl_inlet object to act on.
 /// @param timeout Optional timeout of the operation. Use LSL_FOREVER to effectively disable it.
-/// @param ec Error code: if nonzero, can be either #lsl_timeout_error (if the timeout has
+/// @param[out] ec Error code: if nonzero, can be either #lsl_timeout_error (if the timeout has
 /// expired) or lsl_lost_error (if the stream source has been lost).
 @ffi.Native<NativeLsl_open_stream>()
 external void lsl_open_stream(
@@ -168,7 +176,7 @@ external void lsl_close_stream(lsl_inlet in$);
 /// @param in The lsl_inlet object to act on.
 /// @param timeout Timeout to acquire the first time-correction estimate.
 /// Use LSL_FOREVER to defuse the timeout.
-/// @param ec Error code: if nonzero, can be either #lsl_timeout_error (if the timeout has
+/// @param[out] ec Error code: if nonzero, can be either #lsl_timeout_error (if the timeout has
 /// expired) or lsl_lost_error (if the stream source has been lost).
 /// @return The time correction estimate.
 /// This is the number that needs to be added to a time stamp that was remotely generated via
@@ -215,13 +223,13 @@ external int lsl_set_postprocessing(lsl_inlet in$, int flags);
 /// Pull a sample from the inlet and read it into a pointer to values.
 /// Handles type checking & conversion.
 /// @param in The #lsl_inlet object to act on.
-/// @param buffer A pointer to hold the resulting values.
+/// @param[out] buffer A pointer to hold the resulting values.
 /// @param buffer_elements The number of samples allocated in the buffer.
 /// @attention It is the responsibility of the user to allocate enough memory.
 /// @param timeout The timeout for this operation, if any.
 /// Use #LSL_FOREVER to effectively disable it. It is also permitted to use 0.0 here;
 /// in this case a sample is only returned if one is currently buffered.
-/// @param ec Error code: can be either no error or #lsl_lost_error
+/// @param[out] ec Error code: can be either no error or #lsl_lost_error
 /// (if the stream source has been lost).<br>
 /// @note If the timeout expires before a new sample was received the function returns 0.0;
 /// ec is *not* set to #lsl_timeout_error (because this case is not considered an error condition).
@@ -311,12 +319,12 @@ external double lsl_pull_sample_buf(
 /// Overall size checking but no type checking or conversion are done.
 /// Do not use for variable-size/string-formatted streams.
 /// @param in The #lsl_inlet object to act on.
-/// @param buffer A pointer to hold the resulting values.
+/// @param[out] buffer A pointer to hold the resulting values.
 /// @param buffer_bytes Length of the array held by buffer in bytes, not items
 /// @param timeout The timeout for this operation, if any.
 /// Use #LSL_FOREVER to effectively disable it. It is also permitted to use 0.0 here;
 /// in this case a sample is only returned if one is currently buffered.
-/// @param ec Error code: can be either no error or #lsl_lost_error
+/// @param[out] ec Error code: can be either no error or #lsl_lost_error
 /// (if the stream source has been lost).<br>
 /// @note If the timeout expires before a new sample was received the function returns 0.0;
 /// ec is *not* set to #lsl_timeout_error (because this case is not considered an error condition).
@@ -339,8 +347,8 @@ external double lsl_pull_sample_v(
 /// @attention Note that the provided data buffer size is measured in channel values (e.g. floats)
 /// rather than in samples.
 /// @param in The lsl_inlet object to act on.
-/// @param data_buffer A pointer to a buffer of data values where the results shall be stored.
-/// @param timestamp_buffer A pointer to a double buffer where time stamps shall be stored.
+/// @param[out] data_buffer A pointer to a buffer of data values where the results shall be stored.
+/// @param[out] timestamp_buffer A pointer to a double buffer where time stamps shall be stored.
 ///
 /// If this is NULL, no time stamps will be returned.
 /// @param data_buffer_elements The size of the data buffer, in channel data elements (of type T).
@@ -353,7 +361,7 @@ external double lsl_pull_sample_v(
 ///
 /// When the timeout expires, the function may return before the entire buffer is filled.
 /// The default value of 0.0 will retrieve only data available for immediate pickup.
-/// @param ec Error code: can be either no error or #lsl_lost_error (if the stream source has
+/// @param[out] ec Error code: can be either no error or #lsl_lost_error (if the stream source has
 /// been lost).
 /// @note if the timeout expires before a new sample was received the function returns 0.0;
 /// ec is *not* set to #lsl_timeout_error (because this case is not considered an error condition).
@@ -443,8 +451,8 @@ external int lsl_pull_chunk_str(
 /// IMPORTANT: Note that the provided data buffer size is measured in channel values (e.g., floats)
 /// rather than in samples.
 /// @param in The lsl_inlet object to act on.
-/// @param data_buffer A pointer to a buffer of data values where the results shall be stored.
-/// @param lengths_buffer A pointer to an array that holds the resulting lengths for each
+/// @param[out] data_buffer A pointer to a buffer of data values where the results shall be stored.
+/// @param[out] lengths_buffer A pointer to an array that holds the resulting lengths for each
 /// returned binary string.
 /// @param timestamp_buffer A pointer to a buffer of timestamp values where time stamps shall be
 /// stored. If this is NULL, no time stamps will be returned.
@@ -457,7 +465,7 @@ external int lsl_pull_chunk_str(
 /// When the timeout expires, the function may return before the entire buffer is filled.
 ///
 /// The default value of 0.0 will retrieve only data available for immediate pickup.
-/// @param ec Error code: can be either no error or #lsl_lost_error (if the stream source has
+/// @param[out] ec Error code: can be either no error or #lsl_lost_error (if the stream source has
 /// been lost).
 /// @note If the timeout expires before a new sample was received the function returns 0.0; ec is
 /// *not* set to #lsl_timeout_error (because this case is not considered an error condition).
@@ -592,6 +600,7 @@ external int lsl_push_sample_v(lsl_outlet out, ffi.Pointer<ffi.Void> data);
 /// @}
 /// /** @copydoc lsl_push_sample_f
 ///  * @param timestamp Optionally the capture time of the sample, in agreement with
+///  * lsl_local_clock(); if omitted, the current time is used.
 ///  * @{
 ///  */
 @ffi.Native<NativeLsl_push_sample_ft>()
@@ -1160,13 +1169,13 @@ external int lsl_wait_for_consumers(lsl_outlet out, double timeout);
 /// fields assigned).
 /// @return A copy of the streaminfo of the outlet or NULL in the event that an error occurred.
 /// @note It is the user's responsibility to destroy it when it is no longer needed.
-/// @sa lsl_destroy_string()
+/// @sa lsl_destroy_streaminfo()
 @ffi.Native<NativeLsl_get_info>()
 external lsl_streaminfo lsl_get_info(lsl_outlet out);
 
 /// Construct a new #lsl_continuous_resolver that resolves all streams on the network.
 ///
-/// This is analogous to the functionality offered by the free function lsl_resolve_streams().
+/// This is analogous to the functionality offered by the free function lsl_resolve_all().
 /// @param forget_after When a stream is no longer visible on the network (e.g. because it was shut
 /// down), this is the time in seconds after which it is no longer reported by the resolver.
 ///
@@ -1242,7 +1251,7 @@ external void lsl_destroy_continuous_resolver(lsl_continuous_resolver res);
 /// These details may optionally be customized by the experimenter in a configuration file
 /// (see page Network Connectivity in the LSL wiki).
 /// This is the default mechanism used by the browsing programs and the recording program.
-/// @param buffer A user-allocated buffer to hold the resolve results.
+/// @param[out] buffer A user-allocated buffer to hold the resolve results.
 /// @attention It is the user's responsibility to either destroy the resulting streaminfo objects or
 /// to pass them back to the LSL during during creation of an inlet.
 ///
@@ -1268,7 +1277,7 @@ external int lsl_resolve_all(
 ///
 /// If the goal is to resolve a specific stream, this method is preferred over resolving all streams
 /// and then selecting the desired one.
-/// @param buffer A user-allocated buffer to hold the resolve results.
+/// @param[out] buffer A user-allocated buffer to hold the resolve results.
 /// @attention It is the user's responsibility to either destroy the resulting streaminfo objects or
 /// to pass them back to the LSL during during creation of an inlet.
 ///
@@ -1299,7 +1308,7 @@ external int lsl_resolve_byprop(
 /// Advanced query that allows to impose more conditions on the retrieved streams;
 /// the given string is an [XPath 1.0 predicate](http://en.wikipedia.org/w/index.php?title=XPath_1.0)
 /// for the `<info>` node (omitting the surrounding []'s)
-/// @param buffer A user-allocated buffer to hold the resolve results.
+/// @param[out] buffer A user-allocated buffer to hold the resolve results.
 /// @attention It is the user's responsibility to either destroy the resulting streaminfo objects or
 /// to pass them back to the LSL during during creation of an inlet.
 ///
@@ -1490,7 +1499,7 @@ external lsl_xml_ptr lsl_get_desc(lsl_streaminfo info);
 /// This yields an XML document (in string form) whose top-level element is `<info>`. The info
 /// element contains one element for each field of the streaminfo class, including:
 ///
-/// - the core elements `<name>`, `<type>`, `<channel_count`, `<nominal_srate>`,
+/// - the core elements `<name>`, `<type>`, `<channel_count>`, `<nominal_srate>`,
 /// `<channel_format>`, `<source_id>`
 /// - the misc elements `<version>`, `<created_at>`, `<uid>`, `<session_id>`,
 /// `<v4address>`, `<v4data_port>`, `<v4service_port>`, `<v6address>`, `<v6data_port>`,
@@ -1749,8 +1758,9 @@ enum lsl_processing_options_t {
     8 => proc_threadsafe,
     15 => proc_ALL,
     2130706432 => _proc_maxval,
-    _ =>
-      throw ArgumentError('Unknown value for lsl_processing_options_t: $value'),
+    _ => throw ArgumentError(
+      'Unknown value for lsl_processing_options_t: $value',
+    ),
   };
 }
 
@@ -1806,8 +1816,9 @@ enum lsl_transport_options_t {
     1 => transp_bufsize_samples,
     2 => transp_bufsize_thousandths,
     2130706432 => _lsl_transport_options_maxval,
-    _ =>
-      throw ArgumentError('Unknown value for lsl_transport_options_t: $value'),
+    _ => throw ArgumentError(
+      'Unknown value for lsl_transport_options_t: $value',
+    ),
   };
 }
 
@@ -1823,6 +1834,10 @@ typedef NativeLsl_local_clock = ffi.Double Function();
 typedef DartLsl_local_clock = double Function();
 typedef NativeLsl_destroy_string = ffi.Void Function(ffi.Pointer<ffi.Char> s);
 typedef DartLsl_destroy_string = void Function(ffi.Pointer<ffi.Char> s);
+typedef NativeLsl_set_config_filename =
+    ffi.Void Function(ffi.Pointer<ffi.Char> filename);
+typedef DartLsl_set_config_filename =
+    void Function(ffi.Pointer<ffi.Char> filename);
 
 final class lsl_streaminfo_struct_ extends ffi.Opaque {}
 
