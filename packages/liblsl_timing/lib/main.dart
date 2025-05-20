@@ -1,5 +1,4 @@
 // lib/main.dart
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -12,28 +11,24 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter_fullscreen/flutter_fullscreen.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:path_provider/path_provider.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   await FullScreen.ensureInitialized();
   await WakelockPlus.enable();
-  // prepare LSL config
-  // Directory writablePath = await getApplicationSupportDirectory();
-  // // write the default config file if it doesn't exist
-  // final configFile = File('${writablePath.path}/lsl_api.cfg');
-  // if (kDebugMode) {
-  //   print('Current directory: ${writablePath.path}');
-  // }
-  // // if (!await configFile.exists()) {
-  // await configFile.writeAsString(
-  //   '[ports]\nIPv6=disable',
-  //   encoding: Encoding.getByName('US-ASCII') ?? utf8,
-  //   flush: true,
-  // );
-  String configFile = '[ports]\nIPv6=disable';
-  LSL.setConfigContent(configFile);
+  var logLevel = -2;
+  if (kDebugMode) {
+    // Enable verbose logging for debugging
+    logLevel = 0;
+  }
+  final lslConfig = LSLApiConfig(ipv6: IPv6Mode.disable, logLevel: logLevel);
+  if (kDebugMode) {
+    print('Complete LSL Configuration:');
+    print(lslConfig.toIniString());
+  }
+
+  LSL.setConfigContent(lslConfig);
 
   if (Platform.isAndroid || Platform.isIOS || Platform.isFuchsia) {
     // Enable full-screen mode for mobile platforms

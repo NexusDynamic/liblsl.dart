@@ -177,12 +177,15 @@ class LSLApiConfig {
     this.resolveScope = ResolveScope.site,
     this.listenAddress,
     this.ipv6MulticastGroup,
-    this.machineAddresses = const ['{FF31:113D:6FDD:2C17:A643:FFE2:1BD1:3CD2}'],
+    this.machineAddresses = const ['FF31:113D:6FDD:2C17:A643:FFE2:1BD1:3CD2'],
     this.linkAddresses = const [
-      '{255.255.255.255, 224.0.0.183, FF02:113D:6FDD:2C17:A643:FFE2:1BD1:3CD2}',
+      '255.255.255.255',
+      '224.0.0.183',
+      'FF02:113D:6FDD:2C17:A643:FFE2:1BD1:3CD2',
     ],
     this.siteAddresses = const [
-      '{239.255.172.215, FF05:113D:6FDD:2C17:A643:FFE2:1BD1:3CD2}',
+      '239.255.172.215',
+      'FF05:113D:6FDD:2C17:A643:FFE2:1BD1:3CD2',
     ],
     this.organizationAddresses = const [],
     this.globalAddresses = const [],

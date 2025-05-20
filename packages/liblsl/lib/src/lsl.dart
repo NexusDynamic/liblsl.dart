@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:liblsl/native_liblsl.dart';
 import 'package:liblsl/src/ffi/mem.dart';
+import 'package:liblsl/src/lsl/api_config.dart';
 import 'package:liblsl/src/lsl/exception.dart';
 import 'package:liblsl/src/lsl/stream_info.dart';
 import 'package:liblsl/src/lsl/isolated_inlet.dart';
@@ -33,14 +34,14 @@ class LSL {
     filenamePtr.free();
   }
 
-  /// Sets the configuration content for the LSL library.
+  /// Sets the configuration for the LSL library.
   ///
-  /// @param [content] The content of the configuration file as a string.
+  /// @param [content] The configuration [LSLApiConfig].
   ///
   /// @note: This should be called before any other LSL operations.
   /// @note: see https://labstreaminglayer.readthedocs.io/info/lslapicfg.html#configuration-file-contents
-  static void setConfigContent(String content) {
-    final contentPtr = content.toNativeUtf8();
+  static void setConfigContent(LSLApiConfig content) {
+    final contentPtr = content.toIniString().toNativeUtf8();
     lsl_set_config_content(contentPtr.cast());
     contentPtr.free();
   }

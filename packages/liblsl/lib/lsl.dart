@@ -10,3 +10,4 @@ export 'package:liblsl/src/lsl/stream_resolver.dart'
 export 'package:liblsl/src/lsl/sample.dart' show LSLSample;
 export 'package:liblsl/src/lsl.dart';
 export 'package:liblsl/src/lsl/exception.dart';
+export 'package:liblsl/src/lsl/api_config.dart';
