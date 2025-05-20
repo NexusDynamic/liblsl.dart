@@ -1,7 +1,19 @@
 import 'dart:io';
 
 /// LSL API Configuration class for Dart FFI wrapper of liblsl
-/// Represents the configuration options available in liblsl's configuration file
+/// Represents the configuration options available in liblsl's configuration
+/// file.
+/// For more details, refer to the official LSL documentation:
+/// https://labstreaminglayer.readthedocs.io/info/lslapicfg.html
+/// Specifically, if you would like to use LSL over wireless networks, the
+/// documentation recommends using the following configuration:
+/// https://labstreaminglayer.readthedocs.io/info/lslapicfg.html#tuning
+/// [timeProbeMaxRTT] = 0.100
+/// [timeProbeInterval] = 0.010
+/// [timeProbeCount] = 10
+/// [timeUpdateInterval] = 0.25
+/// [multicastMinRTT] = 0.100
+/// [multicastMaxRTT] = 30
 class LSLApiConfig {
   // PORTS SECTION
   /// The multicast port used for discovery and data streaming
@@ -18,6 +30,8 @@ class LSLApiConfig {
   /// The number of ports to use for outlets, the effective number of outlets
   /// is [portRange] / 2.
   /// The default value is 32.
+  /// While it may be necessary to create a large range, this can potentially
+  /// slow down the discovery process, due to each port having to be scanned.
   int portRange;
 
   /// The IPv6 mode to use. Possible values are:
