@@ -343,15 +343,12 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _exportData() async {
     try {
-      final eventsPath = await _dataExporter.exportEventsToCSV();
-      final metricsPath = await _dataExporter.exportMetricsToCSV();
+      final eventsPath = await _dataExporter.exportEventsToTSV();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('${'EXPORTED_TO'.tr()}:\n$eventsPath\n$metricsPath'),
-          ),
+          SnackBar(content: Text('${'EXPORTED_TO'.tr()}:\n$eventsPath')),
         );
-        await _shareFiles([eventsPath, metricsPath], 'events and metrics');
+        await _shareFiles([eventsPath], 'Events');
       }
     } catch (e) {
       if (mounted) {

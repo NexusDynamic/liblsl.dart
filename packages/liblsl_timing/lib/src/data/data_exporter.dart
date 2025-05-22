@@ -16,7 +16,7 @@ class DataExporter {
     File file;
     if (directory != null) {
       try {
-        String tmpFilePath = '${directory.path}/${fileBaseName}_$timestamp.csv';
+        String tmpFilePath = '${directory.path}/${fileBaseName}_$timestamp.tsv';
         // try opening for writing
         file = File(tmpFilePath);
         return await file.create(exclusive: false, recursive: true);
@@ -29,12 +29,12 @@ class DataExporter {
     // If we can't write to the downloads directory, fallback to application documents directory
     directory = await getApplicationDocumentsDirectory();
     return await File(
-      '${directory.path}/${fileBaseName}_$timestamp.csv',
+      '${directory.path}/${fileBaseName}_$timestamp.tsv',
     ).create(exclusive: false, recursive: true);
   }
 
   /// Export all timing events to a CSV file
-  Future<String> exportEventsToCSV() async {
+  Future<String> exportEventsToTSV() async {
     final events = timingManager.events;
 
     if (events.isEmpty) {
@@ -45,15 +45,19 @@ class DataExporter {
     final buffer = StringBuffer();
 
     // Header row
-    buffer.writeln('timestamp,event_id,event_type,description,metadata');
+    buffer.writeln(
+      'log_timestamp\ttimestamp\tevent_id\tevent_type\tlsl_clock\tdescription\tmetadata',
+    );
 
     // Data rows
-    for (final event in events) {
+    for (final TimingEvent event in events) {
       final metadata = event.metadata != null ? jsonEncode(event.metadata) : '';
 
       buffer.writeln(
-        '${event.timestamp},${event.eventId},${event.eventType},'
-        '${_escapeCsvField(event.description ?? '')},"${_escapeCsvField(metadata)}"',
+        '${event.logTimestamp}\t${event.timestamp}\t${event.eventId}\t'
+        '${event.eventType}\t${event.lslClock}\t'
+        '${_escapeTsvField(event.description ?? '')}\t'
+        '${_escapeTsvField(metadata)}',
       );
     }
 
@@ -63,47 +67,11 @@ class DataExporter {
     return file.path;
   }
 
-  /// Export calculated metrics to a CSV file
-  Future<String> exportMetricsToCSV() async {
-    final metrics = timingManager.metrics;
-
-    if (metrics.isEmpty) {
-      throw Exception('No metrics to export');
-    }
-
-    // Create CSV content
-    final buffer = StringBuffer();
-
-    // Process each metric type
-    for (final metricName in metrics.keys) {
-      final values = metrics[metricName] ?? [];
-
-      buffer.writeln('\n$metricName');
-      buffer.writeln('sample_number,value_seconds');
-
-      for (int i = 0; i < values.length; i++) {
-        buffer.writeln('${i + 1},${values[i]}');
-      }
-
-      // Add statistics
-      final stats = timingManager.getMetricStats(metricName);
-      buffer.writeln('\nStatistics:');
-      buffer.writeln('mean,${stats['mean']}');
-      buffer.writeln('min,${stats['min']}');
-      buffer.writeln('max,${stats['max']}');
-      buffer.writeln('stdDev,${stats['stdDev']}');
-    }
-
-    // Save to file
-    final file = await _getFile('lsl_metrics');
-    await file.writeAsString(buffer.toString());
-    return file.path;
-  }
-
-  /// Helper method to escape CSV fields
-  String _escapeCsvField(String field) {
-    if (field.contains(',') || field.contains('"') || field.contains('\n')) {
-      return field.replaceAll('"', '""');
+  /// Helper method to escape TSV fields
+  String _escapeTsvField(String field) {
+    if (field.contains('\t') || field.contains('\n')) {
+      // replace tabs and newlines with spaces
+      field = field.replaceAll('\t', ' ').replaceAll('\n', ' ');
     }
     return field;
   }

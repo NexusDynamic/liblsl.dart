@@ -1,36 +1,56 @@
 // lib/src/data/timing_manager.dart
 import 'dart:async';
 import 'dart:convert';
+import 'dart:collection';
 import 'dart:math' as math;
+// import 'package:collection/collection.dart';
 import 'package:liblsl_timing/src/config/app_config.dart';
-import 'package:synchronized/synchronized.dart';
+// import 'package:synchronized/synchronized.dart';
 import 'package:flutter/widgets.dart';
 import 'package:liblsl/lsl.dart';
 import '../config/constants.dart';
 
+extension QueueTail<E> on DoubleLinkedQueue<E> {
+  Iterable<E> tail(int count) sync* {
+    int index = 0;
+    DoubleLinkedQueueEntry<E>? entry = lastEntry();
+    while (entry != null && index < count) {
+      yield entry.element;
+      entry = entry.previousEntry();
+      index++;
+    }
+  }
+}
+
 class TimingEvent {
   final double timestamp;
+  final double lslClock;
   final EventType eventType;
   final String? description;
   final Map<String, dynamic>? metadata;
-  final String eventId;
-  final double eventTimestamp = DateTime.now().microsecondsSinceEpoch / 1000000;
+  late final String eventId;
+  late final double logTimestamp;
 
   TimingEvent({
     required this.timestamp,
+    required this.lslClock,
     required this.eventType,
     this.description,
     this.metadata,
     String? eventId,
-  }) : eventId = eventId ?? _generateEventId();
+  }) {
+    logTimestamp = DateTime.now().microsecondsSinceEpoch / 1000000;
+    this.eventId = eventId ?? _generateEventId(logTimestamp);
+  }
 
-  static String _generateEventId() {
-    return 'evt_${DateTime.now().millisecondsSinceEpoch}_${math.Random().nextInt(1000)}';
+  static String _generateEventId(double timestamp) {
+    return 'evt_${timestamp}_${math.Random().nextInt(1000)}';
   }
 
   Map<String, dynamic> toJson() {
     return {
-      'eventTimestamp': eventTimestamp,
+      'logTimestamp': logTimestamp,
+      'lslClock': lslClock,
       'timestamp': timestamp,
       'eventType': eventType.toString(),
       'description': description,
@@ -47,16 +67,12 @@ class TimingEvent {
 
 class TimingManager {
   // Collection to store all timing events
-  final List<TimingEvent> _events = [];
-
-  final _lock = Lock();
-
-  // Metrics calculated from events
-  final Map<String, List<double>> _metrics = {};
+  final DoubleLinkedQueue<TimingEvent> _events =
+      DoubleLinkedQueue<TimingEvent>();
 
   // Stream controller for real-time updates
-  final StreamController<TimingEvent> _eventStreamController =
-      StreamController<TimingEvent>.broadcast();
+  final StreamController<EventType> _eventStreamController =
+      StreamController<EventType>.broadcast();
 
   AppConfig config;
 
@@ -65,12 +81,22 @@ class TimingManager {
   bool _timeBaseCalibrated = false;
 
   // Getters for external access
-  List<TimingEvent> get events => List.unmodifiable(_events);
-  Map<String, List<double>> get metrics => Map.unmodifiable(_metrics);
-  Stream<TimingEvent> get eventStream => _eventStreamController.stream;
+  List<TimingEvent> get events => _events.toList(growable: false);
+
+  /// Get the number of events recorded
+  int get eventCount => _events.length;
+  Stream<EventType> get eventStream => _eventStreamController.stream;
 
   /// Initialize the timing manager
   TimingManager(this.config);
+
+  Iterable<TimingEvent> takeEvents(int count) sync* {
+    yield* _events.take(count);
+  }
+
+  Iterable<TimingEvent> tailEvents(int count) sync* {
+    yield* _events.tail(count);
+  }
 
   /// Calibrate time base between LSL and Flutter
   /// In theory, this should be the same, but with a potentially different time
@@ -96,10 +122,16 @@ class TimingManager {
     );
   }
 
-  Map<String, dynamic> _injectMetadata(Map<String, dynamic>? metadata) {
+  Map<String, dynamic> _injectMetadata(
+    Map<String, dynamic>? metadata, {
+    String testType = '',
+    String testId = '',
+  }) {
     final injectedMetadata = metadata ?? {};
     injectedMetadata['reportingDeviceId'] = config.deviceId;
     injectedMetadata['reportingDeviceName'] = config.deviceName;
+    injectedMetadata['testType'] = testType;
+    injectedMetadata['testId'] = testId;
     return injectedMetadata;
   }
 
@@ -109,18 +141,21 @@ class TimingManager {
     String? description,
     Map<String, dynamic>? metadata,
     String? eventId,
+    String testType = '',
+    String testId = '',
   }) async {
     final event = TimingEvent(
       timestamp: DateTime.now().microsecondsSinceEpoch / 1000000,
+      lslClock: LSL.localClock(),
       eventType: eventType,
       description: description,
-      metadata: _injectMetadata(metadata),
+      metadata: _injectMetadata(metadata, testType: testType, testId: testId),
       eventId: eventId,
     );
-    await _lock.synchronized(() {
-      _events.add(event);
-    });
-    _eventStreamController.add(event);
+    //await _lock.synchronized(() {
+    _events.add(event);
+    //});
+    _eventStreamController.add(eventType);
     return event;
   }
 
@@ -128,21 +163,25 @@ class TimingManager {
   Future<TimingEvent> recordTimestampedEvent(
     EventType eventType,
     double timestamp, {
+    double? lslClock,
     String? description,
     Map<String, dynamic>? metadata,
     String? eventId,
+    String testType = '',
+    String testId = '',
   }) async {
     final event = TimingEvent(
       timestamp: timestamp,
+      lslClock: lslClock ?? LSL.localClock(),
       eventType: eventType,
       description: description,
-      metadata: _injectMetadata(metadata),
+      metadata: _injectMetadata(metadata, testType: testType, testId: testId),
       eventId: eventId,
     );
-    await _lock.synchronized(() {
-      _events.add(event);
-    });
-    _eventStreamController.add(event);
+    //await _lock.synchronized(() {
+    _events.add(event);
+    //});
+    _eventStreamController.add(eventType);
     return event;
   }
 
@@ -161,152 +200,136 @@ class TimingManager {
 
     final event = TimingEvent(
       timestamp: localTime,
+      lslClock: LSL.localClock(),
       eventType: EventType.sampleCreated,
       description: description ?? 'UI Event',
       metadata: _injectMetadata(metadata),
       eventId: eventId,
     );
-    await _lock.synchronized(() {
-      _events.add(event);
-    });
-    _eventStreamController.add(event);
+    //await _lock.synchronized(() {
+    _events.add(event);
+    //});
+    _eventStreamController.add(EventType.sampleCreated);
   }
 
   /// Reset all collected timing data
   void reset() async {
-    await _lock.synchronized(() {
-      _events.clear();
-    });
-    _metrics.clear();
+    //await _lock.synchronized(() {
+    _events.clear();
   }
 
-  /// Calculate timing metrics between different event types
-  void calculateMetrics() {
-    _metrics.clear();
+  // void _calculateLatencyBetweenEvents(
+  //   String metricName,
+  //   EventType startEventType,
+  //   EventType endEventType, {
+  //   bool matchById = true,
+  // }) {
+  //   final latencies = <double>[];
 
-    // Calculate latency between event types
-    _calculateLatencyBetweenEvents(
-      'sample_to_receive',
-      EventType.sampleSent,
-      EventType.sampleReceived,
-    );
+  //   // Group events by sampleId if matching by ID
+  //   if (matchById) {
+  //     final startEvents = <String, TimingEvent>{};
 
-    // Calculate time corrections
-    _calculateTimeCorrectionStats();
-  }
+  //     for (final event in events) {
+  //       final sampleId = event.metadata?['sampleId'] as String?;
+  //       if (sampleId == null) continue;
 
-  void _calculateLatencyBetweenEvents(
-    String metricName,
-    EventType startEventType,
-    EventType endEventType, {
-    bool matchById = true,
-  }) {
-    final latencies = <double>[];
+  //       if (event.eventType == startEventType) {
+  //         startEvents[sampleId] = event;
+  //       } else if (event.eventType == endEventType &&
+  //           startEvents.containsKey(sampleId)) {
+  //         final startEvent = startEvents[sampleId]!;
+  //         final latency = event.timestamp - startEvent.timestamp;
+  //         latencies.add(latency);
+  //       }
+  //     }
+  //   } else {
+  //     final evts = events;
+  //     // Simple sequential matching
+  //     for (int i = 0; i < evts.length; i++) {
+  //       final event = evts[i];
+  //       if (event.eventType == startEventType) {
+  //         // Find the next matching end event
+  //         for (int j = i + 1; j < evts.length; j++) {
+  //           final endEvent = evts[j];
+  //           if (endEvent.eventType == endEventType) {
+  //             final latency = endEvent.timestamp - event.timestamp;
+  //             latencies.add(latency);
+  //             break;
+  //           }
+  //         }
+  //       }
+  //     }
+  //   }
 
-    // Group events by sampleId if matching by ID
-    if (matchById) {
-      final startEvents = <String, TimingEvent>{};
+  //   _metrics[metricName] = latencies;
+  // }
 
-      for (final event in events) {
-        final sampleId = event.metadata?['sampleId'] as String?;
-        if (sampleId == null) continue;
+  // void _calculateTimeCorrectionStats() {
+  //   // Filter events for time correction data
+  //   final correctionEvents = events
+  //       .where((e) => e.eventType == EventType.clockCorrection)
+  //       .toList();
 
-        if (event.eventType == startEventType) {
-          startEvents[sampleId] = event;
-        } else if (event.eventType == endEventType &&
-            startEvents.containsKey(sampleId)) {
-          final startEvent = startEvents[sampleId]!;
-          final latency = event.timestamp - startEvent.timestamp;
-          latencies.add(latency);
-        }
-      }
-    } else {
-      final evts = events;
-      // Simple sequential matching
-      for (int i = 0; i < evts.length; i++) {
-        final event = evts[i];
-        if (event.eventType == startEventType) {
-          // Find the next matching end event
-          for (int j = i + 1; j < evts.length; j++) {
-            final endEvent = evts[j];
-            if (endEvent.eventType == endEventType) {
-              final latency = endEvent.timestamp - event.timestamp;
-              latencies.add(latency);
-              break;
-            }
-          }
-        }
-      }
-    }
+  //   if (correctionEvents.isEmpty) return;
 
-    _metrics[metricName] = latencies;
-  }
+  //   // Extract correction values per device
+  //   final deviceCorrections = <String, List<double>>{};
 
-  void _calculateTimeCorrectionStats() {
-    // Filter events for time correction data
-    final correctionEvents = events
-        .where((e) => e.eventType == EventType.clockCorrection)
-        .toList();
+  //   for (final event in correctionEvents) {
+  //     final deviceId = event.metadata?['deviceId'] as String?;
+  //     final correction = event.metadata?['correction'] as double?;
 
-    if (correctionEvents.isEmpty) return;
+  //     if (deviceId != null && correction != null) {
+  //       deviceCorrections.putIfAbsent(deviceId, () => []).add(correction);
+  //     }
+  //   }
 
-    // Extract correction values per device
-    final deviceCorrections = <String, List<double>>{};
+  //   // Calculate statistics for each device
+  //   for (final deviceId in deviceCorrections.keys) {
+  //     final corrections = deviceCorrections[deviceId]!;
 
-    for (final event in correctionEvents) {
-      final deviceId = event.metadata?['deviceId'] as String?;
-      final correction = event.metadata?['correction'] as double?;
+  //     if (corrections.isEmpty) continue;
 
-      if (deviceId != null && correction != null) {
-        deviceCorrections.putIfAbsent(deviceId, () => []).add(correction);
-      }
-    }
+  //     final mean = corrections.reduce((a, b) => a + b) / corrections.length;
+  //     final min = corrections.reduce(math.min);
+  //     final max = corrections.reduce(math.max);
 
-    // Calculate statistics for each device
-    for (final deviceId in deviceCorrections.keys) {
-      final corrections = deviceCorrections[deviceId]!;
+  //     // Calculate standard deviation
+  //     final sumSquaredDiff = corrections.fold(
+  //       0.0,
+  //       (sum, value) => sum + math.pow(value - mean, 2),
+  //     );
+  //     final stdDev = math.sqrt(sumSquaredDiff / corrections.length);
 
-      if (corrections.isEmpty) continue;
+  //     // Store statistics in the metrics
+  //     _metrics['clock_correction_${deviceId}_mean'] = [mean];
+  //     _metrics['clock_correction_${deviceId}_min'] = [min];
+  //     _metrics['clock_correction_${deviceId}_max'] = [max];
+  //     _metrics['clock_correction_${deviceId}_stddev'] = [stdDev];
+  //   }
+  // }
 
-      final mean = corrections.reduce((a, b) => a + b) / corrections.length;
-      final min = corrections.reduce(math.min);
-      final max = corrections.reduce(math.max);
+  // /// Get statistics for a metric
+  // Map<String, double> getMetricStats(String metricName) {
+  //   final values = _metrics[metricName];
+  //   if (values == null || values.isEmpty) {
+  //     return {'mean': 0, 'min': 0, 'max': 0, 'stdDev': 0};
+  //   }
 
-      // Calculate standard deviation
-      final sumSquaredDiff = corrections.fold(
-        0.0,
-        (sum, value) => sum + math.pow(value - mean, 2),
-      );
-      final stdDev = math.sqrt(sumSquaredDiff / corrections.length);
+  //   final mean = values.reduce((a, b) => a + b) / values.length;
+  //   final min = values.reduce(math.min);
+  //   final max = values.reduce(math.max);
 
-      // Store statistics in the metrics
-      _metrics['clock_correction_${deviceId}_mean'] = [mean];
-      _metrics['clock_correction_${deviceId}_min'] = [min];
-      _metrics['clock_correction_${deviceId}_max'] = [max];
-      _metrics['clock_correction_${deviceId}_stddev'] = [stdDev];
-    }
-  }
+  //   // Calculate standard deviation
+  //   final sumSquaredDiff = values.fold(
+  //     0.0,
+  //     (sum, value) => sum + math.pow(value - mean, 2),
+  //   );
+  //   final stdDev = math.sqrt(sumSquaredDiff / values.length);
 
-  /// Get statistics for a metric
-  Map<String, double> getMetricStats(String metricName) {
-    final values = _metrics[metricName];
-    if (values == null || values.isEmpty) {
-      return {'mean': 0, 'min': 0, 'max': 0, 'stdDev': 0};
-    }
-
-    final mean = values.reduce((a, b) => a + b) / values.length;
-    final min = values.reduce(math.min);
-    final max = values.reduce(math.max);
-
-    // Calculate standard deviation
-    final sumSquaredDiff = values.fold(
-      0.0,
-      (sum, value) => sum + math.pow(value - mean, 2),
-    );
-    final stdDev = math.sqrt(sumSquaredDiff / values.length);
-
-    return {'mean': mean, 'min': min, 'max': max, 'stdDev': stdDev};
-  }
+  //   return {'mean': mean, 'min': min, 'max': max, 'stdDev': stdDev};
+  // }
 
   /// Convert Flutter time to LSL equivalent time
   double flutterTimeToLSLTime(double flutterTime) {

@@ -26,16 +26,14 @@ class StatsViewWidget extends StatelessWidget {
     final Map<String, Map<String, dynamic>> stats = {};
 
     // first we will calculate the stats for EventType.sampleCreated timestamp
-    final pickIndices = csvData['event_type'].isEqual(
-      'EventType.sampleCreated',
-    );
+    final pickIndices = csvData['event_type'].isEqual('EventType.sampleSent');
 
     final timestampColumn = csvData['timestamp'].indices(pickIndices.data);
     //print(indices);
     //final timestampColumn = csvData[indices]['timestamp'];
     // we care about the inter-sample interval
     final interSampleInterval = <double>[];
-    for (int i = 1; i < timestampColumn.length; i++) {
+    for (int i = 999; i < timestampColumn.length - 1000; i++) {
       final interval =
           (double.parse(timestampColumn[i]) -
               double.parse(timestampColumn[i - 1])) *
@@ -119,12 +117,15 @@ class StatsViewWidget extends StatelessWidget {
       double.nan,
       growable: true,
     );
-    for (int i = 0; i < recievedCounter.length; i++) {
+    for (int i = 999; i < recievedCounter.length - 1000; i++) {
+      // FIX @TODO also
+      // @TODO: fix underscore at end...wtf.
       if (recievedSourceId.data[i] != myDeviceId) {
         continue;
       }
+      // @TODO: Fix indexing (sent and recieved dont match)
       final cIndex =
-          recievedCounter.data[i] - 1; // -1 because we are using 0 based index
+          recievedCounter.data[i]; // -1 because we are using 0 based index
       latency[cIndex] = double.parse(recievedTimestamps.data[i]);
     }
 

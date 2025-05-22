@@ -1,5 +1,7 @@
 // lib/src/tests/base_test.dart
 import 'dart:async';
+import 'package:liblsl_timing/src/config/constants.dart';
+
 import '../config/app_config.dart';
 import '../data/timing_manager.dart';
 
@@ -12,6 +14,9 @@ abstract class BaseTest {
   /// Test type name
   String get name;
 
+  /// Test type
+  TestType get testType;
+
   /// Test description
   String get description;
 
@@ -19,7 +24,7 @@ abstract class BaseTest {
   Future<void> setup();
 
   /// Run the test
-  Future<void> run();
+  Future<void> run(Completer<void> completer);
 
   /// Clean up resources
   Future<void> cleanup();
@@ -42,7 +47,7 @@ abstract class BaseTest {
       });
 
       // Run the test and wait for completion or timeout
-      unawaited(run());
+      unawaited(run(completer));
       await completer.future;
 
       // Cancel the timeout
@@ -51,8 +56,5 @@ abstract class BaseTest {
       // Clean up
       await cleanup();
     }
-
-    // Calculate metrics
-    timingManager.calculateMetrics();
   }
 }

@@ -25,10 +25,17 @@ class _TestPageState extends State<TestPage> {
   final List<String> _statusMessages = [];
   int _eventsCount = 0;
   bool _testCompleted = false;
+  List<TimingEvent> _timingEventCache = [];
+  int _eventsLastUpdated = 0;
 
   @override
   void initState() {
     super.initState();
+    _eventsLastUpdated = 0;
+    _timingEventCache = [];
+    _testCompleted = false;
+    _eventsCount = 0;
+    _statusMessages.clear();
 
     // Listen for test status updates
     widget.testController.statusStream.listen((message) {
@@ -45,9 +52,9 @@ class _TestPageState extends State<TestPage> {
     });
 
     // Listen for timing events to update counter
-    widget.timingManager.eventStream.listen((_) {
+    widget.timingManager.eventStream.listen((EventType eventType) {
       setState(() {
-        _eventsCount = widget.timingManager.events.length;
+        _eventsCount++;
       });
     });
 
@@ -150,16 +157,11 @@ class _TestPageState extends State<TestPage> {
   }
 
   Widget _buildLatencyTestUI() {
-    // Get most recent latency events
-    final latencyEvents =
-        widget.timingManager.events
-            .where(
-              (e) =>
-                  e.eventType == EventType.sampleSent ||
-                  e.eventType == EventType.sampleReceived,
-            )
-            .take(50)
-            .toList();
+    // Get most recent events if it has been more than 100ms since last update
+    if (DateTime.now().millisecondsSinceEpoch - _eventsLastUpdated > 100) {
+      _eventsLastUpdated = DateTime.now().millisecondsSinceEpoch;
+      _timingEventCache = widget.timingManager.tailEvents(10).toList();
+    }
 
     return Column(
       children: [
@@ -174,34 +176,32 @@ class _TestPageState extends State<TestPage> {
 
         // Show real-time latency indicators
         Expanded(
-          child:
-              latencyEvents.isEmpty
-                  ? const Center(child: CircularProgressIndicator())
-                  : ListView.builder(
-                    itemCount: latencyEvents.length,
-                    itemBuilder: (context, index) {
-                      final event = latencyEvents[index];
-                      return ListTile(
-                        leading: Icon(
-                          event.eventType == EventType.sampleSent
-                              ? Icons.arrow_upward
-                              : Icons.arrow_downward,
-                          color:
-                              event.eventType == EventType.sampleSent
-                                  ? Colors.blue
-                                  : Colors.green,
-                        ),
-                        title: Text(
-                          event.eventType.toString(),
-                          style: const TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                        subtitle: Text(event.description ?? ''),
-                        trailing: Text(
-                          '${(event.timestamp % 10000).toStringAsFixed(3)}s',
-                        ),
-                      );
-                    },
-                  ),
+          child: _timingEventCache.isEmpty
+              ? const Center(child: CircularProgressIndicator())
+              : ListView.builder(
+                  itemCount: _timingEventCache.length,
+                  itemBuilder: (context, index) {
+                    final event = _timingEventCache[index];
+                    return ListTile(
+                      leading: Icon(
+                        event.eventType == EventType.sampleSent
+                            ? Icons.arrow_upward
+                            : Icons.arrow_downward,
+                        color: event.eventType == EventType.sampleSent
+                            ? Colors.blue
+                            : Colors.green,
+                      ),
+                      title: Text(
+                        event.eventType.toString(),
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      subtitle: Text(event.description ?? ''),
+                      trailing: Text(
+                        '${(event.timestamp % 10000).toStringAsFixed(3)}s',
+                      ),
+                    );
+                  },
+                ),
         ),
       ],
     );
@@ -209,20 +209,11 @@ class _TestPageState extends State<TestPage> {
 
   Widget _buildSyncTestUI() {
     // Get most recent clock correction events
-    final syncEvents =
-        widget.timingManager.events
-            .where(
-              (e) =>
-                  e.eventType == EventType.clockCorrection ||
-                  e.eventType == EventType.markerSent ||
-                  e.eventType == EventType.markerReceived,
-            )
-            .take(50)
-            .toList();
+    _timingEventCache = widget.timingManager.tailEvents(10).toList();
 
     // Collect device IDs with clock corrections
     final deviceIds = <String>{};
-    for (final event in syncEvents) {
+    for (final event in _timingEventCache) {
       if (event.metadata?.containsKey('deviceId') == true) {
         deviceIds.add(event.metadata!['deviceId'] as String);
       }
@@ -252,13 +243,12 @@ class _TestPageState extends State<TestPage> {
                 ),
                 Wrap(
                   spacing: 8,
-                  children:
-                      deviceIds.map((deviceId) {
-                        return Chip(
-                          label: Text(deviceId),
-                          backgroundColor: Colors.blue.withAlpha(51),
-                        );
-                      }).toList(),
+                  children: deviceIds.map((deviceId) {
+                    return Chip(
+                      label: Text(deviceId),
+                      backgroundColor: Colors.blue.withAlpha(51),
+                    );
+                  }).toList(),
                 ),
               ],
             ),
@@ -266,52 +256,51 @@ class _TestPageState extends State<TestPage> {
 
         // Show sync events
         Expanded(
-          child:
-              syncEvents.isEmpty
-                  ? const Center(child: CircularProgressIndicator())
-                  : ListView.builder(
-                    itemCount: syncEvents.length,
-                    itemBuilder: (context, index) {
-                      final event = syncEvents[index];
-                      IconData iconData;
-                      Color iconColor;
+          child: _timingEventCache.isEmpty
+              ? const Center(child: CircularProgressIndicator())
+              : ListView.builder(
+                  itemCount: _timingEventCache.length,
+                  itemBuilder: (context, index) {
+                    final event = _timingEventCache[index];
+                    IconData iconData;
+                    Color iconColor;
 
-                      switch (event.eventType) {
-                        case EventType.clockCorrection:
-                          iconData = Icons.sync;
-                          iconColor = Colors.purple;
-                          break;
-                        case EventType.markerSent:
-                          iconData = Icons.send;
-                          iconColor = Colors.blue;
-                          break;
-                        case EventType.markerReceived:
-                          iconData = Icons.download;
-                          iconColor = Colors.green;
-                          break;
-                        default:
-                          iconData = Icons.info;
-                          iconColor = Colors.grey;
-                      }
+                    switch (event.eventType) {
+                      case EventType.clockCorrection:
+                        iconData = Icons.sync;
+                        iconColor = Colors.purple;
+                        break;
+                      case EventType.markerSent:
+                        iconData = Icons.send;
+                        iconColor = Colors.blue;
+                        break;
+                      case EventType.markerReceived:
+                        iconData = Icons.download;
+                        iconColor = Colors.green;
+                        break;
+                      default:
+                        iconData = Icons.info;
+                        iconColor = Colors.grey;
+                    }
 
-                      return ListTile(
-                        leading: Icon(iconData, color: iconColor),
-                        title: Text(
-                          event.eventType.toString(),
-                          style: const TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                        subtitle: Text(
-                          event.description ?? '',
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        trailing: Text(
-                          '${(event.timestamp % 10000).toStringAsFixed(3)}s',
-                        ),
-                        onTap: () => _showEventDetails(event),
-                      );
-                    },
-                  ),
+                    return ListTile(
+                      leading: Icon(iconData, color: iconColor),
+                      title: Text(
+                        event.eventType.toString(),
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      subtitle: Text(
+                        event.description ?? '',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      trailing: Text(
+                        '${(event.timestamp % 10000).toStringAsFixed(3)}s',
+                      ),
+                      onTap: () => _showEventDetails(event),
+                    );
+                  },
+                ),
         ),
       ],
     );
@@ -330,6 +319,7 @@ class _TestPageState extends State<TestPage> {
               children: [
                 Text('Description: ${event.description ?? "N/A"}'),
                 Text('Timestamp: ${event.timestamp}'),
+                Text('LSL Clock: ${event.lslClock}'),
                 const SizedBox(height: 8),
                 const Text(
                   'Metadata:',

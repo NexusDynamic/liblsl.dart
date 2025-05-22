@@ -12,6 +12,7 @@ class SynchronizationTest extends BaseTest {
   LSLStreamInfo? _syncStreamInfo;
   LSLIsolatedOutlet? _syncOutlet;
   List<LSLIsolatedInlet> _syncInlets = [];
+  final String _srcPrefix = 'Sync_';
 
   // Test variables
   int _syncCounter = 0;
@@ -27,6 +28,9 @@ class SynchronizationTest extends BaseTest {
   String get name => 'Clock Synchronization Test';
 
   @override
+  TestType get testType => TestType.synchronization;
+
+  @override
   String get description =>
       'Analyzes clock differences and drift between devices';
 
@@ -38,12 +42,12 @@ class SynchronizationTest extends BaseTest {
 
     // Create a sync stream
     _syncStreamInfo = await LSL.createStreamInfo(
-      streamName: '${config.deviceName}_Sync',
+      streamName: config.streamName,
       streamType: LSLContentType.markers,
       channelCount: 1,
       sampleRate: LSL_IRREGULAR_RATE,
       channelFormat: LSLChannelFormat.string,
-      sourceId: '${config.deviceId}_Sync',
+      sourceId: '$_srcPrefix${config.deviceId}',
     );
 
     // Create an outlet for sync markers
@@ -61,8 +65,10 @@ class SynchronizationTest extends BaseTest {
         .where(
           (s) =>
               s.streamType == LSLContentType.markers &&
-              s.sourceId != '${config.deviceId}_Sync' &&
-              s.streamName.endsWith('_Sync'),
+              // our own stream
+              s.sourceId != '$_srcPrefix${config.deviceId}' &&
+              // sync streams
+              s.streamName.startsWith(_srcPrefix),
         )
         .toList();
 
@@ -71,7 +77,7 @@ class SynchronizationTest extends BaseTest {
     for (final stream in syncStreams) {
       final inlet = await LSL.createInlet(
         streamInfo: stream,
-        maxBufferSize: 360,
+        maxBufferSize: 5,
         maxChunkLength: 1,
         recover: true,
       );
@@ -93,7 +99,7 @@ class SynchronizationTest extends BaseTest {
   }
 
   @override
-  Future<void> run() async {
+  Future<void> run(Completer<void> completer) async {
     _isRunning = true;
 
     // Start sending sync markers
@@ -103,9 +109,6 @@ class SynchronizationTest extends BaseTest {
     for (final inlet in _syncInlets) {
       _startReceivingMarkers(inlet);
     }
-
-    // Create a completer that completes when the test is stopped
-    final completer = Completer<void>();
 
     // Wait for test to complete
     await completer.future;

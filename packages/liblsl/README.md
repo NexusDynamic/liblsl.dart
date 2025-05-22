@@ -48,6 +48,18 @@ This package will work with flutter without any issues, for an example see the [
 
 ## Important notes
 
+### Inlets and outlets
+
+By design, this library uses Dart [isolates](https://dart.dev/language/isolates) to create an independent thread for each inlet and outlet. This means that you can have multiple inlets and outlets running at the same time, and the performance should remain high as there is no blocking of the main isolate. That said, once the number of streams goes beyond your system's number of CPU cores, it is possible that performance may degrade at some point. If you encounter any issues with performance, please let me know.
+
+### Multicast
+
+LSL uses multicast UDP packets to discover communicate between devices and applications. Multicast packets may be blocked on various managed switches and routers, or by your network or machine firewall. If you are having issues with LSL, check your network settings and firewall settings to ensure that multicast packets are allowed, the method to do this varies by platform and network infrastructure.
+
+### No multicast? No problem! (maybe)
+
+It is possible to use LSL without multicast, this requires understanding your network infrastructure and the IP addresses of the devices you communicate with. The library provides a way to configure the LSL API, which can be done before invoking any other LSL functions. More documentation will be added here once the version of hooks and native_assets has a stable release, currently some of these changes are in a branch. For now, you can see details of the API configuration, and how you can use it on the [LSL configuration files](https://labstreaminglayer.readthedocs.io/info/lslapicfg.html) page of the LSL documentation.
+
 ### Android
 
 Your application will require the `INTERNET`, `CHANGE_WIFI_MULTICAST_STATE`, `ACCESS_NETWORK_STATE`, and `ACCESS_WIFI_STATE` permissions in your `AndroidManifest.xml` file. This is required for multicast UDP communication, which is used by LSL.
@@ -66,9 +78,24 @@ Your application will require the `INTERNET`, `CHANGE_WIFI_MULTICAST_STATE`, `AC
 
 There's a very unfortunate situation in iOS where you cannot access multicast networking without the special entitlement [`com.apple.developer.networking.multicast`](https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.developer.networking.multicast). This is a special entitlement that is only available to Apple developers with a paid developer account, and by explicit request. If you don't have this entitlement, you will not be able to use LSL on iOS, and unfortunately, there's not much I can do about this. If you have a developer account, see the above entitlement documentation, and then visit the [Multicast Networking Entitlement Request page](https://developer.apple.com/contact/request/networking-multicast).
 
-### General
+You will also need the following configured in your `Info.plist` file:
 
-Multicast packets may be blocked on various managed switches and routers, or by your network or machine firewall. If you are having issues with LSL, check your network settings and firewall settings to ensure that multicast packets are allowed, the method to do this varies by platform and network infrastructure.
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- ... other Info.plist nodes -->
+    <key>NSBonjourServices</key>
+	<array>
+		<string>liblsl._tcp</string>
+		<string>liblsl._udp</string>
+	</array>
+    <key>NSLocalNetworkUsageDescription</key>
+	<string>Allow LSL to find other devices and communicate</string>
+</dict>
+</plist>
+```
 
 
 ## API Usage

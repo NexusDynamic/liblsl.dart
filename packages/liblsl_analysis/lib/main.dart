@@ -90,30 +90,15 @@ class _AnalysisHomePageState extends State<AnalysisHomePage> {
               'sampleId',
               'counter',
               'lslTime',
-              'reportingDeviceId',
+              'lslTimestamp',
+              'lslSent',
+              'dartTimestamp',
               'reportingDeviceName',
-              'device_name',
-              'stream_name',
-              'stream_type',
-              'channel_count',
-              'sample_rate',
-              'channel_format',
-              'is_producer',
-              'is_consumer',
-              'device_id',
-              'test_duration_seconds',
-              'stream_max_wait_time',
-              'stream_max_streams',
-              'syncStreams',
-              'syncInlets',
-              'timeCorrection',
-              'remoteTime',
-              'estimatedOffset',
-              'syncId',
-              'deviceName',
-              'localTime',
-              'systemOffset',
-              'sourceId',
+              'reportingDeviceId',
+              'testType',
+              // @todo: add testId to runner...
+              'testId',
+              'sourceId', // pseudo column for sourceId until it is added
             ];
 
             final List<List<dynamic>> metadataValues = [];
@@ -125,7 +110,7 @@ class _AnalysisHomePageState extends State<AnalysisHomePage> {
                 // replace double quote escapes with one double quote
                 // this is a dirty hack, if there is an empty value, this
                 // will break it.
-                value = value.replaceAll(RegExp(r'""'), '"');
+                //value = value.replaceAll(RegExp(r'""'), '"');
                 final metadata = jsonDecode(value);
                 final List<dynamic> metadataMap = List.filled(
                   metaColumns.length,
@@ -146,7 +131,8 @@ class _AnalysisHomePageState extends State<AnalysisHomePage> {
                         // map to the sourceID
                         final sourceId = metadata['sampleId']
                             ?.toString()
-                            .replaceAll(RegExp(r'_(LatencyTest_)?\d+$'), '');
+                            .replaceAll(RegExp(r'^(LatencyTest_)'), '')
+                            .replaceAll(RegExp(r'_+\d+$'), '');
                         if (sourceId != null) {
                           metadataMap[sourcIdIndex] = sourceId;
                         }

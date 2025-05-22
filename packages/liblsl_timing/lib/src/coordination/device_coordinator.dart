@@ -108,7 +108,7 @@ class DeviceCoordinator {
     _controlOutlet = await LSL.createOutlet(
       streamInfo: _controlStreamInfo!,
       chunkSize: 1,
-      maxBuffer: 360,
+      maxBuffer: 5,
     );
 
     // Add self to connected devices
@@ -167,7 +167,7 @@ class DeviceCoordinator {
         // Create inlet for each participant stream
         final inlet = await LSL.createInlet(
           streamInfo: stream,
-          maxBufferSize: 360,
+          maxBufferSize: 5,
           maxChunkLength: 1,
           recover: true,
         );
@@ -204,7 +204,7 @@ class DeviceCoordinator {
     // Create inlet to the control stream
     _controlInlet = await LSL.createInlet<String>(
       streamInfo: controlStream,
-      maxBufferSize: 360,
+      maxBufferSize: 5,
       maxChunkLength: 1,
       recover: true,
     );
@@ -222,7 +222,7 @@ class DeviceCoordinator {
     _controlOutlet = await LSL.createOutlet(
       streamInfo: _controlStreamInfo!,
       chunkSize: 1,
-      maxBuffer: 360,
+      maxBuffer: 5,
     );
 
     // Send join message
@@ -325,7 +325,6 @@ class DeviceCoordinator {
       timingManager.recordEvent(
         EventType.coordination,
         description: notification,
-        metadata: {'deviceId': deviceId, 'deviceName': deviceName},
       );
 
       // Send the updated device list to participants.
