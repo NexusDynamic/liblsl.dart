@@ -69,6 +69,14 @@ class _AnalysisHomePageState extends State<AnalysisHomePage> {
           if (kDebugMode) {
             print('CSV Data loaded successfully:');
           }
+          csvData!['extractedTimestamp'] = (csvData!['event_id']).map((el) {
+            // extract the timestamp from the event_id
+            return el.toString().split('_')[1];
+          });
+          csvData!.columns = csvData!.columns.map((colname) {
+            // strip whitespace from column names
+            return colname.trim();
+          }).toList();
           // process json metadata column
           // {"sampleId":"260_DID_LatencyTest_3","counter":3,"flutterTime":1747318677.605998,"lslTime":23804.612151041,"lslTimestamp":23804.606961291,"data":[3.0,0.20758968591690063,0.393753319978714,0.39640799164772034,0.04201863333582878,0.16800223290920258,0.35932600498199463,0.859130322933197,0.08029846847057343,0.8140344619750977,0.4999730885028839,0.3090531527996063,0.5186386704444885,0.8037077188491821,0.2308173030614853,0.2816702425479889],"reportingDeviceId":"260_DID","reportingDeviceName":"Device_82"}
           // {"sampleId":"260_DID_7","counter":7,"lslTime":23804.60972975,"reportingDeviceId":"260_DID","reportingDeviceName":"Device_82"}
@@ -110,53 +118,52 @@ class _AnalysisHomePageState extends State<AnalysisHomePage> {
 
             final List<List<dynamic>> metadataValues = [];
             for (var value in csvData!['metadata'].data) {
-              if (value is String) {
-                try {
-                  // strip double quotes if present from the start and end
-                  value = value.trim().replaceAll(RegExp(r'(^")|("$)'), '');
-                  // replace double quote escapes with one double quote
-                  // this is a dirty hack, if there is an empty value, this
-                  // will break it.
-                  value = value.replaceAll(RegExp(r'""'), '"');
-                  final metadata = jsonDecode(value);
-                  final List<dynamic> metadataMap = List.filled(
-                    metaColumns.length,
-                    null,
-                    growable: false,
-                  );
-                  if (metadata is Map<String, dynamic>) {
-                    // generate a list of length of metaColumns
-                    // assigning the matching value if it exists, otherwise null
-                    final sourcIdIndex = metaColumns.indexOf('sourceId');
-                    for (final (idx, column) in metaColumns.indexed) {
-                      if (column == 'sourceId' && metadataMap[idx] != null) {
-                        continue;
-                      }
-                      if (metadata.containsKey(column)) {
-                        metadataMap[idx] = metadata[column];
-                        if (column == 'sampleId') {
-                          // map to the sourceID
-                          final sourceId = metadata['sampleId']
-                              ?.toString()
-                              .replaceAll(RegExp(r'_(LatencyTest_)?\d+$'), '');
-                          if (sourceId != null) {
-                            metadataMap[sourcIdIndex] = sourceId;
-                          }
+              value = value.toString();
+              try {
+                // strip double quotes if present from the start and end
+                value = value.trim().replaceAll(RegExp(r'(^")|("$)'), '');
+                // replace double quote escapes with one double quote
+                // this is a dirty hack, if there is an empty value, this
+                // will break it.
+                value = value.replaceAll(RegExp(r'""'), '"');
+                final metadata = jsonDecode(value);
+                final List<dynamic> metadataMap = List.filled(
+                  metaColumns.length,
+                  null,
+                  growable: false,
+                );
+                if (metadata is Map<String, dynamic>) {
+                  final sourcIdIndex = metaColumns.indexOf('sourceId');
+
+                  for (final (idx, column) in metaColumns.indexed) {
+                    if (column == 'sourceId' && metadataMap[idx] != null) {
+                      continue;
+                    }
+
+                    if (metadata.containsKey(column)) {
+                      metadataMap[idx] = metadata[column];
+                      if (column == 'sampleId') {
+                        // map to the sourceID
+                        final sourceId = metadata['sampleId']
+                            ?.toString()
+                            .replaceAll(RegExp(r'_(LatencyTest_)?\d+$'), '');
+                        if (sourceId != null) {
+                          metadataMap[sourcIdIndex] = sourceId;
                         }
-                      } else {
-                        metadataMap[idx] = null; // or some default value
                       }
-                    }
-                  } else {
-                    if (kDebugMode) {
-                      print('Metadata is not a map: $metadata');
+                    } else {
+                      metadataMap[idx] = null; // or some default value
                     }
                   }
-                  metadataValues.add(metadataMap);
-                } catch (e) {
+                } else {
                   if (kDebugMode) {
-                    print('Error parsing metadata: $e');
+                    print('Metadata is not a map: $metadata');
                   }
+                }
+                metadataValues.add(metadataMap);
+              } catch (e) {
+                if (kDebugMode) {
+                  print('Error parsing metadata: $e');
                 }
               }
             }
@@ -172,6 +179,10 @@ class _AnalysisHomePageState extends State<AnalysisHomePage> {
             csvData = csvData!.concatenate(metadataDf, axis: 1);
             if (kDebugMode) {
               print('csvData after merge: ${csvData!.head(2)}');
+            }
+          } else {
+            if (kDebugMode) {
+              print('No metadata column found in CSV data');
             }
           }
           // Navigate to data view screen

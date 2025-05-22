@@ -37,6 +37,7 @@ dependencies:
   file_picker: ^10.1.9
   csv: ^6.0.0
   dartframe: ^0.3.4
+  fl_chart: ^1.0.0
 
 dev_dependencies:
   flutter_test:
