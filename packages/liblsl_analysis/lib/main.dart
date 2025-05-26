@@ -77,6 +77,8 @@ class _AnalysisHomePageState extends State<AnalysisHomePage> {
             // strip whitespace from column names
             return colname.trim();
           }).toList();
+
+          csvData!.sort('timestamp');
           // process json metadata column
           // {"sampleId":"260_DID_LatencyTest_3","counter":3,"flutterTime":1747318677.605998,"lslTime":23804.612151041,"lslTimestamp":23804.606961291,"data":[3.0,0.20758968591690063,0.393753319978714,0.39640799164772034,0.04201863333582878,0.16800223290920258,0.35932600498199463,0.859130322933197,0.08029846847057343,0.8140344619750977,0.4999730885028839,0.3090531527996063,0.5186386704444885,0.8037077188491821,0.2308173030614853,0.2816702425479889],"reportingDeviceId":"260_DID","reportingDeviceName":"Device_82"}
           // {"sampleId":"260_DID_7","counter":7,"lslTime":23804.60972975,"reportingDeviceId":"260_DID","reportingDeviceName":"Device_82"}

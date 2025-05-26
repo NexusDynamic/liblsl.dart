@@ -52,19 +52,23 @@ class LatencyTest extends BaseTest {
         _streamInfo!,
         config.sampleRate,
         '$_srcPrefix${config.deviceId}_',
-        onSampleSent: (IsolateSampleMessage sample) async {
+        onSampleSent: (List<IsolateSampleMessage> samples) async {
           // Record the send time
-          timingManager.recordEvent(
-            EventType.sampleSent,
-            description: 'Sample ${sample.sampleId} sent',
-            metadata: {
-              'sampleId': sample.sampleId,
-              'counter': sample.counter,
-              'lslTimestamp': sample.timestamp,
-              'lslSent': sample.lslNow,
-              'dartTimestamp': sample.dartNow,
-            },
-          );
+          for (final sample in samples) {
+            timingManager.recordTimestampedEvent(
+              EventType.sampleSent,
+              sample.dartNow * 1e-6, // Convert to seconds
+              lslClock: sample.lslNow,
+              description: 'Sample ${sample.sampleId} sent',
+              metadata: {
+                'sampleId': sample.sampleId,
+                'counter': sample.counter,
+                'lslTimestamp': sample.timestamp,
+                'lslSent': sample.lslNow,
+                'dartTimestamp': sample.dartNow,
+              },
+            );
+          }
         },
       );
     }
@@ -90,19 +94,25 @@ class LatencyTest extends BaseTest {
         _inletManager = InletManager();
         await _inletManager!.prepareInletConsumers(
           otherStreams,
-          onSampleReceived: (IsolateSampleMessage sample) async {
-            timingManager.recordEvent(
-              EventType.sampleReceived,
-              description: 'Sample ${sample.sampleId} received',
-              metadata: {
-                'sampleId': sample.sampleId,
-                'counter': sample.counter,
-                'lslTimestamp': sample.timestamp,
-                'lslRecieved': sample.lslNow,
-                'dartTimestamp': sample.dartNow,
-                // 'data': sample.data,
-              },
-            );
+          onSampleReceived: (List<IsolateSampleMessage> samples) async {
+            // Record the receive time
+            for (final sample in samples) {
+              timingManager.recordTimestampedEvent(
+                EventType.sampleReceived,
+                // dartNow is in microseconds
+                sample.dartNow * 1e-6, // Convert to seconds
+                lslClock: sample.lslNow,
+                description: 'Sample ${sample.sampleId} received',
+                metadata: {
+                  'sampleId': sample.sampleId,
+                  'counter': sample.counter,
+                  'lslTimestamp': sample.timestamp,
+                  'lslReceived': sample.lslNow,
+                  'dartTimestamp': sample.dartNow,
+                  // 'data': sample.data,
+                },
+              );
+            }
           },
         );
       } else {

@@ -4,6 +4,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:liblsl/lsl.dart';
+import 'package:synchronized/synchronized.dart';
 
 class IsolateConfig {
   final List<int> inletPtrs;
@@ -40,7 +41,7 @@ class InletManager {
 
   Future<void> prepareInletConsumers(
     Iterable<LSLStreamInfo> streamInfos, {
-    void Function(IsolateSampleMessage message)? onSampleReceived,
+    void Function(List<IsolateSampleMessage> message)? onSampleReceived,
   }) async {
     final readyCompleter = Completer<void>();
     mainReceivePort = ReceivePort();
@@ -60,9 +61,23 @@ class InletManager {
       if (message is SendPort) {
         consumerSendPort = message;
         readyCompleter.complete();
-      } else if (message is IsolateSampleMessage) {
+      } else if (message is List<IsolateSampleMessage>) {
         // Handle the received timing data
         onSampleReceived?.call(message);
+        if (kDebugMode) {
+          // for (final sample in message) {
+          //   // print(
+          //   //   'Received sample: ${sample.sampleId}, '
+          //   //   'Counter: ${sample.counter}, '
+          //   //   'Timestamp: ${sample.timestamp}',
+          //   // );
+          // }
+        }
+      } else {
+        // Handle unexpected message type
+        if (kDebugMode) {
+          print('Unexpected message from isolate: $message');
+        }
       }
     });
     return readyCompleter.future;
@@ -105,15 +120,24 @@ class InletManager {
         loopStarter.complete();
       }
     });
-
+    final int bufferSize = 100 * inlets.length;
+    final isolateMessageBuffer = List<IsolateSampleMessage>.filled(
+      bufferSize,
+      IsolateSampleMessage(0, 0, ''),
+    );
+    int sampleCounter = 0;
+    final Lock lock = Lock();
     mainSendPort.send(receivePort.sendPort);
     await loopStarter.future;
     while (!loopCompleter.isCompleted) {
       for (final inlet in inlets) {
         inlet
             .pullSample()
-            .then((LSLSample sample) {
+            .then((LSLSample sample) async {
               if (sample.isNotEmpty) {
+                await lock.synchronized(() {
+                  sampleCounter++;
+                });
                 // Extract the counter value (first channel)
                 final counter = sample[0].toInt();
                 final sampleId = '${inlet.streamInfo.sourceId}_$counter';
@@ -123,8 +147,12 @@ class InletManager {
                   counter,
                   sampleId,
                 );
-
-                mainSendPort.send(sampleMessage);
+                final index = (sampleCounter - 1) % bufferSize;
+                isolateMessageBuffer[index] = sampleMessage;
+                if (index == bufferSize - 1) {
+                  // Send the buffered messages every 100 samples
+                  mainSendPort.send(isolateMessageBuffer);
+                }
               }
             })
             .catchError((error) {
@@ -137,10 +165,22 @@ class InletManager {
       await Future.delayed(Duration.zero);
     }
 
+    // Send remaining messages if any
+    final index = (sampleCounter - 1) % bufferSize;
+    if (index != bufferSize - 1) {
+      mainSendPort.send(isolateMessageBuffer.sublist(0, index));
+    }
+
     for (final inlet in inlets) {
       inlet.destroy();
     }
   }
+}
+
+class LoopHelper {
+  int sampleCounter = 0;
+  SendPort? mainSendPort;
+  LSLIsolatedOutlet? outlet;
 }
 
 /// A single LSL outlet in an isolate which sends samples at a specified rate,
@@ -154,7 +194,7 @@ class OutletManager {
     LSLStreamInfo streamInfo,
     double sampleRate,
     String sampleIdPrefix, {
-    void Function(IsolateSampleMessage message)? onSampleSent,
+    void Function(List<IsolateSampleMessage> message)? onSampleSent,
   }) async {
     final readyCompleter = Completer<void>();
     mainReceivePort = ReceivePort();
@@ -173,9 +213,14 @@ class OutletManager {
       if (message is SendPort) {
         consumerSendPort = message;
         readyCompleter.complete();
-      } else if (message is IsolateSampleMessage) {
+      } else if (message is List<IsolateSampleMessage>) {
         // Handle the received timing data
         onSampleSent?.call(message);
+      } else {
+        // Handle unexpected message type
+        if (kDebugMode) {
+          print('Unexpected message from isolate: $message');
+        }
       }
     });
     return readyCompleter.future;
@@ -214,39 +259,61 @@ class OutletManager {
 
     mainSendPort.send(receivePort.sendPort);
     await loopStarter.future;
-    int lastSendTime = 0;
+
     final sampleData = List<double>.generate(
       streamInfo.channelCount,
       (i) => i == 0 ? 0 : math.Random().nextDouble(),
     );
     final intervalMicroseconds = (1000000 / (config.sampleRate ?? 1)).round();
-    int sampleCounter = 0;
-    while (!loopCompleter.isCompleted) {
-      if (DateTime.now().microsecondsSinceEpoch - lastSendTime <=
-          intervalMicroseconds) {
-        await Future.delayed(Duration.zero);
-        continue;
-      }
-      lastSendTime = DateTime.now().microsecondsSinceEpoch;
-      sampleCounter++;
-      outlet
-          .pushSample(sampleData)
-          .then((_) {
-            final sampleId = '${config.sampleIdPrefix}$sampleCounter';
-            sampleData[0] = sampleCounter.toDouble();
-            final sampleMessage = IsolateSampleMessage(
-              LSL.localClock(),
-              sampleCounter,
-              sampleId,
-            );
-            mainSendPort.send(sampleMessage);
-          })
-          .catchError((error) {
-            // Handle error
-            if (kDebugMode) {
-              print('Error pushing sample: $error');
-            }
-          });
+    final loopState = LoopHelper();
+    loopState.sampleCounter = 0;
+    loopState.outlet = outlet;
+    final isolateMessageBuffer = List<IsolateSampleMessage>.filled(
+      100,
+      IsolateSampleMessage(0, 0, ''),
+    );
+    if (kDebugMode) {
+      print(
+        'Starting outlet producer with sample rate: ${config.sampleRate}, '
+        'Interval: ${Duration(microseconds: intervalMicroseconds)} '
+        'Buffer size: ${isolateMessageBuffer.length}',
+      );
+    }
+    runPreciseInterval(
+      Duration(microseconds: intervalMicroseconds),
+      (LoopHelper state) {
+        state.sampleCounter++;
+        sampleData[0] = state.sampleCounter.toDouble();
+        state.outlet!.pushSample(sampleData);
+        // pushed samples, but no verification
+        final index = (state.sampleCounter - 1) % 100;
+        final sampleId = '${config.sampleIdPrefix}${state.sampleCounter}';
+        final sampleMessage = IsolateSampleMessage(
+          LSL.localClock(),
+          state.sampleCounter,
+          sampleId,
+        );
+        isolateMessageBuffer[index] = sampleMessage;
+        // there is a cost here
+        if (index == 99) {
+          // Send the buffered messages every 100 samples
+          mainSendPort.send(isolateMessageBuffer);
+        }
+
+        return state;
+      },
+      completer: loopCompleter,
+      state: loopState,
+      // this is based on the assumption of a 1000Hz sample rate
+      // so we start busy waiting 0.1ms before the next sample
+      startBusyAt: Duration(microseconds: intervalMicroseconds - 100),
+    );
+
+    // Clean up
+    // send remaining messages if any
+    final index = (loopState.sampleCounter - 1) % 100;
+    if (index != 99) {
+      mainSendPort.send(isolateMessageBuffer.sublist(0, index));
     }
 
     outlet.destroy();

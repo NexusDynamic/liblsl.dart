@@ -28,16 +28,17 @@ class StatsViewWidget extends StatelessWidget {
     // first we will calculate the stats for EventType.sampleCreated timestamp
     final pickIndices = csvData['event_type'].isEqual('EventType.sampleSent');
 
-    final timestampColumn = csvData['timestamp'].indices(pickIndices.data);
+    final timestampColumn = csvData['lslTimestamp'].indices(pickIndices.data);
     //print(indices);
     //final timestampColumn = csvData[indices]['timestamp'];
     // we care about the inter-sample interval
     final interSampleInterval = <double>[];
-    for (int i = 999; i < timestampColumn.length - 1000; i++) {
-      final interval =
-          (double.parse(timestampColumn[i]) -
-              double.parse(timestampColumn[i - 1])) *
-          1000;
+    for (int i = 1; i < timestampColumn.length; i++) {
+      // final interval =
+      //     (double.parse(timestampColumn[i]) -
+      //         double.parse(timestampColumn[i - 1])) *
+      //     1000;
+      final interval = (timestampColumn[i] - timestampColumn[i - 1]) * 1000;
       interSampleInterval.add(interval);
     }
     // calculate the stats
@@ -97,7 +98,7 @@ class StatsViewWidget extends StatelessWidget {
     final sampleRecievedIndices = csvData['event_type'].isEqual(
       'EventType.sampleReceived',
     );
-    final recievedTimestamps = csvData['timestamp'].indices(
+    final recievedTimestamps = csvData['lslTimestamp'].indices(
       sampleRecievedIndices.data,
     );
     final recievedCounter = csvData['counter'].indices(
@@ -117,7 +118,7 @@ class StatsViewWidget extends StatelessWidget {
       double.nan,
       growable: true,
     );
-    for (int i = 999; i < recievedCounter.length - 1000; i++) {
+    for (int i = 0; i < recievedCounter.length; i++) {
       // FIX @TODO also
       // @TODO: fix underscore at end...wtf.
       if (recievedSourceId.data[i] != myDeviceId) {
@@ -125,8 +126,8 @@ class StatsViewWidget extends StatelessWidget {
       }
       // @TODO: Fix indexing (sent and recieved dont match)
       final cIndex =
-          recievedCounter.data[i]; // -1 because we are using 0 based index
-      latency[cIndex] = double.parse(recievedTimestamps.data[i]);
+          recievedCounter.data[i] - 1; // -1 because we are using 0 based index
+      latency[cIndex] = recievedTimestamps.data[i];
     }
 
     for (int i = 0; i < sentCounter.length; i++) {
@@ -136,7 +137,7 @@ class StatsViewWidget extends StatelessWidget {
         // so we will just use the timestamp from the sampleCreated event
         continue;
       }
-      latency[cIndex] -= double.parse(timestampColumn.data[i]);
+      latency[cIndex] -= timestampColumn.data[i];
     }
 
     // remove all the nans values from the latency list
