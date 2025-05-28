@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:liblsl/lsl.dart';
+import 'package:liblsl_timing/src/lsl/comms_isolate.dart';
 import '../config/constants.dart';
 import 'base_test.dart';
 
@@ -12,6 +13,8 @@ class SynchronizationTest extends BaseTest {
   LSLStreamInfo? _syncStreamInfo;
   LSLIsolatedOutlet? _syncOutlet;
   List<LSLIsolatedInlet> _syncInlets = [];
+  InletManager? _inletManager;
+  OutletManager? _outletManager;
   final String _srcPrefix = 'Sync_';
 
   // Test variables
@@ -45,56 +48,97 @@ class SynchronizationTest extends BaseTest {
       streamName: config.streamName,
       streamType: LSLContentType.markers,
       channelCount: 1,
-      sampleRate: LSL_IRREGULAR_RATE,
+      sampleRate: 2,
       channelFormat: LSLChannelFormat.string,
       sourceId: '$_srcPrefix${config.deviceId}',
     );
+    if (config.isProducer) {
+      _outletManager = OutletManager();
+      await _outletManager!.prepareOutletProducer(
+        _syncStreamInfo!,
+        2,
 
-    // Create an outlet for sync markers
-    _syncOutlet = await LSL.createOutlet(
-      streamInfo: _syncStreamInfo!,
-      chunkSize: 1,
-      maxBuffer: 360,
-    );
+        '$_srcPrefix${config.deviceId}_',
+
+        onSampleSent: (List<IsolateSampleMessage> samples) async {
+          // Record the send time
+          for (final sample in samples) {
+            timingManager.recordTimestampedEvent(
+              EventType.sampleSent,
+              sample.dartNow * 1e-6, // Convert to seconds
+              lslClock: sample.lslNow,
+              description: 'Sync ${sample.sampleId} sent',
+              metadata: {
+                'sampleId': sample.sampleId,
+                'counter': sample.counter,
+                'lslTimestamp': sample.timestamp,
+                'lslSent': sample.lslNow,
+                'dartTimestamp': sample.dartNow,
+                'sourceId': sample.sourceId,
+                'timeCorrection': sample.lslTimeCorrection,
+              },
+            );
+          }
+        },
+      );
+    }
+
+    // // Create an outlet for sync markers
+    // _syncOutlet = await LSL.createOutlet(
+    //   streamInfo: _syncStreamInfo!,
+    //   chunkSize: 1,
+    //   maxBuffer: 360,
+    // );
 
     // Find all available sync streams
     await Future.delayed(const Duration(milliseconds: 1000));
+
     final streams = await LSL.resolveStreams(waitTime: 5.0, maxStreams: 20);
+    if (config.isConsumer && streams.isNotEmpty) {
+      final syncStreams = streams
+          .where(
+            (s) =>
+                s.streamType == LSLContentType.markers &&
+                // our own stream
+                s.sourceId != '$_srcPrefix${config.deviceId}' &&
+                // sync streams
+                s.streamName.startsWith(_srcPrefix),
+          )
+          .toList();
 
-    final syncStreams = streams
-        .where(
-          (s) =>
-              s.streamType == LSLContentType.markers &&
-              // our own stream
-              s.sourceId != '$_srcPrefix${config.deviceId}' &&
-              // sync streams
-              s.streamName.startsWith(_srcPrefix),
-        )
-        .toList();
-
-    // Create inlets for each sync stream
-    _syncInlets = [];
-    for (final stream in syncStreams) {
-      final inlet = await LSL.createInlet(
-        streamInfo: stream,
-        maxBufferSize: 5,
-        maxChunkLength: 1,
-        recover: true,
+      // Create an inlet manager if this device is a consumer
+      _inletManager = InletManager();
+      await _inletManager!.prepareInletConsumers(
+        syncStreams,
+        onSampleReceived: (List<IsolateSampleMessage> samples) async {
+          // Handle received sync markers
+          for (final sample in samples) {
+            timingManager.recordTimestampedEvent(
+              EventType.sampleReceived,
+              sample.timestamp * 1e-6, // Convert to seconds
+              lslClock: sample.timestamp,
+              description: 'Sync marker received from ${sample.sourceId}',
+              metadata: {
+                'sampleId': sample.sampleId,
+                'counter': sample.counter,
+                'lslTimestamp': sample.timestamp,
+                'lslReceived': sample.lslNow,
+                'dartTimestamp': sample.dartNow,
+                'sourceId': sample.sourceId,
+              },
+            );
+          }
+        },
       );
-      _syncInlets.add(inlet);
-
-      // Initialize time offset tracking for this device
-      _deviceTimeOffsets[stream.sourceId] = [];
     }
+
+    // Initialize time offset tracking for this device
+    // _deviceTimeOffsets[stream.sourceId] = [];
 
     timingManager.recordEvent(
       EventType.testStarted,
       description: 'Synchronization test setup completed',
-      metadata: config.toMap()
-        ..addAll({
-          'syncStreams': syncStreams.length,
-          'syncInlets': _syncInlets.length,
-        }),
+      metadata: config.toMap(),
     );
   }
 
@@ -102,15 +146,31 @@ class SynchronizationTest extends BaseTest {
   Future<void> run(Completer<void> completer) async {
     _isRunning = true;
 
-    // Start sending sync markers
-    _startSendingMarkers();
-
-    // Start receiving sync markers
-    for (final inlet in _syncInlets) {
-      _startReceivingMarkers(inlet);
+    // Start sending samples if this device is a producer
+    if (config.isProducer && _outletManager != null) {
+      _outletManager!.startOutletProducer();
     }
 
-    // Wait for test to complete
+    // Start receiving samples if this device is a consumer
+    if (config.isConsumer && _inletManager != null) {
+      _inletManager!.startInletConsumers();
+    }
+
+    // stop the test
+    if (kDebugMode) {
+      print('Stopping Latency Test');
+    }
+    _isRunning = false;
+
+    // stop sending samples if this device is a producer
+    if (config.isProducer && _outletManager != null) {
+      await _outletManager!.stopOutletProducer();
+    }
+    // stop receiving samples if this device is a consumer
+    if (config.isConsumer && _inletManager != null) {
+      await _inletManager!.stopInletConsumers();
+    }
+
     await completer.future;
   }
 
@@ -293,133 +353,10 @@ class SynchronizationTest extends BaseTest {
   Future<void> cleanup() async {
     _isRunning = false;
 
-    _syncTimer?.cancel();
-    _syncTimer = null;
+    _outletManager = null;
+    _inletManager = null;
 
-    // Analyze time synchronization data
-    try {
-      _analyzeTimeSynchronization();
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error analyzing time synchronization: $e');
-        // backtrace
-        print('Stack trace: ${StackTrace.current}');
-      }
-    }
-    // Clean up LSL resources
-    for (final inlet in _syncInlets) {
-      inlet.destroy();
-    }
-    _syncInlets = [];
-
-    _syncOutlet?.destroy();
     _syncStreamInfo?.destroy();
-
-    _syncOutlet = null;
     _syncStreamInfo = null;
   }
-
-  void _analyzeTimeSynchronization() {
-    for (final deviceKey in _deviceTimeOffsets.keys) {
-      final offsets = _deviceTimeOffsets[deviceKey];
-      if (offsets == null || offsets.isEmpty) continue;
-
-      // Calculate drift over time
-      double? initialLslDiff;
-      double? finalLslDiff;
-      double? initialLocalDiff;
-      double? finalLocalDiff;
-      double? initialTime;
-      double? finalTime;
-
-      if (offsets.length > 1) {
-        initialLslDiff = offsets.first['lslTimeDiff'] as double?;
-        finalLslDiff = offsets.last['lslTimeDiff'] as double?;
-        initialLocalDiff = offsets.first['localTimeDiff'] as double?;
-        finalLocalDiff = offsets.last['localTimeDiff'] as double?;
-        initialTime = offsets.first['timestamp'] as double?;
-        finalTime = offsets.last['timestamp'] as double?;
-      }
-
-      // Calculate drift rates if we have time data
-      double? lslDriftRate;
-      double? localDriftRate;
-
-      if (initialTime != null &&
-          finalTime != null &&
-          initialLslDiff != null &&
-          finalLslDiff != null &&
-          initialLocalDiff != null &&
-          finalLocalDiff != null) {
-        final timeSpan = finalTime - initialTime;
-        if (timeSpan > 0) {
-          lslDriftRate = (finalLslDiff - initialLslDiff) / timeSpan;
-          localDriftRate = (finalLocalDiff - initialLocalDiff) / timeSpan;
-        }
-      }
-
-      // Calculate statistics for LSL time differences
-      final lslTimeDiffs = offsets
-          .map((o) => o['lslTimeDiff'] as double?)
-          .toList();
-
-      final localTimeDiffs = offsets
-          .map((o) => o['localTimeDiff'] as double?)
-          .toList();
-
-      final lslDiffStats = _calculateStats(lslTimeDiffs);
-      final localDiffStats = _calculateStats(localTimeDiffs);
-
-      // Record the analysis
-      timingManager.recordEvent(
-        EventType.testCompleted,
-        description: 'Clock synchronization analysis for $deviceKey',
-        metadata: {
-          'deviceKey': deviceKey,
-          'measurements': offsets.length,
-          'lslTimeDiffStats': lslDiffStats,
-          'localTimeDiffStats': localDiffStats,
-          'lslDriftRate': lslDriftRate,
-          'localDriftRate': localDriftRate,
-          'timeSpan': finalTime != null && initialTime != null
-              ? finalTime - initialTime
-              : null,
-        },
-      );
-    }
-  }
-
-  Map<String, double> _calculateStats(List<double?> values) {
-    // Remove nulls from the list
-    final filteredValues = values.whereType<double>().toList();
-    if (filteredValues.isEmpty) return {};
-
-    // Calculate mean
-    final mean = filteredValues.reduce((a, b) => a + b) / filteredValues.length;
-
-    // Find min and max
-    double? min;
-    double? max;
-
-    for (final value in filteredValues) {
-      min = (min != null) ? (value < min ? value : min) : value;
-      max = (max != null) ? (value > max ? value : max) : value;
-    }
-
-    // Calculate standard deviation
-    double sumSquaredDiffs = 0;
-    for (final value in filteredValues) {
-      sumSquaredDiffs += (value - mean) * (value - mean);
-    }
-
-    final stdDev = (filteredValues.length > 1)
-        ? (sumSquaredDiffs / (filteredValues.length - 1)).sqrt()
-        : 0.0;
-
-    return {'mean': mean, 'min': min ?? 0, 'max': max ?? 0, 'stdDev': stdDev};
-  }
-}
-
-extension on double {
-  double sqrt() => this <= 0 ? 0 : math.sqrt(this);
 }

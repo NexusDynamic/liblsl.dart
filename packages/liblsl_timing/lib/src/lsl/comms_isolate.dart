@@ -12,11 +12,16 @@ class IsolateConfig {
   final double? sampleRate;
   final String? sampleIdPrefix;
 
+  /// Run time correction every N samples
+  /// This is set to 0 by default, meaning no correction values are obtained.
+  final int timeCorrectEveryN;
+
   IsolateConfig(
     this.inletPtrs,
     this.mainSendPort, {
     this.sampleRate,
     this.sampleIdPrefix,
+    this.timeCorrectEveryN = 0,
   });
 }
 
@@ -25,11 +30,18 @@ class IsolateSampleMessage {
   final double lslNow;
   final int dartNow;
   final int counter;
+  final double? lslTimeCorrection; // Optional LSL time correction
   final String sampleId;
+  final String sourceId;
 
-  IsolateSampleMessage(this.timestamp, this.counter, this.sampleId)
-    : lslNow = LSL.localClock(),
-      dartNow = DateTime.now().microsecondsSinceEpoch;
+  IsolateSampleMessage(
+    this.timestamp,
+    this.counter,
+    this.sampleId,
+    this.sourceId, {
+    this.lslTimeCorrection,
+  }) : lslNow = LSL.localClock(),
+       dartNow = DateTime.now().microsecondsSinceEpoch;
 }
 
 /// Handle polling of multiple LSL inlets in a separate isolate for precise
@@ -42,6 +54,7 @@ class InletManager {
   Future<void> prepareInletConsumers(
     Iterable<LSLStreamInfo> streamInfos, {
     void Function(List<IsolateSampleMessage> message)? onSampleReceived,
+    int timeCorrectEveryN = 0,
   }) async {
     final readyCompleter = Completer<void>();
     mainReceivePort = ReceivePort();
@@ -53,6 +66,7 @@ class InletManager {
             .map((streamInfo) => streamInfo.streamInfo!.address)
             .toList(),
         mainReceivePort.sendPort,
+        timeCorrectEveryN: timeCorrectEveryN,
       ),
     );
 
@@ -111,6 +125,7 @@ class InletManager {
     final loopCompleter = Completer<void>();
     final loopStarter = Completer<void>();
     final mainSendPort = config.mainSendPort;
+    final timeCorrectEveryN = config.timeCorrectEveryN;
     final receivePort = ReceivePort();
 
     receivePort.listen((message) {
@@ -120,24 +135,34 @@ class InletManager {
         loopStarter.complete();
       }
     });
-    final int bufferSize = 100 * inlets.length;
+    final int inletBufferSize = 100;
+    final int bufferSize = inletBufferSize * inlets.length;
     final isolateMessageBuffer = List<IsolateSampleMessage>.filled(
       bufferSize,
-      IsolateSampleMessage(0, 0, ''),
+      IsolateSampleMessage(0, 0, '', ''),
     );
-    int sampleCounter = 0;
+    List<int> sampleCounters = List.filled(inlets.length, 0);
+    List<double> inletTimeCorrections = List.filled(inlets.length, 0.0);
     final Lock lock = Lock();
     mainSendPort.send(receivePort.sendPort);
     await loopStarter.future;
     while (!loopCompleter.isCompleted) {
-      for (final inlet in inlets) {
+      for (final (inletIndex, inlet) in inlets.indexed) {
         inlet
             .pullSample()
             .then((LSLSample sample) async {
               if (sample.isNotEmpty) {
                 await lock.synchronized(() {
-                  sampleCounter++;
+                  sampleCounters[inletIndex]++;
                 });
+                bool timeCorrected = false;
+                // if time correction is enabled, calculate it
+                if (timeCorrectEveryN > 0 &&
+                    sampleCounters[inletIndex] % timeCorrectEveryN == 0) {
+                  inletTimeCorrections[inletIndex] = await inlet
+                      .getTimeCorrection(0.1);
+                  timeCorrected = true;
+                }
                 // Extract the counter value (first channel)
                 final counter = sample[0].toInt();
                 final sampleId = '${inlet.streamInfo.sourceId}_$counter';
@@ -146,8 +171,14 @@ class InletManager {
                   timestamp,
                   counter,
                   sampleId,
+                  inlet.streamInfo.sourceId,
+                  lslTimeCorrection: timeCorrected
+                      ? inletTimeCorrections[inletIndex]
+                      : null,
                 );
-                final index = (sampleCounter - 1) % bufferSize;
+                final index =
+                    ((sampleCounters[inletIndex] - 1) % inletBufferSize) +
+                    inletIndex * inletBufferSize;
                 isolateMessageBuffer[index] = sampleMessage;
                 if (index == bufferSize - 1) {
                   // Send the buffered messages every 100 samples
@@ -166,7 +197,9 @@ class InletManager {
     }
 
     // Send remaining messages if any
-    final index = (sampleCounter - 1) % bufferSize;
+    final index =
+        ((sampleCounters[inlets.length - 1] - 1) % inletBufferSize) +
+        (inlets.length - 1) * inletBufferSize;
     if (index != bufferSize - 1) {
       mainSendPort.send(isolateMessageBuffer.sublist(0, index));
     }
@@ -270,7 +303,7 @@ class OutletManager {
     loopState.outlet = outlet;
     final isolateMessageBuffer = List<IsolateSampleMessage>.filled(
       100,
-      IsolateSampleMessage(0, 0, ''),
+      IsolateSampleMessage(0, 0, '', ''),
     );
     if (kDebugMode) {
       print(
@@ -292,6 +325,7 @@ class OutletManager {
           LSL.localClock(),
           state.sampleCounter,
           sampleId,
+          streamInfo.sourceId,
         );
         isolateMessageBuffer[index] = sampleMessage;
         // there is a cost here

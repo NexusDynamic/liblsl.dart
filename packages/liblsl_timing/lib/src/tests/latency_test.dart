@@ -66,6 +66,7 @@ class LatencyTest extends BaseTest {
                 'lslTimestamp': sample.timestamp,
                 'lslSent': sample.lslNow,
                 'dartTimestamp': sample.dartNow,
+                'sourceId': sample.sourceId,
               },
             );
           }
@@ -109,6 +110,7 @@ class LatencyTest extends BaseTest {
                   'lslTimestamp': sample.timestamp,
                   'lslReceived': sample.lslNow,
                   'dartTimestamp': sample.dartNow,
+                  'sourceId': sample.sourceId,
                   // 'data': sample.data,
                 },
               );
