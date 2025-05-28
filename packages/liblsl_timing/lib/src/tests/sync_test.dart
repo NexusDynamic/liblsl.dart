@@ -97,7 +97,7 @@ class SynchronizationTest extends BaseTest {
           for (final sample in samples) {
             timingManager.recordTimestampedEvent(
               EventType.sampleReceived,
-              sample.dartNow / 1e6, // Convert to seconds
+              sample.dartNow * 1e-6, // Convert to seconds
               lslClock: sample.timestamp,
               description: 'Sync marker received from ${sample.sourceId}',
               metadata: {

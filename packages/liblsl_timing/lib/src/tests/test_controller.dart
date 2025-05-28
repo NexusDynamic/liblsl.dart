@@ -1,6 +1,7 @@
 // lib/src/tests/test_controller.dart
 import 'dart:async';
 import 'package:flutter/foundation.dart';
+import 'package:liblsl_timing/src/tests/interactive_test.dart';
 
 import '../config/constants.dart';
 import '../config/app_config.dart';
@@ -17,6 +18,8 @@ class TestController {
 
   BaseTest? _currentTest;
   bool _isTestRunning = false;
+
+  BaseTest? get currentTest => _currentTest;
 
   final StreamController<String> _statusStreamController =
       StreamController<String>.broadcast();
@@ -69,6 +72,14 @@ class TestController {
         break;
       case TestType.synchronization:
         _currentTest = SynchronizationTest(
+          testConfig != null
+              ? config.copyMerged(testConfig, excludeDeviceSpecific: true)
+              : config,
+          timingManager,
+        );
+        break;
+      case TestType.interactive:
+        _currentTest = InteractiveTest(
           testConfig != null
               ? config.copyMerged(testConfig, excludeDeviceSpecific: true)
               : config,

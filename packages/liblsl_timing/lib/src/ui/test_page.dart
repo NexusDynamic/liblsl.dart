@@ -1,5 +1,8 @@
 // lib/src/ui/test_page.dart
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:liblsl_timing/src/tests/interactive_test.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import '../config/constants.dart';
 import '../data/timing_manager.dart';
@@ -27,6 +30,7 @@ class _TestPageState extends State<TestPage> {
   bool _testCompleted = false;
   List<TimingEvent> _timingEventCache = [];
   int _eventsLastUpdated = 0;
+  final Map<String, DateTime> _blackSquares = {};
 
   @override
   void initState() {
@@ -57,6 +61,27 @@ class _TestPageState extends State<TestPage> {
         _eventsCount++;
       });
     });
+
+    // Set up interactive test callback if needed
+    if (widget.testType == TestType.interactive) {
+      final test = widget.testController.currentTest;
+      if (test is InteractiveTest) {
+        test.onMarkerReceived = (String deviceId) {
+          setState(() {
+            _blackSquares[deviceId] = DateTime.now();
+          });
+
+          // Remove square after configured duration (100ms)
+          Future.delayed(const Duration(milliseconds: 100), () {
+            if (mounted) {
+              setState(() {
+                _blackSquares.remove(deviceId);
+              });
+            }
+          });
+        };
+      }
+    }
 
     // Ensure wakelock so the device doesn't sleep during the test,
     // this is safe to call multiple times.
@@ -153,7 +178,104 @@ class _TestPageState extends State<TestPage> {
         return _buildLatencyTestUI();
       case TestType.synchronization:
         return _buildSyncTestUI();
+      case TestType.interactive:
+        return _buildInteractiveTestUI();
     }
+  }
+
+  Widget _buildInteractiveTestUI() {
+    final bool renderSquare = _blackSquares.isNotEmpty;
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: Text(
+            'Interactive test for end-to-end timing measurements.\nPress the button to send markers.',
+            style: Theme.of(context).textTheme.bodyMedium,
+            textAlign: TextAlign.center,
+          ),
+        ),
+
+        // Interactive button
+        Expanded(
+          child: Stack(
+            children: [
+              // Button in center
+              Center(
+                child: GestureDetector(
+                  onTapDown: _testCompleted ? null : _sendInteractiveMarker,
+                  child: SizedBox(
+                    width: 200,
+                    height: 200,
+                    child: ElevatedButton(
+                      onPressed: () {},
+                      style: ElevatedButton.styleFrom(
+                        shape: const CircleBorder(),
+                        padding: const EdgeInsets.all(40),
+                        backgroundColor: Colors.blue,
+                      ),
+                      child: const Text(
+                        'PRESS',
+                        style: TextStyle(
+                          fontSize: 32,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+
+              // Black squares for received markers
+              Positioned(
+                left: 0,
+                top: 0,
+                child: Container(
+                  width: 100,
+                  height: 100,
+                  color: renderSquare ? Colors.black : Colors.transparent,
+                  child: Center(
+                    child: Text(
+                      '',
+                      style: const TextStyle(color: Colors.white, fontSize: 10),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        // Event counter
+        Container(
+          padding: const EdgeInsets.all(8),
+          color: Colors.grey.withAlpha(51),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              Text('Markers sent: ${_countEventType(EventType.markerSent)}'),
+              Text(
+                'Markers received: ${_countEventType(EventType.markerReceived)}',
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _sendInteractiveMarker(TapDownDetails details) async {
+    final test = widget.testController.currentTest;
+    if (test is InteractiveTest) {
+      await test.sendMarker();
+      setState(() {
+        _eventsCount++;
+      });
+    }
+  }
+
+  int _countEventType(EventType type) {
+    return widget.timingManager.events.where((e) => e.eventType == type).length;
   }
 
   Widget _buildLatencyTestUI() {

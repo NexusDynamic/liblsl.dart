@@ -1,5 +1,5 @@
 // lib/src/config/constants.dart
-enum TestType { latency, synchronization }
+enum TestType { latency, synchronization, interactive }
 
 extension TestTypeExtension on TestType {
   String get displayName {
@@ -8,6 +8,8 @@ extension TestTypeExtension on TestType {
         return 'Latency Test';
       case TestType.synchronization:
         return 'Clock Synchronization Test';
+      case TestType.interactive:
+        return 'Interactive Timing Test';
     }
   }
 
@@ -17,6 +19,8 @@ extension TestTypeExtension on TestType {
         return 'Measures communication time and LSL packet timing';
       case TestType.synchronization:
         return 'Analyzes clock differences and drift between devices';
+      case TestType.interactive:
+        return 'End-to-end timing test with user interaction and visual feedback';
     }
   }
 }
