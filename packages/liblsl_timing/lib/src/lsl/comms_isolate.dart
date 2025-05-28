@@ -159,9 +159,18 @@ class InletManager {
                 // if time correction is enabled, calculate it
                 if (timeCorrectEveryN > 0 &&
                     sampleCounters[inletIndex] % timeCorrectEveryN == 0) {
-                  inletTimeCorrections[inletIndex] = await inlet
-                      .getTimeCorrection(0.1);
-                  timeCorrected = true;
+                  try {
+                    inletTimeCorrections[inletIndex] = await inlet
+                        .getTimeCorrection(0.1);
+                    timeCorrected = true;
+                  } catch (e) {
+                    if (kDebugMode) {
+                      print(
+                        'Error getting time correction for inlet '
+                        '${inlet.streamInfo.sourceId}: $e',
+                      );
+                    }
+                  }
                 }
                 // Extract the counter value (first channel)
                 final counter = sample[0].toInt();
