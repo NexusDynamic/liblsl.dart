@@ -46,7 +46,7 @@ class InteractiveTest extends BaseTest {
       streamType: LSLContentType.markers,
       channelCount: 1,
       sampleRate: LSL_IRREGULAR_RATE,
-      channelFormat: LSLChannelFormat.string,
+      channelFormat: LSLChannelFormat.int64,
       sourceId: '$_srcPrefix${config.deviceId}',
     );
 
@@ -113,8 +113,7 @@ class InteractiveTest extends BaseTest {
   Future<void> sendMarker() async {
     if (!_isRunning || _outletManager == null) return;
 
-    final markerId =
-        '${config.deviceId}_${DateTime.now().microsecondsSinceEpoch}';
+    final markerId = DateTime.now().microsecondsSinceEpoch;
 
     // Record the event
     await timingManager.recordEvent(
@@ -123,6 +122,7 @@ class InteractiveTest extends BaseTest {
       metadata: {
         'markerId': markerId,
         'sourceId': '$_srcPrefix${config.deviceId}',
+        'lslTimestamp': LSL.localClock(),
       },
     );
 
@@ -276,7 +276,7 @@ class InteractiveInletManager {
         try {
           final sample = await inlet.pullSample();
           if (sample.isNotEmpty) {
-            final markerId = sample[0] as String;
+            final markerId = sample[0] as int;
             final sampleMessage = InteractiveSampleMessage(
               sample.timestamp,
               markerId,
@@ -310,7 +310,7 @@ class InteractiveOutletManager {
     await _outlet!.create();
   }
 
-  Future<void> sendMarker(String markerId) async {
+  Future<void> sendMarker(int markerId) async {
     if (_outlet == null) return;
 
     // Send the marker ID as a string
@@ -328,7 +328,7 @@ class InteractiveSampleMessage {
   final double timestamp;
   final double lslNow;
   final int dartNow;
-  final String markerId;
+  final int markerId;
   final String sourceId;
 
   InteractiveSampleMessage(this.timestamp, this.markerId, this.sourceId)

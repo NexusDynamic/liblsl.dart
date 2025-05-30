@@ -1,6 +1,7 @@
 // lib/src/ui/test_page.dart
 import 'dart:async';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:liblsl_timing/src/tests/interactive_test.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
@@ -203,7 +204,14 @@ class _TestPageState extends State<TestPage> {
               // Button in center
               Center(
                 child: GestureDetector(
-                  onTapDown: _testCompleted ? null : _sendInteractiveMarker,
+                  behavior: HitTestBehavior.opaque,
+                  // this seems more responsive than onTapDown
+                  onPanDown: _testCompleted ? null : _sendInteractiveMarker,
+                  // onTapDown: _testCompleted ? null : _sendInteractiveMarker,
+                  // onForcePressStart: _testCompleted
+                  //     ? null
+                  //     : _sendInteractiveMarker,
+                  dragStartBehavior: DragStartBehavior.down,
                   child: SizedBox(
                     width: 200,
                     height: 200,
@@ -264,10 +272,10 @@ class _TestPageState extends State<TestPage> {
     );
   }
 
-  void _sendInteractiveMarker(TapDownDetails details) async {
+  void _sendInteractiveMarker(dynamic details) async {
     final test = widget.testController.currentTest;
     if (test is InteractiveTest) {
-      await test.sendMarker();
+      test.sendMarker();
       setState(() {
         _eventsCount++;
       });
