@@ -180,7 +180,7 @@ class _HomePageState extends State<HomePage> {
                   final deviceLabel =
                       !_coordinator.isCoordinator &&
                           device == _coordinator.coordinatorId
-                      ? '$device (${(_coordinator.controllerLatency * 1000).toStringAsFixed(3)} ms)'
+                      ? '$device (${(_controllerLatency * 1000).toStringAsFixed(3)} ms)'
                       : device;
                   final isReady = _readyDevices[index];
                   return Chip(
