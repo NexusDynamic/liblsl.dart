@@ -1,3 +1,27 @@
+# 0.7.0
+
+This release is a major update that includes breaking changes. This update provides a large performance improvement by reusing a buffer for samples, reducing the number of allocations and copies required when sending samples.
+
+There are also new packages that complement `liblsl.dart`, and are still work-in-progress, but will allow setting up an entire experiment workflow without requiring any programming. Currently these packages include:
+
+- [liblsl_timing](https://github.com/zeyus/liblsl.dart/tree/main/packages/liblsl_timing): This package provides an application for measuring LSL timing performance with your specific device and network configuration. The test app automatically coordinates between all connected devices on the network, and passes the test configuration via a coordinator - the coordinator is the first device that starts the application. There are three tests included:
+  - **Latency**: This test measures the latency of sending and receiving samples over LSL at the specified frequency.
+  - **Sync**: This test is intended to measure the clock synchronization and drift between devices.
+  - **Interactive**: This test has a button on screen and when the button is pressed, an LSL sample is sent, all receiving devices will then flash a black square on the screen. This test is intended to measure the entire end-to-end latency, including Flutter rendering, input and display lag. To measure this effectively, it would be ideal to have a touch sensor of some kind (e.g. FSR) and a photodiode sensor to measure the moment of touch and the moment of display change, respectively. There is a companion app in C++ written for a Bela (Beaglebone Black) which takes digital inputs and logs the timestamps along with the LSL samples. You can see more at the [bela-lsl-timing](https://github.com/zeyus/bela-lsl-timing) repository.
+- [liblsl_analysis](https://github.com/zeyus/liblsl.dart/tree/main/packages/liblsl_analysis): This package allows for analysis of the data provided by the `liblsl_timing` package. It currently only allows loading a single TSV file from the timing test, but will be updated to allow loading files from all the reporting devices to create a comprehensive report of the timing performance across all devices. The report will include:
+  - Latency statistics for each device
+  - Clock synchronization and drift statistics
+  - Interactive test results with timestamps and latency measurements (if available)
+- Use [custom fork](https://github.com/zeyus/liblsl) of `liblsl` which allows API configuration to be specified at runtime (once, before any other LSL functions are called). This means that anything in the [LSL API configuration file](https://labstreaminglayer.readthedocs.io/info/lslapicfg.html#configuration-file-contents) can be set, including on mobile platforms that do not support environment variables or allow editing files in `/etc` or `./`.
+  - This is exposed via the C/C++ API as `lsl_set_config_filename` and `lsl_set_config_content` to set the configuration file name and content (directly as a `std::string`/`char*`), respectively. The Dart API now provides a `LSLConfig` class that can be used to set the configuration file name and content, which can be used in `LSL.setConfigFilename` and `LSL.setConfigContent` methods.
+- New `LSLReusableBuffer` class for allowing sample structures to avoid creating new instances for each sample. This reuse significantly enhances the performance by reducing the allocations during sample pulling and pushing.
+- Generic push sample functions have now been replaced with specific implementations for each type e.g. `LslPushSampleFloat`.
+- A new helper function `runPreciseInterval` has been added to handle precision interval timing, using an adjustable busy-wait loop. The API is subject to change, but allows for a callback and a mutable `dyanmic state` to be passed in, which can be used to update the state of the callback. This is useful for implementing precise timing in LSL applications (such as requiring 1000Hz sample creation with high precision -> resulting in a mean of 1.0000, median of 1.0082 ms over 180,000 samples).
+- `hooks` package updated from `0.19.0` to `0.19.1`.
+- `native_toolchain_c` updated from `^0.16.0` to `^0.16.1`.
+- `ffigen` updated from `18.1.0` to `19.0.0`.
+- `test` package updated from `1.25.15` to `1.26.0`.
+
 # 0.6.2-dev.0
 
 - Make SDK constraint ^3.9.0-0
