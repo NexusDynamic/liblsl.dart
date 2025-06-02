@@ -1,3 +1,7 @@
+# 0.7.1
+
+This is a minor change that requires the dev/main version of the Dart SDK, as `hooks` and `native_toolchain_c` still require a version later than the last stable release. This is a temporary change until the next supported stable Dart SDK release.
+
 # 0.7.0
 
 This release is a major update that includes breaking changes. This update provides a large performance improvement by reusing a buffer for samples, reducing the number of allocations and copies required when sending samples.
