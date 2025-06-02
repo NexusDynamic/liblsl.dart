@@ -53,8 +53,9 @@ class LSLStreamInfo extends LSLObj {
     if (created) {
       throw LSLException('StreamInfo already created');
     }
-    final streamNamePtr =
-        streamName.toNativeUtf8(allocator: allocate).cast<Char>();
+    final streamNamePtr = streamName
+        .toNativeUtf8(allocator: allocate)
+        .cast<Char>();
     final sourceIdPtr = sourceId.toNativeUtf8(allocator: allocate).cast<Char>();
     final streamTypePtr = streamType.charPtr;
 
