@@ -15,6 +15,7 @@ class DeviceCoordinator {
   LSLStreamInfo? _controlStreamInfo;
   LSLIsolatedOutlet? _controlOutlet;
   LSLIsolatedInlet? _controlInlet;
+  double _controllerLatency = double.nan;
   final List<LSLIsolatedInlet> _participantInlets = [];
   String _coordinatorId = '';
   // Coordination state
@@ -36,6 +37,7 @@ class DeviceCoordinator {
   String get coordinatorId => _coordinatorId;
   List<String> get connectedDevices => List.unmodifiable(_connectedDevices);
   List<bool> get readyDevices => List.unmodifiable(_readyDevices);
+  double get controllerLatency => _controllerLatency;
   Stream<String> get messageStream => _messageStreamController.stream;
 
   Function(TestType)? _onNavigateToTest;
@@ -200,6 +202,21 @@ class DeviceCoordinator {
     _messageStreamController.add('Broadcasting discovery message');
   }
 
+  Future<void> _inletLatency() async {
+    if (_controlInlet == null) {
+      throw Exception('Control inlet not initialized');
+    }
+    // get the latency, timeout 200ms (this should be way more than enough
+    // on any WiFi / Ethernet lan)
+    _controllerLatency = await _controlInlet!.getTimeCorrection(0.2);
+    if (kDebugMode) {
+      print('Inlet latency: $_controllerLatency seconds');
+    }
+    _messageStreamController.add(
+      'Inlet latency: ${(_controllerLatency * 1000).toStringAsFixed(3)} ms',
+    );
+  }
+
   Future<void> _joinCoordination(LSLStreamInfo controlStream) async {
     // Create inlet to the control stream
     _controlInlet = await LSL.createInlet<String>(
@@ -232,6 +249,7 @@ class DeviceCoordinator {
   }
 
   Future<void> _startListening() async {
+    int pullCount = 0;
     while (_isInitialized && !_messageStreamController.isClosed) {
       // Don't listen for messages if the test is running
       if (!_isTestRunning) {
@@ -242,6 +260,12 @@ class DeviceCoordinator {
             if (sample != null && sample.isNotEmpty) {
               final message = sample[0] as String;
               _handleMessage(message);
+            }
+            pullCount++;
+            if (pullCount % 20 == 0) {
+              // Check inlet latency every 10 pulls
+              _inletLatency();
+              pullCount = 0;
             }
           } else {
             // Listen for messages from participant inlets

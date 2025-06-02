@@ -36,6 +36,7 @@ class _HomePageState extends State<HomePage> {
   final List<String> _messages = [];
   List<String> _connectedDevices = [];
   List<bool> _readyDevices = [];
+  double _controllerLatency = double.nan;
   bool _isInitializing = true;
   bool _isReady = false;
   String _wifiIp = '';
@@ -86,6 +87,7 @@ class _HomePageState extends State<HomePage> {
         setState(() {
           _readyDevices = _coordinator.readyDevices;
           _connectedDevices = _coordinator.connectedDevices;
+          _controllerLatency = _coordinator.controllerLatency;
 
           _messages.add(message);
           if (_messages.length > 100) {
@@ -110,6 +112,7 @@ class _HomePageState extends State<HomePage> {
       // Update connected devices when the list might have changed
       _readyDevices = _coordinator.readyDevices;
       _connectedDevices = _coordinator.connectedDevices;
+      _controllerLatency = _coordinator.controllerLatency;
 
       // Listen for test status updates
       _testController.statusStream.listen((status) {
@@ -125,6 +128,7 @@ class _HomePageState extends State<HomePage> {
         _isInitializing = false;
         _readyDevices = _coordinator.readyDevices;
         _connectedDevices = _coordinator.connectedDevices;
+        _controllerLatency = _coordinator.controllerLatency;
       });
     });
   }
@@ -172,9 +176,15 @@ class _HomePageState extends State<HomePage> {
               Wrap(
                 spacing: 8,
                 children: _connectedDevices.mapIndexed((index, device) {
+                  // If the device is the coordinator we can show the latency
+                  final deviceLabel =
+                      !_coordinator.isCoordinator &&
+                          device == _coordinator.coordinatorId
+                      ? '$device (${(_coordinator.controllerLatency * 1000).toStringAsFixed(3)} ms)'
+                      : device;
                   final isReady = _readyDevices[index];
                   return Chip(
-                    label: Text(device),
+                    label: Text(deviceLabel),
                     deleteIcon: isReady
                         ? const Icon(Icons.check_circle, color: Colors.green)
                         : const Icon(Icons.remove_circle, color: Colors.red),
