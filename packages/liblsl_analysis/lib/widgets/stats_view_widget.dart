@@ -29,7 +29,7 @@ class StatsViewWidget extends StatelessWidget {
     // first we will calculate the stats for EventType.sampleCreated timestamp
     final pickIndices = csvData['event_type'].isEqual('EventType.sampleSent');
 
-    final timestampColumn = csvData['lslTimestamp'].indices(pickIndices.data);
+    final timestampColumn = csvData['lsl_clock'].indices(pickIndices.data);
     //print(indices);
     //final timestampColumn = csvData[indices]['timestamp'];
     // we care about the inter-sample interval
@@ -39,7 +39,10 @@ class StatsViewWidget extends StatelessWidget {
       //     (double.parse(timestampColumn[i]) -
       //         double.parse(timestampColumn[i - 1])) *
       //     1000;
-      final interval = (timestampColumn[i] - timestampColumn[i - 1]) * 1000;
+      final interval =
+          (double.parse(timestampColumn[i]) -
+              double.parse(timestampColumn[i - 1])) *
+          1000;
       interSampleInterval.add(interval);
     }
     // trim 2% from both ends of the inter-sample interval list
@@ -114,7 +117,7 @@ class StatsViewWidget extends StatelessWidget {
     final sampleRecievedIndices = csvData['event_type'].isEqual(
       'EventType.sampleReceived',
     );
-    final recievedTimestamps = csvData['lslTimestamp'].indices(
+    final recievedTimestamps = csvData['lsl_clock'].indices(
       sampleRecievedIndices.data,
     );
     final recievedCounter = csvData['counter'].indices(
@@ -151,7 +154,7 @@ class StatsViewWidget extends StatelessWidget {
         }
         break;
       }
-      latency[cIndex] = recievedTimestamps.data[i];
+      latency[cIndex] = double.parse(recievedTimestamps.data[i]);
     }
 
     for (int i = 0; i < sentCounter.length; i++) {
@@ -169,7 +172,7 @@ class StatsViewWidget extends StatelessWidget {
         // so we will just use the timestamp from the sampleCreated event
         continue;
       }
-      latency[cIndex] -= timestampColumn.data[i];
+      latency[cIndex] -= double.parse(timestampColumn.data[i]);
     }
 
     // remove all the nans values from the latency list
