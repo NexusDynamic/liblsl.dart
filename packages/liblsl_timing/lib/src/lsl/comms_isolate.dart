@@ -148,7 +148,7 @@ class InletManager {
     await loopStarter.future;
     while (!loopCompleter.isCompleted) {
       for (final (inletIndex, inlet) in inlets.indexed) {
-        LSLSample sample = inlet.pullSampleSync();
+        LSLSample sample = await inlet.pullSample();
 
         if (sample.isNotEmpty) {
           await lock.synchronized(() {
@@ -319,7 +319,7 @@ class OutletManager {
       (LoopHelper state) {
         state.sampleCounter++;
         sampleData[0] = state.sampleCounter.toDouble();
-        state.outlet!.pushSampleSync(sampleData);
+        state.outlet!.pushSample(sampleData);
         // pushed samples, but no verification
         final index = (state.sampleCounter - 1) % 100;
         final sampleId = '${config.sampleIdPrefix}${state.sampleCounter}';

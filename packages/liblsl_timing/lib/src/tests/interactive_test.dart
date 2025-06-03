@@ -314,7 +314,7 @@ class InteractiveOutletManager {
     if (_outlet == null) return;
 
     // Send the marker ID as a string
-    _outlet!.pushSampleSync([markerId]);
+    await _outlet!.pushSample([markerId]);
   }
 
   void cleanup() {
