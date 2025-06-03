@@ -2,6 +2,7 @@ import 'dart:math';
 
 import 'package:dartframe/dartframe.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 extension SeriesPickIndices on Series {
@@ -40,6 +41,21 @@ class StatsViewWidget extends StatelessWidget {
       //     1000;
       final interval = (timestampColumn[i] - timestampColumn[i - 1]) * 1000;
       interSampleInterval.add(interval);
+    }
+    // trim 2% from both ends of the inter-sample interval list
+    int trimCount = (interSampleInterval.length * 0.02).round();
+    if (trimCount > 0) {
+      interSampleInterval.setRange(
+        0,
+        trimCount,
+        List.filled(trimCount, double.nan),
+      );
+      interSampleInterval.setRange(
+        interSampleInterval.length - trimCount,
+        interSampleInterval.length,
+        List.filled(trimCount, double.nan),
+      );
+      interSampleInterval.removeWhere((element) => element.isNaN);
     }
     // calculate the stats
     final mean =
@@ -114,7 +130,7 @@ class StatsViewWidget extends StatelessWidget {
     final sentCounter = csvData['counter'].indices(pickIndices.data);
 
     final List<double> latency = List.filled(
-      sentCounter.length,
+      max(sentCounter.length, recievedCounter.length),
       double.nan,
       growable: true,
     );
@@ -127,11 +143,27 @@ class StatsViewWidget extends StatelessWidget {
       // @TODO: Fix indexing (sent and recieved dont match)
       final cIndex =
           recievedCounter.data[i] - 1; // -1 because we are using 0 based index
+      if (cIndex >= latency.length) {
+        if (kDebugMode) {
+          print(
+            'cIndex $cIndex is out of bounds for latency list of length ${latency.length}',
+          );
+        }
+        break;
+      }
       latency[cIndex] = recievedTimestamps.data[i];
     }
 
     for (int i = 0; i < sentCounter.length; i++) {
       final cIndex = sentCounter.data[i] - 1;
+      if (cIndex >= latency.length) {
+        if (kDebugMode) {
+          print(
+            'cIndex $cIndex is out of bounds for latency list of length ${latency.length}',
+          );
+        }
+        break;
+      }
       if (latency[cIndex].isNaN) {
         // this means we didn't get a sampleReceived event for this sample
         // so we will just use the timestamp from the sampleCreated event
@@ -145,6 +177,19 @@ class StatsViewWidget extends StatelessWidget {
     // convert to milliseconds
     for (int i = 0; i < latency.length; i++) {
       latency[i] *= 1000;
+    }
+
+    // trim 2% from both ends of the latency list (not outliers, just test warmup
+    // and cooldown)
+    trimCount = (latency.length * 0.02).round();
+    if (trimCount > 0) {
+      latency.setRange(0, trimCount, List.filled(trimCount, double.nan));
+      latency.setRange(
+        latency.length - trimCount,
+        latency.length,
+        List.filled(trimCount, double.nan),
+      );
+      latency.removeWhere((element) => element.isNaN);
     }
 
     // calculate the stats

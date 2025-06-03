@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:ffi';
-import 'dart:isolate';
+import 'dart:io';
 
 import 'package:liblsl/native_liblsl.dart';
 import 'package:liblsl/src/ffi/mem.dart';
@@ -18,7 +18,7 @@ class LSLIsolatedOutlet extends LSLObj {
   final LSLStreamInfo streamInfo;
   final int chunkSize;
   final int maxBuffer;
-  final LSLOutletIsolateManager _isolateManager = LSLOutletIsolateManager();
+  late final LSLOutletIsolateManager _isolateManager;
   bool _initialized = false;
   late final Pointer<NativeType> _buffer;
   late final LslPushSample _pushFn;
@@ -40,15 +40,16 @@ class LSLIsolatedOutlet extends LSLObj {
     if (streamInfo.streamInfo == null) {
       throw LSLException('StreamInfo not created');
     }
+    _isolateManager = LSLOutletIsolateManager();
   }
 
   @override
-  Future<LSLIsolatedOutlet> create() async {
+  Future<LSLIsolatedOutlet> create({bool sync = false}) async {
     if (created) {
       throw LSLException('Outlet already created');
     }
     // Initialize the isolate manager
-    await _isolateManager.init();
+    await _isolateManager.init(sync: sync);
 
     // Send message to create outlet in the isolate
     final response = await _isolateManager.sendMessage(
@@ -128,6 +129,31 @@ class LSLIsolatedOutlet extends LSLObj {
     return response.result as int;
   }
 
+  int pushSampleSync(List<dynamic> data) {
+    if (!_initialized) {
+      throw LSLException('Outlet not created');
+    }
+
+    if (data.length != streamInfo.channelCount) {
+      throw LSLException(
+        'Data length (${data.length}) does not match channel count (${streamInfo.channelCount})',
+      );
+    }
+
+    // Set the sample data in the buffer
+    _pushFn.listToBuffer(data, _buffer);
+
+    final response = _isolateManager.sendMessageSync(
+      LSLMessage(LSLMessageType.pushSample, {'pointerAddr': _buffer.address}),
+    );
+
+    if (!response.success) {
+      throw LSLException('Error pushing sample: ${response.error}');
+    }
+
+    return response.result as int;
+  }
+
   @override
   void destroy() async {
     if (destroyed) {
@@ -156,57 +182,78 @@ class LSLIsolatedOutlet extends LSLObj {
 }
 
 /// Implementation of outlet functionality for the isolate
-class LSLOutletIsolate {
-  final ReceivePort _receivePort = ReceivePort();
-  final SendPort _sendPort;
+class LSLOutletIsolate extends LSLIsolateWorkerBase {
   lsl_outlet? _outlet;
   LSLStreamInfo? _streamInfo;
   late final LslPushSample _pushFn;
   late final bool _isStreamInfoOwner;
 
-  LSLOutletIsolate(this._sendPort) {
-    _listen();
-    _sendPort.send(_receivePort.sendPort);
+  /// Creates a new outlet isolate worker
+  /// The [sendPort] is used to communicate with the main isolate.
+  LSLOutletIsolate(super.sendPort, {super.sync}) : super();
+
+  @override
+  Future<dynamic> handleMessage(LSLMessage message) async {
+    final type = message.type;
+    final data = message.data;
+
+    switch (type) {
+      case LSLMessageType.createOutlet:
+        return await _createOutlet(data);
+      case LSLMessageType.waitForConsumer:
+        return await _waitForConsumer(data);
+      case LSLMessageType.pushSample:
+        return await _pushSample(data);
+      case LSLMessageType.pushSampleSync:
+        return _pushSampleSync(data);
+      case LSLMessageType.destroy:
+        _destroy();
+        return null;
+      default:
+        throw LSLException('Unsupported message type: $type');
+    }
   }
 
-  void _listen() {
-    _receivePort.listen((message) {
-      if (message is Map<String, dynamic>) {
-        _handleMessage(message);
-      }
-    });
-  }
+  @override
+  dynamic handleMessageSync(LSLMessage message) {
+    final type = message.type;
+    final data = message.data;
 
-  void _handleMessage(Map<String, dynamic> message) async {
-    final type = LSLMessageType.values[message['type'] as int];
-    final data = message['data'] as Map<String, dynamic>;
-    final SendPort replyPort = message['replyPort'] as SendPort;
-
-    try {
-      switch (type) {
-        case LSLMessageType.createOutlet:
-          final result = await _createOutlet(data);
-          replyPort.send(LSLResponse.success(result).toMap());
-          break;
-        case LSLMessageType.waitForConsumer:
-          final result = await _waitForConsumer(data);
-          replyPort.send(LSLResponse.success(result).toMap());
-          break;
-        case LSLMessageType.pushSample:
-          final result = await _pushSample(data);
-          replyPort.send(LSLResponse.success(result).toMap());
-          break;
-        case LSLMessageType.destroy:
-          _destroy();
-          replyPort.send(LSLResponse.success(null).toMap());
-          break;
-        default:
-          replyPort.send(
-            LSLResponse.error('Unsupported message type: $type').toMap(),
-          );
-      }
-    } catch (e) {
-      replyPort.send(LSLResponse.error(e.toString()).toMap());
+    switch (type) {
+      case LSLMessageType.createOutlet:
+        Completer<bool> completer = Completer<bool>.sync();
+        _createOutlet(data)
+            .then((result) {
+              result = true;
+              completer.complete(result);
+            })
+            .catchError((e) {
+              completer.completeError(e);
+            });
+        bool result = false;
+        completer.future
+            .then((value) {
+              result = value;
+            })
+            .catchError((e) {
+              throw LSLException('Error creating outlet: $e');
+            });
+        while (!completer.isCompleted) {
+          // Wait for the async operation to complete
+          sleep(const Duration(milliseconds: 10));
+        }
+        return result;
+      case LSLMessageType.waitForConsumer:
+        return _waitForConsumer(data);
+      case LSLMessageType.pushSample:
+        return _pushSample(data);
+      case LSLMessageType.pushSampleSync:
+        return _pushSampleSync(data);
+      case LSLMessageType.destroy:
+        _destroy();
+        return null;
+      default:
+        throw LSLException('Unsupported message type: $type');
     }
   }
 
@@ -287,6 +334,21 @@ class LSLOutletIsolate {
     return result;
   }
 
+  int _pushSampleSync(Map<String, dynamic> data) {
+    if (_outlet == null || _streamInfo == null) {
+      throw LSLException('Outlet not created');
+    }
+    // Allocate memory for the sample
+    final samplePtr = Pointer.fromAddress(data['pointerAddr'] as int);
+
+    // Push the sample
+    final int result = _pushFn(_outlet!, samplePtr);
+    if (LSLObj.error(result)) {
+      throw LSLException('Error pushing sample: $result');
+    }
+    return result;
+  }
+
   void _destroy() {
     if (_outlet != null) {
       lsl_destroy_outlet(_outlet!);
@@ -300,6 +362,6 @@ class LSLOutletIsolate {
       _streamInfo = null;
     }
 
-    _receivePort.close();
+    cleanup();
   }
 }

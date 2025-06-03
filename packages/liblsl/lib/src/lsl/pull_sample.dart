@@ -78,6 +78,21 @@ abstract class LslPullSample<T extends NativeType, D> {
     return LSLSamplePointer<T>(timestamp, errorCode, buffer.address);
   }
 
+  LSLSamplePointer<T> pullSampleIntoSync(
+    Pointer<T> buffer,
+    lsl_inlet inlet,
+    int channels,
+    double timeout,
+    Pointer<Int32> ec,
+  ) {
+    final double timestamp = _pullFn(inlet, buffer, channels, timeout, ec);
+    final int errorCode = ec.value;
+    if (LSLObj.error(errorCode)) {
+      return LSLSamplePointer<T>(timestamp, errorCode, 0);
+    }
+    return LSLSamplePointer<T>(timestamp, errorCode, buffer.address);
+  }
+
   @mustBeOverridden
   LSLReusableBuffer<T> createReusableBuffer(int channels) {
     throw UnimplementedError(

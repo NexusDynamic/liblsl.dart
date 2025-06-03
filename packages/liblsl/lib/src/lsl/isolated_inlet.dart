@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:ffi';
-import 'dart:isolate';
+import 'dart:io';
 
 import 'package:liblsl/native_liblsl.dart';
 import 'package:liblsl/src/ffi/mem.dart';
@@ -79,13 +79,13 @@ class LSLIsolatedInlet<T> extends LSLObj {
   }
 
   @override
-  Future<LSLIsolatedInlet<T>> create() async {
+  Future<LSLIsolatedInlet<T>> create({bool sync = false}) async {
     if (created) {
       throw LSLException('Inlet already created');
     }
 
     // Initialize the isolate manager
-    await _isolateManager.init();
+    await _isolateManager.init(sync: sync);
     _buffer = _pullFn.createReusableBuffer(streamInfo.channelCount);
 
     // Send message to create inlet in the isolate
@@ -147,6 +147,38 @@ class LSLIsolatedInlet<T> extends LSLObj {
         _pullFn.bufferToList(_buffer.buffer, streamInfo.channelCount)
             as List<T>;
 
+    // Return the sample!
+    return LSLSample<T>(
+      sampleData,
+      samplePointer.timestamp,
+      samplePointer.errorCode,
+    );
+  }
+
+  LSLSample<T> pullSampleSync() {
+    _ensureInitialized();
+
+    final response = _isolateManager.sendMessageSync(
+      LSLMessage(LSLMessageType.pullSampleSync, {
+        'timeout': 0.0,
+        'pointerAddr': _buffer.buffer.address,
+        'ecPointerAddr': _buffer.ec.address,
+      }),
+    );
+    if (!response.success) {
+      throw LSLException('Error pulling sample: ${response.error}');
+    }
+    final samplePointer = LSLSerializer.deserializeSamplePointer(
+      response.result as Map<String, dynamic>,
+    );
+    // a timestamp of zero means no sample was retrieved.
+    if (samplePointer.timestamp == 0) {
+      return LSLSample<T>([], 0, samplePointer.errorCode);
+    }
+    // Convert the buffer to a list of the appropriate type.
+    final sampleData =
+        _pullFn.bufferToList(_buffer.buffer, streamInfo.channelCount)
+            as List<T>;
     // Return the sample!
     return LSLSample<T>(
       sampleData,
@@ -240,26 +272,23 @@ class LSLIsolatedInlet<T> extends LSLObj {
 }
 
 /// Implementation of inlet functionality for the isolate
-class LSLInletIsolate {
-  final ReceivePort _receivePort = ReceivePort();
-  final SendPort _sendPort;
+class LSLInletIsolate extends LSLIsolateWorkerBase {
   lsl_inlet? _inlet;
   LSLStreamInfo? _streamInfo;
   late final LslPullSample _pullFn;
   late final bool _isStreamInfoOwner;
 
-  final Map<LSLMessageType, Future Function(Map<String, dynamic>)> _handlers =
+  final Map<LSLMessageType, FutureOr Function(Map<String, dynamic>)> _handlers =
       {};
 
-  LSLInletIsolate(this._sendPort) {
+  LSLInletIsolate(super.sendPort, {super.sync}) : super() {
     _registerHandlers();
-    _listen();
-    _sendPort.send(_receivePort.sendPort);
   }
 
   void _registerHandlers() {
     _handlers[LSLMessageType.createInlet] = _createInlet;
     _handlers[LSLMessageType.pullSample] = _pullSample;
+    _handlers[LSLMessageType.pullSampleSync] = _pullSampleSync;
     _handlers[LSLMessageType.flush] = _flush;
     _handlers[LSLMessageType.timeCorrection] = _timeCorrection;
     _handlers[LSLMessageType.samplesAvailable] = _samplesAvailable;
@@ -267,30 +296,50 @@ class LSLInletIsolate {
     _handlers[LSLMessageType.pullChunk] = pullChunk;
   }
 
-  void _listen() {
-    _receivePort.listen((message) {
-      if (message is Map<String, dynamic>) {
-        _handleMessage(message);
-      }
-    });
+  @override
+  Future<dynamic> handleMessage(LSLMessage message) async {
+    final type = message.type;
+    final data = message.data;
+
+    if (_handlers.containsKey(type)) {
+      return await _handlers[type]!(data);
+    } else {
+      throw LSLException('Unsupported message type: $type');
+    }
   }
 
-  void _handleMessage(Map<String, dynamic> message) async {
-    final type = LSLMessageType.values[message['type'] as int];
-    final data = message['data'] as Map<String, dynamic>;
-    final SendPort replyPort = message['replyPort'] as SendPort;
+  @override
+  dynamic handleMessageSync(LSLMessage message) {
+    final type = message.type;
+    final data = message.data;
 
-    try {
-      if (_handlers.containsKey(type)) {
-        final result = await _handlers[type]!(data);
-        replyPort.send(LSLResponse.success(result).toMap());
-      } else {
-        replyPort.send(
-          LSLResponse.error('Unsupported message type: $type').toMap(),
-        );
+    if (_handlers.containsKey(type)) {
+      if (type == LSLMessageType.createInlet) {
+        Completer<bool> completer = Completer<bool>.sync();
+        _createInlet(data)
+            .then((result) {
+              completer.complete(result);
+            })
+            .catchError((e) {
+              completer.completeError(e);
+            });
+        bool result = false;
+        completer.future
+            .then((value) {
+              result = value;
+            })
+            .catchError((e) {
+              throw LSLException('Error creating outlet: $e');
+            });
+        while (!completer.isCompleted) {
+          // Wait for the async operation to complete
+          sleep(const Duration(milliseconds: 10));
+        }
+        return result;
       }
-    } catch (e) {
-      replyPort.send(LSLResponse.error(e.toString()).toMap());
+      return _handlers[type]!(data);
+    } else {
+      throw LSLException('Unsupported message type: $type');
     }
   }
 
@@ -374,6 +423,26 @@ class LSLInletIsolate {
     return LSLSerializer.serializeSamplePointer(sample);
   }
 
+  Map<String, dynamic> _pullSampleSync(Map<String, dynamic> data) {
+    if (_inlet == null || _streamInfo == null) {
+      throw LSLException('Inlet not created');
+    }
+    final timeout = data['timeout'] as double;
+    final samplePtr = Pointer.fromAddress(data['pointerAddr'] as int);
+    final ecPtr = Pointer<Int32>.fromAddress(data['ecPointerAddr'] as int);
+    // Pull the sample
+    final sample = _pullFn.pullSampleIntoSync(
+      samplePtr,
+      _inlet!,
+      _streamInfo!.channelCount,
+      timeout,
+      ecPtr,
+    );
+
+    // Return the serialized sample
+    return LSLSerializer.serializeSamplePointer(sample);
+  }
+
   Future<int> _flush(Map<String, dynamic>? data) async {
     if (_inlet == null) {
       throw LSLException('Inlet not created');
@@ -417,6 +486,6 @@ class LSLInletIsolate {
       _streamInfo = null;
     }
 
-    _receivePort.close();
+    cleanup();
   }
 }
