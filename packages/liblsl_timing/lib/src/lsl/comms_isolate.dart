@@ -148,59 +148,52 @@ class InletManager {
     await loopStarter.future;
     while (!loopCompleter.isCompleted) {
       for (final (inletIndex, inlet) in inlets.indexed) {
-        inlet
-            .pullSample()
-            .then((LSLSample sample) async {
-              if (sample.isNotEmpty) {
-                await lock.synchronized(() {
-                  sampleCounters[inletIndex]++;
-                });
-                bool timeCorrected = false;
-                // if time correction is enabled, calculate it
-                if (timeCorrectEveryN > 0 &&
-                    sampleCounters[inletIndex] % timeCorrectEveryN == 0) {
-                  try {
-                    inletTimeCorrections[inletIndex] = await inlet
-                        .getTimeCorrection(0.1);
-                    timeCorrected = true;
-                  } catch (e) {
-                    if (kDebugMode) {
-                      print(
-                        'Error getting time correction for inlet '
-                        '${inlet.streamInfo.sourceId}: $e',
-                      );
-                    }
-                  }
-                }
-                // Extract the counter value (first channel)
-                final counter = sample[0].toInt();
-                final sampleId = '${inlet.streamInfo.sourceId}_$counter';
-                final timestamp = sample.timestamp;
-                final sampleMessage = IsolateSampleMessage(
-                  timestamp,
-                  counter,
-                  sampleId,
-                  inlet.streamInfo.sourceId,
-                  lslTimeCorrection: timeCorrected
-                      ? inletTimeCorrections[inletIndex]
-                      : null,
-                );
-                final index =
-                    ((sampleCounters[inletIndex] - 1) % inletBufferSize) +
-                    inletIndex * inletBufferSize;
-                isolateMessageBuffer[index] = sampleMessage;
-                if (index == bufferSize - 1) {
-                  // Send the buffered messages every 100 samples
-                  mainSendPort.send(isolateMessageBuffer);
-                }
-              }
-            })
-            .catchError((error) {
-              // Handle error
+        LSLSample sample = inlet.pullSampleSync();
+
+        if (sample.isNotEmpty) {
+          await lock.synchronized(() {
+            sampleCounters[inletIndex]++;
+          });
+          bool timeCorrected = false;
+          // if time correction is enabled, calculate it
+          if (timeCorrectEveryN > 0 &&
+              sampleCounters[inletIndex] % timeCorrectEveryN == 0) {
+            try {
+              inletTimeCorrections[inletIndex] = await inlet.getTimeCorrection(
+                0.1,
+              );
+              timeCorrected = true;
+            } catch (e) {
               if (kDebugMode) {
-                print('Error pulling sample: $error');
+                print(
+                  'Error getting time correction for inlet '
+                  '${inlet.streamInfo.sourceId}: $e',
+                );
               }
-            });
+            }
+          }
+          // Extract the counter value (first channel)
+          final counter = sample[0].toInt();
+          final sampleId = '${inlet.streamInfo.sourceId}_$counter';
+          final timestamp = sample.timestamp;
+          final sampleMessage = IsolateSampleMessage(
+            timestamp,
+            counter,
+            sampleId,
+            inlet.streamInfo.sourceId,
+            lslTimeCorrection: timeCorrected
+                ? inletTimeCorrections[inletIndex]
+                : null,
+          );
+          final index =
+              ((sampleCounters[inletIndex] - 1) % inletBufferSize) +
+              inletIndex * inletBufferSize;
+          isolateMessageBuffer[index] = sampleMessage;
+          if (index == bufferSize - 1) {
+            // Send the buffered messages every 100 samples
+            mainSendPort.send(isolateMessageBuffer);
+          }
+        }
       }
       await Future.delayed(Duration.zero);
     }
@@ -326,7 +319,7 @@ class OutletManager {
       (LoopHelper state) {
         state.sampleCounter++;
         sampleData[0] = state.sampleCounter.toDouble();
-        state.outlet!.pushSample(sampleData);
+        state.outlet!.pushSampleSync(sampleData);
         // pushed samples, but no verification
         final index = (state.sampleCounter - 1) % 100;
         final sampleId = '${config.sampleIdPrefix}${state.sampleCounter}';

@@ -116,7 +116,7 @@ class InteractiveTest extends BaseTest {
     final markerId = DateTime.now().microsecondsSinceEpoch;
 
     // Record the event
-    await timingManager.recordEvent(
+    timingManager.recordEvent(
       EventType.markerSent,
       description: 'Interactive marker sent',
       metadata: {
@@ -314,7 +314,7 @@ class InteractiveOutletManager {
     if (_outlet == null) return;
 
     // Send the marker ID as a string
-    await _outlet!.pushSample([markerId]);
+    _outlet!.pushSampleSync([markerId]);
   }
 
   void cleanup() {
