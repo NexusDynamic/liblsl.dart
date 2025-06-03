@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:ffi';
-import 'dart:io';
 
 import 'package:liblsl/native_liblsl.dart';
 import 'package:liblsl/src/ffi/mem.dart';
@@ -49,7 +48,7 @@ class LSLIsolatedOutlet extends LSLObj {
       throw LSLException('Outlet already created');
     }
     // Initialize the isolate manager
-    await _isolateManager.init(sync: sync);
+    await _isolateManager.init();
 
     // Send message to create outlet in the isolate
     final response = await _isolateManager.sendMessage(
@@ -129,31 +128,6 @@ class LSLIsolatedOutlet extends LSLObj {
     return response.result as int;
   }
 
-  int pushSampleSync(List<dynamic> data) {
-    if (!_initialized) {
-      throw LSLException('Outlet not created');
-    }
-
-    if (data.length != streamInfo.channelCount) {
-      throw LSLException(
-        'Data length (${data.length}) does not match channel count (${streamInfo.channelCount})',
-      );
-    }
-
-    // Set the sample data in the buffer
-    _pushFn.listToBuffer(data, _buffer);
-
-    final response = _isolateManager.sendMessageSync(
-      LSLMessage(LSLMessageType.pushSample, {'pointerAddr': _buffer.address}),
-    );
-
-    if (!response.success) {
-      throw LSLException('Error pushing sample: ${response.error}');
-    }
-
-    return response.result as int;
-  }
-
   @override
   void destroy() async {
     if (destroyed) {
@@ -190,7 +164,7 @@ class LSLOutletIsolate extends LSLIsolateWorkerBase {
 
   /// Creates a new outlet isolate worker
   /// The [sendPort] is used to communicate with the main isolate.
-  LSLOutletIsolate(super.sendPort, {super.sync}) : super();
+  LSLOutletIsolate(super.sendPort) : super();
 
   @override
   Future<dynamic> handleMessage(LSLMessage message) async {
@@ -204,51 +178,6 @@ class LSLOutletIsolate extends LSLIsolateWorkerBase {
         return await _waitForConsumer(data);
       case LSLMessageType.pushSample:
         return await _pushSample(data);
-      case LSLMessageType.pushSampleSync:
-        return _pushSampleSync(data);
-      case LSLMessageType.destroy:
-        _destroy();
-        return null;
-      default:
-        throw LSLException('Unsupported message type: $type');
-    }
-  }
-
-  @override
-  dynamic handleMessageSync(LSLMessage message) {
-    final type = message.type;
-    final data = message.data;
-
-    switch (type) {
-      case LSLMessageType.createOutlet:
-        Completer<bool> completer = Completer<bool>.sync();
-        _createOutlet(data)
-            .then((result) {
-              result = true;
-              completer.complete(result);
-            })
-            .catchError((e) {
-              completer.completeError(e);
-            });
-        bool result = false;
-        completer.future
-            .then((value) {
-              result = value;
-            })
-            .catchError((e) {
-              throw LSLException('Error creating outlet: $e');
-            });
-        while (!completer.isCompleted) {
-          // Wait for the async operation to complete
-          sleep(const Duration(milliseconds: 10));
-        }
-        return result;
-      case LSLMessageType.waitForConsumer:
-        return _waitForConsumer(data);
-      case LSLMessageType.pushSample:
-        return _pushSample(data);
-      case LSLMessageType.pushSampleSync:
-        return _pushSampleSync(data);
       case LSLMessageType.destroy:
         _destroy();
         return null;
@@ -320,21 +249,6 @@ class LSLOutletIsolate extends LSLIsolateWorkerBase {
   }
 
   Future<int> _pushSample(Map<String, dynamic> data) async {
-    if (_outlet == null || _streamInfo == null) {
-      throw LSLException('Outlet not created');
-    }
-    // Allocate memory for the sample
-    final samplePtr = Pointer.fromAddress(data['pointerAddr'] as int);
-
-    // Push the sample
-    final int result = _pushFn(_outlet!, samplePtr);
-    if (LSLObj.error(result)) {
-      throw LSLException('Error pushing sample: $result');
-    }
-    return result;
-  }
-
-  int _pushSampleSync(Map<String, dynamic> data) {
     if (_outlet == null || _streamInfo == null) {
       throw LSLException('Outlet not created');
     }

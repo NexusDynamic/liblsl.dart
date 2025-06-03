@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:isolate';
 import 'dart:ffi' show NativeType;
 import 'dart:math' show Random;
@@ -15,10 +14,8 @@ enum LSLMessageType {
   createInlet,
   pushChunk,
   pushSample,
-  pushSampleSync,
   pullChunk,
   pullSample,
-  pullSampleSync,
   waitForConsumer,
   destroy,
   resolveStreams,
@@ -150,12 +147,6 @@ class LSLSerializer {
   }
 }
 
-class SendPortSync {
-  final SendPort sendPort;
-
-  SendPortSync(this.sendPort);
-}
-
 /// Base class for isolate managers
 abstract class LSLIsolateManagerBase {
   final ReceivePort _receivePort = ReceivePort();
@@ -166,9 +157,6 @@ abstract class LSLIsolateManagerBase {
   /// Map to track pending requests
   final Map<String, Completer<LSLResponse>> _pendingRequests = {};
 
-  // 1 billion iterations
-  static final int _maxSpinIterations = 1e9.toInt();
-
   LSLIsolateManagerBase() {
     _listen();
   }
@@ -178,12 +166,6 @@ abstract class LSLIsolateManagerBase {
       if (message is SendPort) {
         // Initial handshake from isolate
         _sendPort = message;
-        if (!_initialization.isCompleted) {
-          _initialization.complete();
-        }
-      } else if (message is SendPortSync) {
-        // Initial handshake from isolate with SendPortSync
-        _sendPort = message.sendPort;
         if (!_initialization.isCompleted) {
           _initialization.complete();
         }
@@ -199,12 +181,12 @@ abstract class LSLIsolateManagerBase {
   }
 
   /// Initialize the isolate
-  Future<void> init({bool sync = false}) async {
+  Future<void> init() async {
     if (_initialization.isCompleted) return;
 
     _isolate = await Isolate.spawn(
       getIsolateEntryPoint(),
-      sync ? _receivePort.sendPort : SendPortSync(_receivePort.sendPort),
+      _receivePort.sendPort,
     );
     return _initialization.future;
   }
@@ -239,77 +221,6 @@ abstract class LSLIsolateManagerBase {
     return completer.future;
   }
 
-  LSLResponse sendMessageSync(LSLMessage message) {
-    if (!_initialization.isCompleted) {
-      throw StateError('Isolate not initialized');
-    }
-
-    final completer = Completer<LSLResponse>.sync();
-    _pendingRequests[message.id] = completer;
-
-    _sendPort!.send(message.toMap());
-
-    LSLResponse? response;
-    bool completed = false;
-    int iterations = 0;
-
-    // Set up completion
-    completer.future.then((value) {
-      response = value;
-      completed = true;
-    });
-
-    final startTime = DateTime.now().microsecondsSinceEpoch;
-    const timeoutMicros = 30 * 1000000; // 30 seconds
-
-    // Optimized spin loop with fewer system calls
-    while (!completed && iterations < _maxSpinIterations) {
-      iterations++;
-
-      // Check timeout less frequently for better performance
-      if (iterations % 10000 == 0) {
-        final elapsed = DateTime.now().microsecondsSinceEpoch - startTime;
-        if (elapsed > timeoutMicros) {
-          _pendingRequests.remove(message.id);
-          return LSLResponse.error(message.id, 'Request timeout');
-        }
-      }
-
-      // Minimal event loop processing
-      if (iterations % 1000 == 0) {
-        _pumpEventLoopMinimal();
-      }
-    }
-
-    if (!completed) {
-      _pendingRequests.remove(message.id);
-      return LSLResponse.error(message.id, 'Max iterations exceeded');
-    }
-
-    return response!;
-  }
-
-  void _pumpEventLoopMinimal() {
-    // Process microtasks
-    bool hadMicrotasks = false;
-    do {
-      hadMicrotasks = false;
-      scheduleMicrotask(() {
-        hadMicrotasks = true;
-      });
-
-      // Spin briefly to let the microtask run
-      final start = DateTime.now().microsecondsSinceEpoch;
-      while (DateTime.now().microsecondsSinceEpoch - start < 100) {
-        // Brief spin
-      }
-    } while (hadMicrotasks);
-
-    // Process timer events
-    Timer.run(() {});
-    sleep(Duration(microseconds: 1));
-  }
-
   /// Clean up resources
   void dispose() {
     // Complete any pending requests with errors
@@ -335,11 +246,8 @@ class LSLOutletIsolateManager extends LSLIsolateManagerBase {
     if (mainSendPort is SendPort) {
       // If we receive a SendPort directly, we can use it
       LSLOutletIsolate(mainSendPort);
-    } else if (mainSendPort is SendPortSync) {
-      // If we receive a SendPortSync, extract the SendPort
-      LSLOutletIsolate(mainSendPort.sendPort, sync: true);
     } else {
-      throw ArgumentError('Expected SendPort or SendPortSync');
+      throw ArgumentError('Expected SendPort');
     }
   }
 }
@@ -354,11 +262,8 @@ class LSLInletIsolateManager extends LSLIsolateManagerBase {
     if (mainSendPort is SendPort) {
       // If we receive a SendPort directly, we can use it
       LSLInletIsolate(mainSendPort);
-    } else if (mainSendPort is SendPortSync) {
-      // If we receive a SendPortSync, extract the SendPort
-      LSLInletIsolate(mainSendPort.sendPort, sync: true);
     } else {
-      throw ArgumentError('Expected SendPort or SendPortSync');
+      throw ArgumentError('Expected SendPort');
     }
   }
 }
@@ -368,12 +273,8 @@ abstract class LSLIsolateWorkerBase {
   final ReceivePort receivePort = ReceivePort();
   final SendPort sendPort;
 
-  LSLIsolateWorkerBase(this.sendPort, {bool sync = false}) {
-    if (sync) {
-      _listenSync();
-    } else {
-      _listen();
-    }
+  LSLIsolateWorkerBase(this.sendPort) {
+    _listen();
 
     // Send our receive port to establish bidirectional communication
     sendPort.send(receivePort.sendPort);
@@ -383,14 +284,6 @@ abstract class LSLIsolateWorkerBase {
     receivePort.listen((message) {
       if (message is Map<String, dynamic>) {
         _handleMessage(message);
-      }
-    });
-  }
-
-  void _listenSync() {
-    receivePort.listen((message) {
-      if (message is Map<String, dynamic>) {
-        _handleMessageSync(message);
       }
     });
   }
@@ -407,22 +300,8 @@ abstract class LSLIsolateWorkerBase {
     }
   }
 
-  void _handleMessageSync(Map<String, dynamic> messageMap) {
-    try {
-      final message = LSLMessage.fromMap(messageMap);
-      final result = handleMessageSync(message);
-
-      sendPort.send(LSLResponse.success(message.id, result).toMap());
-    } catch (e) {
-      final messageId = messageMap['id'] as String? ?? '';
-      sendPort.send(LSLResponse.error(messageId, e.toString()).toMap());
-    }
-  }
-
   /// Handle a message - to be implemented by subclasses
   Future<dynamic> handleMessage(LSLMessage message);
-
-  dynamic handleMessageSync(LSLMessage message);
 
   /// Send cleanup signal and close receive port
   void cleanup() {
