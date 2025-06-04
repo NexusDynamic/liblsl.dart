@@ -46,10 +46,6 @@ class LSLIsolatedInlet<T> extends LSLObj {
     this.recover = true,
     this.createTimeout = LSL_FOREVER,
   }) {
-    if (streamInfo.streamInfo == null) {
-      throw LSLException('StreamInfo not created');
-    }
-
     _pullFn = LSLMapper().streamPull(streamInfo);
 
     // Validate type parameter matches channel format
@@ -310,7 +306,7 @@ class LSLInletIsolate extends LSLIsolateWorkerBase {
 
     // Create the inlet
     _inlet = lsl_create_inlet(
-      _streamInfo!.streamInfo!,
+      _streamInfo!.streamInfo,
       data['maxBufferSize'] as int,
       data['maxChunkLength'] as int,
       data['recover'] as bool ? 1 : 0,

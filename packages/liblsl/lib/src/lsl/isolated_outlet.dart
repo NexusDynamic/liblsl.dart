@@ -36,9 +36,6 @@ class LSLIsolatedOutlet extends LSLObj {
     this.chunkSize = 0,
     this.maxBuffer = 360,
   }) {
-    if (streamInfo.streamInfo == null) {
-      throw LSLException('StreamInfo not created');
-    }
     _isolateManager = LSLOutletIsolateManager();
   }
 
@@ -221,7 +218,7 @@ class LSLOutletIsolate extends LSLIsolateWorkerBase {
 
     // Create the outlet
     _outlet = lsl_create_outlet(
-      _streamInfo!.streamInfo!,
+      _streamInfo!.streamInfo,
       data['chunkSize'] as int,
       data['maxBuffer'] as int,
     );

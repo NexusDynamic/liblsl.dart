@@ -102,7 +102,7 @@ class LSLSerializer {
       'sampleRate': info.sampleRate,
       'channelFormat': info.channelFormat.index,
       'sourceId': info.sourceId,
-      'address': info.streamInfo?.address,
+      'address': info.streamInfo.address,
     };
   }
 

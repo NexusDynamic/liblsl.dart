@@ -45,7 +45,9 @@ class LSLStreamInfo extends LSLObj {
   }
 
   /// The [Pointer] to the underlying lsl_streaminfo_struct_.
-  lsl_streaminfo? get streamInfo => _streamInfo;
+  lsl_streaminfo get streamInfo =>
+      _streamInfo ??
+      (throw LSLException('StreamInfo not created or destroyed'));
 
   /// Creates the stream info object, allocates memory, etc.
   @override
