@@ -1,3 +1,16 @@
+# 0.8.0
+
+🚨🚨🚨 This is a major update that includes breaking changes 🚨🚨🚨
+
+It brings the awesome new ability to choose if you want to use isolates or not, and if not, you get access to synchronous methods for pulling and pushing samples. This update also includes some minor API changes to improve consistency and usability. 
+
+- 🚀 `LSLIsolatedInlet` and `LSLIsolatedOutlet` have been replaced with `LSLInlet` and `LSLOutlet`, respectively. The new classes both run by default in isolated mode, but can be configured to run without isolates by passing `useIsolates: false` to the constructor. This allows for more flexibility in how the LSL API is used, while still providing the benefits of isolates for performance and concurrency.
+    - This also means that there are now `*Sync` methods for some common operations, such as `pullSampleSync`, `pushSampleSync`, etc. These methods allow for synchronous operations without isolates, which can be useful in some cases for more precise control over timing and performance.
+- 🚀 `LSLInlet` and `LSLOutlet` buffer length and chunk size parameters have been consistently renamed to `maxBuffer` and `chunkSize`, respectively, to better reflect their purpose and usage, and to have a consistent naming scheme across the API.
+- 🚀 The `streamInfo` parameter in `LSLInlet` and `LSLOutlet` constructors has been made a positional parameter, to make it less verbose to create inlets and outlets.
+- 🚀 The `LSLStreamInfo.streamInfo` property is no longer nullable, and will instead throw an exception if the stream info is not set. This avoids having to do null checks when using the stream info pointer.
+- 🚀 The `LSL.createInlet` and `LSL.createOutlet` convenience methods now have the additonal `useIsolates` parameter, which allows for creating inlets and outlets without isolates if set to `false`. This is useful for cases where isolates are not needed or desired, such as when using the API in a synchronous context.
+
 # 0.7.1
 
 This is a minor change that requires the dev/main version of the Dart SDK, as `hooks` and `native_toolchain_c` still require a version later than the last stable release. This is a temporary change until the next supported stable Dart SDK release.
@@ -16,6 +29,10 @@ There are also new packages that complement `liblsl.dart`, and are still work-in
   - Latency statistics for each device
   - Clock synchronization and drift statistics
   - Interactive test results with timestamps and latency measurements (if available)
+
+
+## Main changes in this release:
+
 - Use [custom fork](https://github.com/zeyus/liblsl) of `liblsl` which allows API configuration to be specified at runtime (once, before any other LSL functions are called). This means that anything in the [LSL API configuration file](https://labstreaminglayer.readthedocs.io/info/lslapicfg.html#configuration-file-contents) can be set, including on mobile platforms that do not support environment variables or allow editing files in `/etc` or `./`.
   - This is exposed via the C/C++ API as `lsl_set_config_filename` and `lsl_set_config_content` to set the configuration file name and content (directly as a `std::string`/`char*`), respectively. The Dart API now provides a `LSLConfig` class that can be used to set the configuration file name and content, which can be used in `LSL.setConfigFilename` and `LSL.setConfigContent` methods.
 - New `LSLReusableBuffer` class for allowing sample structures to avoid creating new instances for each sample. This reuse significantly enhances the performance by reducing the allocations during sample pulling and pushing.
