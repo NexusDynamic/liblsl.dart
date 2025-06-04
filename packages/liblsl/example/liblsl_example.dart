@@ -65,8 +65,8 @@ Future<void> basicExample() async {
     // Create an inlet for the EEG stream
     final inlet = await LSL.createInlet<double>(
       streamInfo: eegStream,
-      maxBufferSize: 360,
-      maxChunkLength: 0,
+      maxBuffer: 360,
+      chunkSize: 0,
       recover: true,
     );
     print('Created inlet: $inlet');

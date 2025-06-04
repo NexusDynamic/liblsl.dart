@@ -126,8 +126,8 @@ void main() {
 
       // Create inlet and allow time for connection
       final inlet = await LSL.createInlet<double>(
-        maxBufferSize: 360,
-        maxChunkLength: 1,
+        maxBuffer: 360,
+        chunkSize: 1,
         streamInfo: streamInfo,
         recover: false,
       );

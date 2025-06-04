@@ -5,6 +5,7 @@ import 'package:liblsl/native_liblsl.dart';
 import 'package:liblsl/src/lsl/base.dart';
 import 'package:liblsl/src/lsl/helper.dart';
 import 'package:liblsl/src/lsl/isolate_manager.dart';
+import 'package:liblsl/src/lsl/lsl_io_mixin.dart';
 import 'package:liblsl/src/lsl/pull_sample.dart';
 import 'package:liblsl/src/lsl/sample.dart';
 import 'package:liblsl/src/util/reusable_buffer.dart';
@@ -31,8 +32,9 @@ import 'package:liblsl/src/util/reusable_buffer.dart';
 /// final inlet = await LSL.createInlet<double>(streamInfo: info, useIsolates: false);
 /// final sample = inlet.pullSampleSync(); // Zero async overhead
 /// ```
-class LSLInlet<T> extends LSLObj {
+class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// The [LSLStreamInfo] stream information for this inlet.
+  @override
   final LSLStreamInfo streamInfo;
 
   /// Whether to use isolates for thread safety.
@@ -42,14 +44,16 @@ class LSLInlet<T> extends LSLObj {
   /// Maximum buffer size in seconds.
   /// This is how many seconds of samples are stored in the inlet's buffer.
   /// Default is 360 seconds (6 minutes).
-  final int maxBufferSize;
+  @override
+  final int maxBuffer;
 
   /// Maximum chunk length in seconds.
   /// This is the the maximum number of complete samples that can be pulled
   /// in a single call to pullSampleChunked (not yet implemented).
   /// Default is 0, which means it will use the default chunk length of the
   /// corresponding outlet.
-  final int maxChunkLength;
+  @override
+  final int chunkSize;
 
   /// Whether to recover from lost samples.
   /// Default is true, which means it will try to recover lost samples.
@@ -69,6 +73,7 @@ class LSLInlet<T> extends LSLObj {
   late final LslPullSample _pullFn;
 
   /// Whether the inlet is created using isolates or direct FFI calls.
+  @override
   bool get useIsolates => _useIsolates;
 
   /// The underlying lsl_inlet pointer.
@@ -94,8 +99,8 @@ class LSLInlet<T> extends LSLObj {
   /// Creates a new LSLInlet instance.
   /// **Parameters:**
   /// - [streamInfo]: The stream information to create the inlet for.
-  /// - [maxBufferSize]: Maximum buffer size in seconds (default: 360).
-  /// - [maxChunkLength]: Maximum chunk length in seconds (default: 0).
+  /// - [maxBuffer]: Maximum buffer size in seconds (default: 360).
+  /// - [chunkSize]: Maximum chunk length in seconds (default: 0).
   /// - [recover]: Whether to recover from lost samples (default: true).
   /// - [createTimeout]: Timeout for creating the inlet (default: LSL_FOREVER).
   ///   Only used in isolated mode.
@@ -106,8 +111,8 @@ class LSLInlet<T> extends LSLObj {
   ///   isolate.
   LSLInlet(
     this.streamInfo, {
-    this.maxBufferSize = 360,
-    this.maxChunkLength = 0,
+    this.maxBuffer = 360,
+    this.chunkSize = 0,
     this.recover = true,
     this.createTimeout = LSL_FOREVER,
     bool useIsolates = true,
@@ -202,7 +207,7 @@ class LSLInlet<T> extends LSLObj {
   /// **See also:** [pullSample] for async operations
   /// **Throws:** [LSLException] if `useIsolates: true`.
   LSLSample<T> pullSampleSync({double timeout = 0.0}) =>
-      _requireDirect(() => _pullSampleDirect(timeout));
+      requireDirect(() => _pullSampleDirect(timeout));
 
   /// Gets the time correction for the inlet.
   /// **Parameters:**
@@ -229,7 +234,7 @@ class LSLInlet<T> extends LSLObj {
   /// ```
   /// **Returns:** Time correction in seconds.
   double getTimeCorrectionSync({double timeout = 5.0}) =>
-      _requireDirect(() => _getTimeCorrectionDirect(timeout));
+      requireDirect(() => _getTimeCorrectionDirect(timeout));
 
   /// Flushes the inlet's buffer.
   /// **Execution:**
@@ -242,15 +247,29 @@ class LSLInlet<T> extends LSLObj {
       ? _flushIsolated()
       : Future.value(lsl_inlet_flush(_inletBang));
 
-  int flushSync() => _requireDirect(() => lsl_inlet_flush(_inletBang));
+  int flushSync() => requireDirect(() => lsl_inlet_flush(_inletBang));
 
-  /// Helper to enforce direct-only operations
-  R _requireDirect<R>(R Function() operation) {
-    if (_useIsolates) {
-      throw LSLException('Sync operations not available when using isolates');
-    }
-    return operation();
-  }
+  /// Checks how many samples are available in the inlet's buffer.
+  /// **Execution:**
+  /// - Isolated mode: Async message passing to worker isolate
+  ///  [_samplesAvailableIsolated]
+  /// - Direct mode: Immediate FFI call wrapped in Future
+  ///   [lsl_samples_available]
+  /// **Returns:** Number of samples available in the inlet's buffer, if the OS
+  /// supports it, otherwise, 1 if there is at least one sample available,
+  /// or 0 if no samples are available.
+  Future<int> samplesAvailable() => _useIsolates
+      ? _samplesAvailableIsolated()
+      : Future.value(lsl_samples_available(_inletBang));
+
+  /// Synchronously checks how many samples are available in the inlet's buffer.
+  /// **Direct mode only** - throws [LSLException] if `useIsolates: true`.
+  /// This provides maximum timing precision by eliminating all async overhead.
+  /// **Returns:** Number of samples available in the inlet's buffer, if the OS
+  /// supports it, otherwise, 1 if there is at least one sample available,
+  /// or 0 if no samples are available.
+  int samplesAvailableSync() =>
+      requireDirect(() => lsl_samples_available(_inletBang));
 
   /// Creates the inlet directly using FFI calls.
   /// This is used when `useIsolates: false`.
@@ -264,8 +283,8 @@ class LSLInlet<T> extends LSLObj {
     // Create the inlet using FFI
     _inlet = lsl_create_inlet(
       streamInfo.streamInfo,
-      maxBufferSize,
-      maxChunkLength,
+      maxBuffer,
+      chunkSize,
       recover ? 1 : 0,
     );
     if (_inlet == null) {
@@ -289,14 +308,17 @@ class LSLInlet<T> extends LSLObj {
     // Initialize the isolate manager
     _isolateManager = LSLInletIsolateManager();
     await _isolateManagerBang.init();
+
+    _pullFn = LSLMapper().streamPull(streamInfo);
+    // Create reusable buffer for pulling samples
     _buffer = _pullFn.createReusableBuffer(streamInfo.channelCount);
 
     // Send message to create inlet in the isolate
     final response = await _isolateManagerBang.sendMessage(
       LSLMessage(LSLMessageType.createInlet, {
         'streamInfo': LSLSerializer.serializeStreamInfo(streamInfo),
-        'maxBufferSize': maxBufferSize,
-        'maxChunkLength': maxChunkLength,
+        'maxBufferSize': maxBuffer,
+        'maxChunkLength': chunkSize,
         'recover': recover,
         'timeout': createTimeout,
       }),
@@ -402,6 +424,14 @@ class LSLInlet<T> extends LSLObj {
     return response.result as double;
   }
 
+  /// Gets the time correction for the inlet directly using FFI calls.
+  /// This may used when `useIsolates: false`.
+  /// **Parameters:**
+  /// - [timeout]: Maximum wait time in seconds (default: 5.0)
+  ///   subsequent calls will usually return immediately as the time correction
+  ///   runs in the background.
+  /// **Returns:** Time correction in seconds.
+  /// **Throws:** [LSLException] if getting time correction fails.
   double _getTimeCorrectionDirect(double timeout) {
     final timeCorrection = lsl_time_correction(_inletBang, timeout, _buffer.ec);
     final result = _buffer.ec.value;
@@ -409,6 +439,18 @@ class LSLInlet<T> extends LSLObj {
       throw LSLException('Error getting time correction: $result');
     }
     return timeCorrection;
+  }
+
+  Future<int> _samplesAvailableIsolated() async {
+    final response = await _isolateManagerBang.sendMessage(
+      LSLMessage(LSLMessageType.samplesAvailable, {}),
+    );
+
+    if (!response.success) {
+      throw LSLException('Error checking samples available: ${response.error}');
+    }
+
+    return response.result as int;
   }
 
   /// Processes the sample response and converts it to a [LSLSample].

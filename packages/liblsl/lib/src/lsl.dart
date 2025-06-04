@@ -3,9 +3,9 @@ import 'package:liblsl/native_liblsl.dart';
 import 'package:liblsl/src/ffi/mem.dart';
 import 'package:liblsl/src/lsl/api_config.dart';
 import 'package:liblsl/src/lsl/exception.dart';
+import 'package:liblsl/src/lsl/inlet.dart';
+import 'package:liblsl/src/lsl/outlet.dart';
 import 'package:liblsl/src/lsl/stream_info.dart';
-import 'package:liblsl/src/lsl/isolated_inlet.dart';
-import 'package:liblsl/src/lsl/isolated_outlet.dart';
 import 'package:liblsl/src/lsl/stream_resolver.dart';
 import 'package:liblsl/src/lsl/structs.dart';
 import 'package:ffi/ffi.dart' show Utf8, Utf8Pointer, StringUtf8Pointer;
@@ -86,15 +86,22 @@ class LSL {
   /// otherwise it is in 100s of samples (maxBuffer * 10^2).
   /// High values will use more memory, low values may lose samples,
   /// this should be set as close as possible to the rate of consumption.
-  static Future<LSLIsolatedOutlet> createOutlet({
+  /// [useIsolates] determines whether to use isolates for thread safety.
+  /// If true, the outlet will use isolates to ensure thread safety.
+  /// Important: If you do not use isolates, you must ensure that you deal with
+  /// the consequences of blocking operations which will block the main dart
+  /// isolate.
+  static Future<LSLOutlet> createOutlet({
     required LSLStreamInfo streamInfo,
     int chunkSize = 1,
     int maxBuffer = 360,
+    bool useIsolates = true,
   }) async {
-    final streamOutlet = LSLIsolatedOutlet(
-      streamInfo: streamInfo,
+    final streamOutlet = LSLOutlet(
+      streamInfo,
       chunkSize: chunkSize,
       maxBuffer: maxBuffer,
+      useIsolates: useIsolates,
     );
     await streamOutlet.create();
 
@@ -105,17 +112,24 @@ class LSL {
   ///
   /// [streamInfo] is the [LSLStreamInfo] object to be used. Probably obtained
   ///   from a [LSLStreamResolver].
-  /// [maxBufferSize] this is the either seconds (if [streamInfo].sampleRate
+  /// [maxBuffer] this is the either seconds (if [streamInfo].sampleRate
   /// is specified) or 100s of samples (if not).
-  /// [maxChunkLength] is the maximum number of samples. If 0, the default
+  /// [chunkSize] is the maximum number of samples. If 0, the default
   ///  chunk length from the stream is used.
   /// [recover] is whether to recover from lost samples.
-  static Future<LSLIsolatedInlet> createInlet<T>({
+  /// [createTimeout] is the timeout for creating the inlet.
+  /// [useIsolates] determines whether to use isolates for thread safety.
+  /// If true, the inlet will use isolates to ensure thread safety.
+  /// Important: If you do not use isolates, you must ensure that you deal with
+  /// the consequences of blocking operations which will block the main dart
+  /// isolate.
+  static Future<LSLInlet> createInlet<T>({
     required LSLStreamInfo streamInfo,
-    int maxBufferSize = 360,
-    int maxChunkLength = 0,
+    int maxBuffer = 360,
+    int chunkSize = 0,
     bool recover = true,
     double createTimeout = LSL_FOREVER,
+    bool useIsolates = true,
   }) async {
     if (!streamInfo.created) {
       throw LSLException('StreamInfo not created');
@@ -145,32 +159,35 @@ class LSL {
 
     // Use isolated implementation
     if (dataType == double) {
-      final inlet = LSLIsolatedInlet<double>(
+      final inlet = LSLInlet<double>(
         streamInfo,
-        maxBufferSize: maxBufferSize,
-        maxChunkLength: maxChunkLength,
+        maxBuffer: maxBuffer,
+        chunkSize: chunkSize,
         recover: recover,
         createTimeout: createTimeout,
+        useIsolates: useIsolates,
       );
       await inlet.create();
       return inlet;
     } else if (dataType == int) {
-      final inlet = LSLIsolatedInlet<int>(
+      final inlet = LSLInlet<int>(
         streamInfo,
-        maxBufferSize: maxBufferSize,
-        maxChunkLength: maxChunkLength,
+        maxBuffer: maxBuffer,
+        chunkSize: chunkSize,
         recover: recover,
         createTimeout: createTimeout,
+        useIsolates: useIsolates,
       );
       await inlet.create();
       return inlet;
     } else if (dataType == String) {
-      final inlet = LSLIsolatedInlet<String>(
+      final inlet = LSLInlet<String>(
         streamInfo,
-        maxBufferSize: maxBufferSize,
-        maxChunkLength: maxChunkLength,
+        maxBuffer: maxBuffer,
+        chunkSize: chunkSize,
         recover: recover,
         createTimeout: createTimeout,
+        useIsolates: useIsolates,
       );
       await inlet.create();
       return inlet;
