@@ -115,6 +115,7 @@ class InletManager {
         maxBuffer: 5,
         chunkSize: 1,
         recover: true,
+        useIsolates: false,
       );
       streamInfos.add(streamInfo);
       await inlet.create();
@@ -146,7 +147,7 @@ class InletManager {
     await loopStarter.future;
     while (!loopCompleter.isCompleted) {
       for (final (inletIndex, inlet) in inlets.indexed) {
-        LSLSample sample = await inlet.pullSample();
+        LSLSample sample = inlet.pullSampleSync();
 
         if (sample.isNotEmpty) {
           await lock.synchronized(() {
@@ -157,7 +158,7 @@ class InletManager {
           if (timeCorrectEveryN > 0 &&
               sampleCounters[inletIndex] % timeCorrectEveryN == 0) {
             try {
-              inletTimeCorrections[inletIndex] = await inlet.getTimeCorrection(
+              inletTimeCorrections[inletIndex] = inlet.getTimeCorrectionSync(
                 timeout: 0.1,
               );
               timeCorrected = true;
@@ -271,7 +272,12 @@ class OutletManager {
 
   static void outletProducerWorker(IsolateConfig config) async {
     final streamInfo = LSLStreamInfo.fromStreamInfoAddr(config.inletPtrs[0]);
-    final outlet = LSLOutlet(streamInfo, chunkSize: 1, maxBuffer: 5);
+    final outlet = LSLOutlet(
+      streamInfo,
+      chunkSize: 1,
+      maxBuffer: 5,
+      useIsolates: false,
+    );
     await outlet.create();
     final loopCompleter = Completer<void>();
     final loopStarter = Completer<void>();
@@ -279,6 +285,9 @@ class OutletManager {
     final receivePort = ReceivePort();
 
     receivePort.listen((message) {
+      if (kDebugMode) {
+        print('Received message in outlet producer: $message');
+      }
       if (message == 'stop') {
         loopCompleter.complete();
       } else if (message == 'start') {
@@ -287,7 +296,6 @@ class OutletManager {
     });
 
     mainSendPort.send(receivePort.sendPort);
-    await loopStarter.future;
 
     final sampleData = List<double>.generate(
       streamInfo.channelCount,
@@ -308,12 +316,16 @@ class OutletManager {
         'Buffer size: ${isolateMessageBuffer.length}',
       );
     }
+    await loopStarter.future;
+    if (kDebugMode) {
+      print('Outlet producer started');
+    }
     runPreciseInterval(
       Duration(microseconds: intervalMicroseconds),
       (LoopHelper state) {
         state.sampleCounter++;
         sampleData[0] = state.sampleCounter.toDouble();
-        state.outlet!.pushSample(sampleData);
+        state.outlet!.pushSampleSync(sampleData);
         // pushed samples, but no verification
         final index = (state.sampleCounter - 1) % 100;
         final sampleId = '${config.sampleIdPrefix}${state.sampleCounter}';

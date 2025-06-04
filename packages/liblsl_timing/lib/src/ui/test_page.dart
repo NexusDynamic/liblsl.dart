@@ -43,16 +43,18 @@ class _TestPageState extends State<TestPage> {
 
     // Listen for test status updates
     widget.testController.statusStream.listen((message) {
-      setState(() {
-        _statusMessages.add(message);
-        if (_statusMessages.length > 100) {
-          _statusMessages.removeAt(0);
-        }
+      if (mounted) {
+        setState(() {
+          _statusMessages.add(message);
+          if (_statusMessages.length > 100) {
+            _statusMessages.removeAt(0);
+          }
 
-        if (message.contains('completed') || message.contains('error')) {
-          _testCompleted = true;
-        }
-      });
+          if (message.contains('completed') || message.contains('error')) {
+            _testCompleted = true;
+          }
+        });
+      }
     });
 
     // Listen for timing events to update counter

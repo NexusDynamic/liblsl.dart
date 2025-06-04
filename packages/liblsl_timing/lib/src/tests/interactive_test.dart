@@ -110,7 +110,7 @@ class InteractiveTest extends BaseTest {
   }
 
   /// Send a marker when the button is pressed
-  Future<void> sendMarker() async {
+  void sendMarker() {
     if (!_isRunning || _outletManager == null) return;
 
     final markerId = DateTime.now().microsecondsSinceEpoch;
@@ -127,7 +127,7 @@ class InteractiveTest extends BaseTest {
     );
 
     // Send the marker
-    await _outletManager!.sendMarker(markerId);
+    _outletManager!.sendMarker(markerId);
   }
 
   @override
@@ -221,6 +221,7 @@ class InteractiveInletManager {
         maxBuffer: 5,
         chunkSize: 1,
         recover: true,
+        useIsolates: false,
       );
       streamInfos.add(streamInfo);
       await inlet.create();
@@ -274,7 +275,7 @@ class InteractiveInletManager {
     while (!loopCompleter.isCompleted) {
       for (final inlet in inlets) {
         try {
-          final sample = await inlet.pullSample();
+          final sample = inlet.pullSampleSync();
           if (sample.isNotEmpty) {
             final markerId = sample[0] as int;
             final sampleMessage = InteractiveSampleMessage(
@@ -302,15 +303,20 @@ class InteractiveOutletManager {
   LSLOutlet? _outlet;
 
   Future<void> prepareOutlet(LSLStreamInfo streamInfo) async {
-    _outlet = LSLOutlet(streamInfo, chunkSize: 1, maxBuffer: 5);
+    _outlet = LSLOutlet(
+      streamInfo,
+      chunkSize: 1,
+      maxBuffer: 5,
+      useIsolates: false,
+    );
     await _outlet!.create();
   }
 
-  Future<void> sendMarker(int markerId) async {
+  void sendMarker(int markerId) {
     if (_outlet == null) return;
 
     // Send the marker ID as a string
-    await _outlet!.pushSample([markerId]);
+    _outlet!.pushSampleSync([markerId]);
   }
 
   void cleanup() {
