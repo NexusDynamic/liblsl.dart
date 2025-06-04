@@ -178,7 +178,7 @@ class InteractiveInletManager {
     consumerIsolate = await Isolate.spawn(
       interactiveInletWorker,
       InteractiveIsolateConfig(
-        streamInfos.map((s) => s.streamInfo!.address).toList(),
+        streamInfos.map((s) => s.streamInfo.address).toList(),
         mainReceivePort.sendPort,
       ),
     );
@@ -212,14 +212,14 @@ class InteractiveInletManager {
 
   static void interactiveInletWorker(InteractiveIsolateConfig config) async {
     final List<LSLStreamInfo> streamInfos = [];
-    final List<LSLIsolatedInlet> inlets = [];
+    final List<LSLInlet> inlets = [];
 
     for (final ptr in config.inletPtrs) {
       final streamInfo = LSLStreamInfo.fromStreamInfoAddr(ptr);
-      final inlet = LSLIsolatedInlet(
+      final inlet = LSLInlet(
         streamInfo,
-        maxBufferSize: 5,
-        maxChunkLength: 1,
+        maxBuffer: 5,
+        chunkSize: 1,
         recover: true,
       );
       streamInfos.add(streamInfo);
@@ -299,14 +299,10 @@ class InteractiveInletManager {
 
 // Custom outlet manager for sending markers
 class InteractiveOutletManager {
-  LSLIsolatedOutlet? _outlet;
+  LSLOutlet? _outlet;
 
   Future<void> prepareOutlet(LSLStreamInfo streamInfo) async {
-    _outlet = LSLIsolatedOutlet(
-      streamInfo: streamInfo,
-      chunkSize: 1,
-      maxBuffer: 5,
-    );
+    _outlet = LSLOutlet(streamInfo, chunkSize: 1, maxBuffer: 5);
     await _outlet!.create();
   }
 

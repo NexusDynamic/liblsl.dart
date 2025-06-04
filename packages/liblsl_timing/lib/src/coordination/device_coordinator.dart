@@ -13,16 +13,18 @@ class DeviceCoordinator {
 
   // LSL resources
   LSLStreamInfo? _controlStreamInfo;
-  LSLIsolatedOutlet? _controlOutlet;
-  LSLIsolatedInlet? _controlInlet;
+  LSLOutlet? _controlOutlet;
+  LSLInlet? _controlInlet;
   double _controllerLatency = double.nan;
-  final List<LSLIsolatedInlet> _participantInlets = [];
+  final List<LSLInlet> _participantInlets = [];
   String _coordinatorId = '';
   // Coordination state
   bool _isCoordinator = false;
   bool _isInitialized = false;
   bool _isReady = false;
   bool _isTestRunning = false;
+  bool _testStarted = false;
+
   final List<String> _connectedDevices = [];
   final List<bool> _readyDevices = [];
 
@@ -31,6 +33,8 @@ class DeviceCoordinator {
       StreamController<String>.broadcast();
 
   // Public getters
+  bool get isTestRunning => _isTestRunning;
+  bool get testStarted => _testStarted;
   bool get isCoordinator => _isCoordinator;
   bool get isInitialized => _isInitialized;
   bool get isReady => _isReady;
@@ -169,8 +173,8 @@ class DeviceCoordinator {
         // Create inlet for each participant stream
         final inlet = await LSL.createInlet(
           streamInfo: stream,
-          maxBufferSize: 5,
-          maxChunkLength: 1,
+          maxBuffer: 5,
+          chunkSize: 1,
           recover: true,
         );
         _participantInlets.add(inlet);
@@ -208,7 +212,7 @@ class DeviceCoordinator {
     }
     // get the latency, timeout 200ms (this should be way more than enough
     // on any WiFi / Ethernet lan)
-    _controllerLatency = await _controlInlet!.getTimeCorrection(0.2);
+    _controllerLatency = await _controlInlet!.getTimeCorrection(timeout: 0.2);
     if (kDebugMode) {
       print('Inlet latency: $_controllerLatency seconds');
     }
@@ -221,8 +225,8 @@ class DeviceCoordinator {
     // Create inlet to the control stream
     _controlInlet = await LSL.createInlet<String>(
       streamInfo: controlStream,
-      maxBufferSize: 5,
-      maxChunkLength: 1,
+      maxBuffer: 5,
+      chunkSize: 1,
       recover: true,
     );
 
@@ -269,7 +273,7 @@ class DeviceCoordinator {
             }
           } else {
             // Listen for messages from participant inlets
-            for (final LSLIsolatedInlet inlet in List.unmodifiable(
+            for (final LSLInlet inlet in List.unmodifiable(
               _participantInlets,
             )) {
               final sample = await inlet.pullSample();
@@ -463,6 +467,7 @@ class DeviceCoordinator {
 
   void _startTest(TestType testType, Map<String, dynamic>? testConfig) async {
     final notification = 'TEST STARTED: ${testType.displayName}';
+    _testStarted = true;
     _messageStreamController.add(notification);
 
     timingManager.recordEvent(
@@ -482,6 +487,8 @@ class DeviceCoordinator {
     final testTypeIndex = payload['testType'] as int?;
 
     if (testTypeIndex == null) return;
+    _isTestRunning = false;
+    _testStarted = false;
 
     final testType = TestType.values[testTypeIndex];
 
@@ -588,6 +595,7 @@ class DeviceCoordinator {
 
   void testCompleted(TestType testType) {
     _isTestRunning = false;
+    _testStarted = false;
     _isReady = false;
     _messageStreamController.add('Test completed: ${testType.displayName}');
     timingManager.recordEvent(

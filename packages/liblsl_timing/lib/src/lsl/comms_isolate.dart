@@ -62,9 +62,7 @@ class InletManager {
     consumerIsolate = await Isolate.spawn(
       inletConsumerWorker,
       IsolateConfig(
-        streamInfos
-            .map((streamInfo) => streamInfo.streamInfo!.address)
-            .toList(),
+        streamInfos.map((streamInfo) => streamInfo.streamInfo.address).toList(),
         mainReceivePort.sendPort,
         timeCorrectEveryN: timeCorrectEveryN,
       ),
@@ -109,13 +107,13 @@ class InletManager {
 
   static void inletConsumerWorker(IsolateConfig config) async {
     final List<LSLStreamInfo> streamInfos = [];
-    final List<LSLIsolatedInlet> inlets = [];
+    final List<LSLInlet> inlets = [];
     for (final ptr in config.inletPtrs) {
       final streamInfo = LSLStreamInfo.fromStreamInfoAddr(ptr);
-      final inlet = LSLIsolatedInlet(
+      final inlet = LSLInlet(
         streamInfo,
-        maxBufferSize: 5,
-        maxChunkLength: 1,
+        maxBuffer: 5,
+        chunkSize: 1,
         recover: true,
       );
       streamInfos.add(streamInfo);
@@ -160,7 +158,7 @@ class InletManager {
               sampleCounters[inletIndex] % timeCorrectEveryN == 0) {
             try {
               inletTimeCorrections[inletIndex] = await inlet.getTimeCorrection(
-                0.1,
+                timeout: 0.1,
               );
               timeCorrected = true;
             } catch (e) {
@@ -215,7 +213,7 @@ class InletManager {
 class LoopHelper {
   int sampleCounter = 0;
   SendPort? mainSendPort;
-  LSLIsolatedOutlet? outlet;
+  LSLOutlet? outlet;
 }
 
 /// A single LSL outlet in an isolate which sends samples at a specified rate,
@@ -236,7 +234,7 @@ class OutletManager {
     consumerIsolate = await Isolate.spawn(
       outletProducerWorker,
       IsolateConfig(
-        [streamInfo.streamInfo!.address],
+        [streamInfo.streamInfo.address],
         mainReceivePort.sendPort,
         sampleRate: sampleRate,
         sampleIdPrefix: sampleIdPrefix,
@@ -273,11 +271,7 @@ class OutletManager {
 
   static void outletProducerWorker(IsolateConfig config) async {
     final streamInfo = LSLStreamInfo.fromStreamInfoAddr(config.inletPtrs[0]);
-    final outlet = LSLIsolatedOutlet(
-      streamInfo: streamInfo,
-      chunkSize: 1,
-      maxBuffer: 5,
-    );
+    final outlet = LSLOutlet(streamInfo, chunkSize: 1, maxBuffer: 5);
     await outlet.create();
     final loopCompleter = Completer<void>();
     final loopStarter = Completer<void>();

@@ -1,7 +1,6 @@
 // lib/src/ui/test_page.dart
 import 'dart:async';
 
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:liblsl_timing/src/tests/interactive_test.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
@@ -58,9 +57,11 @@ class _TestPageState extends State<TestPage> {
 
     // Listen for timing events to update counter
     widget.timingManager.eventStream.listen((EventType eventType) {
-      setState(() {
-        _eventsCount++;
-      });
+      if (mounted) {
+        setState(() {
+          _eventsCount++;
+        });
+      }
     });
 
     // Set up interactive test callback if needed
@@ -203,27 +204,22 @@ class _TestPageState extends State<TestPage> {
             children: [
               // Button in center
               Center(
-                child: GestureDetector(
+                child: Listener(
                   behavior: HitTestBehavior.opaque,
-                  // this seems more responsive than onTapDown
-                  onPanDown: _testCompleted ? null : _sendInteractiveMarker,
-                  // onTapDown: _testCompleted ? null : _sendInteractiveMarker,
-                  // onForcePressStart: _testCompleted
-                  //     ? null
-                  //     : _sendInteractiveMarker,
-                  dragStartBehavior: DragStartBehavior.down,
+                  onPointerDown: _testCompleted ? null : _sendInteractiveMarker,
                   child: SizedBox(
                     width: 200,
                     height: 200,
                     child: ElevatedButton(
                       onPressed: () {},
                       style: ElevatedButton.styleFrom(
+                        enableFeedback: !_testCompleted,
                         shape: const CircleBorder(),
                         padding: const EdgeInsets.all(40),
                         backgroundColor: Colors.blue,
                       ),
-                      child: const Text(
-                        'PRESS',
+                      child: Text(
+                        _testCompleted ? 'Wait' : 'PRESS',
                         style: TextStyle(
                           fontSize: 32,
                           fontWeight: FontWeight.bold,
