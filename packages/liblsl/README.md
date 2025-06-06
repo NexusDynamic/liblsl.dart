@@ -210,3 +210,28 @@ Currently (March 2025), the native assets are branch blocked so you will need to
 ```bash
 dart --enable-experiment=native-assets test
 ```
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+### Development Guidelines
+
+- Maintain microsecond-precision timing throughout
+- Add comprehensive event logging for new features
+- Test on multiple platforms and network configurations
+- Update documentation for any API changes
+- Follow Dart/Flutter style guidelines
+
+# License
+
+This project is licensed under the MIT License - see the [LICENSE](./LICENSE) file for details.
+
+# Acknowledgments
+
+- [Christian A. Kothe: liblsl](https://github.com/sccn/liblsl) for the LSL library
+- Dart/Flutter framework by Google
