@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:dartframe/dartframe.dart';
 import 'package:flutter/foundation.dart';
@@ -7,6 +8,7 @@ import 'package:file_picker/file_picker.dart';
 
 import 'screens/data_view_screen.dart';
 import 'screens/file_picker_screen.dart';
+import 'package:liblsl_analysis/extensions/series_pick_indices.dart';
 
 void main() {
   runApp(const LSLAnalysis());
@@ -51,19 +53,26 @@ class _AnalysisHomePageState extends State<AnalysisHomePage> {
     try {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
-        allowedExtensions: ['csv', 'tsv'],
-        dialogTitle: 'Select a CSV or TSV file',
-        allowMultiple: false,
+        allowedExtensions: ['tsv'],
+        dialogTitle: 'Select a TSV files',
+        allowMultiple: true,
       );
 
       if (result != null && result.files.isNotEmpty) {
-        final file = result.files.first;
-        fileName = file.name;
-        if (kDebugMode) {
-          print('Selected file: ${file.path}');
+        for (final file in result.files) {
+          fileName = file.name;
+          if (kDebugMode) {
+            print('Selected file: ${file.path}');
+          }
+          final data = await fileIO.readFromFile(file.path);
+          final singleCsvData = DataFrame.fromCSV(csv: data, delimiter: '\t');
+
+          if (csvData == null) {
+            csvData = singleCsvData;
+          } else {
+            csvData = csvData!.concatenate(singleCsvData);
+          }
         }
-        final data = await fileIO.readFromFile(file.path);
-        csvData = DataFrame.fromCSV(csv: data, delimiter: '\t');
 
         if (csvData != null) {
           if (kDebugMode) {
@@ -78,7 +87,6 @@ class _AnalysisHomePageState extends State<AnalysisHomePage> {
             return colname.trim();
           }).toList();
 
-          csvData!.sort('timestamp');
           // process json metadata column
           // {"sampleId":"260_DID_LatencyTest_3","counter":3,"flutterTime":1747318677.605998,"lslTime":23804.612151041,"lslTimestamp":23804.606961291,"data":[3.0,0.20758968591690063,0.393753319978714,0.39640799164772034,0.04201863333582878,0.16800223290920258,0.35932600498199463,0.859130322933197,0.08029846847057343,0.8140344619750977,0.4999730885028839,0.3090531527996063,0.5186386704444885,0.8037077188491821,0.2308173030614853,0.2816702425479889],"reportingDeviceId":"260_DID","reportingDeviceName":"Device_82"}
           // {"sampleId":"260_DID_7","counter":7,"lslTime":23804.60972975,"reportingDeviceId":"260_DID","reportingDeviceName":"Device_82"}
@@ -173,6 +181,82 @@ class _AnalysisHomePageState extends State<AnalysisHomePage> {
               print('No metadata column found in CSV data');
             }
           }
+          // find all events of event_type == EventType.testStarted
+          final testStartedEvents = csvData!['event_type'].isEqual(
+            'EventType.testStarted',
+          );
+          final sources = csvData!['reportingDeviceName'].indices(
+            testStartedEvents.data,
+          );
+          final lslStartTimestamps = csvData!['lsl_clock'].indices(
+            testStartedEvents.data,
+          );
+
+          if (kDebugMode) {
+            print(
+              'Found ${sources.length} unique sources: $sources. '
+              'LSL Start Timestamps: ${lslStartTimestamps.data}',
+            );
+          }
+          // there should be only one testStarted event per source
+
+          final lowestTimestamp = lslStartTimestamps.data
+              .map(
+                (e) => e != null
+                    ? ((e is String) ? double.parse(e) : e)
+                    : double.nan,
+              )
+              .reduce((a, b) => min(a, b));
+
+          // device adjustments
+          final Map<String, double> deviceAdjustments = {};
+          for (final (index, source) in sources.data.indexed) {
+            final deviceStartTimestamp = double.parse(
+              lslStartTimestamps.data[index],
+            );
+            if (kDebugMode) {
+              // device start timestamp
+              print('LSL Start Timestamp for $source: $deviceStartTimestamp');
+            }
+            final diff = deviceStartTimestamp - lowestTimestamp;
+            if (kDebugMode) {
+              print('Device: $source, Adjustment: $diff');
+            }
+            deviceAdjustments[source] = lowestTimestamp + diff;
+
+            // now remove the adjusted amount from the lslTimestamp column
+            // for the current source
+            final sourceIndices = csvData!['reportingDeviceName'].isEqual(
+              source,
+            );
+            if (kDebugMode) {
+              print(
+                'Found ${sourceIndices.data.where((e) => e).length} entries for source "$source".',
+              );
+            }
+            final adjustedTimestamps = csvData!['lsl_clock']
+                .indices(sourceIndices.data)
+                .data;
+            int j = 0;
+            for (final (i, pick) in sourceIndices.data.indexed) {
+              if (pick) {
+                // adjust the timestamp
+                csvData!.updateCell(
+                  'lsl_clock',
+                  i,
+                  double.parse(adjustedTimestamps[j]) -
+                      deviceAdjustments[source]!,
+                );
+                j++;
+              }
+            }
+          }
+
+          if (kDebugMode) {
+            print('Lowest LSL timestamp: $lowestTimestamp');
+          }
+
+          csvData!.sort('lsl_clock');
           // Navigate to data view screen
           if (mounted) {
             Navigator.push(
