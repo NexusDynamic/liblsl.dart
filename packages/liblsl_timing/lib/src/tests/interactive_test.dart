@@ -1,7 +1,7 @@
 // lib/src/tests/interactive_test.dart
 import 'dart:async';
-import 'dart:isolate';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:liblsl/lsl.dart';
 import '../config/constants.dart';
 import 'base_test.dart';
@@ -20,6 +20,13 @@ class InteractiveTest extends BaseTest {
   // Test variables
   bool _isRunning = false;
   bool get isRunning => _isRunning;
+
+  // Frame synchronization
+  TickerProvider? _tickerProvider;
+  Ticker? _frameTicker;
+  bool _frameBasedMode = false;
+
+  set tickerProvider(TickerProvider? provider) => _tickerProvider = provider;
 
   InteractiveTest(super.config, super.timingManager);
 
@@ -76,6 +83,8 @@ class InteractiveTest extends BaseTest {
         _inletManager = InteractiveInletManager();
         await _inletManager!.prepareInletConsumers(
           interactiveStreams,
+          initialTimeCorrectionTimeout: 1.0,
+          fastTimeCorrectionTimeout: 0.01,
           onSampleReceived: (List<InteractiveSampleMessage> samples) async {
             // Record receive events and trigger UI callback
             for (final sample in samples) {
@@ -90,6 +99,7 @@ class InteractiveTest extends BaseTest {
                   'lslTimestamp': sample.timestamp,
                   'lslReceived': sample.lslNow,
                   'dartTimestamp': sample.dartNow,
+                  'lslTimeCorrection': sample.lslTimeCorrection,
                 },
               );
 
@@ -109,6 +119,26 @@ class InteractiveTest extends BaseTest {
     );
   }
 
+  /// Enable frame-based mode for reduced latency
+  void enableFrameBasedMode() {
+    if (_tickerProvider == null) return;
+
+    _frameBasedMode = true;
+    if (_outletManager != null) {
+      _outletManager!.enableFrameBasedMode();
+    }
+  }
+
+  /// Disable frame-based mode
+  void disableFrameBasedMode() {
+    _frameBasedMode = false;
+    _frameTicker?.dispose();
+    _frameTicker = null;
+    if (_outletManager != null) {
+      _outletManager!.disableFrameBasedMode();
+    }
+  }
+
   /// Send a marker when the button is pressed
   void sendMarker() {
     if (!_isRunning || _outletManager == null) return;
@@ -123,11 +153,25 @@ class InteractiveTest extends BaseTest {
         'markerId': markerId,
         'sourceId': '$_srcPrefix${config.deviceId}',
         'lslTimestamp': LSL.localClock(),
+        'frameBasedMode': _frameBasedMode,
       },
     );
 
     // Send the marker
     _outletManager!.sendMarker(markerId);
+  }
+
+  /// Send a marker synchronized to the next frame
+  void sendMarkerOnNextFrame() {
+    if (!_isRunning || _outletManager == null || _tickerProvider == null) {
+      return;
+    }
+
+    if (_frameBasedMode) {
+      _outletManager!.sendMarkerOnNextFrame();
+    } else {
+      sendMarker(); // Fallback to immediate sending
+    }
   }
 
   @override
@@ -154,6 +198,10 @@ class InteractiveTest extends BaseTest {
   Future<void> cleanup() async {
     _isRunning = false;
 
+    // Dispose frame ticker
+    _frameTicker?.dispose();
+    _frameTicker = null;
+
     _outletManager?.cleanup();
     _inletManager?.cleanup();
 
@@ -162,119 +210,84 @@ class InteractiveTest extends BaseTest {
   }
 }
 
-// Custom inlet manager with busy-wait loop
+// Custom inlet manager with minimal latency approach
 class InteractiveInletManager {
-  late Isolate consumerIsolate;
-  late SendPort consumerSendPort;
-  late ReceivePort mainReceivePort;
+  final List<LSLInlet> _inlets = [];
+  final List<double> _inletTimeCorrections = [];
+  final List<bool> _initialTimeCorrectionDone = [];
+  Timer? _pollingTimer;
+  bool _isRunning = false;
+  void Function(List<InteractiveSampleMessage> message)? _onSampleReceived;
+  double _initialTimeCorrectionTimeout = 1.0;
+  // double _fastTimeCorrectionTimeout = 0.01;
 
   Future<void> prepareInletConsumers(
     Iterable<LSLStreamInfo> streamInfos, {
     void Function(List<InteractiveSampleMessage> message)? onSampleReceived,
+    double initialTimeCorrectionTimeout = 1.0,
+    double fastTimeCorrectionTimeout = 0.01,
   }) async {
-    final readyCompleter = Completer<void>();
-    mainReceivePort = ReceivePort();
+    _onSampleReceived = onSampleReceived;
+    _initialTimeCorrectionTimeout = initialTimeCorrectionTimeout;
+    // _fastTimeCorrectionTimeout = fastTimeCorrectionTimeout;
 
-    consumerIsolate = await Isolate.spawn(
-      interactiveInletWorker,
-      InteractiveIsolateConfig(
-        streamInfos.map((s) => s.streamInfo.address).toList(),
-        mainReceivePort.sendPort,
-      ),
-    );
-
-    mainReceivePort.listen((dynamic message) {
-      if (message is SendPort) {
-        consumerSendPort = message;
-        readyCompleter.complete();
-      } else if (message is List<InteractiveSampleMessage>) {
-        onSampleReceived?.call(message);
-      }
-    });
-
-    return readyCompleter.future;
-  }
-
-  Future<void> startInletConsumers() async {
-    consumerSendPort.send('start');
-  }
-
-  Future<void> stopInletConsumers() async {
-    consumerSendPort.send('stop');
-    consumerIsolate.kill(priority: Isolate.immediate);
-    mainReceivePort.close();
-  }
-
-  void cleanup() {
-    consumerIsolate.kill(priority: Isolate.immediate);
-    mainReceivePort.close();
-  }
-
-  static void interactiveInletWorker(InteractiveIsolateConfig config) async {
-    final List<LSLStreamInfo> streamInfos = [];
-    final List<LSLInlet> inlets = [];
-
-    for (final ptr in config.inletPtrs) {
-      final streamInfo = LSLStreamInfo.fromStreamInfoAddr(ptr);
+    // Create inlets directly in main isolate for minimal latency
+    for (final streamInfo in streamInfos) {
       final inlet = LSLInlet(
         streamInfo,
         maxBuffer: 5,
         chunkSize: 1,
         recover: true,
-        useIsolates: false,
+        useIsolates: false, // Critical: no isolates for minimal latency
       );
-      streamInfos.add(streamInfo);
       await inlet.create();
-      inlets.add(inlet);
-    }
+      _inlets.add(inlet);
 
-    final loopCompleter = Completer<void>();
-    final loopStarter = Completer<void>();
-    final mainSendPort = config.mainSendPort;
-    final receivePort = ReceivePort();
+      // Initialize time correction data
+      _inletTimeCorrections.add(0.0);
+      _initialTimeCorrectionDone.add(false);
 
-    receivePort.listen((message) {
-      if (message == 'stop') {
-        loopCompleter.complete();
-      } else if (message == 'start') {
-        loopStarter.complete();
+      // Perform initial time correction with generous timeout
+      try {
+        if (kDebugMode) {
+          print(
+            'Getting initial time correction for interactive inlet ${inlet.streamInfo.sourceId}...',
+          );
+        }
+        final timeCorrection = inlet.getTimeCorrectionSync(
+          timeout: _initialTimeCorrectionTimeout,
+        );
+        _inletTimeCorrections[_inlets.length - 1] = timeCorrection;
+        _initialTimeCorrectionDone[_inlets.length - 1] = true;
+        if (kDebugMode) {
+          print(
+            'Initial time correction for ${inlet.streamInfo.sourceId}: $timeCorrection',
+          );
+        }
+      } catch (e) {
+        if (kDebugMode) {
+          print(
+            'Failed to get initial time correction for ${inlet.streamInfo.sourceId}: $e',
+          );
+        }
       }
-    });
+    }
+  }
 
-    mainSendPort.send(receivePort.sendPort);
-    await loopStarter.future;
+  Future<void> startInletConsumers() async {
+    _isRunning = true;
 
-    // Use busy-wait loop for minimal latency
-    // runPreciseInterval(
-    //   const Duration(microseconds: 100), // Check every 100μs
-    //   (Future<int> state) async {
-    // for (final inlet in inlets) {
-    //   try {
-    //     final sample = await inlet.pullSample();
-    //     if (sample.isNotEmpty) {
-    //       final markerId = sample[0] as String;
-    //       final sampleMessage = InteractiveSampleMessage(
-    //         sample.timestamp,
-    //         markerId,
-    //         inlet.streamInfo.sourceId,
-    //       );
-    //       mainSendPort.send([sampleMessage]);
-    //     }
-    //   } catch (e) {
-    //     // Continue polling
-    //   }
-    // }
-    //     return state;
-    //   },
-    //   completer: loopCompleter,
-    //   state: 0,
-    //   startBusyAt: const Duration(
-    //     microseconds: 50,
-    //   ), // Start busy wait 50μs before next check
-    // );
-    while (!loopCompleter.isCompleted) {
-      for (final inlet in inlets) {
+    // Use high-frequency polling for minimal latency
+    // This runs on the main isolate to reduce message-passing overhead
+    _pollingTimer = Timer.periodic(const Duration(microseconds: 100), (_) {
+      if (!_isRunning) return;
+
+      final samples = <InteractiveSampleMessage>[];
+
+      for (int i = 0; i < _inlets.length; i++) {
+        final inlet = _inlets[i];
         try {
+          // Use sync pull for minimal latency
           final sample = inlet.pullSampleSync();
           if (sample.isNotEmpty) {
             final markerId = sample[0] as int;
@@ -282,25 +295,46 @@ class InteractiveInletManager {
               sample.timestamp,
               markerId,
               inlet.streamInfo.sourceId,
+              lslTimeCorrection: _initialTimeCorrectionDone[i]
+                  ? _inletTimeCorrections[i]
+                  : null,
             );
-            mainSendPort.send([sampleMessage]);
+            samples.add(sampleMessage);
           }
         } catch (e) {
-          // Continue polling
+          // Continue polling on errors
         }
       }
-      await Future.delayed(Duration.zero); // Yield to event loop
-    }
 
-    for (final inlet in inlets) {
+      if (samples.isNotEmpty) {
+        _onSampleReceived?.call(samples);
+      }
+    });
+  }
+
+  Future<void> stopInletConsumers() async {
+    _isRunning = false;
+    _pollingTimer?.cancel();
+    _pollingTimer = null;
+  }
+
+  void cleanup() {
+    _isRunning = false;
+    _pollingTimer?.cancel();
+    _pollingTimer = null;
+
+    for (final inlet in _inlets) {
       inlet.destroy();
     }
+    _inlets.clear();
   }
 }
 
 // Custom outlet manager for sending markers
 class InteractiveOutletManager {
   LSLOutlet? _outlet;
+  bool _frameBasedMode = false;
+  int? _pendingMarkerId;
 
   Future<void> prepareOutlet(LSLStreamInfo streamInfo) async {
     _outlet = LSLOutlet(
@@ -312,14 +346,44 @@ class InteractiveOutletManager {
     await _outlet!.create();
   }
 
+  void enableFrameBasedMode() {
+    _frameBasedMode = true;
+  }
+
+  void disableFrameBasedMode() {
+    _frameBasedMode = false;
+    _pendingMarkerId = null;
+  }
+
   void sendMarker(int markerId) {
     if (_outlet == null) return;
 
-    // Send the marker ID as a string
-    _outlet!.pushSampleSync([markerId]);
+    if (_frameBasedMode) {
+      // In frame-based mode, send immediately since this is called from frame callback
+      _outlet!.pushSampleSync([markerId]);
+    } else {
+      // Send immediately in non-frame mode
+      _outlet!.pushSampleSync([markerId]);
+    }
+  }
+
+  void sendMarkerOnNextFrame() {
+    if (_outlet == null || !_frameBasedMode) return;
+
+    final markerId = DateTime.now().microsecondsSinceEpoch;
+    _pendingMarkerId = markerId;
+
+    // Schedule frame callback for next frame
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      if (_pendingMarkerId == markerId) {
+        _outlet!.pushSampleSync([markerId]);
+        _pendingMarkerId = null;
+      }
+    });
   }
 
   void cleanup() {
+    _pendingMarkerId = null;
     _outlet?.destroy();
     _outlet = null;
   }
@@ -332,15 +396,13 @@ class InteractiveSampleMessage {
   final int dartNow;
   final int markerId;
   final String sourceId;
+  final double? lslTimeCorrection;
 
-  InteractiveSampleMessage(this.timestamp, this.markerId, this.sourceId)
-    : lslNow = LSL.localClock(),
-      dartNow = DateTime.now().microsecondsSinceEpoch;
-}
-
-class InteractiveIsolateConfig {
-  final List<int> inletPtrs;
-  final SendPort mainSendPort;
-
-  InteractiveIsolateConfig(this.inletPtrs, this.mainSendPort);
+  InteractiveSampleMessage(
+    this.timestamp,
+    this.markerId,
+    this.sourceId, {
+    this.lslTimeCorrection,
+  }) : lslNow = LSL.localClock(),
+       dartNow = DateTime.now().microsecondsSinceEpoch;
 }

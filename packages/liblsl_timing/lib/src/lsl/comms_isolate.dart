@@ -15,13 +15,21 @@ class IsolateConfig {
   /// Run time correction every N samples
   /// This is set to 0 by default, meaning no correction values are obtained.
   final int timeCorrectEveryN;
+  
+  /// Initial timeout for time correction (generous, e.g., 1.0 seconds)
+  final double initialTimeCorrectionTimeout;
+  
+  /// Subsequent timeout for time correction (fast, e.g., 0.01 seconds)
+  final double fastTimeCorrectionTimeout;
 
   IsolateConfig(
     this.inletPtrs,
     this.mainSendPort, {
     this.sampleRate,
     this.sampleIdPrefix,
-    this.timeCorrectEveryN = 0,
+    this.timeCorrectEveryN = 1, // Default to getting time correction on every sample
+    this.initialTimeCorrectionTimeout = 1.0,
+    this.fastTimeCorrectionTimeout = 0.01,
   });
 }
 
@@ -55,6 +63,8 @@ class InletManager {
     Iterable<LSLStreamInfo> streamInfos, {
     void Function(List<IsolateSampleMessage> message)? onSampleReceived,
     int timeCorrectEveryN = 0,
+    double initialTimeCorrectionTimeout = 1.0,
+    double fastTimeCorrectionTimeout = 0.01,
   }) async {
     final readyCompleter = Completer<void>();
     mainReceivePort = ReceivePort();
@@ -65,6 +75,8 @@ class InletManager {
         streamInfos.map((streamInfo) => streamInfo.streamInfo.address).toList(),
         mainReceivePort.sendPort,
         timeCorrectEveryN: timeCorrectEveryN,
+        initialTimeCorrectionTimeout: initialTimeCorrectionTimeout,
+        fastTimeCorrectionTimeout: fastTimeCorrectionTimeout,
       ),
     );
 
@@ -142,7 +154,30 @@ class InletManager {
     );
     List<int> sampleCounters = List.filled(inlets.length, 0);
     List<double> inletTimeCorrections = List.filled(inlets.length, 0.0);
+    List<bool> initialTimeCorrectionDone = List.filled(inlets.length, false);
     final Lock lock = Lock();
+    
+    // Perform initial time correction for all inlets with generous timeout
+    for (int i = 0; i < inlets.length; i++) {
+      try {
+        if (kDebugMode) {
+          print('Getting initial time correction for inlet ${inlets[i].streamInfo.sourceId}...');
+        }
+        inletTimeCorrections[i] = inlets[i].getTimeCorrectionSync(
+          timeout: config.initialTimeCorrectionTimeout,
+        );
+        initialTimeCorrectionDone[i] = true;
+        if (kDebugMode) {
+          print('Initial time correction for ${inlets[i].streamInfo.sourceId}: ${inletTimeCorrections[i]}');
+        }
+      } catch (e) {
+        if (kDebugMode) {
+          print('Failed to get initial time correction for ${inlets[i].streamInfo.sourceId}: $e');
+        }
+        initialTimeCorrectionDone[i] = false;
+      }
+    }
+    
     mainSendPort.send(receivePort.sendPort);
     await loopStarter.future;
     while (!loopCompleter.isCompleted) {
@@ -153,15 +188,26 @@ class InletManager {
           await lock.synchronized(() {
             sampleCounters[inletIndex]++;
           });
-          bool timeCorrected = false;
-          // if time correction is enabled, calculate it
-          if (timeCorrectEveryN > 0 &&
+          // Update time correction: use fast timeout for subsequent calls
+          if (timeCorrectEveryN > 0 && 
               sampleCounters[inletIndex] % timeCorrectEveryN == 0) {
             try {
+              // Use fast timeout for subsequent calls, or generous timeout if initial failed
+              final timeout = initialTimeCorrectionDone[inletIndex] 
+                  ? config.fastTimeCorrectionTimeout
+                  : config.initialTimeCorrectionTimeout;
+                  
               inletTimeCorrections[inletIndex] = inlet.getTimeCorrectionSync(
-                timeout: 0.1,
+                timeout: timeout,
               );
-              timeCorrected = true;
+              
+              // Mark initial correction as done if it wasn't already
+              if (!initialTimeCorrectionDone[inletIndex]) {
+                initialTimeCorrectionDone[inletIndex] = true;
+                if (kDebugMode) {
+                  print('Successfully got time correction for ${inlet.streamInfo.sourceId}: ${inletTimeCorrections[inletIndex]}');
+                }
+              }
             } catch (e) {
               if (kDebugMode) {
                 print(
@@ -180,7 +226,7 @@ class InletManager {
             counter,
             sampleId,
             inlet.streamInfo.sourceId,
-            lslTimeCorrection: timeCorrected
+            lslTimeCorrection: initialTimeCorrectionDone[inletIndex]
                 ? inletTimeCorrections[inletIndex]
                 : null,
           );

@@ -67,6 +67,7 @@ class LatencyTest extends BaseTest {
                 'lslSent': sample.lslNow,
                 'dartTimestamp': sample.dartNow,
                 'sourceId': sample.sourceId,
+                'lslTimeCorrection': sample.lslTimeCorrection,
               },
             );
           }
@@ -95,6 +96,9 @@ class LatencyTest extends BaseTest {
         _inletManager = InletManager();
         await _inletManager!.prepareInletConsumers(
           otherStreams,
+          timeCorrectEveryN: 1, // Get time correction on every sample
+          initialTimeCorrectionTimeout: 1.0,
+          fastTimeCorrectionTimeout: 0.01,
           onSampleReceived: (List<IsolateSampleMessage> samples) async {
             // Record the receive time
             for (final sample in samples) {
@@ -111,7 +115,7 @@ class LatencyTest extends BaseTest {
                   'lslReceived': sample.lslNow,
                   'dartTimestamp': sample.dartNow,
                   'sourceId': sample.sourceId,
-                  // 'data': sample.data,
+                  'lslTimeCorrection': sample.lslTimeCorrection,
                 },
               );
             }

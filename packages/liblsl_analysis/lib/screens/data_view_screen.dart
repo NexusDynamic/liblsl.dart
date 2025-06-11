@@ -1,7 +1,8 @@
 import 'package:dartframe/dartframe.dart';
 import 'package:flutter/material.dart';
 import '../widgets/data_table_widget.dart';
-import '../widgets/stats_view_widget.dart';
+import '../widgets/simplified_stats_widget.dart';
+import '../widgets/enhanced_stats_widget.dart';
 import '../widgets/metadata_view_widget.dart';
 
 class DataViewScreen extends StatefulWidget {
@@ -30,7 +31,7 @@ class _DataViewScreenState extends State<DataViewScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
     _currentData = widget.csvData;
   }
 
@@ -90,6 +91,7 @@ class _DataViewScreenState extends State<DataViewScreen>
           tabs: const [
             Tab(icon: Icon(Icons.table_chart), text: 'Data'),
             Tab(icon: Icon(Icons.bar_chart), text: 'Statistics'),
+            Tab(icon: Icon(Icons.analytics), text: 'Enhanced'),
             Tab(icon: Icon(Icons.info), text: 'Metadata'),
           ],
         ),
@@ -166,8 +168,11 @@ class _DataViewScreenState extends State<DataViewScreen>
                   sortAscending: _sortAscending,
                 ),
 
-                // Statistics Tab
-                StatsViewWidget(csvData: widget.csvData),
+                // Basic Statistics Tab
+                SimplifiedStatsWidget(csvData: widget.csvData),
+
+                // Enhanced Statistics Tab
+                EnhancedStatsWidget(csvData: widget.csvData),
 
                 // Metadata Tab
                 MetadataViewWidget(csvData: widget.csvData),

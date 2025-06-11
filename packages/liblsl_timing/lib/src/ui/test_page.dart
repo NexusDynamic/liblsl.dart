@@ -2,6 +2,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:liblsl_timing/src/tests/interactive_test.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import '../config/constants.dart';
@@ -24,13 +25,18 @@ class TestPage extends StatefulWidget {
   State<TestPage> createState() => _TestPageState();
 }
 
-class _TestPageState extends State<TestPage> {
+class _TestPageState extends State<TestPage> with TickerProviderStateMixin {
   final List<String> _statusMessages = [];
   int _eventsCount = 0;
   bool _testCompleted = false;
   List<TimingEvent> _timingEventCache = [];
   int _eventsLastUpdated = 0;
   final Map<String, DateTime> _blackSquares = {};
+
+  // Frame synchronization for photodiode square
+  Ticker? _photodiodeTicker;
+  bool _photodiodeSquareVisible = false;
+  final bool _frameBasedMode = true; // Enable frame-based mode by default
 
   @override
   void initState() {
@@ -70,19 +76,33 @@ class _TestPageState extends State<TestPage> {
     if (widget.testType == TestType.interactive) {
       final test = widget.testController.currentTest;
       if (test is InteractiveTest) {
-        test.onMarkerReceived = (String deviceId) {
-          setState(() {
-            _blackSquares[deviceId] = DateTime.now();
-          });
+        // Pass the TickerProvider to the test after it's created
+        test.tickerProvider = this;
 
-          // Remove square after configured duration (100ms)
-          Future.delayed(const Duration(milliseconds: 100), () {
-            if (mounted) {
-              setState(() {
-                _blackSquares.remove(deviceId);
-              });
-            }
-          });
+        // Enable frame-based mode for reduced latency
+        if (_frameBasedMode) {
+          test.enableFrameBasedMode();
+        }
+
+        test.onMarkerReceived = (String deviceId) {
+          if (_frameBasedMode) {
+            // Frame-synchronized photodiode square update
+            _showPhotodiodeSquareFrameSync();
+          } else {
+            // Traditional setState approach
+            setState(() {
+              _blackSquares[deviceId] = DateTime.now();
+            });
+
+            // Remove square after configured duration (20ms)
+            Future.delayed(const Duration(milliseconds: 20), () {
+              if (mounted) {
+                setState(() {
+                  _blackSquares.remove(deviceId);
+                });
+              }
+            });
+          }
         };
       }
     }
@@ -92,6 +112,40 @@ class _TestPageState extends State<TestPage> {
     WakelockPlus.enable();
     // Start the test
     widget.testController.startTest(widget.testType);
+  }
+
+  @override
+  void dispose() {
+    _photodiodeTicker?.dispose();
+    super.dispose();
+  }
+
+  /// Show photodiode square synchronized to frame refresh
+  void _showPhotodiodeSquareFrameSync() {
+    if (!mounted) return;
+
+    // Stop any existing ticker to ensure clean state
+    _photodiodeTicker?.dispose();
+    _photodiodeTicker = null;
+
+    // Reset square visibility state immediately
+    setState(() {
+      _photodiodeSquareVisible = true;
+    });
+
+    // Create ticker to hide after specified duration (20ms for ~1-2 frames at 60fps)
+    _photodiodeTicker = createTicker((elapsed) {
+      if (elapsed.inMilliseconds >= 20) {
+        _photodiodeTicker?.dispose();
+        _photodiodeTicker = null;
+        if (mounted) {
+          setState(() {
+            _photodiodeSquareVisible = false;
+          });
+        }
+      }
+    });
+    _photodiodeTicker?.start();
   }
 
   @override
@@ -188,7 +242,9 @@ class _TestPageState extends State<TestPage> {
   }
 
   Widget _buildInteractiveTestUI() {
-    final bool renderSquare = _blackSquares.isNotEmpty;
+    final bool renderSquare = _frameBasedMode
+        ? _photodiodeSquareVisible
+        : _blackSquares.isNotEmpty;
     return Column(
       children: [
         Padding(
@@ -273,7 +329,13 @@ class _TestPageState extends State<TestPage> {
   void _sendInteractiveMarker(dynamic details) async {
     final test = widget.testController.currentTest;
     if (test is InteractiveTest) {
-      test.sendMarker();
+      if (_frameBasedMode) {
+        // Send marker synchronized to next frame for minimal latency
+        test.sendMarkerOnNextFrame();
+      } else {
+        // Send marker immediately
+        test.sendMarker();
+      }
       setState(() {
         _eventsCount++;
       });

@@ -40,7 +40,7 @@ class StatsViewWidget extends StatelessWidget {
     // so we can just use that to calculate the
     // latency
 
-    for (final myDeviceId in uniqueReporters.data) {
+    for (final myDeviceId in uniqueReporters) {
       if (myDeviceId == null || myDeviceId.isEmpty) {
         continue; // skip empty or null device IDs
       }
@@ -143,7 +143,7 @@ class StatsViewWidget extends StatelessWidget {
         'xtitle': 'Inter-Sample Interval (ms)',
         'ytitle': 'Count',
       };
-      for (final sourceId in uniqueSources.data) {
+      for (final sourceId in uniqueSources) {
         if (sourceId == null || sourceId.isEmpty) {
           continue; // skip empty or null source IDs
         }
