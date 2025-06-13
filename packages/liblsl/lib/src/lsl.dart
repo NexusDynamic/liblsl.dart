@@ -196,11 +196,17 @@ class LSL {
     throw LSLException('Unsupported data type: $dataType');
   }
 
-  /// Resolves streams available on the network.
+  /// Resolves streams available on the network immediately.
   ///
   /// [waitTime] is the time to wait for streams to resolve.
   /// [maxStreams] is the maximum number of streams to resolve.
   /// [forgetAfter] is the time to forget streams that are not seen.
+  ///
+  /// This method is not the most efficient way to resolve streams,
+  /// but if you need a one-off resolution of streams, this is ok.
+  /// It is recommended to use [LSLStreamResolverContinuous] for continuous
+  /// stream resolution, which runs in the background and you can call
+  /// [LSLStreamResolverContinuous.resolve] to get the latest streams.
   static Future<List<LSLStreamInfo>> resolveStreams({
     double waitTime = 5.0,
     int maxStreams = 5,
