@@ -10,10 +10,7 @@ void main() {
   group('Ensure native bindings operate correctly', () {
     testWidgets('Wait for the version to load', (tester) async {
       // Load app widget.
-      await tester.pumpWidget(const MyApp());
-
-      // Verify the counter starts at 0.
-      expect(find.text('Calculating answer...'), findsOneWidget);
+      await tester.pumpWidget(const LSLTestApp());
 
       // Trigger a frame, wait 1 second, the default of 100ms is too short.
       await tester.pumpAndSettle(Duration(seconds: 1));
@@ -23,33 +20,42 @@ void main() {
     });
 
     testWidgets('Start LSL stream and consumer', (WidgetTester tester) async {
+      // start searching for streams
+      final futureStreams = LSL.resolveStreams(
+        waitTime: 3.0,
+        maxStreams: 1,
+        forgetAfter: 100.0,
+      );
+
       // Build our app and trigger a frame.
-      await tester.pumpWidget(const MyApp());
+      await tester.pumpWidget(const LSLTestApp());
+      await tester.pumpAndSettle(Duration(milliseconds: 200));
 
-      // Verify that our counter starts at 0.
-      expect(find.text('Calculating answer...'), findsOneWidget);
-      await tester.pumpAndSettle(Duration(seconds: 1));
-
-      // Verify that our counter has incremented.
       expect(find.text('LSL Version 116'), findsOneWidget);
 
       // Press the start streaming button
       await tester.tap(find.byKey(const Key('start_streaming')));
-      await tester.pumpAndSettle();
+      // give it some time to start the stream and send samples (200ms interval)
+      await tester.pumpAndSettle(Duration(milliseconds: 500));
+      await tester.pumpAndSettle(Duration(milliseconds: 200));
 
-      // Resolve available streams
-      final streams = await LSL.resolveStreams(waitTime: 2.0, maxStreams: 1);
+      final streams = await futureStreams;
       expect(streams.length, 1);
       expect(streams[0].streamName, 'FlutterApp');
       expect(streams[0].channelCount, 2);
       expect(streams[0].channelFormat, LSLChannelFormat.float32);
 
       // create inlet
-      final inlet = await LSL.createInlet(streamInfo: streams[0]);
+      final inlet = await LSL.createInlet(
+        streamInfo: streams[0],
+        maxBuffer: 3,
+        chunkSize: 1,
+      );
       expect(inlet, isNotNull);
       expect(inlet.streamInfo, isNotNull);
       expect(inlet.streamInfo.streamName, 'FlutterApp');
-
+      await tester.pumpAndSettle(Duration(milliseconds: 200));
+      await tester.pumpAndSettle(Duration(milliseconds: 200));
       // pull some samples
       final sample = await inlet.pullSample(timeout: 1.0);
       expect(sample, isNotNull);

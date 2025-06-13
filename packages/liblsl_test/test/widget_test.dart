@@ -6,7 +6,7 @@ import 'package:liblsl/lsl.dart';
 void main() {
   testWidgets('Liblsl native loads version', (WidgetTester tester) async {
     // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+    await tester.pumpWidget(const LSLTestApp());
 
     // Verify that our counter starts at 0.
     expect(find.text('Calculating answer...'), findsOneWidget);
@@ -19,7 +19,7 @@ void main() {
   // add test to press the start streaming button and create inlet
   testWidgets('Start LSL stream and consumer', (WidgetTester tester) async {
     // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+    await tester.pumpWidget(const LSLTestApp());
 
     // Verify that our counter starts at 0.
     expect(find.text('Calculating answer...'), findsOneWidget);
