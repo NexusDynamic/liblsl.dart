@@ -357,14 +357,7 @@ class InteractiveOutletManager {
 
   void sendMarker(int markerId) {
     if (_outlet == null) return;
-
-    if (_frameBasedMode) {
-      // In frame-based mode, send immediately since this is called from frame callback
-      _outlet!.pushSampleSync([markerId]);
-    } else {
-      // Send immediately in non-frame mode
-      _outlet!.pushSampleSync([markerId]);
-    }
+    _outlet!.pushSampleSync([markerId]);
   }
 
   void sendMarkerOnNextFrame() {
@@ -374,12 +367,12 @@ class InteractiveOutletManager {
     _pendingMarkerId = markerId;
 
     // Schedule frame callback for next frame
-    SchedulerBinding.instance.addPostFrameCallback((_) {
+    SchedulerBinding.instance.scheduleFrameCallback((_) {
       if (_pendingMarkerId == markerId) {
         _outlet!.pushSampleSync([markerId]);
         _pendingMarkerId = null;
       }
-    });
+    }, scheduleNewFrame: true);
   }
 
   void cleanup() {

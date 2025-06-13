@@ -15,4 +15,8 @@
     <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar">
         <item name="android:windowBackground">?android:colorBackground</item>
     </style>
+    <!-- This disables Adaptive Refresh Rate -->
+    <style name="frameRatePowerSavingsBalancedDisabled">
+        <item name="android:windowIsFrameRatePowerSavingsBalanced">false</item>
+    </style>
 </resources>

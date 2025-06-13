@@ -36,7 +36,7 @@ class _TestPageState extends State<TestPage> with TickerProviderStateMixin {
   // Frame synchronization for photodiode square
   Ticker? _photodiodeTicker;
   bool _photodiodeSquareVisible = false;
-  final bool _frameBasedMode = true; // Enable frame-based mode by default
+  final bool _frameBasedMode = false; // Enable frame-based mode by default
 
   @override
   void initState() {
@@ -94,14 +94,18 @@ class _TestPageState extends State<TestPage> with TickerProviderStateMixin {
               _blackSquares[deviceId] = DateTime.now();
             });
 
-            // Remove square after configured duration (20ms)
-            Future.delayed(const Duration(milliseconds: 20), () {
-              if (mounted) {
-                setState(() {
-                  _blackSquares.remove(deviceId);
-                });
-              }
-            });
+            // Schedule the timeout to remove the square
+            //  and force a frame update, even though setState should do this
+            WidgetsBinding.instance.scheduleFrameCallback((_) {
+              // Remove square after configured duration (20ms)
+              Future.delayed(const Duration(milliseconds: 20), () {
+                if (mounted) {
+                  setState(() {
+                    _blackSquares.remove(deviceId);
+                  });
+                }
+              });
+            }, scheduleNewFrame: true);
           }
         };
       }
