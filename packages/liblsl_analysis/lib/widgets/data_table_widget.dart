@@ -36,7 +36,7 @@ class DataTableWidget extends StatelessWidget {
                         ),
                     ],
                   ),
-                  onSort: (_, __) => onSort(header),
+                  onSort: (_, _) => onSort(header),
                 );
               }).toList(),
               rows: csvData!.head(50).rows.map((row) {

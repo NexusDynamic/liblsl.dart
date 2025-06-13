@@ -37,6 +37,7 @@ class UltraFastEnhancedTimingAnalysisService {
     for (int i = 0; i < rowCount; i++) {
       // Progress for very large datasets
       if (kDebugMode && i % 20000 == 0 && i > 0) {
+        // ignore: avoid_print
         print('  ⏳ Processed $i of $rowCount rows...');
       }
 
@@ -373,13 +374,17 @@ class UltraFastEnhancedTimingAnalysisService {
                 appliedTimeCorrection = true;
 
                 if (kDebugMode && latencies.length < 3) {
+                  // ignore: avoid_print
                   print('  🔧 Time correction applied:');
+                  // ignore: avoid_print
                   print(
                     '    📤 Sent: ${sentEvent.lslClock.toStringAsFixed(6)} + ${sentTimeCorrection.toStringAsFixed(6)} = ${correctedSentTime.toStringAsFixed(6)}',
                   );
+                  // ignore: avoid_print
                   print(
                     '    📥 Received: ${receivedEvent.lslClock.toStringAsFixed(6)} + ${receivedTimeCorrection.toStringAsFixed(6)} = ${correctedReceivedTime.toStringAsFixed(6)}',
                   );
+                  // ignore: avoid_print
                   print(
                     '    ⏱️ Raw latency: ${rawLatency.toStringAsFixed(2)}ms → Corrected: ${correctedLatency.toStringAsFixed(2)}ms',
                   );

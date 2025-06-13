@@ -283,7 +283,7 @@ class _AnalysisHomePageState extends State<AnalysisHomePage> {
       });
 
       csvData!.drop('metadata');
-      final metadataDf = await DataFrame(metadataValues, columns: metaColumns);
+      final metadataDf = DataFrame(metadataValues, columns: metaColumns);
       csvData = csvData!.concatenate([metadataDf], axis: 1);
     }
 
