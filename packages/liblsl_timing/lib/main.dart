@@ -15,6 +15,7 @@ import 'package:flutter_fullscreen/flutter_fullscreen.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter_multicast_lock/flutter_multicast_lock.dart';
+import 'package:flutter_refresh_rate_control/flutter_refresh_rate_control.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -54,19 +55,26 @@ void main() async {
       }
     }
   }
-  if (Platform.isIOS || Platform.isAndroid) {
-    const platform = MethodChannel('com.zeyus.liblsl/highrefreshrate');
-    final result = await platform.invokeMethod('requestHighRefreshRate');
-    if (result != null && result is bool && result) {
+
+  final refreshRateControl = FlutterRefreshRateControl();
+  // Request high refresh rate
+  try {
+    bool success = await refreshRateControl.requestHighRefreshRate();
+    if (success) {
       if (kDebugMode) {
         print('High refresh rate requested successfully.');
       }
     } else {
       if (kDebugMode) {
-        print('Failed to request high refresh rate.');
+        print('Failed to enable high refresh rate');
       }
     }
+  } catch (e) {
+    if (kDebugMode) {
+      print('Error: $e');
+    }
   }
+
   // Ensure multicast lock is acquired
   final multicastLock = FlutterMulticastLock();
   await multicastLock
