@@ -97,12 +97,24 @@ class _TestPageState extends State<TestPage> with TickerProviderStateMixin {
             // Schedule the timeout to remove the square
             //  and force a frame update, even though setState should do this
             WidgetsBinding.instance.scheduleFrameCallback((_) {
+              // Record the display start event
+              widget.timingManager.recordEvent(
+                EventType.displayStartEvent,
+                description: 'Black square shown for $deviceId',
+              );
               // Remove square after configured duration (20ms)
               Future.delayed(const Duration(milliseconds: 20), () {
                 if (mounted) {
                   setState(() {
                     _blackSquares.remove(deviceId);
                   });
+                  // Record the display end event on the next frame
+                  WidgetsBinding.instance.scheduleFrameCallback((_) {
+                    widget.timingManager.recordEvent(
+                      EventType.displayEndEvent,
+                      description: 'Black square hidden for $deviceId',
+                    );
+                  }, scheduleNewFrame: true);
                 }
               });
             }, scheduleNewFrame: true);
@@ -136,6 +148,13 @@ class _TestPageState extends State<TestPage> with TickerProviderStateMixin {
     setState(() {
       _photodiodeSquareVisible = true;
     });
+    // force a frame update, just in case.
+    WidgetsBinding.instance.scheduleFrameCallback((_) {
+      widget.timingManager.recordEvent(
+        EventType.displayStartEvent,
+        description: 'Photodiode square shown',
+      );
+    }, scheduleNewFrame: true);
 
     // Create ticker to hide after specified duration (20ms for ~1-2 frames at 60fps)
     _photodiodeTicker = createTicker((elapsed) {
@@ -146,6 +165,15 @@ class _TestPageState extends State<TestPage> with TickerProviderStateMixin {
           setState(() {
             _photodiodeSquareVisible = false;
           });
+          // force a frame update, just in case.
+          WidgetsBinding.instance.scheduleFrame();
+
+          WidgetsBinding.instance.scheduleFrameCallback((_) {
+            widget.timingManager.recordEvent(
+              EventType.displayEndEvent,
+              description: 'Photodiode square hidden',
+            );
+          }, scheduleNewFrame: true);
         }
       }
     });
@@ -331,6 +359,10 @@ class _TestPageState extends State<TestPage> with TickerProviderStateMixin {
   }
 
   void _sendInteractiveMarker(dynamic details) async {
+    widget.timingManager.recordEvent(
+      EventType.touchEvent,
+      description: 'Interactive marker button pressed',
+    );
     final test = widget.testController.currentTest;
     if (test is InteractiveTest) {
       if (_frameBasedMode) {

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:liblsl/lsl.dart';
+import 'package:liblsl_timing/src/data/timing_manager.dart';
 import '../config/constants.dart';
 import 'base_test.dart';
 
@@ -59,7 +60,7 @@ class InteractiveTest extends BaseTest {
 
     // Create outlet if this device is a producer
     if (config.isProducer) {
-      _outletManager = InteractiveOutletManager();
+      _outletManager = InteractiveOutletManager(timingManager);
       await _outletManager!.prepareOutlet(_streamInfo!);
     }
 
@@ -335,6 +336,9 @@ class InteractiveOutletManager {
   LSLOutlet? _outlet;
   bool _frameBasedMode = false;
   int? _pendingMarkerId;
+  TimingManager timingManager;
+
+  InteractiveOutletManager(this.timingManager);
 
   Future<void> prepareOutlet(LSLStreamInfo streamInfo) async {
     _outlet = LSLOutlet(
@@ -372,6 +376,16 @@ class InteractiveOutletManager {
         _outlet!.pushSampleSync([markerId]);
         _pendingMarkerId = null;
       }
+      // log event
+      timingManager.recordEvent(
+        EventType.markerSent,
+        description: 'Interactive marker sent on next frame',
+        metadata: {
+          'markerId': markerId,
+          'sourceId': _outlet!.streamInfo.sourceId,
+          'frameBasedMode': _frameBasedMode,
+        },
+      );
     }, scheduleNewFrame: true);
   }
 

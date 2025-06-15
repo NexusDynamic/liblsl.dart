@@ -46,6 +46,9 @@ enum EventType {
   clockCorrection,
   initialized,
   coordination,
+  touchEvent,
+  displayStartEvent,
+  displayEndEvent,
 }
 
 // LSL Stream configuration defaults
