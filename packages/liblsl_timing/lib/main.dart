@@ -5,7 +5,6 @@ import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:liblsl/lsl.dart';
 import 'src/config/app_config.dart';
 import 'src/data/timing_manager.dart';
