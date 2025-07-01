@@ -6,6 +6,52 @@ import 'package:native_toolchain_c/native_toolchain_c.dart';
 import 'package:native_toolchain_c/src/cbuilder/run_cbuilder.dart';
 import 'package:native_toolchain_c/src/native_toolchain/android_ndk.dart';
 
+/// It is possible, but untested, to compile liblsl for WASM.
+/// Here is the command that successfully compiled it for WASM:
+/// ```bash
+/// emcc -pthread -sPTHREAD_POOL_SIZE=32 -sEXPORT_NAME=liblsl  --no-entry \
+///      -sENVIRONMENT=web,worker -DVERSION=1.16.2 -DLSL_ABI_VERSION=2 \
+///      -DASIO_NO_DEPRECATED -DBOOST_ALL_NO_LIB -DLIBLSL_EXPORTS \
+///      -DLSL_VERSION_INFO=git:x/branch:x/build:dart_native/compiler:unknown \
+///      -DLOGURU_STACKTRACES=0 -include ./src/include/lsl_lib_version.h \
+///      -I./src/liblsl-9e3823bb/lslboost -I./src/liblsl-9e3823bb/include \
+///      -I./src/liblsl-9e3823bb/thirdparty \
+///      -I./src/liblsl-9e3823bb/thirdparty/asio \
+///      -I./src/liblsl-9e3823bb/thirdparty/loguru \
+///      -I./src/liblsl-9e3823bb/thirdparty/pugixml \
+///      src/liblsl-9e3823bb/src/buildinfo.cpp \
+///      src/liblsl-9e3823bb/src/api_config.cpp \
+///      src/liblsl-9e3823bb/src/cancellation.cpp \
+///      src/liblsl-9e3823bb/src/common.cpp \
+///      src/liblsl-9e3823bb/src/consumer_queue.cpp \
+///      src/liblsl-9e3823bb/src/data_receiver.cpp \
+///      src/liblsl-9e3823bb/src/info_receiver.cpp \
+///      src/liblsl-9e3823bb/src/inlet_connection.cpp \
+///      src/liblsl-9e3823bb/src/lsl_resolver_c.cpp \
+///      src/liblsl-9e3823bb/src/lsl_inlet_c.cpp \
+///      src/liblsl-9e3823bb/src/lsl_outlet_c.cpp \
+///      src/liblsl-9e3823bb/src/lsl_streaminfo_c.cpp \
+///      src/liblsl-9e3823bb/src/lsl_xml_element_c.cpp \
+///      src/liblsl-9e3823bb/src/netinterfaces.cpp \
+///      src/liblsl-9e3823bb/src/resolver_impl.cpp \
+///      src/liblsl-9e3823bb/src/resolve_attempt_udp.cpp \
+///      src/liblsl-9e3823bb/src/sample.cpp \
+///      src/liblsl-9e3823bb/src/send_buffer.cpp \
+///      src/liblsl-9e3823bb/src/socket_utils.cpp \
+///      src/liblsl-9e3823bb/src/stream_info_impl.cpp \
+///      src/liblsl-9e3823bb/src/stream_outlet_impl.cpp \
+///      src/liblsl-9e3823bb/src/tcp_server.cpp \
+///      src/liblsl-9e3823bb/src/time_postprocessor.cpp \
+///      src/liblsl-9e3823bb/src/time_receiver.cpp \
+///      src/liblsl-9e3823bb/src/udp_server.cpp \
+///      src/liblsl-9e3823bb/src/util/cast.cpp \
+///      src/liblsl-9e3823bb/src/util/endian.cpp \
+///      src/liblsl-9e3823bb/src/util/inireader.cpp \
+///      src/liblsl-9e3823bb/src/util/strfuns.cpp \
+///      src/liblsl-9e3823bb/thirdparty/pugixml/pugixml.cpp \
+///      src/liblsl-9e3823bb/thirdparty/loguru/loguru.cpp
+/// ```
+
 /// The default name prefix for dynamic libraries per [OS].
 const _dylibPrefix = {
   OS.android: 'lib',
