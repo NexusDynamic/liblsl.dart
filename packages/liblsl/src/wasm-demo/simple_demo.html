@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple LibLSL WASM Demo</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+        .status { padding: 10px; margin: 10px 0; border-radius: 4px; }
+        .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .info { background: #cce7ff; color: #004085; border: 1px solid #b3d7ff; }
+        button { background: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; margin: 5px; }
+        button:hover { background: #0056b3; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+        .log { background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 4px; padding: 10px; height: 200px; overflow-y: auto; font-family: monospace; font-size: 12px; white-space: pre-wrap; }
+    </style>
+</head>
+<body>
+    <h1>Simple LibLSL WASM Demo</h1>
+    <div id="status" class="status info">Loading LibLSL...</div>
+    
+    <div id="controls" style="display: none;">
+        <h2>Test LSL Functions</h2>
+        <button onclick="testBasics()">Test Basic Functions</button>
+        <button onclick="createStream()">Create Stream</button>
+        <button onclick="testData()">Test Data Push</button>
+        <button onclick="clearLog()">Clear Log</button>
+        
+        <div id="log" class="log"></div>
+    </div>
+
+    <script>
+        let lsl = null;
+        let outlet = null;
+        let streamInfo = null;
+
+        function log(message) {
+            const logElement = document.getElementById('log');
+            logElement.textContent += new Date().toLocaleTimeString() + ': ' + message + '\n';
+            logElement.scrollTop = logElement.scrollHeight;
+        }
+
+        function setStatus(message, type = 'info') {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.className = 'status ' + type;
+        }
+
+        function clearLog() {
+            document.getElementById('log').textContent = '';
+        }
+
+        // Set up the module configuration before the script loads
+        window.liblsl = {
+            onRuntimeInitialized: function() {
+                lsl = window.liblsl;
+                onLibLSLReady();
+            }
+        };
+    </script>
+    <script src="liblsl.js"></script>
+    <script>
+        
+        function onLibLSLReady() {
+            setStatus('LibLSL loaded successfully!', 'success');
+            document.getElementById('controls').style.display = 'block';
+            log('LibLSL WASM module loaded and runtime initialized');
+            
+            // Test basic info - now safe to call
+            try {
+                const version = lsl.ccall('lsl_library_version', 'number', []);
+                const protocol = lsl.ccall('lsl_protocol_version', 'number', []);
+                log(`Library version: ${version}, Protocol: ${protocol}`);
+            } catch (e) {
+                log('Error getting version info: ' + e.message);
+            }
+        }
+
+        function testBasics() {
+            try {
+                log('=== Testing Basic Functions ===');
+                
+                const version = lsl.ccall('lsl_library_version', 'number', []);
+                const protocol = lsl.ccall('lsl_protocol_version', 'number', []);
+                const clock = lsl.ccall('lsl_local_clock', 'number', []);
+                
+                log(`Library Version: ${version}`);
+                log(`Protocol Version: ${protocol}`);
+                log(`Local Clock: ${clock.toFixed(6)}`);
+                
+                setStatus('Basic functions tested successfully', 'success');
+            } catch (error) {
+                log('Error in basic test: ' + error.message);
+                setStatus('Error in basic test', 'error');
+            }
+        }
+
+        function createStream() {
+            try {
+                log('=== Creating Stream ===');
+                
+                // Clean up existing stream
+                if (outlet) {
+                    lsl.ccall('lsl_destroy_outlet', null, ['number'], [outlet]);
+                    outlet = null;
+                }
+                if (streamInfo) {
+                    lsl.ccall('lsl_destroy_streaminfo', null, ['number'], [streamInfo]);
+                    streamInfo = null;
+                }
+                
+                // Create new stream info
+                const name = "WebDemoStream";
+                const type = "EEG";
+                const source = "WebDemo";
+                const channels = 2;
+                const sampleRate = 100.0;
+                const format = 1; // cft_float32
+                
+                const namePtr = lsl.allocateUTF8(name);
+                const typePtr = lsl.allocateUTF8(type);
+                const sourcePtr = lsl.allocateUTF8(source);
+                
+                streamInfo = lsl.ccall('lsl_create_streaminfo', 'number',
+                    ['number', 'number', 'number', 'number', 'number', 'number'],
+                    [namePtr, typePtr, channels, sampleRate, format, sourcePtr]
+                );
+                
+                lsl._malloc && lsl._free ? lsl._free(namePtr) : null;
+                lsl._malloc && lsl._free ? lsl._free(typePtr) : null;
+                lsl._malloc && lsl._free ? lsl._free(sourcePtr) : null;
+                
+                if (streamInfo) {
+                    log(`Stream info created: ${name}, ${channels} channels, ${sampleRate}Hz`);
+                    
+                    // Create outlet
+                    outlet = lsl.ccall('lsl_create_outlet', 'number',
+                        ['number', 'number', 'number'],
+                        [streamInfo, 0, 360] // chunkSize=0, maxBuffer=360
+                    );
+                    
+                    if (outlet) {
+                        log('Outlet created successfully');
+                        setStatus('Stream created successfully', 'success');
+                    } else {
+                        log('Failed to create outlet');
+                        setStatus('Failed to create outlet', 'error');
+                    }
+                } else {
+                    log('Failed to create stream info');
+                    setStatus('Failed to create stream info', 'error');
+                }
+            } catch (error) {
+                log('Error creating stream: ' + error.message);
+                setStatus('Error creating stream', 'error');
+            }
+        }
+
+        function testData() {
+            try {
+                log('=== Testing Data Push ===');
+                
+                if (!outlet) {
+                    log('No outlet available. Create a stream first.');
+                    return;
+                }
+                
+                // Push 10 samples
+                for (let i = 0; i < 10; i++) {
+                    const sample = lsl._malloc ? lsl._malloc(2 * 4) : 0; // 2 channels * 4 bytes per float
+                    const sampleView = new Float32Array(lsl.HEAPF32.buffer, sample, 2);
+                    
+                    // Generate sine wave data
+                    const time = i * 0.01; // 100Hz sample rate
+                    sampleView[0] = Math.sin(2 * Math.PI * 1 * time); // 1Hz sine wave
+                    sampleView[1] = Math.sin(2 * Math.PI * 2 * time); // 2Hz sine wave
+                    
+                    const result = lsl.ccall('lsl_push_sample_f', 'number',
+                        ['number', 'number'], [outlet, sample]);
+                    
+                    lsl._malloc && lsl._free ? lsl._free(sample) : null;
+                    
+                    if (result !== 0) {
+                        log(`Warning: Sample ${i} push returned ${result}`);
+                    }
+                }
+                
+                log('Pushed 10 samples successfully');
+                setStatus('Data push test completed', 'success');
+                
+            } catch (error) {
+                log('Error pushing data: ' + error.message);
+                setStatus('Error pushing data', 'error');
+            }
+        }
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', function() {
+            if (outlet) {
+                lsl.ccall('lsl_destroy_outlet', null, ['number'], [outlet]);
+            }
+            if (streamInfo) {
+                lsl.ccall('lsl_destroy_streaminfo', null, ['number'], [streamInfo]);
+            }
+        });
+    </script>
+</body>
+</html>

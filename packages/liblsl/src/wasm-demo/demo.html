@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LibLSL WASM Demo</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        .panel {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .panel h2 {
+            margin-top: 0;
+            color: #333;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .status.info {
+            background: #cce7ff;
+            color: #004085;
+            border: 1px solid #b3d7ff;
+        }
+        .log {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 10px;
+            height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .input-group {
+            margin: 10px 0;
+        }
+        .input-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        .input-group input {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+    </style>
+</head>
+<body>
+    <h1>LibLSL WASM Demo</h1>
+    <div id="loading" class="status info">Loading LibLSL...</div>
+    
+    <div id="main-content" style="display: none;">
+        <div class="container">
+            <div class="panel">
+                <h2>🔊 Stream Producer</h2>
+                <div class="input-group">
+                    <label for="streamName">Stream Name:</label>
+                    <input type="text" id="streamName" value="WebLSLTest" />
+                </div>
+                <div class="input-group">
+                    <label for="streamType">Stream Type:</label>
+                    <input type="text" id="streamType" value="EEG" />
+                </div>
+                <div class="input-group">
+                    <label for="channelCount">Channel Count:</label>
+                    <input type="number" id="channelCount" value="2" min="1" max="32" />
+                </div>
+                <div class="input-group">
+                    <label for="sampleRate">Sample Rate (Hz):</label>
+                    <input type="number" id="sampleRate" value="100" min="1" max="1000" />
+                </div>
+                
+                <button id="createOutlet">Create Outlet</button>
+                <button id="startStreaming" disabled>Start Streaming</button>
+                <button id="stopStreaming" disabled>Stop Streaming</button>
+                
+                <div id="producerStatus"></div>
+                <div id="producerLog" class="log"></div>
+            </div>
+            
+            <div class="panel">
+                <h2>📡 Stream Consumer</h2>
+                <button id="resolveStreams">Find Streams</button>
+                <button id="createInlet" disabled>Create Inlet</button>
+                <button id="startReceiving" disabled>Start Receiving</button>
+                <button id="stopReceiving" disabled>Stop Receiving</button>
+                
+                <div id="consumerStatus"></div>
+                <div id="consumerLog" class="log"></div>
+            </div>
+        </div>
+        
+        <div class="panel">
+            <h2>📊 System Info</h2>
+            <div id="systemInfo"></div>
+        </div>
+    </div>
+
+    <script src="liblsl.js"></script>
+    <script>
+        let lsl = null;
+        let outlet = null;
+        let inlet = null;
+        let streamInfo = null;
+        let producerInterval = null;
+        let consumerInterval = null;
+        let availableStreams = [];
+
+        // Logging functions
+        function logProducer(message) {
+            const log = document.getElementById('producerLog');
+            log.innerHTML += new Date().toLocaleTimeString() + ': ' + message + '\n';
+            log.scrollTop = log.scrollHeight;
+        }
+
+        function logConsumer(message) {
+            const log = document.getElementById('consumerLog');
+            log.innerHTML += new Date().toLocaleTimeString() + ': ' + message + '\n';
+            log.scrollTop = log.scrollHeight;
+        }
+
+        function setProducerStatus(message, type = 'info') {
+            const status = document.getElementById('producerStatus');
+            status.innerHTML = message;
+            status.className = 'status ' + type;
+        }
+
+        function setConsumerStatus(message, type = 'info') {
+            const status = document.getElementById('consumerStatus');
+            status.innerHTML = message;
+            status.className = 'status ' + type;
+        }
+
+        // Initialize LibLSL
+        liblsl().then(function(Module) {
+            lsl = Module;
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('main-content').style.display = 'block';
+            
+            // Show system info
+            const version = lsl.ccall('lsl_library_version', 'number', []);
+            const protocolVersion = lsl.ccall('lsl_protocol_version', 'number', []);
+            document.getElementById('systemInfo').innerHTML = `
+                <p><strong>LSL Library Version:</strong> ${version}</p>
+                <p><strong>LSL Protocol Version:</strong> ${protocolVersion}</p>
+                <p><strong>Environment:</strong> Web Browser</p>
+            `;
+            
+            logProducer('LibLSL loaded successfully');
+            logConsumer('LibLSL loaded successfully');
+        }).catch(function(error) {
+            document.getElementById('loading').innerHTML = 'Failed to load LibLSL: ' + error;
+            document.getElementById('loading').className = 'status error';
+        });
+
+        // Producer functions
+        document.getElementById('createOutlet').addEventListener('click', function() {
+            try {
+                const name = document.getElementById('streamName').value;
+                const type = document.getElementById('streamType').value;
+                const channelCount = parseInt(document.getElementById('channelCount').value);
+                const sampleRate = parseFloat(document.getElementById('sampleRate').value);
+                
+                // Create stream info
+                const namePtr = lsl.allocateUTF8(name);
+                const typePtr = lsl.allocateUTF8(type);
+                const sourcePtr = lsl.allocateUTF8('WebDemo');
+                
+                streamInfo = lsl.ccall('lsl_create_streaminfo', 'number', 
+                    ['number', 'number', 'number', 'number', 'number', 'number'],
+                    [namePtr, typePtr, channelCount, sampleRate, 1, sourcePtr] // 1 = float32 format
+                );
+                
+                lsl._free(namePtr);
+                lsl._free(typePtr);
+                lsl._free(sourcePtr);
+                
+                // Create outlet
+                outlet = lsl.ccall('lsl_create_outlet', 'number', ['number', 'number', 'number'],
+                    [streamInfo, 0, 360]);
+                
+                if (outlet && streamInfo) {
+                    setProducerStatus(`Outlet created for "${name}"`, 'success');
+                    logProducer(`Created outlet: ${name} (${channelCount} channels, ${sampleRate}Hz)`);
+                    
+                    document.getElementById('createOutlet').disabled = true;
+                    document.getElementById('startStreaming').disabled = false;
+                } else {
+                    throw new Error('Failed to create outlet or stream info');
+                }
+            } catch (error) {
+                setProducerStatus('Error creating outlet: ' + error.message, 'error');
+                logProducer('Error: ' + error.message);
+            }
+        });
+
+        document.getElementById('startStreaming').addEventListener('click', function() {
+            try {
+                const channelCount = parseInt(document.getElementById('channelCount').value);
+                const sampleRate = parseFloat(document.getElementById('sampleRate').value);
+                const interval = 1000 / sampleRate; // ms between samples
+                
+                let sampleCount = 0;
+                producerInterval = setInterval(() => {
+                    // Generate sample data (sine waves with different frequencies)
+                    const sample = lsl._malloc(channelCount * 4); // 4 bytes per float
+                    const sampleView = new Float32Array(lsl.HEAPF32.buffer, sample, channelCount);
+                    
+                    for (let i = 0; i < channelCount; i++) {
+                        const freq = 1 + i * 0.5; // Different frequency for each channel
+                        sampleView[i] = Math.sin(2 * Math.PI * freq * sampleCount / sampleRate);
+                    }
+                    
+                    const result = lsl.ccall('lsl_push_sample_f', 'number', ['number', 'number'],
+                        [outlet, sample]);
+                    
+                    lsl._free(sample);
+                    sampleCount++;
+                    
+                    if (sampleCount % (sampleRate * 2) === 0) { // Log every 2 seconds
+                        logProducer(`Pushed ${sampleCount} samples`);
+                    }
+                }, interval);
+                
+                setProducerStatus('Streaming started', 'success');
+                logProducer('Started streaming data');
+                
+                document.getElementById('startStreaming').disabled = true;
+                document.getElementById('stopStreaming').disabled = false;
+            } catch (error) {
+                setProducerStatus('Error starting stream: ' + error.message, 'error');
+                logProducer('Error: ' + error.message);
+            }
+        });
+
+        document.getElementById('stopStreaming').addEventListener('click', function() {
+            if (producerInterval) {
+                clearInterval(producerInterval);
+                producerInterval = null;
+                setProducerStatus('Streaming stopped', 'info');
+                logProducer('Stopped streaming');
+                
+                document.getElementById('startStreaming').disabled = false;
+                document.getElementById('stopStreaming').disabled = true;
+            }
+        });
+
+        // Consumer functions
+        document.getElementById('resolveStreams').addEventListener('click', function() {
+            try {
+                logConsumer('Resolving streams...');
+                
+                // This is a simplified version - in real implementation you'd use proper stream resolution
+                setTimeout(() => {
+                    if (streamInfo) {
+                        availableStreams = [streamInfo];
+                        setConsumerStatus('Found 1 stream', 'success');
+                        logConsumer('Found stream: ' + document.getElementById('streamName').value);
+                        document.getElementById('createInlet').disabled = false;
+                    } else {
+                        setConsumerStatus('No streams found', 'info');
+                        logConsumer('No streams found');
+                    }
+                }, 500);
+            } catch (error) {
+                setConsumerStatus('Error resolving streams: ' + error.message, 'error');
+                logConsumer('Error: ' + error.message);
+            }
+        });
+
+        document.getElementById('createInlet').addEventListener('click', function() {
+            try {
+                if (availableStreams.length === 0) {
+                    throw new Error('No streams available');
+                }
+                
+                // Create inlet using the first available stream
+                inlet = lsl.ccall('lsl_create_inlet', 'number', ['number', 'number', 'number', 'number'],
+                    [availableStreams[0], 360, 1, 1]); // maxBuffer=360, chunkSize=1, recover=true
+                
+                if (inlet) {
+                    setConsumerStatus('Inlet created', 'success');
+                    logConsumer('Created inlet');
+                    
+                    document.getElementById('createInlet').disabled = true;
+                    document.getElementById('startReceiving').disabled = false;
+                } else {
+                    throw new Error('Failed to create inlet');
+                }
+            } catch (error) {
+                setConsumerStatus('Error creating inlet: ' + error.message, 'error');
+                logConsumer('Error: ' + error.message);
+            }
+        });
+
+        document.getElementById('startReceiving').addEventListener('click', function() {
+            try {
+                const channelCount = parseInt(document.getElementById('channelCount').value);
+                let receivedCount = 0;
+                
+                consumerInterval = setInterval(() => {
+                    // Check if samples are available
+                    const available = lsl.ccall('lsl_samples_available', 'number', ['number'], [inlet]);
+                    
+                    if (available > 0) {
+                        const sample = lsl._malloc(channelCount * 4); // 4 bytes per float
+                        const result = lsl.ccall('lsl_pull_sample_f', 'number', 
+                            ['number', 'number', 'number', 'number'],
+                            [inlet, sample, channelCount, 0.0]); // timeout=0 (non-blocking)
+                        
+                        if (result > 0) {
+                            const sampleView = new Float32Array(lsl.HEAPF32.buffer, sample, channelCount);
+                            receivedCount++;
+                            
+                            if (receivedCount % 200 === 0) { // Log every 200 samples
+                                const values = Array.from(sampleView).map(v => v.toFixed(3)).join(', ');
+                                logConsumer(`Sample ${receivedCount}: [${values}]`);
+                            }
+                        }
+                        
+                        lsl._free(sample);
+                    }
+                }, 10); // Check every 10ms
+                
+                setConsumerStatus('Receiving data', 'success');
+                logConsumer('Started receiving data');
+                
+                document.getElementById('startReceiving').disabled = true;
+                document.getElementById('stopReceiving').disabled = false;
+            } catch (error) {
+                setConsumerStatus('Error starting reception: ' + error.message, 'error');
+                logConsumer('Error: ' + error.message);
+            }
+        });
+
+        document.getElementById('stopReceiving').addEventListener('click', function() {
+            if (consumerInterval) {
+                clearInterval(consumerInterval);
+                consumerInterval = null;
+                setConsumerStatus('Reception stopped', 'info');
+                logConsumer('Stopped receiving data');
+                
+                document.getElementById('startReceiving').disabled = false;
+                document.getElementById('stopReceiving').disabled = true;
+            }
+        });
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', function() {
+            if (producerInterval) clearInterval(producerInterval);
+            if (consumerInterval) clearInterval(consumerInterval);
+            if (outlet) lsl.ccall('lsl_destroy_outlet', null, ['number'], [outlet]);
+            if (inlet) lsl.ccall('lsl_destroy_inlet', null, ['number'], [inlet]);
+            if (streamInfo) lsl.ccall('lsl_destroy_streaminfo', null, ['number'], [streamInfo]);
+        });
+    </script>
+</body>
+</html>

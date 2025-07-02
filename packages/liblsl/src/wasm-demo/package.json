@@ -1,0 +1,13 @@
+{
+  "name": "liblsl-wasm-demo",
+  "version": "1.0.0",
+  "description": "LibLSL WebAssembly Demo",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "keywords": ["liblsl", "wasm", "lsl", "streaming"],
+  "author": "LibLSL Demo",
+  "license": "MIT"
+}
