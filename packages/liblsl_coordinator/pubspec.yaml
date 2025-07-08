@@ -1,0 +1,19 @@
+name: liblsl_coordinator
+description: A performance-focused Dart (and Flutter) LSL-based device coordination library.
+homepage: https://github.com/NexusDynamic
+version: 0.0.1+2
+repository: https://github.com/NexusDynamic/liblsl.dart
+
+environment:
+  sdk: ^3.7.0
+
+# Add regular dependencies here.
+dependencies:
+  meta: ^1.16.0
+  liblsl: ^0.8.0
+  synchronized: ^3.4.0
+  # path: ^1.8.0
+
+dev_dependencies:
+  lints: ^5.0.0
+  test: ^1.24.0
