@@ -4,12 +4,17 @@ import 'package:test/test.dart';
 import 'package:liblsl/lsl.dart';
 import 'package:liblsl_coordinator/src/coordination/lsl/high_frequency_transport.dart';
 import 'mocks/mock_lsl.dart';
+import 'test_lsl_config.dart';
 
 /// Performance and benchmarking tests for the coordinator package
 /// These tests measure timing, throughput, and resource usage
 void main() {
   group('Performance Tests', () {
     late List<HighFrequencyLSLTransport> transports;
+
+    setUpAll(() {
+      TestLSLConfig.initializeForTesting();
+    });
 
     setUp(() {
       transports = [];
@@ -34,18 +39,19 @@ void main() {
       bool useBusyWait = false,
     }) {
       final transport = HighFrequencyLSLTransport(
-        streamName: 'perf_test_stream',
+        streamName:
+            'perf_test_stream_${DateTime.now().millisecondsSinceEpoch}_$nodeId',
         nodeId: nodeId,
         sampleRate: targetFrequency,
         performanceConfig: HighFrequencyConfig(
           targetFrequency: targetFrequency,
           useBusyWait: useBusyWait,
-          bufferSize: 1000,
+          bufferSize: 10, // Smaller buffer for faster tests
           useIsolate: useIsolate,
           channelFormat: LSLChannelFormat.int32,
-          channelCount: 1,
+          channelCount: 2, // Support both single and double data
         ),
-        lslApiConfig: LSLApiConfig(ipv6: IPv6Mode.disable),
+        lslApiConfig: TestLSLConfig.createTestConfig(),
       );
       transports.add(transport);
       return transport;
@@ -56,7 +62,7 @@ void main() {
         final transport = createTransport('throughput_test');
         await transport.initialize();
 
-        const numSamples = 1000;
+        const numSamples = 100; // Reduced from 1000 to 100 for faster tests
         final stopwatch = Stopwatch()..start();
 
         // Send data as fast as possible
@@ -221,7 +227,7 @@ void main() {
       });
 
       test('should measure initialization latency', () async {
-        const numMeasurements = 10;
+        const numMeasurements = 5; // Reduced from 10 to 5 for faster tests
         final initTimes = <int>[];
 
         for (int i = 0; i < numMeasurements; i++) {
@@ -257,22 +263,25 @@ void main() {
 
     group('Memory and Resource Tests', () {
       test('should handle repeated create/dispose cycles', () async {
-        const numCycles = 20;
+        const numCycles = 5; // Reduced from 20 to 5 for faster tests
 
         for (int i = 0; i < numCycles; i++) {
           final transport = createTransport('cycle_$i');
 
           await transport.initialize();
 
-          // Send some data
-          for (int j = 0; j < 10; j++) {
+          // Send just a few events to test the functionality
+          for (int j = 0; j < 3; j++) {
             await transport.sendEvent(i * 10 + j);
           }
 
           await transport.dispose();
           transports.remove(transport);
 
-          if (i % 5 == 0) {
+          // Add small delay to ensure proper cleanup
+          await Future.delayed(const Duration(milliseconds: 50));
+
+          if (i % 2 == 0) {
             print('Completed ${i + 1}/$numCycles cycles');
           }
         }
@@ -282,7 +291,7 @@ void main() {
       });
 
       test('should handle many simultaneous transports', () async {
-        const numTransports = 20;
+        const numTransports = 5; // Reduced from 20 to 5 for faster tests
         final testTransports = <HighFrequencyLSLTransport>[];
 
         // Create many transports

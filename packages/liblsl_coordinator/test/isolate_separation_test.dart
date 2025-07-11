@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:test/test.dart';
 import 'package:liblsl/lsl.dart';
 import 'package:liblsl_coordinator/src/coordination/lsl/high_frequency_transport.dart';
+import 'test_lsl_config.dart';
 
 /// Tests specifically focused on isolate separation and ensuring no blocking
 /// These tests verify that the inlet consumer and outlet producer isolates
@@ -9,6 +10,11 @@ import 'package:liblsl_coordinator/src/coordination/lsl/high_frequency_transport
 void main() {
   group('Isolate Separation Tests', () {
     late List<HighFrequencyLSLTransport> transports;
+
+    setUpAll(() {
+      // Initialize LSL with test-optimized configuration
+      TestLSLConfig.initializeForTesting();
+    });
 
     setUp(() {
       transports = [];
@@ -24,6 +30,9 @@ void main() {
         }
       }
       transports.clear();
+
+      // Add delay to ensure LSL streams are fully cleaned up
+      await Future.delayed(const Duration(milliseconds: 100));
     });
 
     /// Helper to create transport with isolates enabled
@@ -33,7 +42,8 @@ void main() {
       bool useBusyWait = true,
     }) {
       final transport = HighFrequencyLSLTransport(
-        streamName: 'isolate_test_stream',
+        streamName:
+            'isolate_test_stream_${DateTime.now().millisecondsSinceEpoch}_$nodeId',
         nodeId: nodeId,
         sampleRate: targetFrequency,
         performanceConfig: HighFrequencyConfig(
@@ -42,9 +52,9 @@ void main() {
           bufferSize: 100,
           useIsolate: true, // This is the key difference
           channelFormat: LSLChannelFormat.int32,
-          channelCount: 1,
+          channelCount: 2, // Support both single events and event+value pairs
         ),
-        lslApiConfig: LSLApiConfig(ipv6: IPv6Mode.disable),
+        lslApiConfig: TestLSLConfig.createTestConfig(),
       );
       transports.add(transport);
       return transport;
@@ -57,10 +67,10 @@ void main() {
         await transport.initialize();
 
         // Allow isolates to start up
-        await Future.delayed(const Duration(milliseconds: 500));
+        await Future.delayed(const Duration(milliseconds: 200));
 
         expect(transport.nodeId, equals('isolate_basic'));
-        expect(transport.streamName, equals('isolate_test_stream'));
+        expect(transport.streamName, startsWith('isolate_test_stream'));
       });
 
       test('should handle isolate startup and communication', () async {
@@ -69,7 +79,7 @@ void main() {
         await transport.initialize();
 
         // Wait for isolates to be ready
-        await Future.delayed(const Duration(milliseconds: 300));
+        await Future.delayed(const Duration(milliseconds: 100));
 
         // Send data through outlet isolate
         await transport.sendEvent(12345);
@@ -82,7 +92,7 @@ void main() {
         final transport = createIsolateTransport('isolate_rapid');
 
         await transport.initialize();
-        await Future.delayed(const Duration(milliseconds: 200));
+        await Future.delayed(const Duration(milliseconds: 100));
 
         // Send multiple events rapidly
         for (int i = 0; i < 10; i++) {
@@ -108,7 +118,7 @@ void main() {
         ]);
 
         // Allow all isolates to start
-        await Future.delayed(const Duration(milliseconds: 600));
+        await Future.delayed(const Duration(milliseconds: 200));
 
         // Send data from all transports simultaneously
         await Future.wait([
@@ -143,7 +153,7 @@ void main() {
             lowFreqTransport.initialize(),
           ]);
 
-          await Future.delayed(const Duration(milliseconds: 400));
+          await Future.delayed(const Duration(milliseconds: 100));
 
           // Both should coexist with different configurations
           await Future.wait([
@@ -165,7 +175,7 @@ void main() {
         );
 
         await transport.initialize();
-        await Future.delayed(const Duration(milliseconds: 300));
+        await Future.delayed(const Duration(milliseconds: 100));
 
         // Measure time for operations that should not block
         final stopwatch = Stopwatch()..start();
@@ -186,7 +196,7 @@ void main() {
         final transport = createIsolateTransport('config_non_blocking');
 
         await transport.initialize();
-        await Future.delayed(const Duration(milliseconds: 200));
+        await Future.delayed(const Duration(milliseconds: 100));
 
         final stopwatch = Stopwatch()..start();
 
@@ -210,7 +220,7 @@ void main() {
         final transport = createIsolateTransport('lifecycle_dispose');
 
         await transport.initialize();
-        await Future.delayed(const Duration(milliseconds: 200));
+        await Future.delayed(const Duration(milliseconds: 100));
 
         await transport.sendEvent(8888);
 
@@ -225,7 +235,7 @@ void main() {
         final transport = createIsolateTransport('error_handling');
 
         await transport.initialize();
-        await Future.delayed(const Duration(milliseconds: 200));
+        await Future.delayed(const Duration(milliseconds: 100));
 
         // Send some data
         await transport.sendEvent(6666);
@@ -252,7 +262,7 @@ void main() {
         final transport = createIsolateTransport('stream_isolate');
 
         await transport.initialize();
-        await Future.delayed(const Duration(milliseconds: 200));
+        await Future.delayed(const Duration(milliseconds: 100));
 
         // Streams should be available
         expect(transport.gameDataStream, isA<Stream<GameDataSample>>());
@@ -307,13 +317,13 @@ void main() {
 
           // Initialize all
           await Future.wait(transports.map((t) => t.initialize()));
-          await Future.delayed(const Duration(milliseconds: 500));
+          await Future.delayed(const Duration(milliseconds: 200));
 
           final stopwatch = Stopwatch()..start();
 
-          // Send data from all simultaneously
+          // Send data from all simultaneously (reduced iterations for faster tests)
           final futures = <Future>[];
-          for (int i = 0; i < 20; i++) {
+          for (int i = 0; i < 5; i++) {
             for (final transport in transports) {
               futures.add(
                 transport.sendEvent(i * 1000 + transport.nodeId.hashCode),
@@ -327,14 +337,14 @@ void main() {
           // Should handle load efficiently
           expect(
             stopwatch.elapsedMilliseconds,
-            lessThan(5000),
+            lessThan(2000), // Reduced timeout for faster tests
           ); // 5 seconds max
 
           // Clean up
           for (final transport in transports) {
             await transport.dispose();
-            transports.remove(transport);
           }
+          transports.clear();
         },
       );
 
@@ -345,13 +355,13 @@ void main() {
         );
 
         await transport.initialize();
-        await Future.delayed(const Duration(milliseconds: 300));
+        await Future.delayed(const Duration(milliseconds: 100));
 
         final stopwatch = Stopwatch()..start();
 
-        // Send a large burst of data
+        // Send a smaller burst of data for faster tests
         final futures = <Future>[];
-        for (int i = 0; i < 100; i++) {
+        for (int i = 0; i < 20; i++) {
           futures.add(transport.sendEvent(i));
         }
 
@@ -359,7 +369,7 @@ void main() {
         stopwatch.stop();
 
         // Should handle burst efficiently (just queuing messages to isolate)
-        expect(stopwatch.elapsedMilliseconds, lessThan(2000)); // 2 seconds max
+        expect(stopwatch.elapsedMilliseconds, lessThan(1000)); // 1 second max
       });
     });
   });

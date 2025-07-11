@@ -1,283 +1,358 @@
+import 'dart:async';
+import 'dart:io';
 import 'package:liblsl_coordinator/liblsl_coordinator.dart';
-import 'package:liblsl_coordinator/src/coordination/core/coordination_config.dart';
 
-/// Comprehensive example showing both coordination and high-performance gaming features
+/// Interactive demo application for testing coordination features
+/// This demonstrates the real coordinator functionality in a controlled
+/// environment
+///
+/// Usage:
+/// ```
+/// dart run example/unified_api_demo.dart
+/// ```
+
 void main() async {
-  await runBasicCoordinationExample();
-  print('\n${'=' * 50}\n');
-  await runGamingCoordinationExample();
+  print('=== LibLSL Coordinator Unified API Demo ===');
+  print('This demo shows the unified layer API in action.\n');
+
+  // Check if we should run as coordinator or participant
+  print('Choose mode:');
+  print('1. Coordinator (starts first, manages network)');
+  print('2. Participant (joins existing network)');
+  print('3. Standalone (single device demo)');
+  stdout.write('Enter choice (1-3): ');
+
+  final choice = stdin.readLineSync();
+
+  switch (choice) {
+    case '1':
+      await runCoordinatorDemo();
+      break;
+    case '2':
+      await runParticipantDemo();
+      break;
+    case '3':
+      await runStandaloneDemo();
+      break;
+    default:
+      print('Invalid choice. Running standalone demo...');
+      await runStandaloneDemo();
+  }
 }
 
-/// Basic coordination example
-Future<void> runBasicCoordinationExample() async {
-  print('=== Basic Coordination Example ===');
+/// Run as coordinator (manages the network)
+Future<void> runCoordinatorDemo() async {
+  print('\n=== Starting Coordinator Demo ===');
 
-  // Create basic coordination node
-  final node = LSLCoordinationNode(
-    nodeId: 'device_001',
-    nodeName: 'Test Device 1',
-    streamName: 'coordination_test',
-    config: CoordinationConfig(
-      discoveryInterval: 2.0,
-      heartbeatInterval: 1.0,
-      nodeTimeout: 5.0,
-      capabilities: {'device_type': 'eeg', 'sample_rate': 250},
-    ),
+  final coordinator = MultiLayerCoordinator(
+    nodeId: 'demo_coordinator',
+    nodeName: 'Demo Coordinator',
+    protocolConfig: ProtocolConfigs.gaming,
   );
 
-  // Listen for events
-  node.eventStream.listen((event) {
-    switch (event) {
-      case RoleChangedEvent():
-        print('Role changed: ${event.oldRole} -> ${event.newRole}');
-        break;
-      case NodeJoinedEvent():
-        print('Node joined: ${event.nodeName} (${event.nodeId})');
-        break;
-      case NodeLeftEvent():
-        print('Node left: ${event.nodeId}');
-        break;
-      case TopologyChangedEvent():
-        print('Network topology: ${event.nodes.length} nodes');
-        break;
-      case ApplicationEvent():
-        print('App event: ${event.type} - ${event.data}');
-        break;
+  try {
+    print('Initializing coordinator...');
+    await coordinator.initialize();
+
+    print('Joining network...');
+    await coordinator.join();
+
+    // Wait for initialization
+    await Future.delayed(const Duration(seconds: 2));
+
+    print('\n=== Coordinator Status ===');
+    print('Node ID: ${coordinator.nodeId}');
+    print('Node Name: ${coordinator.nodeName}');
+    print('Role: ${coordinator.role}');
+    print('Available Layers: ${coordinator.layers.layerIds}');
+
+    // Test layer operations
+    await demonstrateLayerOperations(coordinator);
+
+    // Keep coordinator running
+    print('\nCoordinator is running. Press Ctrl+C to stop.');
+    print('Other devices can now join as participants.');
+
+    // Listen for Ctrl+C
+    ProcessSignal.sigint.watch().listen((_) async {
+      print('\nShutting down coordinator...');
+      await coordinator.dispose();
+      exit(0);
+    });
+
+    // Keep alive
+    while (true) {
+      await Future.delayed(const Duration(seconds: 1));
     }
-  });
+  } catch (e) {
+    print('Error in coordinator demo: $e');
+  } finally {
+    await coordinator.dispose();
+  }
+}
+
+/// Run as participant (joins existing network)
+Future<void> runParticipantDemo() async {
+  print('\n=== Starting Participant Demo ===');
+
+  final participant = MultiLayerCoordinator(
+    nodeId: 'demo_participant_${DateTime.now().millisecondsSinceEpoch}',
+    nodeName: 'Demo Participant',
+    protocolConfig: ProtocolConfigs.gaming,
+  );
 
   try {
-    // Initialize and join network
-    await node.initialize();
-    await node.join();
+    print('Initializing participant...');
+    await participant.initialize();
 
-    // Wait to become coordinator or participant
-    await node
-        .waitForRole(NodeRole.coordinator)
-        .timeout(Duration(seconds: 10))
-        .catchError((_) => node.waitForRole(NodeRole.participant));
+    print('Looking for coordinator...');
+    await Future.delayed(const Duration(seconds: 3));
 
-    if (node.role == NodeRole.coordinator) {
-      print('I am the coordinator!');
+    print('\n=== Participant Status ===');
+    print('Node ID: ${participant.nodeId}');
+    print('Node Name: ${participant.nodeName}');
+    print('Role: ${participant.role}');
+    print('Available Layers: ${participant.layers.layerIds}');
 
-      // Wait for some participants
-      try {
-        final nodes = await node.waitForNodes(
-          2,
-          timeout: Duration(seconds: 10),
-        );
-        print('Network ready with ${nodes.length} nodes');
-      } catch (e) {
+    // Test layer operations
+    await demonstrateLayerOperations(participant);
+
+    // Send some test data
+    final gameLayer = participant.getLayer('game');
+    if (gameLayer != null) {
+      print('\nSending test data...');
+      for (int i = 0; i < 5; i++) {
+        await gameLayer.sendData([i * 10.0, i * 20.0, i * 1.0, i * 2.0]);
         print(
-          'Timeout waiting for participants, continuing with current nodes',
+          'Sent game data: [${i * 10.0}, ${i * 20.0}, ${i * 1.0}, ${i * 2.0}]',
         );
+        await Future.delayed(const Duration(seconds: 1));
       }
-
-      // Send application messages
-      await node.sendApplicationMessage('test_start', {
-        'test_id': 'latency_001',
-        'duration': 30,
-      });
-    } else {
-      print('I am a participant, coordinator is: ${node.coordinatorId}');
     }
 
-    // Keep running briefly
-    await Future.delayed(Duration(seconds: 5));
+    print('\nParticipant demo completed.');
+  } catch (e) {
+    print('Error in participant demo: $e');
   } finally {
-    // Clean up
-    await node.dispose();
+    await participant.dispose();
   }
 }
 
-/// High-performance gaming coordination example
-Future<void> runGamingCoordinationExample() async {
-  print('=== Gaming Coordination Example ===');
+/// Run standalone demo (single device)
+Future<void> runStandaloneDemo() async {
+  print('\n=== Starting Standalone Demo ===');
 
-  // Create gaming coordination node with high-performance capabilities
-  final gameNode = GamingCoordinationNode(
-    nodeId: 'player_001',
-    nodeName: 'Player 1',
-    coordinationStreamName: 'game_coordination',
-    gameDataStreamName: 'game_data',
+  final coordinator = MultiLayerCoordinator(
+    nodeId: 'demo_standalone',
+    nodeName: 'Demo Standalone',
+    protocolConfig: ProtocolConfigs.full,
     coordinationConfig: CoordinationConfig(
-      discoveryInterval: 1.0,
+      discoveryInterval: 0.5,
       heartbeatInterval: 0.5,
-      nodeTimeout: 3.0,
-      capabilities: {
-        'player_type': 'human',
-        'supports_high_frequency': true,
-        'max_latency_ms': 16, // 60 FPS tolerance
-      },
-    ),
-    gameDataConfig: HighFrequencyConfig(
-      targetFrequency: 120.0, // 120 Hz for smooth gameplay
-      useBusyWait: true,
-      bufferSize: 1000,
-      useIsolate: true,
+      nodeTimeout: 1.0,
+      joinTimeout: 0.1,
     ),
   );
 
-  // Listen for game events
-  gameNode.gameEventStream.listen((event) {
-    switch (event.type) {
-      case GameEventType.roleChanged:
-        print('Game role changed: ${event.data}');
-        break;
-      case GameEventType.playerJoined:
-        print(
-          'Player joined: ${event.data['node_name']} (${event.data['node_id']})',
-        );
-        break;
-      case GameEventType.playerLeft:
-        print('Player left: ${event.data['node_id']}');
-        break;
-      case GameEventType.playerAction:
-        print(
-          'Player action: ${event.data['action_type']} from ${event.senderId}',
-        );
-        break;
-      case GameEventType.gameStateUpdate:
-        print('Game state update: ${event.data['state_type']}');
-        break;
-      case GameEventType.syncPulse:
-        final latency =
-            DateTime.now().microsecondsSinceEpoch -
-            (event.data['timestamp'] as int);
-        print('Sync pulse latency: $latency μs');
-        break;
-      default:
-        print('Game event: ${event.type} - ${event.data}');
-        break;
-    }
-  });
-
   try {
-    // Initialize gaming node
-    await gameNode.initialize();
-    await gameNode.join();
+    print('Initializing coordinator...');
+    await coordinator.initialize();
 
-    // Configure for optimal gaming performance
-    await gameNode.configureGamePerformance(
-      targetFPS: 120.0,
-      useBusyWait: true,
-      maxLatencyMs: 8,
-    );
+    print('Joining network...');
+    await coordinator.join();
 
-    // Wait to become game coordinator or player
-    await gameNode
-        .waitForRole(NodeRole.coordinator)
-        .timeout(Duration(seconds: 10))
-        .catchError((_) => gameNode.waitForRole(NodeRole.participant));
+    // Wait for initialization
+    await Future.delayed(const Duration(seconds: 1));
 
-    if (gameNode.isGameCoordinator) {
-      print('I am the game coordinator!');
+    print('\n=== Standalone Status ===');
+    print('Node ID: ${coordinator.nodeId}');
+    print('Node Name: ${coordinator.nodeName}');
+    print('Role: ${coordinator.role}');
+    print('Available Layers: ${coordinator.layers.layerIds}');
 
-      // Start a game session
-      final sessionConfig = GameSessionConfig(
-        sessionId: 'session_${DateTime.now().millisecondsSinceEpoch}',
-        gameType: 'multiplayer_test',
-        maxPlayers: 4,
-        gameSettings: {
-          'map': 'test_arena',
-          'difficulty': 'normal',
-          'duration_minutes': 10,
-        },
-        startDelay: Duration(seconds: 5),
-      );
+    // Demonstrate all features
+    await demonstrateUnifiedAPI(coordinator);
+    await demonstrateLayerOperations(coordinator);
+    await demonstrateDataFlow(coordinator);
 
-      await gameNode.startGameSession(sessionConfig);
-      print('Game session started: ${sessionConfig.sessionId}');
-
-      // Simulate game coordinator behavior
-      await _simulateGameCoordinator(gameNode);
-    } else {
-      print('I am a player, coordinator is: ${gameNode.gameCoordinatorId}');
-
-      // Join the game session
-      await gameNode.joinGameSession('multiplayer_session');
-
-      // Simulate player behavior
-      await _simulatePlayer(gameNode);
-    }
-
-    // Monitor performance
-    final metrics = gameNode.gamePerformanceMetrics;
-    print('Game Performance Metrics:');
-    print(
-      '  Actual frequency: ${metrics.actualFrequency.toStringAsFixed(1)} Hz',
-    );
-    print('  Time corrections (LSL): ${metrics.timeCorrections}');
-    print('  Messages processed: ${metrics.samplesProcessed}');
-    print('  Dropped messages: ${metrics.droppedSamples}');
+    print('\nStandalone demo completed.');
+  } catch (e) {
+    print('Error in standalone demo: $e');
   } finally {
-    // Clean up
-    await gameNode.dispose();
+    await coordinator.dispose();
   }
 }
 
-/// Simulate game coordinator behavior
-Future<void> _simulateGameCoordinator(GamingCoordinationNode gameNode) async {
-  print('Starting coordinator simulation...');
+/// Demonstrate the unified layer API
+Future<void> demonstrateUnifiedAPI(MultiLayerCoordinator coordinator) async {
+  print('\n=== Unified API Demonstration ===');
 
-  // Send periodic sync pulses
-  final syncTimer = Stream.periodic(Duration(milliseconds: 100), (i) => i)
-      .take(50) // Run for 5 seconds
-      .listen((_) async {
-        await gameNode.sendSyncPulse();
-      });
+  final layers = coordinator.layers;
 
-  // Send game state updates
-  final stateTimer = Stream.periodic(
-        Duration(milliseconds: 33),
-        (i) => i,
-      ) // ~30 FPS
-      .take(150) // Run for 5 seconds
-      .listen((frame) async {
-        final gameState = GameState(
-          stateType: 'world_update',
-          data: {
-            'frame': frame,
-            'timestamp': DateTime.now().microsecondsSinceEpoch,
-            'world_state': {
-              'time': frame * 33, // milliseconds
-              'entities': [
-                {'id': 'entity_1', 'x': frame % 100, 'y': 50},
-                {'id': 'entity_2', 'x': 50, 'y': frame % 100},
-              ],
-            },
-          },
-        );
+  print('Available layers: ${layers.layerIds}');
+  print('Layer count: ${layers.layerIds.length}');
 
-        await gameNode.sendGameStateUpdate(gameState);
-      });
+  // Individual layer access
+  for (final layerId in layers.layerIds) {
+    final layer = coordinator.getLayer(layerId);
+    if (layer != null) {
+      print('Layer $layerId:');
+      print('  - Name: ${layer.layerName}');
+      print('  - Active: ${layer.isActive}');
+      print('  - Pausable: ${layer.config.isPausable}');
+      print('  - Priority: ${layer.config.priority}');
+      print('  - Uses Isolate: ${layer.config.useIsolate}');
+    }
+  }
 
-  await Future.delayed(Duration(seconds: 5));
-  syncTimer.cancel();
-  stateTimer.cancel();
+  // Collection operations
+  final pausableLayers = layers.pausable;
+  print('\nPausable layers: ${pausableLayers.map((l) => l.layerId).toList()}');
+
+  final highPriorityLayers = layers.getByPriority(LayerPriority.high);
+  print(
+    'High priority layers: ${highPriorityLayers.map((l) => l.layerId).toList()}',
+  );
 }
 
-/// Simulate player behavior
-Future<void> _simulatePlayer(GamingCoordinationNode gameNode) async {
-  print('Starting player simulation...');
+/// Demonstrate layer operations
+Future<void> demonstrateLayerOperations(
+  MultiLayerCoordinator coordinator,
+) async {
+  print('\n=== Layer Operations Demonstration ===');
 
-  // Send player actions
-  final actionTimer = Stream.periodic(Duration(milliseconds: 50), (i) => i)
-      .take(100) // Run for 5 seconds
-      .listen((actionCount) async {
-        final action = PlayerAction(
-          actionType: 'move',
-          data: {
-            'direction': ['up', 'down', 'left', 'right'][actionCount % 4],
-            'speed': 1.0,
-            'timestamp': DateTime.now().microsecondsSinceEpoch,
-          },
-          isTimeCritical: true,
-        );
+  final layers = coordinator.layers;
+  final gameLayer = coordinator.getLayer('game');
 
-        await gameNode.sendPlayerAction(action);
-      });
+  if (gameLayer != null) {
+    print('\nTesting game layer operations:');
 
-  await Future.delayed(Duration(seconds: 5));
-  actionTimer.cancel();
+    // Pause/Resume
+    print('  - Pausing game layer...');
+    await gameLayer.pause();
+    print('  - Game layer paused: ${gameLayer.isPaused}');
+
+    print('  - Resuming game layer...');
+    await gameLayer.resume();
+    print('  - Game layer paused: ${gameLayer.isPaused}');
+
+    // Data sending
+    print('  - Sending game data...');
+    await gameLayer.sendData([100.0, 200.0, 5.0, 10.0]);
+    print('  - Game data sent successfully');
+  }
+
+  // Bulk operations
+  print('\nTesting bulk operations:');
+  print('  - Pausing all pausable layers...');
+  await layers.pauseAll();
+
+  final pausedLayers = layers.pausable.where((l) => l.isPaused).toList();
+  print('  - Paused layers: ${pausedLayers.map((l) => l.layerId).toList()}');
+
+  print('  - Resuming all paused layers...');
+  await layers.resumeAll();
+
+  final activeLayers = layers.pausable.where((l) => !l.isPaused).toList();
+  print('  - Active layers: ${activeLayers.map((l) => l.layerId).toList()}');
+}
+
+/// Demonstrate data flow
+Future<void> demonstrateDataFlow(MultiLayerCoordinator coordinator) async {
+  print('\n=== Data Flow Demonstration ===');
+
+  final layers = coordinator.layers;
+  final gameLayer = coordinator.getLayer('game');
+  final hiFreqLayer = coordinator.getLayer('hi_freq');
+
+  // Set up data listeners
+  final subscriptions = <StreamSubscription>[];
+
+  if (gameLayer != null) {
+    print('Setting up game layer data listener...');
+    final sub = gameLayer.dataStream.listen((event) {
+      print('Game data received from ${event.sourceNodeId}: ${event.data}');
+    });
+    subscriptions.add(sub);
+  }
+
+  if (hiFreqLayer != null) {
+    print('Setting up hi-freq layer data listener...');
+    final sub = hiFreqLayer.dataStream.listen((event) {
+      print('Hi-freq data received from ${event.sourceNodeId}: ${event.data}');
+    });
+    subscriptions.add(sub);
+  }
+
+  // Combined stream
+  final combinedStream = layers.getCombinedDataStream(['game', 'hi_freq']);
+  final combinedSub = combinedStream.listen((event) {
+    print('Combined stream - ${event.layerId}: ${event.data}');
+  });
+  subscriptions.add(combinedSub);
+
+  // Send test data
+  print('\nSending test data...');
+
+  if (gameLayer != null) {
+    await gameLayer.sendData([1.0, 2.0, 3.0, 4.0]);
+    print('Game data sent');
+  }
+
+  if (hiFreqLayer != null) {
+    await hiFreqLayer.sendData([
+      10.0,
+      20.0,
+      30.0,
+      40.0,
+      50.0,
+      60.0,
+      70.0,
+      80.0,
+    ]);
+    print('Hi-freq data sent');
+  }
+
+  // Wait for potential data
+  await Future.delayed(const Duration(seconds: 2));
+
+  // Cleanup
+  for (final sub in subscriptions) {
+    await sub.cancel();
+  }
+
+  print('Data flow demonstration completed.');
+}
+
+/// Demonstrate error handling
+Future<void> demonstrateErrorHandling(MultiLayerCoordinator coordinator) async {
+  print('\n=== Error Handling Demonstration ===');
+
+  // Test invalid layer access
+  final nonExistentLayer = coordinator.getLayer('nonexistent');
+  print(
+    'Accessing non-existent layer: ${nonExistentLayer == null ? 'null (expected)' : 'unexpected!'}',
+  );
+
+  // Test operations on empty collection
+  final emptyCoordinator = MultiLayerCoordinator(
+    nodeId: 'empty_test',
+    nodeName: 'Empty Test',
+    protocolConfig: ProtocolConfigs.basic,
+  );
+
+  try {
+    await emptyCoordinator.initialize();
+
+    final layers = emptyCoordinator.layers;
+    print('Empty coordinator layers: ${layers.layerIds}');
+
+    // These should not throw
+    await layers.pauseAll();
+    await layers.resumeAll();
+
+    print('Empty collection operations handled gracefully');
+  } finally {
+    await emptyCoordinator.dispose();
+  }
 }

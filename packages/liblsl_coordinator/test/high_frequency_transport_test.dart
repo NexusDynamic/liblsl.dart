@@ -3,6 +3,7 @@ import 'package:test/test.dart';
 import 'package:liblsl/lsl.dart';
 import 'package:liblsl_coordinator/src/coordination/lsl/high_frequency_transport.dart';
 import 'package:liblsl_coordinator/src/coordination/core/coordination_message.dart';
+import 'package:liblsl_coordinator/src/coordination/lsl/lsl_transport.dart';
 
 void main() {
   group('HighFrequencyLSLTransport Tests', () {
@@ -18,6 +19,7 @@ void main() {
           useBusyWait: false, // Use timer-based for testing
           bufferSize: 10,
           useIsolate: false, // Start with non-isolate mode for unit tests
+          channelCount: 2, // Support both single events and event+value pairs
         ),
         lslApiConfig: LSLApiConfig(ipv6: IPv6Mode.disable),
       );
@@ -69,6 +71,9 @@ void main() {
 
     group('Data Sending Tests', () {
       test('should send single-channel int event', () async {
+        // Initialize transport first
+        await transport.initialize();
+
         // Note: This test will use fallback coordination message mode
         // since we're not using isolates in test mode
         await transport.sendEvent(42);
@@ -78,6 +83,8 @@ void main() {
       });
 
       test('should send two-channel int data', () async {
+        await transport.initialize();
+
         await transport.sendEventWithValue(100, 200);
 
         // Verify the transport is still responsive
@@ -85,6 +92,8 @@ void main() {
       });
 
       test('should send multi-channel double data', () async {
+        await transport.initialize();
+
         await transport.sendPositionData([1.0, 2.0, 3.0]);
 
         // Verify the transport is still responsive
@@ -92,6 +101,8 @@ void main() {
       });
 
       test('should send generic typed data', () async {
+        await transport.initialize();
+
         await transport.sendGameData([1, 2, 3, 4, 5]);
         await transport.sendGameData([1.1, 2.2, 3.3]);
         await transport.sendGameData(['a', 'b', 'c']);
@@ -314,8 +325,9 @@ void main() {
 
     group('Error Handling Tests', () {
       test('should handle invalid configuration gracefully', () {
+        // Test that invalid frequency throws an error
         expect(
-          () => HighFrequencyConfig(targetFrequency: 0.0),
+          () => HighFrequencyConfig(targetFrequency: -1.0),
           throwsA(anything),
         );
       });
@@ -328,8 +340,11 @@ void main() {
           lslApiConfig: LSLApiConfig(ipv6: IPv6Mode.disable),
         );
 
-        // Should not throw, will use fallback mode
-        await testTransport.sendEvent(42);
+        // Should throw LSLTransportException when not initialized
+        expect(
+          () async => await testTransport.sendEvent(42),
+          throwsA(isA<LSLTransportException>()),
+        );
 
         await testTransport.dispose();
       });

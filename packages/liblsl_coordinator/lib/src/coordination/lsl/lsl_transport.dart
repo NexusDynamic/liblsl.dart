@@ -68,7 +68,11 @@ class LSLNetworkTransport implements NetworkTransport {
         streamInfo: streamInfo,
         chunkSize: 1,
         maxBuffer: 10,
+        useIsolates: false,
       );
+
+      // Add a brief delay to ensure outlet is fully initialized
+      await Future.delayed(Duration(milliseconds: 100));
 
       // Start polling for incoming messages
       _startMessagePolling();
@@ -89,7 +93,7 @@ class LSLNetworkTransport implements NetworkTransport {
 
     try {
       final serialized = jsonEncode(message.toMap());
-      await _outlet!.pushSample([serialized]);
+      _outlet!.pushSampleSync([serialized]);
     } catch (e) {
       throw LSLTransportException(
         'Failed to send message: ${message.messageType}',
@@ -125,7 +129,11 @@ class LSLNetworkTransport implements NetworkTransport {
             maxBuffer: 10,
             chunkSize: 1,
             recover: true,
+            useIsolates: false,
           );
+
+          // Add brief delay to ensure inlet is ready, following your pattern
+          await Future.delayed(Duration(milliseconds: 10));
 
           _inlets.add(inlet);
         } catch (e) {
@@ -174,7 +182,7 @@ class LSLNetworkTransport implements NetworkTransport {
   Future<void> _pollMessages() async {
     for (final inlet in List.from(_inlets)) {
       try {
-        final sample = await inlet.pullSample(timeout: 0.0);
+        final sample = inlet.pullSampleSync(timeout: 0.0);
         if (sample.isNotEmpty) {
           final messageData = sample[0] as String;
           try {
@@ -223,7 +231,11 @@ class LSLNetworkTransport implements NetworkTransport {
             maxBuffer: 10,
             chunkSize: 1,
             recover: true,
+            useIsolates: false,
           );
+
+          // Add brief delay to ensure inlet is ready
+          await Future.delayed(Duration(milliseconds: 10));
 
           _inlets.add(inlet);
         } catch (e) {
@@ -246,7 +258,7 @@ class LSLNetworkTransport implements NetworkTransport {
       // Clean up inlets
       for (final inlet in _inlets) {
         try {
-          await inlet.destroy();
+          inlet.destroy();
         } catch (e) {
           print('Error destroying inlet ${inlet.streamInfo.sourceId}: $e');
         }
@@ -256,7 +268,7 @@ class LSLNetworkTransport implements NetworkTransport {
       // Clean up outlet
       if (_outlet != null) {
         try {
-          await _outlet!.destroy();
+          _outlet!.destroy();
         } catch (e) {
           print('Error destroying outlet: $e');
         }

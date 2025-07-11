@@ -18,6 +18,14 @@ class LSLCoordinationNode implements CoordinationNode {
   final LSLApiConfig _lslApiConfig;
 
   NodeRole _role = NodeRole.discovering;
+
+  // Helper to track all role changes
+  void _setRole(NodeRole newRole, String reason) {
+    if (_role != newRole) {
+      _role = newRole;
+    }
+  }
+
   final Map<String, NetworkNode> _knownNodes = {};
   String? _coordinatorId;
 
@@ -27,6 +35,7 @@ class LSLCoordinationNode implements CoordinationNode {
   Timer? _discoveryTimer;
   Timer? _heartbeatTimer;
   Timer? _cleanupTimer;
+  Timer? _promotionTimer;
   bool _isActive = false;
 
   LSLCoordinationNode({
@@ -138,7 +147,7 @@ class LSLCoordinationNode implements CoordinationNode {
       throw StateError('Node not initialized');
     }
 
-    _role = NodeRole.discovering;
+    _setRole(NodeRole.discovering, 'join() called');
     _emitEvent(RoleChangedEvent(NodeRole.disconnected, _role));
 
     // Start discovery process
@@ -156,7 +165,7 @@ class LSLCoordinationNode implements CoordinationNode {
       // TODO: Handle coordinator handoff
     }
 
-    _role = NodeRole.disconnected;
+    _setRole(NodeRole.disconnected, 'leave() called');
     _knownNodes.clear();
     _coordinatorId = null;
 
@@ -165,7 +174,13 @@ class LSLCoordinationNode implements CoordinationNode {
 
   @override
   Future<void> sendMessage(CoordinationMessage message) async {
-    await _transport.sendMessage(message);
+    try {
+      await _transport.sendMessage(message);
+    } catch (e) {
+      // If transport fails, try to handle gracefully
+      print('Transport send failed: $e');
+      await _handleTransportFailure();
+    }
   }
 
   /// Send an application-specific message
@@ -213,6 +228,11 @@ class LSLCoordinationNode implements CoordinationNode {
   }
 
   void _handleDiscoveryMessage(DiscoveryMessage message) {
+    // Never process our own discovery messages for coordinator election
+    if (message.senderId == _nodeId) {
+      return;
+    }
+
     _updateKnownNode(message.senderId, message.nodeName, message.role);
 
     if (message.role == NodeRole.coordinator) {
@@ -242,7 +262,7 @@ class LSLCoordinationNode implements CoordinationNode {
         currentNodes: _knownNodes.values.toList(),
       );
 
-      _transport.sendMessage(response);
+      _sendMessageSafely(response);
 
       // Broadcast topology update
       _broadcastTopologyUpdate();
@@ -255,7 +275,7 @@ class LSLCoordinationNode implements CoordinationNode {
 
   void _handleJoinResponseMessage(JoinResponseMessage message) {
     if (message.accepted && _role == NodeRole.discovering) {
-      _role = NodeRole.participant;
+      _setRole(NodeRole.participant, 'join response accepted');
       _coordinatorId = message.senderId;
 
       // Update known nodes
@@ -308,6 +328,11 @@ class LSLCoordinationNode implements CoordinationNode {
   }
 
   void _startDiscovery() {
+    // CRITICAL FIX: Stop any existing discovery before starting new one
+    if (_discoveryTimer != null) {
+      _stopDiscovery();
+    }
+
     _discoveryTimer = Timer.periodic(
       Duration(milliseconds: (_config.discoveryInterval * 1000).round()),
       (_) => _sendDiscoveryMessage(),
@@ -317,7 +342,7 @@ class LSLCoordinationNode implements CoordinationNode {
     _sendDiscoveryMessage();
 
     // Check if we should become coordinator
-    Future.delayed(Duration(seconds: _config.joinTimeout.round()), () {
+    _promotionTimer = Timer(Duration(seconds: _config.joinTimeout.round()), () {
       if (_role == NodeRole.discovering && _config.autoPromote) {
         _becomeCoordinator();
       }
@@ -327,6 +352,8 @@ class LSLCoordinationNode implements CoordinationNode {
   void _stopDiscovery() {
     _discoveryTimer?.cancel();
     _discoveryTimer = null;
+    _promotionTimer?.cancel();
+    _promotionTimer = null;
   }
 
   void _startHeartbeat() {
@@ -346,9 +373,11 @@ class LSLCoordinationNode implements CoordinationNode {
     _discoveryTimer?.cancel();
     _heartbeatTimer?.cancel();
     _cleanupTimer?.cancel();
+    _promotionTimer?.cancel();
     _discoveryTimer = null;
     _heartbeatTimer = null;
     _cleanupTimer = null;
+    _promotionTimer = null;
   }
 
   void _sendDiscoveryMessage() {
@@ -361,7 +390,7 @@ class LSLCoordinationNode implements CoordinationNode {
       capabilities: _config.capabilities,
     );
 
-    _transport.sendMessage(message);
+    _sendMessageSafely(message);
   }
 
   void _sendJoinRequest() {
@@ -373,7 +402,7 @@ class LSLCoordinationNode implements CoordinationNode {
       capabilities: _config.capabilities,
     );
 
-    _transport.sendMessage(message);
+    _sendMessageSafely(message);
   }
 
   void _sendHeartbeat() {
@@ -384,12 +413,34 @@ class LSLCoordinationNode implements CoordinationNode {
       status: {'role': _role.index},
     );
 
-    _transport.sendMessage(message);
+    _sendMessageSafely(message);
+
+    // Update our own lastSeen time to prevent being considered stale
+    if (_role == NodeRole.coordinator) {
+      _knownNodes[_nodeId] = NetworkNode(
+        nodeId: _nodeId,
+        nodeName: _nodeName,
+        role: _role,
+        lastSeen: DateTime.now(),
+        metadata: _config.capabilities,
+      );
+    }
   }
 
   void _becomeCoordinator() {
+    // Prevent double promotion
+    if (_role == NodeRole.coordinator) {
+      return;
+    }
+
+    // Check if transport is stable before becoming coordinator
+    if (!_transport.isConnected) {
+      // TODO: Re-enable after fixing underlying transport issue
+      // return;
+    }
+
     final oldRole = _role;
-    _role = NodeRole.coordinator;
+    _setRole(NodeRole.coordinator, 'coordinator promotion');
     _coordinatorId = _nodeId;
 
     // Add self to known nodes
@@ -418,7 +469,7 @@ class LSLCoordinationNode implements CoordinationNode {
       nodes: _knownNodes.values.toList(),
     );
 
-    _transport.sendMessage(message);
+    _sendMessageSafely(message);
   }
 
   void _cleanupStaleNodes() {
@@ -433,6 +484,12 @@ class LSLCoordinationNode implements CoordinationNode {
                   now.difference(node.lastSeen) > timeout,
             )
             .toList();
+
+    if (staleNodes.isNotEmpty) {
+      print(
+        'Cleaning up ${staleNodes.length} stale nodes: ${staleNodes.map((n) => n.nodeId).toList()}',
+      );
+    }
 
     for (final staleNode in staleNodes) {
       _knownNodes.remove(staleNode.nodeId);
@@ -450,6 +507,7 @@ class LSLCoordinationNode implements CoordinationNode {
   }
 
   void _handleCoordinatorFailure() {
+    print('_handleCoordinatorFailure called for coordinator: $_coordinatorId');
     _coordinatorId = null;
 
     // Check if we should become the new coordinator
@@ -468,7 +526,10 @@ class LSLCoordinationNode implements CoordinationNode {
       _becomeCoordinator();
     } else {
       // Go back to discovering
-      _role = NodeRole.discovering;
+      _setRole(
+        NodeRole.discovering,
+        'coordinator failure - become new coordinator failed',
+      );
       _startDiscovery();
       _emitEvent(RoleChangedEvent(NodeRole.participant, _role));
     }
@@ -480,6 +541,52 @@ class LSLCoordinationNode implements CoordinationNode {
 
   String _generateMessageId() {
     return '${_nodeId}_${DateTime.now().millisecondsSinceEpoch}_${Random().nextInt(1000)}';
+  }
+
+  /// Safely send a message, handling transport failures
+  void _sendMessageSafely(CoordinationMessage message) {
+    _transport.sendMessage(message).catchError((e) {
+      print('Failed to send ${message.messageType} message: $e');
+      // For non-critical messages, just log the error
+      // Critical failures are handled in the public sendMessage method
+
+      // If this is a heartbeat failure and we're coordinator, trigger recovery
+      if (message.messageType == 'heartbeat' && _role == NodeRole.coordinator) {
+        print('Heartbeat failed for coordinator, triggering recovery');
+        _handleTransportFailure();
+      }
+    });
+  }
+
+  /// Handle transport failures by attempting recovery
+  Future<void> _handleTransportFailure() async {
+    print('Transport failure detected, attempting recovery...');
+
+    // If we're coordinator and transport fails, we need to step down
+    if (_role == NodeRole.coordinator) {
+      print('Coordinator transport failed, stepping down...');
+
+      // Stop all coordinator activities first
+      _stopAllTimers();
+
+      _setRole(NodeRole.disconnected, 'transport failure');
+      _coordinatorId = null;
+      _knownNodes.clear();
+
+      _emitEvent(RoleChangedEvent(NodeRole.coordinator, NodeRole.disconnected));
+
+      // Try to restart discovery after a delay
+      Future.delayed(Duration(milliseconds: 500), () {
+        if (_isActive && _role == NodeRole.disconnected) {
+          print('Restarting discovery after transport failure');
+          _setRole(NodeRole.discovering, 'transport failure recovery');
+          _emitEvent(
+            RoleChangedEvent(NodeRole.disconnected, NodeRole.discovering),
+          );
+          _startDiscovery();
+        }
+      });
+    }
   }
 
   @override

@@ -55,8 +55,7 @@ class CoordinationConfig {
       joinTimeout: joinTimeout ?? this.joinTimeout,
       maxNodes: maxNodes ?? this.maxNodes,
       autoPromote: autoPromote ?? this.autoPromote,
-      receiveOwnMessages:
-          receiveOwnMessages ?? this.receiveOwnMessages,
+      receiveOwnMessages: receiveOwnMessages ?? this.receiveOwnMessages,
       capabilities: capabilities ?? this.capabilities,
     );
   }

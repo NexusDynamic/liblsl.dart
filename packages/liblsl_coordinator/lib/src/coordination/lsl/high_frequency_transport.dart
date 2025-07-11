@@ -33,7 +33,9 @@ class HighFrequencyConfig {
     this.useIsolate = true,
     this.channelFormat = LSLChannelFormat.int32,
     this.channelCount = 1,
-  });
+  }) : assert(targetFrequency > 0, 'Target frequency must be positive'),
+       assert(bufferSize > 0, 'Buffer size must be positive'),
+       assert(channelCount > 0, 'Channel count must be positive');
 
   /// Get the target polling interval in microseconds
   int get targetIntervalMicroseconds => (1000000 / targetFrequency).round();
@@ -213,7 +215,14 @@ class HighFrequencyLSLTransport extends LSLNetworkTransport {
 
   /// Send simple single-channel int event
   Future<void> sendEvent(int eventCode) async {
-    await sendGameData([eventCode]);
+    // If stream has more than 1 channel, pad with 0 for compatibility
+    if (_config.channelCount > 1) {
+      final data = List<int>.filled(_config.channelCount, 0);
+      data[0] = eventCode;
+      await sendGameData(data);
+    } else {
+      await sendGameData([eventCode]);
+    }
   }
 
   /// Send two-channel int data (e.g., event + response value)
@@ -698,7 +707,7 @@ Future<void> _discoverAndConnectGameStreams(
 
         // Get initial time correction (this takes time on first call)
         try {
-          final correction = await inlet.getTimeCorrection(timeout: 1.0);
+          final correction = inlet.getTimeCorrectionSync(timeout: 1.0);
           timeCorrections[stream.sourceId] = correction;
 
           params.sendPort.send(
@@ -774,7 +783,7 @@ Future<void> _busyWaitInletPollingLoop(
     // Poll all inlets for new game data
     for (final inlet in inlets) {
       try {
-        final sample = await inlet.pullSample(timeout: 0.0);
+        final sample = inlet.pullSampleSync(timeout: 0.0);
         if (sample.isNotEmpty) {
           final pollTime = DateTime.now().microsecondsSinceEpoch;
 
@@ -865,7 +874,7 @@ Future<void> _timerBasedInletPollingLoop(
       // Similar polling logic as busy wait but less precise
       for (final inlet in inlets) {
         try {
-          final sample = await inlet.pullSample(timeout: 0.0);
+          final sample = inlet.pullSampleSync(timeout: 0.0);
           if (sample.isNotEmpty) {
             final sourceId = inlet.streamInfo.sourceId;
             final correction = timeCorrections[sourceId] ?? 0.0;

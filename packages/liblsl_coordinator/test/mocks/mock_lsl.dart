@@ -38,11 +38,18 @@ class MockLSL {
     double waitTime = 1.0,
     int maxStreams = 100,
   }) {
-    return _registeredStreams.values.where((stream) {
-      if (streamName != null && stream.streamName != streamName) return false;
-      if (streamType != null && stream.streamType != streamType) return false;
-      return true;
-    }).take(maxStreams).toList();
+    return _registeredStreams.values
+        .where((stream) {
+          if (streamName != null && stream.streamName != streamName) {
+            return false;
+          }
+          if (streamType != null && stream.streamType != streamType) {
+            return false;
+          }
+          return true;
+        })
+        .take(maxStreams)
+        .toList();
   }
 
   /// Create a mock outlet
@@ -61,7 +68,11 @@ class MockLSL {
   }
 
   /// Simulate data flow from outlet to inlets
-  static void _distributeData(String sourceId, List<dynamic> data, double timestamp) {
+  static void _distributeData(
+    String sourceId,
+    List<dynamic> data,
+    double timestamp,
+  ) {
     for (final inlet in _inlets.values) {
       if (inlet.streamInfo.sourceId != sourceId && inlet.isActive) {
         inlet._receiveSample(data, timestamp);
@@ -115,7 +126,9 @@ class MockLSLOutlet {
 
   Future<void> create() async {
     _isActive = true;
-    await Future.delayed(const Duration(milliseconds: 10)); // Simulate creation delay
+    await Future.delayed(
+      const Duration(milliseconds: 10),
+    ); // Simulate creation delay
   }
 
   Future<void> destroy() async {
@@ -126,10 +139,10 @@ class MockLSLOutlet {
   /// Send a sample
   void pushSample(List<dynamic> data) {
     if (!_isActive) throw StateError('Outlet not active');
-    
+
     final timestamp = MockLSL.localClock();
     _samplesSent++;
-    
+
     // Distribute to all inlets
     MockLSL._distributeData(streamInfo.sourceId, data, timestamp);
   }
@@ -155,7 +168,9 @@ class MockLSLInlet {
 
   Future<void> create() async {
     _isActive = true;
-    await Future.delayed(const Duration(milliseconds: 10)); // Simulate creation delay
+    await Future.delayed(
+      const Duration(milliseconds: 10),
+    ); // Simulate creation delay
   }
 
   Future<void> destroy() async {
@@ -168,7 +183,7 @@ class MockLSLInlet {
     if (_isActive) {
       _sampleBuffer.add(MockLSLSample(data, timestamp));
       _samplesReceived++;
-      
+
       // Limit buffer size to prevent memory issues
       if (_sampleBuffer.length > 1000) {
         _sampleBuffer.removeAt(0);
@@ -179,7 +194,7 @@ class MockLSLInlet {
   /// Pull a sample (async)
   Future<MockLSLSample> pullSample({double timeout = 1.0}) async {
     if (!_isActive) throw StateError('Inlet not active');
-    
+
     final startTime = MockLSL.localClock();
     while (MockLSL.localClock() - startTime < timeout) {
       if (_sampleBuffer.isNotEmpty) {
@@ -187,18 +202,18 @@ class MockLSLInlet {
       }
       await Future.delayed(const Duration(milliseconds: 1));
     }
-    
+
     return MockLSLSample.empty();
   }
 
   /// Pull a sample (sync)
   MockLSLSample pullSampleSync({double timeout = 0.0}) {
     if (!_isActive) throw StateError('Inlet not active');
-    
+
     if (_sampleBuffer.isNotEmpty) {
       return _sampleBuffer.removeAt(0);
     }
-    
+
     return MockLSLSample.empty();
   }
 
@@ -253,7 +268,7 @@ class MockLSLTestScenario {
     int channelCount = 1,
   }) async {
     final scenario = MockLSLTestScenario();
-    
+
     // Create producers (outlets)
     for (int i = 0; i < producerCount; i++) {
       final streamInfo = MockLSLStreamInfo(
@@ -264,12 +279,12 @@ class MockLSLTestScenario {
         channelFormat: channelFormat,
         sourceId: 'producer_$i',
       );
-      
+
       final outlet = MockLSL.createOutlet(streamInfo);
       await outlet.create();
       scenario.outlets.add(outlet);
     }
-    
+
     // Create consumers (inlets)
     for (int i = 0; i < consumerCount; i++) {
       // Consumers typically connect to existing streams
@@ -281,12 +296,12 @@ class MockLSLTestScenario {
         channelFormat: channelFormat,
         sourceId: 'consumer_$i',
       );
-      
+
       final inlet = MockLSL.createInlet(streamInfo);
       await inlet.create();
       scenario.inlets.add(inlet);
     }
-    
+
     return scenario;
   }
 
