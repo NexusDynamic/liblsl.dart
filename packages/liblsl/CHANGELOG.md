@@ -1,3 +1,10 @@
+# 0.8.1
+
+Dependency updates. Added a new static method `createContinuousStreamResolver` to the `LSL` class for creating and managing your own continuous stream resolver, existing stream resolver method works the same, but now you have the option to keep resolving streams in the background while the API is being used.
+
+- Updated `hooks` from `^0.19.1` to `^0.20.0`.
+- Updated `native_toolchain_c` from `^0.16.1` to `^0.17.1`.
+
 # 0.8.0
 
 🚨🚨🚨 This is a major update that includes breaking changes 🚨🚨🚨
