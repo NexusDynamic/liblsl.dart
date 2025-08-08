@@ -26,16 +26,17 @@ class _SimplifiedStatsWidgetState extends State<SimplifiedStatsWidget> {
 
   Future<void> _performAnalysis() async {
     try {
-      final result = await BackgroundAnalysisService.performAnalysisInBackground(
-        data: widget.csvData,
-        onProgress: (progress) {
-          if (mounted) {
-            setState(() {
-              _currentProgress = progress;
-            });
-          }
-        },
-      );
+      final result =
+          await BackgroundAnalysisService.performAnalysisInBackground(
+            data: widget.csvData,
+            onProgress: (progress) {
+              if (mounted) {
+                setState(() {
+                  _currentProgress = progress;
+                });
+              }
+            },
+          );
 
       if (mounted) {
         setState(() {
@@ -71,9 +72,7 @@ class _SimplifiedStatsWidgetState extends State<SimplifiedStatsWidget> {
     }
 
     if (_analysisResult == null) {
-      return const Center(
-        child: Text('Analysis failed to complete'),
-      );
+      return const Center(child: Text('Analysis failed to complete'));
     }
 
     return SingleChildScrollView(
@@ -87,18 +86,22 @@ class _SimplifiedStatsWidgetState extends State<SimplifiedStatsWidget> {
               style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 24),
-            
+
             // Inter-sample intervals section
             _buildSectionHeader('Inter-Sample Production Intervals'),
             const SizedBox(height: 16),
-            ..._analysisResult!.intervalResults.map((result) => _buildIntervalCard(result)),
-            
+            ..._analysisResult!.intervalResults.map(
+              (result) => _buildIntervalCard(result),
+            ),
+
             const SizedBox(height: 32),
-            
+
             // Latency section
             _buildSectionHeader('Device-to-Device Latencies'),
             const SizedBox(height: 16),
-            ..._analysisResult!.latencyResults.map((result) => _buildLatencyCard(result)),
+            ..._analysisResult!.latencyResults.map(
+              (result) => _buildLatencyCard(result),
+            ),
           ],
         ),
       ),
@@ -134,9 +137,18 @@ class _SimplifiedStatsWidgetState extends State<SimplifiedStatsWidget> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       _buildStatRow('Count', result.count),
-                      _buildStatRow('Mean (ms)', result.mean.toStringAsFixed(3)),
-                      _buildStatRow('Median (ms)', result.median.toStringAsFixed(3)),
-                      _buildStatRow('Std Dev (ms)', result.standardDeviation.toStringAsFixed(3)),
+                      _buildStatRow(
+                        'Mean (ms)',
+                        result.mean.toStringAsFixed(3),
+                      ),
+                      _buildStatRow(
+                        'Median (ms)',
+                        result.median.toStringAsFixed(3),
+                      ),
+                      _buildStatRow(
+                        'Std Dev (ms)',
+                        result.standardDeviation.toStringAsFixed(3),
+                      ),
                       _buildStatRow('Min (ms)', result.min.toStringAsFixed(3)),
                       _buildStatRow('Max (ms)', result.max.toStringAsFixed(3)),
                     ],
@@ -146,7 +158,11 @@ class _SimplifiedStatsWidgetState extends State<SimplifiedStatsWidget> {
                   flex: 2,
                   child: SizedBox(
                     height: 200,
-                    child: _buildHistogram(result.intervals, 'Interval (ms)', 'Count'),
+                    child: _buildHistogram(
+                      result.intervals,
+                      'Interval (ms)',
+                      'Count',
+                    ),
                   ),
                 ),
               ],
@@ -179,9 +195,18 @@ class _SimplifiedStatsWidgetState extends State<SimplifiedStatsWidget> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       _buildStatRow('Count', result.count),
-                      _buildStatRow('Mean (ms)', result.mean.toStringAsFixed(3)),
-                      _buildStatRow('Median (ms)', result.median.toStringAsFixed(3)),
-                      _buildStatRow('Std Dev (ms)', result.standardDeviation.toStringAsFixed(3)),
+                      _buildStatRow(
+                        'Mean (ms)',
+                        result.mean.toStringAsFixed(3),
+                      ),
+                      _buildStatRow(
+                        'Median (ms)',
+                        result.median.toStringAsFixed(3),
+                      ),
+                      _buildStatRow(
+                        'Std Dev (ms)',
+                        result.standardDeviation.toStringAsFixed(3),
+                      ),
                       _buildStatRow('Min (ms)', result.min.toStringAsFixed(3)),
                       _buildStatRow('Max (ms)', result.max.toStringAsFixed(3)),
                     ],
@@ -191,7 +216,11 @@ class _SimplifiedStatsWidgetState extends State<SimplifiedStatsWidget> {
                   flex: 2,
                   child: SizedBox(
                     height: 200,
-                    child: _buildHistogram(result.latencies, 'Latency (ms)', 'Count'),
+                    child: _buildHistogram(
+                      result.latencies,
+                      'Latency (ms)',
+                      'Count',
+                    ),
                   ),
                 ),
               ],
@@ -238,17 +267,11 @@ class _SimplifiedStatsWidgetState extends State<SimplifiedStatsWidget> {
         titlesData: FlTitlesData(
           leftTitles: AxisTitles(
             axisNameWidget: Text(yTitle),
-            sideTitles: SideTitles(
-              showTitles: true,
-              reservedSize: 40,
-            ),
+            sideTitles: SideTitles(showTitles: true, reservedSize: 40),
           ),
           bottomTitles: AxisTitles(
             axisNameWidget: Text(xTitle),
-            sideTitles: SideTitles(
-              showTitles: true,
-              reservedSize: 40,
-            ),
+            sideTitles: SideTitles(showTitles: true, reservedSize: 40),
           ),
           rightTitles: const AxisTitles(
             sideTitles: SideTitles(showTitles: false),
@@ -288,7 +311,7 @@ class _SimplifiedStatsWidgetState extends State<SimplifiedStatsWidget> {
     final binWidth = (max - min) / binCount;
 
     final histogram = <double, int>{};
-    
+
     for (final value in data) {
       final binIndex = ((value - min) / binWidth).floor();
       final binStart = min + (binIndex * binWidth);
@@ -331,9 +354,9 @@ class _AnalysisProgressIndicator extends StatelessWidget {
           const SizedBox(height: 16),
           Text(
             progress.stage,
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.bold,
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 8),
@@ -348,7 +371,9 @@ class _AnalysisProgressIndicator extends StatelessWidget {
           const SizedBox(height: 24),
           LinearProgressIndicator(
             value: progress.progress,
-            backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+            backgroundColor: Theme.of(
+              context,
+            ).colorScheme.surfaceContainerHighest,
             valueColor: AlwaysStoppedAnimation<Color>(
               Theme.of(context).primaryColor,
             ),
@@ -356,9 +381,9 @@ class _AnalysisProgressIndicator extends StatelessWidget {
           const SizedBox(height: 12),
           Text(
             '${(progress.progress * 100).toStringAsFixed(1)}%',
-            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-              fontWeight: FontWeight.w600,
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w600),
           ),
         ],
       ),

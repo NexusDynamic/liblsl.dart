@@ -1,6 +1,5 @@
 import 'dart:math';
 import 'package:dartframe/dartframe.dart';
-import 'package:liblsl_analysis/extensions/series_pick_indices.dart';
 
 /// Results for inter-sample interval analysis
 class InterSampleIntervalResult {

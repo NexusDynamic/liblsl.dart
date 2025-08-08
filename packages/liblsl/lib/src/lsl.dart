@@ -212,16 +212,35 @@ class LSL {
     int maxStreams = 5,
     double forgetAfter = 5.0,
   }) async {
-    final resolver = LSLStreamResolverContinuous(
+    final resolver = createContinuousStreamResolver(
       forgetAfter: forgetAfter,
       maxStreams: maxStreams,
     );
-    resolver.create();
     final streams = await resolver.resolve(waitTime: waitTime);
     // free the resolver
     resolver.destroy();
     // these stream info pointers remain until they are destroyed
     return streams;
+  }
+
+  /// Creates a new [LSLStreamResolverContinuous] for continuous stream
+  /// resolution. It allocates and starts resolving immediately.
+  /// You can use [LSLStreamResolverContinuous.resolve] to get the latest
+  /// streams.
+  ///
+  /// [forgetAfter] is the time to forget streams that are not seen.
+  /// [maxStreams] is the maximum number of streams to resolve.
+  ///
+  /// @note: You must call [LSLStreamResolverContinuous.destroy] to free the
+  /// resources when you are done with the resolver.
+  static LSLStreamResolverContinuous createContinuousStreamResolver({
+    double forgetAfter = 5.0,
+    int maxStreams = 5,
+  }) {
+    return LSLStreamResolverContinuous(
+      forgetAfter: forgetAfter,
+      maxStreams: maxStreams,
+    )..create();
   }
 
   /// Returns the local clock time, used to calculate offsets.

@@ -4,6 +4,8 @@ description: "A flutter app for analysing timing test data"
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 
+resolution: workspace
+
 # The following defines the version and build number for your application.
 # A version number is three numbers separated by dots, like 1.2.43
 # followed by an optional build number separated by a +.
@@ -36,7 +38,7 @@ dependencies:
   cupertino_icons: ^1.0.8
   file_picker: ^10.1.9
   csv: ^6.0.0
-  dartframe: ^0.4.2
+  dartframe: ^0.5.1
   fl_chart: ^1.0.0
   shared_preferences: ^2.5.3
 

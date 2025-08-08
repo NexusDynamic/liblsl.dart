@@ -37,9 +37,9 @@ class ProgressIndicatorWidget extends StatelessWidget {
           const SizedBox(height: 16),
           Text(
             progress.stage,
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.bold,
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 8),
@@ -54,7 +54,9 @@ class ProgressIndicatorWidget extends StatelessWidget {
           const SizedBox(height: 24),
           LinearProgressIndicator(
             value: progress.progress,
-            backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+            backgroundColor: Theme.of(
+              context,
+            ).colorScheme.surfaceContainerHighest,
             valueColor: AlwaysStoppedAnimation<Color>(
               Theme.of(context).primaryColor,
             ),
@@ -62,16 +64,13 @@ class ProgressIndicatorWidget extends StatelessWidget {
           const SizedBox(height: 12),
           Text(
             '${(progress.progress * 100).toStringAsFixed(1)}%',
-            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-              fontWeight: FontWeight.w600,
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w600),
           ),
           if (onCancel != null) ...[
             const SizedBox(height: 16),
-            OutlinedButton(
-              onPressed: onCancel,
-              child: const Text('Cancel'),
-            ),
+            OutlinedButton(onPressed: onCancel, child: const Text('Cancel')),
           ],
         ],
       ),
@@ -103,11 +102,7 @@ class LoadingOverlay extends StatelessWidget {
   final ProcessingProgress progress;
   final VoidCallback? onCancel;
 
-  const LoadingOverlay({
-    super.key,
-    required this.progress,
-    this.onCancel,
-  });
+  const LoadingOverlay({super.key, required this.progress, this.onCancel});
 
   @override
   Widget build(BuildContext context) {

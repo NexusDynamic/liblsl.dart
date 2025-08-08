@@ -1,33 +1,43 @@
-name: lsl_metapackage
+name: liblsl_metapackage
 publish_to: none
-
-dependencies:
-  liblsl:
-    path: packages/liblsl
-  liblsl_test:
-    path: packages/liblsl_test
+homepage: https://zeyus.com/
+repository: https://github.com/NexusDynamic/liblsl.dart
+environment:
+  sdk: ^3.8.0
+workspace:
+  - packages/liblsl
+  - packages/liblsl_test
+  - packages/liblsl_coordinator
+  - packages/liblsl_timing
+  - packages/liblsl_analysis
+dev_dependencies:
+  melos: ^7.0.0-dev.7
 
 
 melos:
+  packages:
+    - packages/**
+
   command:
     version:
       # Only allow versioning to happen on main branch.
       branch: main
-      # Generates a link to a prefilled GitHub release creation page.
-      releaseUrl: true
-      includeCommitId: true
-      linkToCommits: true
+      # # Generates a link to a prefilled GitHub release creation page.
+      # releaseUrl: true
+      # includeCommitId: true
+      # linkToCommits: true
 
     bootstrap:
       environment:
         sdk: ">=3.6.0 <4.0.0"
         flutter: ">=3.27.1"
+        test: any
   scripts:
     lint:all:
-        steps:
-          - analyze
-          - format
-        description: Run all static analysis checks.
+      steps:
+        - analyze
+        - format
+      description: Run all static analysis checks.
 
     analyze:
       run: melos exec dart analyze .
@@ -36,7 +46,7 @@ melos:
     format-check:
       run: melos exec dart format . --set-exit-if-changed
       description: Run `dart format` checks for all packages.
-  
+
     test:select:
       run: melos exec -c 1 -- flutter test
       packageFilters:
@@ -46,3 +56,15 @@ melos:
     test:
       run: melos run test:select --no-select
       description: Run all Flutter tests in this project.
+
+    
+    
+    upgrade: melos exec flutter pub upgrade
+    
+    coverage:
+      steps:
+        - melos exec -- flutter test --coverage
+        - melos exec -- genhtml coverage/lcov.info --output-directory=coverage/
+      packageFilters:
+        dirExists: test
+      description: Generate coverage for the selected package.

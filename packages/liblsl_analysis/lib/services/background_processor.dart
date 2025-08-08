@@ -1,11 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:isolate';
 import 'dart:math';
 
 import 'package:dartframe/dartframe.dart';
 import 'package:flutter/foundation.dart';
-import '../extensions/series_pick_indices.dart';
 
 /// Progress update for background operations
 class ProcessingProgress {
@@ -137,7 +137,7 @@ class BackgroundProcessor {
         ),
       );
 
-      final data = await fileIO.readFromFile(file.filePath);
+      final data = await File(file.filePath).readAsString();
       final singleCsvData = await DataFrame.fromCSV(csv: data, delimiter: '\t');
 
       if (csvData == null) {

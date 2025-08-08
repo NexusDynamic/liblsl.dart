@@ -95,35 +95,42 @@ class EnhancedTimingAnalysisService {
   static const String eventTypeSampleReceived = 'EventType.sampleReceived';
 
   /// Extract time correction samples from the data
-  Map<String, List<TimeCorrectionSample>> _extractTimeCorrectionSamples(DataFrame data) {
+  Map<String, List<TimeCorrectionSample>> _extractTimeCorrectionSamples(
+    DataFrame data,
+  ) {
     final correctionSamples = <String, List<TimeCorrectionSample>>{};
-    
+
     final rowCount = data['lsl_clock'].data.length;
     for (int i = 0; i < rowCount; i++) {
       final deviceId = data['reportingDeviceId'].data[i] as String?;
       final sourceId = data['sourceId'].data[i] as String?;
       final lslClock = data['lsl_clock'].data[i] as double?;
       final lslTimeCorrection = data['lslTimeCorrection'].data[i] as double?;
-      
-      if (deviceId != null && sourceId != null && lslClock != null && 
-          lslTimeCorrection != null && !lslTimeCorrection.isNaN) {
+
+      if (deviceId != null &&
+          sourceId != null &&
+          lslClock != null &&
+          lslTimeCorrection != null &&
+          !lslTimeCorrection.isNaN) {
         final key = '$deviceId-$sourceId';
-        correctionSamples.putIfAbsent(key, () => []).add(
-          TimeCorrectionSample(
-            timestamp: lslClock,
-            correction: lslTimeCorrection,
-            deviceId: deviceId,
-            sourceId: sourceId,
-          ),
-        );
+        correctionSamples
+            .putIfAbsent(key, () => [])
+            .add(
+              TimeCorrectionSample(
+                timestamp: lslClock,
+                correction: lslTimeCorrection,
+                deviceId: deviceId,
+                sourceId: sourceId,
+              ),
+            );
       }
     }
-    
+
     // Sort each device's corrections by timestamp
     for (final list in correctionSamples.values) {
       list.sort((a, b) => a.timestamp.compareTo(b.timestamp));
     }
-    
+
     return correctionSamples;
   }
 
@@ -133,16 +140,16 @@ class EnhancedTimingAnalysisService {
     double timestamp,
   ) {
     if (corrections.isEmpty) return null;
-    
+
     // If we only have one correction, use it
     if (corrections.length == 1) {
       return corrections.first.correction;
     }
-    
+
     // Find the corrections that bracket this timestamp
     TimeCorrectionSample? before;
     TimeCorrectionSample? after;
-    
+
     for (int i = 0; i < corrections.length; i++) {
       if (corrections[i].timestamp <= timestamp) {
         before = corrections[i];
@@ -152,17 +159,17 @@ class EnhancedTimingAnalysisService {
         break;
       }
     }
-    
+
     // If we're before all corrections, use the first one
     if (before == null && after != null) {
       return after.correction;
     }
-    
+
     // If we're after all corrections, use the last one
     if (before != null && after == null) {
       return before.correction;
     }
-    
+
     // If we have both, interpolate linearly
     if (before != null && after != null) {
       final timeDiff = after.timestamp - before.timestamp;
@@ -170,7 +177,7 @@ class EnhancedTimingAnalysisService {
       final position = (timestamp - before.timestamp) / timeDiff;
       return before.correction + (correctionDiff * position);
     }
-    
+
     return null;
   }
 
@@ -178,11 +185,12 @@ class EnhancedTimingAnalysisService {
   List<EnhancedSampleEvent> _extractEnhancedSampleEvents(DataFrame data) {
     final events = <EnhancedSampleEvent>[];
     final correctionSamples = _extractTimeCorrectionSamples(data);
-    
+
     final rowCount = data['event_type'].data.length;
     for (int i = 0; i < rowCount; i++) {
       final eventType = data['event_type'].data[i] as String?;
-      if (eventType != eventTypeSampleSent && eventType != eventTypeSampleReceived) {
+      if (eventType != eventTypeSampleSent &&
+          eventType != eventTypeSampleReceived) {
         continue;
       }
 
@@ -192,31 +200,41 @@ class EnhancedTimingAnalysisService {
       final counter = data['counter'].data[i] as int?;
       final lslTimeCorrection = data['lslTimeCorrection'].data[i] as double?;
 
-      if (deviceId == null || sourceId == null || lslClock == null || counter == null) {
+      if (deviceId == null ||
+          sourceId == null ||
+          lslClock == null ||
+          counter == null) {
         continue;
       }
 
       // Get interpolated time correction for this device-source pair
       final key = '$deviceId-$sourceId';
       final corrections = correctionSamples[key] ?? [];
-      final interpolatedCorrection = _interpolateTimeCorrection(corrections, lslClock);
+      final interpolatedCorrection = _interpolateTimeCorrection(
+        corrections,
+        lslClock,
+      );
 
-      events.add(EnhancedSampleEvent(
-        eventType: eventType!,
-        deviceId: deviceId,
-        sourceId: sourceId,
-        lslClock: lslClock,
-        counter: counter,
-        lslTimeCorrection: lslTimeCorrection,
-        interpolatedTimeCorrection: interpolatedCorrection,
-      ));
+      events.add(
+        EnhancedSampleEvent(
+          eventType: eventType!,
+          deviceId: deviceId,
+          sourceId: sourceId,
+          lslClock: lslClock,
+          counter: counter,
+          lslTimeCorrection: lslTimeCorrection,
+          interpolatedTimeCorrection: interpolatedCorrection,
+        ),
+      );
     }
 
     return events;
   }
 
   /// Calculate inter-sample intervals for each producing device
-  List<InterSampleIntervalResult> calculateInterSampleIntervals(DataFrame data) {
+  List<InterSampleIntervalResult> calculateInterSampleIntervals(
+    DataFrame data,
+  ) {
     final events = _extractEnhancedSampleEvents(data);
     final results = <InterSampleIntervalResult>[];
 
@@ -238,7 +256,9 @@ class EnhancedTimingAnalysisService {
 
       final intervals = <double>[];
       for (int i = 1; i < deviceEvents.length; i++) {
-        final interval = (deviceEvents[i].lslClock - deviceEvents[i - 1].lslClock) * 1000; // Convert to ms
+        final interval =
+            (deviceEvents[i].lslClock - deviceEvents[i - 1].lslClock) *
+            1000; // Convert to ms
         intervals.add(interval);
       }
 
@@ -263,7 +283,8 @@ class EnhancedTimingAnalysisService {
       if (event.eventType == eventTypeSampleSent) {
         sentEvents.putIfAbsent(event.sourceId, () => {})[event.counter] = event;
       } else if (event.eventType == eventTypeSampleReceived) {
-        receivedEvents.putIfAbsent(event.sourceId, () => {})
+        receivedEvents
+            .putIfAbsent(event.sourceId, () => {})
             .putIfAbsent(event.counter, () => [])
             .add(event);
       }
@@ -285,27 +306,34 @@ class EnhancedTimingAnalysisService {
 
         for (final receivedEvent in receivedEventsList) {
           // Calculate raw latency
-          final rawLatency = (receivedEvent.lslClock - sentEvent.lslClock) * 1000;
-          
+          final rawLatency =
+              (receivedEvent.lslClock - sentEvent.lslClock) * 1000;
+
           // Apply time corrections if available
           double correctedLatency = rawLatency;
           bool timeCorrectionApplied = false;
-          
+
           // Apply receiver time correction
           if (receivedEvent.interpolatedTimeCorrection != null) {
-            correctedLatency += receivedEvent.interpolatedTimeCorrection! * 1000;
+            correctedLatency +=
+                receivedEvent.interpolatedTimeCorrection! * 1000;
             timeCorrectionApplied = true;
           }
-          
+
           // Apply sender time correction (subtract because we're correcting the sent time)
           if (sentEvent.interpolatedTimeCorrection != null) {
             correctedLatency -= sentEvent.interpolatedTimeCorrection! * 1000;
             timeCorrectionApplied = true;
           }
 
-          latenciesByReceiver.putIfAbsent(receivedEvent.deviceId, () => []).add(correctedLatency);
-          rawLatenciesByReceiver.putIfAbsent(receivedEvent.deviceId, () => []).add(rawLatency);
-          hasTimeCorrectionByReceiver[receivedEvent.deviceId] = timeCorrectionApplied;
+          latenciesByReceiver
+              .putIfAbsent(receivedEvent.deviceId, () => [])
+              .add(correctedLatency);
+          rawLatenciesByReceiver
+              .putIfAbsent(receivedEvent.deviceId, () => [])
+              .add(rawLatency);
+          hasTimeCorrectionByReceiver[receivedEvent.deviceId] =
+              timeCorrectionApplied;
         }
       }
 
@@ -314,18 +342,21 @@ class EnhancedTimingAnalysisService {
         final receiverDevice = entry.key;
         final latencies = entry.value;
         final rawLatencies = rawLatenciesByReceiver[receiverDevice] ?? [];
-        final timeCorrectionApplied = hasTimeCorrectionByReceiver[receiverDevice] ?? false;
+        final timeCorrectionApplied =
+            hasTimeCorrectionByReceiver[receiverDevice] ?? false;
 
         if (latencies.isNotEmpty) {
           // Find the device that sent these samples
           final senderDevice = sentByCounter.values.first.deviceId;
-          results.add(_calculateLatencyStats(
-            senderDevice, 
-            receiverDevice, 
-            latencies, 
-            rawLatencies,
-            timeCorrectionApplied,
-          ));
+          results.add(
+            _calculateLatencyStats(
+              senderDevice,
+              receiverDevice,
+              latencies,
+              rawLatencies,
+              timeCorrectionApplied,
+            ),
+          );
         }
       }
     }
@@ -334,12 +365,15 @@ class EnhancedTimingAnalysisService {
   }
 
   /// Calculate statistical measures for intervals
-  InterSampleIntervalResult _calculateIntervalStats(String deviceId, List<double> intervals) {
+  InterSampleIntervalResult _calculateIntervalStats(
+    String deviceId,
+    List<double> intervals,
+  ) {
     // Remove outliers (trim 2% from each end)
     final trimmedIntervals = _trimOutliers(intervals, 0.02);
-    
+
     final stats = _calculateStats(trimmedIntervals);
-    
+
     return InterSampleIntervalResult(
       deviceId: deviceId,
       intervals: trimmedIntervals,
@@ -354,17 +388,17 @@ class EnhancedTimingAnalysisService {
 
   /// Calculate statistical measures for latencies
   LatencyResult _calculateLatencyStats(
-    String fromDevice, 
-    String toDevice, 
+    String fromDevice,
+    String toDevice,
     List<double> latencies,
     List<double> rawLatencies,
     bool timeCorrectionApplied,
   ) {
     // Remove outliers (trim 2% from each end)
     final trimmedLatencies = _trimOutliers(latencies, 0.02);
-    
+
     final stats = _calculateStats(trimmedLatencies);
-    
+
     return LatencyResult(
       fromDevice: fromDevice,
       toDevice: toDevice,
@@ -384,37 +418,33 @@ class EnhancedTimingAnalysisService {
   List<double> _trimOutliers(List<double> data, double trimPercentage) {
     final sorted = List<double>.from(data)..sort();
     final trimCount = (sorted.length * trimPercentage).round();
-    
+
     if (trimCount > 0 && trimCount * 2 < sorted.length) {
       return sorted.sublist(trimCount, sorted.length - trimCount);
     }
-    
+
     return sorted;
   }
 
   /// Calculate basic statistics for a list of values
   Map<String, double> _calculateStats(List<double> values) {
     if (values.isEmpty) {
-      return {
-        'mean': 0.0,
-        'median': 0.0,
-        'std': 0.0,
-        'min': 0.0,
-        'max': 0.0,
-      };
+      return {'mean': 0.0, 'median': 0.0, 'std': 0.0, 'min': 0.0, 'max': 0.0};
     }
 
     final sorted = List<double>.from(values)..sort();
-    
+
     final mean = values.reduce((a, b) => a + b) / values.length;
-    
+
     final median = sorted.length % 2 == 0
         ? (sorted[sorted.length ~/ 2 - 1] + sorted[sorted.length ~/ 2]) / 2
         : sorted[sorted.length ~/ 2];
-    
-    final variance = values.map((x) => pow(x - mean, 2)).reduce((a, b) => a + b) / values.length;
+
+    final variance =
+        values.map((x) => pow(x - mean, 2)).reduce((a, b) => a + b) /
+        values.length;
     final standardDeviation = sqrt(variance);
-    
+
     return {
       'mean': mean,
       'median': median,

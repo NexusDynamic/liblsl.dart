@@ -109,7 +109,7 @@ class _DataViewScreenState extends State<DataViewScreen>
                         labelText: 'Filter Column',
                         border: OutlineInputBorder(),
                       ),
-                      value: _filterColumn,
+                      initialValue: _filterColumn,
                       items: [
                         const DropdownMenuItem<String>(
                           value: null,

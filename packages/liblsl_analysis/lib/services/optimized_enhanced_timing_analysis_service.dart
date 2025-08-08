@@ -2,7 +2,6 @@ import 'dart:math';
 import 'package:dartframe/dartframe.dart';
 import 'package:flutter/foundation.dart';
 
-import '../extensions/series_pick_indices.dart';
 import 'efficient_timing_analysis_service.dart' as efficient;
 import 'enhanced_timing_analysis_service.dart';
 

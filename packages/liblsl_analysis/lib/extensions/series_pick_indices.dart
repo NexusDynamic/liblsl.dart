@@ -12,7 +12,7 @@ extension SeriesPickIndices on Series {
     }
     return Series(selectedData, name: name);
   }
-  
+
   /// Get actual integer indices where condition is true
   List<int> getIndicesWhere(bool Function(dynamic) condition) {
     List<int> indices = [];
@@ -23,7 +23,7 @@ extension SeriesPickIndices on Series {
     }
     return indices;
   }
-  
+
   /// Select data using integer indices
   Series selectByIndices(List<int> indices) {
     List<dynamic> selectedData = [];

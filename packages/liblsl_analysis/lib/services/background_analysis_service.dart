@@ -3,7 +3,6 @@ import 'dart:isolate';
 
 import 'package:dartframe/dartframe.dart';
 
-import '../extensions/series_pick_indices.dart';
 import 'efficient_timing_analysis_service.dart';
 
 /// Analysis progress update

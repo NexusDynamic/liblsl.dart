@@ -80,7 +80,8 @@ class TimingAnalysisService {
     final rowCount = data['event_type'].data.length;
     for (int i = 0; i < rowCount; i++) {
       final eventType = data['event_type'].data[i] as String?;
-      if (eventType != eventTypeSampleSent && eventType != eventTypeSampleReceived) {
+      if (eventType != eventTypeSampleSent &&
+          eventType != eventTypeSampleReceived) {
         continue;
       }
 
@@ -88,7 +89,7 @@ class TimingAnalysisService {
       final sourceId = data['sourceId'].data[i] as String?;
       final lslClock = data['lsl_clock'].data[i] as double?;
       final counter = data['counter'].data[i] as int?;
-      
+
       // Extract time correction from metadata if available
       double? lslTimeCorrection;
       try {
@@ -108,25 +109,32 @@ class TimingAnalysisService {
         // Continue without time correction if parsing fails
       }
 
-      if (deviceId == null || sourceId == null || lslClock == null || counter == null) {
+      if (deviceId == null ||
+          sourceId == null ||
+          lslClock == null ||
+          counter == null) {
         continue;
       }
 
-      events.add(SampleEvent(
-        eventType: eventType!,
-        deviceId: deviceId,
-        sourceId: sourceId,
-        lslClock: lslClock,
-        counter: counter,
-        lslTimeCorrection: lslTimeCorrection,
-      ));
+      events.add(
+        SampleEvent(
+          eventType: eventType!,
+          deviceId: deviceId,
+          sourceId: sourceId,
+          lslClock: lslClock,
+          counter: counter,
+          lslTimeCorrection: lslTimeCorrection,
+        ),
+      );
     }
 
     return events;
   }
 
   /// Calculate inter-sample intervals for each producing device
-  List<InterSampleIntervalResult> calculateInterSampleIntervals(DataFrame data) {
+  List<InterSampleIntervalResult> calculateInterSampleIntervals(
+    DataFrame data,
+  ) {
     final events = _extractSampleEvents(data);
     final results = <InterSampleIntervalResult>[];
 
@@ -148,7 +156,9 @@ class TimingAnalysisService {
 
       final intervals = <double>[];
       for (int i = 1; i < deviceEvents.length; i++) {
-        final interval = (deviceEvents[i].lslClock - deviceEvents[i - 1].lslClock) * 1000; // Convert to ms
+        final interval =
+            (deviceEvents[i].lslClock - deviceEvents[i - 1].lslClock) *
+            1000; // Convert to ms
         intervals.add(interval);
       }
 
@@ -173,7 +183,8 @@ class TimingAnalysisService {
       if (event.eventType == eventTypeSampleSent) {
         sentEvents.putIfAbsent(event.sourceId, () => {})[event.counter] = event;
       } else if (event.eventType == eventTypeSampleReceived) {
-        receivedEvents.putIfAbsent(event.sourceId, () => {})
+        receivedEvents
+            .putIfAbsent(event.sourceId, () => {})
             .putIfAbsent(event.counter, () => [])
             .add(event);
       }
@@ -203,9 +214,12 @@ class TimingAnalysisService {
           final receivedTime = receivedEvent.lslTimeCorrection != null
               ? receivedEvent.lslClock + receivedEvent.lslTimeCorrection!
               : receivedEvent.lslClock;
-              
-          final latency = (receivedTime - sentEvent.lslClock) * 1000; // Convert to ms
-          latenciesByReceiver.putIfAbsent(receivedEvent.deviceId, () => []).add(latency);
+
+          final latency =
+              (receivedTime - sentEvent.lslClock) * 1000; // Convert to ms
+          latenciesByReceiver
+              .putIfAbsent(receivedEvent.deviceId, () => [])
+              .add(latency);
         }
       }
 
@@ -217,7 +231,9 @@ class TimingAnalysisService {
         if (latencies.isNotEmpty) {
           // Find the device that sent these samples
           final senderDevice = sentByCounter.values.first.deviceId;
-          results.add(_calculateLatencyStats(senderDevice, receiverDevice, latencies));
+          results.add(
+            _calculateLatencyStats(senderDevice, receiverDevice, latencies),
+          );
         }
       }
     }
@@ -226,12 +242,15 @@ class TimingAnalysisService {
   }
 
   /// Calculate statistical measures for intervals
-  InterSampleIntervalResult _calculateIntervalStats(String deviceId, List<double> intervals) {
+  InterSampleIntervalResult _calculateIntervalStats(
+    String deviceId,
+    List<double> intervals,
+  ) {
     // Remove outliers (trim 2% from each end)
     final trimmedIntervals = _trimOutliers(intervals, 0.02);
-    
+
     final stats = _calculateStats(trimmedIntervals);
-    
+
     return InterSampleIntervalResult(
       deviceId: deviceId,
       intervals: trimmedIntervals,
@@ -245,12 +264,16 @@ class TimingAnalysisService {
   }
 
   /// Calculate statistical measures for latencies
-  LatencyResult _calculateLatencyStats(String fromDevice, String toDevice, List<double> latencies) {
+  LatencyResult _calculateLatencyStats(
+    String fromDevice,
+    String toDevice,
+    List<double> latencies,
+  ) {
     // Remove outliers (trim 2% from each end)
     final trimmedLatencies = _trimOutliers(latencies, 0.02);
-    
+
     final stats = _calculateStats(trimmedLatencies);
-    
+
     return LatencyResult(
       fromDevice: fromDevice,
       toDevice: toDevice,
@@ -268,37 +291,33 @@ class TimingAnalysisService {
   List<double> _trimOutliers(List<double> data, double trimPercentage) {
     final sorted = List<double>.from(data)..sort();
     final trimCount = (sorted.length * trimPercentage).round();
-    
+
     if (trimCount > 0 && trimCount * 2 < sorted.length) {
       return sorted.sublist(trimCount, sorted.length - trimCount);
     }
-    
+
     return sorted;
   }
 
   /// Calculate basic statistics for a list of values
   Map<String, double> _calculateStats(List<double> values) {
     if (values.isEmpty) {
-      return {
-        'mean': 0.0,
-        'median': 0.0,
-        'std': 0.0,
-        'min': 0.0,
-        'max': 0.0,
-      };
+      return {'mean': 0.0, 'median': 0.0, 'std': 0.0, 'min': 0.0, 'max': 0.0};
     }
 
     final sorted = List<double>.from(values)..sort();
-    
+
     final mean = values.reduce((a, b) => a + b) / values.length;
-    
+
     final median = sorted.length % 2 == 0
         ? (sorted[sorted.length ~/ 2 - 1] + sorted[sorted.length ~/ 2]) / 2
         : sorted[sorted.length ~/ 2];
-    
-    final variance = values.map((x) => pow(x - mean, 2)).reduce((a, b) => a + b) / values.length;
+
+    final variance =
+        values.map((x) => pow(x - mean, 2)).reduce((a, b) => a + b) /
+        values.length;
     final standardDeviation = sqrt(variance);
-    
+
     return {
       'mean': mean,
       'median': median,

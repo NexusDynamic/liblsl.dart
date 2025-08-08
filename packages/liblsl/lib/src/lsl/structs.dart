@@ -22,6 +22,7 @@ class LSLContentType {
     markers,
   ];
 
+  // ignore: unused_element_parameter
   const LSLContentType._(this.value, {this.isCustom = false});
 
   /// EEG (for Electroencephalogram).
@@ -55,6 +56,7 @@ class LSLContentType {
   /// @note This is used for custom content types that are not defined in the
   /// LSL / XDF standard, e.g. "State" or "Stimulus".
   factory LSLContentType.custom(String value) {
+    // throw UnsupportedError('Custom content types are not yet supported.');
     final customType = LSLContentType._(value, isCustom: true);
     if (_values.any((type) => type.value == value && !type.isCustom)) {
       // If a default type with the same name exists, throw an error.

@@ -175,7 +175,7 @@ class _AnalysisHomePageState extends State<AnalysisHomePage> {
       if (kDebugMode) {
         print('Selected file: ${file.path}');
       }
-      final data = await fileIO.readFromFile(file.path);
+      final data = await File(file.path!).readAsString();
       final singleCsvData = await DataFrame.fromCSV(csv: data, delimiter: '\t');
 
       if (csvData == null) {

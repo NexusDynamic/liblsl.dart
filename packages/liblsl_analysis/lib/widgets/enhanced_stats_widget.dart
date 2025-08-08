@@ -42,7 +42,8 @@ class _EnhancedStatsWidgetState extends State<EnhancedStatsWidget> {
 
       if (mounted) {
         setState(() {
-          _intervalResults = result['intervals'] as List<InterSampleIntervalResult>;
+          _intervalResults =
+              result['intervals'] as List<InterSampleIntervalResult>;
           _latencyResults = result['latencies'] as List<LatencyResult>;
           _isLoading = false;
           _currentProgress = null;
@@ -66,14 +67,13 @@ class _EnhancedStatsWidgetState extends State<EnhancedStatsWidget> {
 
   static Map<String, dynamic> _computeEnhancedAnalysis(DataFrame csvData) {
     final analysisService = UltraFastEnhancedTimingAnalysisService();
-    
-    final intervalResults = analysisService.calculateInterSampleIntervals(csvData);
+
+    final intervalResults = analysisService.calculateInterSampleIntervals(
+      csvData,
+    );
     final latencyResults = analysisService.calculateLatencies(csvData);
-    
-    return {
-      'intervals': intervalResults,
-      'latencies': latencyResults,
-    };
+
+    return {'intervals': intervalResults, 'latencies': latencyResults};
   }
 
   @override
@@ -87,9 +87,7 @@ class _EnhancedStatsWidgetState extends State<EnhancedStatsWidget> {
     }
 
     if (_intervalResults == null || _latencyResults == null) {
-      return const Center(
-        child: Text('Enhanced analysis failed to complete'),
-      );
+      return const Center(child: Text('Enhanced analysis failed to complete'));
     }
 
     return SingleChildScrollView(
@@ -105,17 +103,21 @@ class _EnhancedStatsWidgetState extends State<EnhancedStatsWidget> {
             const SizedBox(height: 8),
             const Text(
               'Includes time correction interpolation for accurate cross-device measurements',
-              style: TextStyle(fontSize: 14, color: Colors.grey, fontStyle: FontStyle.italic),
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey,
+                fontStyle: FontStyle.italic,
+              ),
             ),
             const SizedBox(height: 24),
-            
+
             // Inter-sample intervals section
             _buildSectionHeader('Inter-Sample Production Intervals'),
             const SizedBox(height: 16),
             ..._intervalResults!.map((result) => _buildIntervalCard(result)),
-            
+
             const SizedBox(height: 32),
-            
+
             // Latency section
             _buildSectionHeader('Device-to-Device Latencies'),
             const SizedBox(height: 16),
@@ -155,9 +157,18 @@ class _EnhancedStatsWidgetState extends State<EnhancedStatsWidget> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       _buildStatRow('Count', result.count),
-                      _buildStatRow('Mean (ms)', result.mean.toStringAsFixed(3)),
-                      _buildStatRow('Median (ms)', result.median.toStringAsFixed(3)),
-                      _buildStatRow('Std Dev (ms)', result.standardDeviation.toStringAsFixed(3)),
+                      _buildStatRow(
+                        'Mean (ms)',
+                        result.mean.toStringAsFixed(3),
+                      ),
+                      _buildStatRow(
+                        'Median (ms)',
+                        result.median.toStringAsFixed(3),
+                      ),
+                      _buildStatRow(
+                        'Std Dev (ms)',
+                        result.standardDeviation.toStringAsFixed(3),
+                      ),
                       _buildStatRow('Min (ms)', result.min.toStringAsFixed(3)),
                       _buildStatRow('Max (ms)', result.max.toStringAsFixed(3)),
                     ],
@@ -167,7 +178,11 @@ class _EnhancedStatsWidgetState extends State<EnhancedStatsWidget> {
                   flex: 2,
                   child: SizedBox(
                     height: 200,
-                    child: _buildHistogram(result.intervals, 'Interval (ms)', 'Count'),
+                    child: _buildHistogram(
+                      result.intervals,
+                      'Interval (ms)',
+                      'Count',
+                    ),
                   ),
                 ),
               ],
@@ -190,18 +205,27 @@ class _EnhancedStatsWidgetState extends State<EnhancedStatsWidget> {
               children: [
                 Text(
                   'Latency: ${result.fromDevice} → ${result.toDevice}',
-                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
                 const Spacer(),
                 if (result.timeCorrectionApplied)
                   const Chip(
-                    label: Text('Time Corrected', style: TextStyle(fontSize: 12)),
+                    label: Text(
+                      'Time Corrected',
+                      style: TextStyle(fontSize: 12),
+                    ),
                     backgroundColor: Colors.green,
                     labelStyle: TextStyle(color: Colors.white),
                   )
                 else
                   const Chip(
-                    label: Text('No Time Correction', style: TextStyle(fontSize: 12)),
+                    label: Text(
+                      'No Time Correction',
+                      style: TextStyle(fontSize: 12),
+                    ),
                     backgroundColor: Colors.orange,
                     labelStyle: TextStyle(color: Colors.white),
                   ),
@@ -209,7 +233,7 @@ class _EnhancedStatsWidgetState extends State<EnhancedStatsWidget> {
             ),
             const Divider(),
             const SizedBox(height: 8),
-            
+
             // Show both corrected and raw latencies if time correction was applied
             if (result.timeCorrectionApplied) ...[
               Row(
@@ -222,15 +246,33 @@ class _EnhancedStatsWidgetState extends State<EnhancedStatsWidget> {
                       children: [
                         const Text(
                           'Time-Corrected Latencies',
-                          style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green),
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.green,
+                          ),
                         ),
                         const SizedBox(height: 8),
                         _buildStatRow('Count', result.count),
-                        _buildStatRow('Mean (ms)', result.mean.toStringAsFixed(3)),
-                        _buildStatRow('Median (ms)', result.median.toStringAsFixed(3)),
-                        _buildStatRow('Std Dev (ms)', result.standardDeviation.toStringAsFixed(3)),
-                        _buildStatRow('Min (ms)', result.min.toStringAsFixed(3)),
-                        _buildStatRow('Max (ms)', result.max.toStringAsFixed(3)),
+                        _buildStatRow(
+                          'Mean (ms)',
+                          result.mean.toStringAsFixed(3),
+                        ),
+                        _buildStatRow(
+                          'Median (ms)',
+                          result.median.toStringAsFixed(3),
+                        ),
+                        _buildStatRow(
+                          'Std Dev (ms)',
+                          result.standardDeviation.toStringAsFixed(3),
+                        ),
+                        _buildStatRow(
+                          'Min (ms)',
+                          result.min.toStringAsFixed(3),
+                        ),
+                        _buildStatRow(
+                          'Max (ms)',
+                          result.max.toStringAsFixed(3),
+                        ),
                       ],
                     ),
                   ),
@@ -243,7 +285,10 @@ class _EnhancedStatsWidgetState extends State<EnhancedStatsWidget> {
                       children: [
                         const Text(
                           'Raw Latencies (for comparison)',
-                          style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey),
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.grey,
+                          ),
                         ),
                         const SizedBox(height: 8),
                         ..._buildRawStats(result.rawLatencies),
@@ -254,7 +299,10 @@ class _EnhancedStatsWidgetState extends State<EnhancedStatsWidget> {
                     flex: 2,
                     child: SizedBox(
                       height: 200,
-                      child: _buildComparisonHistogram(result.latencies, result.rawLatencies),
+                      child: _buildComparisonHistogram(
+                        result.latencies,
+                        result.rawLatencies,
+                      ),
                     ),
                   ),
                 ],
@@ -269,11 +317,26 @@ class _EnhancedStatsWidgetState extends State<EnhancedStatsWidget> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         _buildStatRow('Count', result.count),
-                        _buildStatRow('Mean (ms)', result.mean.toStringAsFixed(3)),
-                        _buildStatRow('Median (ms)', result.median.toStringAsFixed(3)),
-                        _buildStatRow('Std Dev (ms)', result.standardDeviation.toStringAsFixed(3)),
-                        _buildStatRow('Min (ms)', result.min.toStringAsFixed(3)),
-                        _buildStatRow('Max (ms)', result.max.toStringAsFixed(3)),
+                        _buildStatRow(
+                          'Mean (ms)',
+                          result.mean.toStringAsFixed(3),
+                        ),
+                        _buildStatRow(
+                          'Median (ms)',
+                          result.median.toStringAsFixed(3),
+                        ),
+                        _buildStatRow(
+                          'Std Dev (ms)',
+                          result.standardDeviation.toStringAsFixed(3),
+                        ),
+                        _buildStatRow(
+                          'Min (ms)',
+                          result.min.toStringAsFixed(3),
+                        ),
+                        _buildStatRow(
+                          'Max (ms)',
+                          result.max.toStringAsFixed(3),
+                        ),
                       ],
                     ),
                   ),
@@ -281,7 +344,11 @@ class _EnhancedStatsWidgetState extends State<EnhancedStatsWidget> {
                     flex: 2,
                     child: SizedBox(
                       height: 200,
-                      child: _buildHistogram(result.latencies, 'Latency (ms)', 'Count'),
+                      child: _buildHistogram(
+                        result.latencies,
+                        'Latency (ms)',
+                        'Count',
+                      ),
                     ),
                   ),
                 ],
@@ -307,9 +374,21 @@ class _EnhancedStatsWidgetState extends State<EnhancedStatsWidget> {
     return [
       _buildStatRow('Count', rawLatencies.length, color: Colors.grey),
       _buildStatRow('Mean (ms)', mean.toStringAsFixed(3), color: Colors.grey),
-      _buildStatRow('Median (ms)', median.toStringAsFixed(3), color: Colors.grey),
-      _buildStatRow('Min (ms)', sorted.first.toStringAsFixed(3), color: Colors.grey),
-      _buildStatRow('Max (ms)', sorted.last.toStringAsFixed(3), color: Colors.grey),
+      _buildStatRow(
+        'Median (ms)',
+        median.toStringAsFixed(3),
+        color: Colors.grey,
+      ),
+      _buildStatRow(
+        'Min (ms)',
+        sorted.first.toStringAsFixed(3),
+        color: Colors.grey,
+      ),
+      _buildStatRow(
+        'Max (ms)',
+        sorted.last.toStringAsFixed(3),
+        color: Colors.grey,
+      ),
     ];
   }
 
@@ -322,16 +401,10 @@ class _EnhancedStatsWidgetState extends State<EnhancedStatsWidget> {
             width: 120,
             child: Text(
               label,
-              style: TextStyle(
-                fontWeight: FontWeight.w500,
-                color: color,
-              ),
+              style: TextStyle(fontWeight: FontWeight.w500, color: color),
             ),
           ),
-          Text(
-            value.toString(),
-            style: TextStyle(color: color),
-          ),
+          Text(value.toString(), style: TextStyle(color: color)),
         ],
       ),
     );
@@ -355,17 +428,11 @@ class _EnhancedStatsWidgetState extends State<EnhancedStatsWidget> {
         titlesData: FlTitlesData(
           leftTitles: AxisTitles(
             axisNameWidget: Text(yTitle),
-            sideTitles: SideTitles(
-              showTitles: true,
-              reservedSize: 40,
-            ),
+            sideTitles: SideTitles(showTitles: true, reservedSize: 40),
           ),
           bottomTitles: AxisTitles(
             axisNameWidget: Text(xTitle),
-            sideTitles: SideTitles(
-              showTitles: true,
-              reservedSize: 40,
-            ),
+            sideTitles: SideTitles(showTitles: true, reservedSize: 40),
           ),
           rightTitles: const AxisTitles(
             sideTitles: SideTitles(showTitles: false),
@@ -396,7 +463,10 @@ class _EnhancedStatsWidgetState extends State<EnhancedStatsWidget> {
     );
   }
 
-  Widget _buildComparisonHistogram(List<double> correctedData, List<double> rawData) {
+  Widget _buildComparisonHistogram(
+    List<double> correctedData,
+    List<double> rawData,
+  ) {
     if (correctedData.isEmpty) {
       return const Center(child: Text('No data available'));
     }
@@ -415,17 +485,11 @@ class _EnhancedStatsWidgetState extends State<EnhancedStatsWidget> {
         titlesData: FlTitlesData(
           leftTitles: AxisTitles(
             axisNameWidget: const Text('Count'),
-            sideTitles: SideTitles(
-              showTitles: true,
-              reservedSize: 40,
-            ),
+            sideTitles: SideTitles(showTitles: true, reservedSize: 40),
           ),
           bottomTitles: AxisTitles(
             axisNameWidget: const Text('Time-Corrected Latency (ms)'),
-            sideTitles: SideTitles(
-              showTitles: true,
-              reservedSize: 40,
-            ),
+            sideTitles: SideTitles(showTitles: true, reservedSize: 40),
           ),
           rightTitles: const AxisTitles(
             sideTitles: SideTitles(showTitles: false),
@@ -466,7 +530,7 @@ class _EnhancedStatsWidgetState extends State<EnhancedStatsWidget> {
     final binWidth = (max - min) / binCount;
 
     final histogram = <double, int>{};
-    
+
     for (final value in data) {
       final binIndex = ((value - min) / binWidth).floor();
       final binStart = min + (binIndex * binWidth);
@@ -501,17 +565,13 @@ class _EnhancedAnalysisProgressIndicator extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            _getIconForStage(progress.stage),
-            size: 48,
-            color: Colors.green,
-          ),
+          Icon(_getIconForStage(progress.stage), size: 48, color: Colors.green),
           const SizedBox(height: 16),
           Text(
             progress.stage,
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.bold,
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 8),
@@ -526,15 +586,17 @@ class _EnhancedAnalysisProgressIndicator extends StatelessWidget {
           const SizedBox(height: 24),
           LinearProgressIndicator(
             value: progress.progress,
-            backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+            backgroundColor: Theme.of(
+              context,
+            ).colorScheme.surfaceContainerHighest,
             valueColor: const AlwaysStoppedAnimation<Color>(Colors.green),
           ),
           const SizedBox(height: 12),
           Text(
             '${(progress.progress * 100).toStringAsFixed(1)}%',
-            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-              fontWeight: FontWeight.w600,
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w600),
           ),
         ],
       ),
