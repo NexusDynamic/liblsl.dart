@@ -199,16 +199,20 @@ class MultiLayerCoordinator extends CoordinationNode {
 
   /// Activate stream layers with actual LSL connections (called when becoming coordinator)
   Future<void> _createStreamLayers() async {
+    print('[MultiLayerCoordinator] _createStreamLayers called - Role: $_role, knownNodes: ${_knownNodes.keys.toList()}, receiveOwnMessages: ${_coordinationConfig.receiveOwnMessages}');
+    
     for (final layerConfig in _protocolConfig.layers) {
       // Skip coordination layer as it's already handled
       if (layerConfig.layerId == 'coordination') continue;
 
+      print('[MultiLayerCoordinator] Creating StreamLayerManager for ${layerConfig.layerId}');
       final manager = StreamLayerManager(
         layerId: layerConfig.layerId,
         nodeId: _nodeId,
         layerConfig: layerConfig,
         isCoordinator: _role == NodeRole.coordinator,
         knownNodes: _knownNodes.values.toList(),
+        receiveOwnMessages: _coordinationConfig.receiveOwnMessages,
       );
 
       await manager.initialize();
@@ -273,6 +277,7 @@ class MultiLayerCoordinator extends CoordinationNode {
       );
 
       // Update all layer managers with new node
+      print('[MultiLayerCoordinator] Node joined: ${joinEvent.nodeId} - updating layer managers with knownNodes: ${_knownNodes.keys.toList()}');
       for (final manager in _layerManagers.values) {
         manager.updateKnownNodes(_knownNodes.values.toList());
       }
@@ -281,6 +286,7 @@ class MultiLayerCoordinator extends CoordinationNode {
       _knownNodes.remove(leftEvent.nodeId);
 
       // Update all layer managers
+      print('[MultiLayerCoordinator] Node left: ${leftEvent.nodeId} - updating layer managers with knownNodes: ${_knownNodes.keys.toList()}');
       for (final manager in _layerManagers.values) {
         manager.updateKnownNodes(_knownNodes.values.toList());
       }

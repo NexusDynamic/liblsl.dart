@@ -12,6 +12,7 @@ class StreamLayerManager {
   final String nodeId;
   final StreamLayerConfig layerConfig;
   final bool isCoordinator;
+  final bool receiveOwnMessages;
   List<NetworkNode> knownNodes;
 
   final StreamController<LayerDataEvent> _dataController =
@@ -43,6 +44,7 @@ class StreamLayerManager {
     required this.layerConfig,
     required this.isCoordinator,
     required this.knownNodes,
+    this.receiveOwnMessages = true,
   });
 
   /// Stream of data events from this layer
@@ -165,25 +167,37 @@ class StreamLayerManager {
 
   /// Update inlets when nodes change
   Future<void> _updateInlets() async {
+    print('[StreamLayerManager] $layerId: _updateInlets called - knownNodes: ${knownNodes.map((n) => n.nodeId).toList()}, receiveOwnMessages: $receiveOwnMessages');
+    
     // Close existing inlets that are no longer needed
     final currentInletKeys = _inlets.keys.toSet();
     final requiredInletKeys =
         knownNodes
             .where(
-              (node) => node.nodeId != nodeId,
-            ) // Don't create inlet for self
+              (node) {
+                final shouldReceive = receiveOwnMessages || node.nodeId != nodeId;
+                print('[StreamLayerManager] $layerId: Node ${node.nodeId} - shouldReceive: $shouldReceive (receiveOwnMessages: $receiveOwnMessages, isOwnNode: ${node.nodeId == nodeId})');
+                return shouldReceive;
+              },
+            ) // Only create inlet for self if receiveOwnMessages is true
             .map((node) => '${layerId}_${node.nodeId}')
             .toSet();
+            
+    print('[StreamLayerManager] $layerId: Current inlets: $currentInletKeys, Required inlets: $requiredInletKeys');
 
     // Remove inlets for nodes that left
-    for (final key in currentInletKeys.difference(requiredInletKeys)) {
+    final toRemove = currentInletKeys.difference(requiredInletKeys);
+    print('[StreamLayerManager] $layerId: Removing inlets for: $toRemove');
+    for (final key in toRemove) {
       final inlet = _inlets.remove(key);
       inlet?.destroy();
       _inletControllers.remove(key)?.close();
     }
 
     // Add inlets for new nodes
-    for (final key in requiredInletKeys.difference(currentInletKeys)) {
+    final toAdd = requiredInletKeys.difference(currentInletKeys);
+    print('[StreamLayerManager] $layerId: Adding inlets for: $toAdd');
+    for (final key in toAdd) {
       await _createInletForSourceId(key);
     }
 
@@ -198,44 +212,75 @@ class StreamLayerManager {
 
   /// Discover and create inlets for available streams
   Future<void> _discoverAndCreateInlets() async {
-    // If we're a coordinator with no other nodes, skip inlet discovery
+    print('[StreamLayerManager] $layerId: _discoverAndCreateInlets called - isCoordinator: $isCoordinator, knownNodes.length: ${knownNodes.length}, receiveOwnMessages: $receiveOwnMessages');
+    
+    // If we're a coordinator with no other nodes, check if we should still create inlet for own messages
     if (isCoordinator && knownNodes.length <= 1) {
-      return;
+      print('[StreamLayerManager] $layerId: Single coordinator case - checking receiveOwnMessages: $receiveOwnMessages');
+      if (!receiveOwnMessages) {
+        print('[StreamLayerManager] $layerId: Skipping inlet discovery - no other nodes and receiveOwnMessages=false');
+        return;
+      } else {
+        print('[StreamLayerManager] $layerId: Continuing with inlet discovery despite single coordinator - receiveOwnMessages=true');
+      }
     }
 
-    final streams = await LSL.resolveStreams(
-      waitTime: 0.5, // Reduce wait time to avoid hanging
+    final streams = await LSL.resolveStreamsByPredicate(
+      predicate:
+          "name='${layerConfig.streamConfig.streamName}' and starts-with(source_id, '${layerId}_')",
+      waitTime: 1.0,
       maxStreams: 50,
     );
 
+    print('[StreamLayerManager] $layerId: Found ${streams.length} streams matching predicate');
+    for (final stream in streams) {
+      print('[StreamLayerManager] $layerId: Stream found - name: ${stream.streamName}, sourceId: ${stream.sourceId}, type: ${stream.streamType}');
+    }
+    
     final layerStreams = streams.where(
-      (stream) =>
-          stream.streamName == layerConfig.streamConfig.streamName &&
-          stream.streamType == layerConfig.streamConfig.streamType &&
-          stream.sourceId !=
-              '${layerId}_$nodeId' && // Don't create inlet for self
-          stream.sourceId.startsWith('${layerId}_'),
+      (stream) {
+        final typeMatch = stream.streamType == layerConfig.streamConfig.streamType;
+        final isOwnStream = stream.sourceId == '${layerId}_$nodeId';
+        final shouldReceive = receiveOwnMessages || !isOwnStream;
+        print('[StreamLayerManager] $layerId: Stream ${stream.sourceId} - typeMatch: $typeMatch, isOwnStream: $isOwnStream, shouldReceive: $shouldReceive');
+        return typeMatch && shouldReceive;
+      },
     );
 
-    for (final streamInfo in layerStreams) {
+    final layerStreamsList = layerStreams.toList();
+    print('[StreamLayerManager] $layerId: Creating inlets for ${layerStreamsList.length} streams');
+    for (final streamInfo in layerStreamsList) {
+      print('[StreamLayerManager] $layerId: Creating inlet for sourceId: ${streamInfo.sourceId}');
       await _createInletForSourceId(streamInfo.sourceId);
     }
   }
 
   /// Create inlet for a specific source ID
   Future<void> _createInletForSourceId(String sourceId) async {
-    if (_inlets.containsKey(sourceId)) return;
+    if (_inlets.containsKey(sourceId)) {
+      print('[StreamLayerManager] $layerId: Inlet for $sourceId already exists, skipping');
+      return;
+    }
+    
+    print('[StreamLayerManager] $layerId: Creating inlet for sourceId: $sourceId');
 
-    final streams = await LSL.resolveStreams(waitTime: 1.0, maxStreams: 1);
+    final streams = await LSL.resolveStreamsByProperty(
+      property: LSLStreamProperty.sourceId,
+      value: sourceId,
+      waitTime: 1.0,
+      maxStreams: 1,
+    );
 
-    final streamInfo =
-        streams.where((stream) => stream.sourceId == sourceId).firstOrNull;
+    final streamInfo = streams.firstOrNull;
 
     if (streamInfo == null) {
       // Stream not found yet - this is normal during initial setup
       // when other nodes haven't created their outlets yet
+      print('[StreamLayerManager] $layerId: Stream for sourceId $sourceId not found yet, skipping inlet creation');
       return;
     }
+    
+    print('[StreamLayerManager] $layerId: Found stream for sourceId $sourceId, creating inlet');
 
     final inlet = await LSL.createInlet(
       streamInfo: streamInfo,
@@ -247,6 +292,8 @@ class StreamLayerManager {
 
     _inlets[sourceId] = inlet;
     _inletControllers[sourceId] = StreamController<List<dynamic>>.broadcast();
+    
+    print('[StreamLayerManager] $layerId: Successfully created inlet for sourceId: $sourceId - Total inlets: ${_inlets.length}');
   }
 
   /// Start polling inlets (non-isolate mode)

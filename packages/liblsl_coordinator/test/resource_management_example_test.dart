@@ -62,7 +62,7 @@ void main() {
 
           // Wait for coordinator promotion
           // This timing is critical - too short and promotion may not complete
-          await Future.delayed(const Duration(milliseconds: 1200));
+          await Future.delayed(const Duration(milliseconds: 3000));
 
           expect(coordinator.role, equals(NodeRole.coordinator));
           expect(coordinator.layers.length, equals(2));

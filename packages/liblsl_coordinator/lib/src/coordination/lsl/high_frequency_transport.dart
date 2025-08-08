@@ -683,12 +683,15 @@ Future<void> _discoverAndConnectGameStreams(
   Map<String, double> timeCorrections,
 ) async {
   try {
-    final streams = await LSL.resolveStreams(waitTime: 2.0, maxStreams: 50);
+    final streams = await LSL.resolveStreamsByPredicate(
+      predicate:
+          "name='${params.streamName}' and starts-with(source_id, 'game_')",
+      waitTime: 2.0,
+      maxStreams: 50,
+    );
 
     final gameStreams = streams.where(
       (s) =>
-          s.streamName == params.streamName &&
-          s.sourceId.startsWith('game_') &&
           (params.receiveOwnMessages || s.sourceId != 'game_${params.nodeId}'),
     );
 

@@ -104,18 +104,18 @@ class LSLNetworkTransport implements NetworkTransport {
 
   @override
   Future<void> subscribeToSource(String sourceId) async {
+    if (sourceId == nodeId) {
+      return; // Don't subscribe to self
+    }
     try {
       // Find streams from this source
-      final streams = await LSL.resolveStreams(waitTime: 2.0, maxStreams: 50);
-
-      final matchingStreams = streams.where(
-        (s) =>
-            s.streamName == streamName &&
-            s.sourceId == 'coord_$sourceId' &&
-            s.sourceId != 'coord_$nodeId', // Don't subscribe to self
+      final streams = await LSL.resolveStreamsByPredicate(
+        predicate: "name='$streamName' and source_id='coord_$sourceId'",
+        waitTime: 2.0,
+        maxStreams: 50,
       );
 
-      for (final stream in matchingStreams) {
+      for (final stream in streams) {
         // Check if we already have an inlet for this stream
         if (_inlets.any(
           (inlet) => inlet.streamInfo.sourceId == stream.sourceId,
@@ -208,13 +208,14 @@ class LSLNetworkTransport implements NetworkTransport {
 
   Future<void> _discoverNewStreams() async {
     try {
-      final streams = await LSL.resolveStreams(waitTime: 1.0, maxStreams: 50);
-
+      // @TODO: Replace with a continuous resolver.
+      final streams = await LSL.resolveStreamsByPredicate(
+        predicate: "name='$streamName' and starts-with(source_id, 'coord_')",
+        waitTime: 1.0,
+        maxStreams: 50,
+      );
       final coordinationStreams = streams.where(
-        (s) =>
-            s.streamName == streamName &&
-            s.sourceId.startsWith('coord_') &&
-            s.sourceId != 'coord_$nodeId',
+        (s) => s.sourceId != 'coord_$nodeId',
       );
 
       for (final stream in coordinationStreams) {

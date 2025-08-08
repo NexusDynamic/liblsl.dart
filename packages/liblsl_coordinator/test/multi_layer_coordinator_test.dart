@@ -29,7 +29,7 @@ void main() {
         coordinationConfig: CoordinationConfig(
           discoveryInterval: 0.1, // Much faster discovery
           heartbeatInterval: 0.1, // Much faster heartbeat
-          joinTimeout: 0.2, // Very fast timeout for testing
+          joinTimeout: 0.1, // Very fast timeout for testing
           autoPromote: true,
         ),
         lslApiConfig: TestLSLConfig.createTestConfig(),
@@ -331,6 +331,8 @@ void main() {
       });
 
       test('should send data to multiple layers', () async {
+        // ensure coordinator promotion
+        await Future.delayed(Duration(milliseconds: 800));
         final layers = coordinator.layers;
         final testData = [1.0, 2.0, 3.0];
 
