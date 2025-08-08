@@ -21,11 +21,7 @@ void main() {
 
     testWidgets('Start LSL stream and consumer', (WidgetTester tester) async {
       // start searching for streams
-      final futureStreams = LSL.resolveStreams(
-        waitTime: 3.0,
-        maxStreams: 1,
-        forgetAfter: 100.0,
-      );
+      final futureStreams = LSL.resolveStreams(waitTime: 3.0, maxStreams: 1);
 
       // Build our app and trigger a frame.
       await tester.pumpWidget(const LSLTestApp());
