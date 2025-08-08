@@ -18,6 +18,7 @@ class LSLInletIsolate extends LSLIsolateWorkerBase {
   LSLStreamInfo? _streamInfo;
   late final LslPullSample _pullFn;
   late final bool _isStreamInfoOwner;
+  lsl_streaminfo? _fullInfo;
 
   final Map<LSLMessageType, FutureOr Function(Map<String, dynamic>)> _handlers =
       {};
@@ -34,6 +35,12 @@ class LSLInletIsolate extends LSLIsolateWorkerBase {
     _handlers[LSLMessageType.samplesAvailable] = _samplesAvailable;
     _handlers[LSLMessageType.destroy] = _destroy;
     _handlers[LSLMessageType.pullChunk] = pullChunk;
+    _handlers[LSLMessageType.getFullInfo] = (data) async {
+      if (_fullInfo == null) {
+        throw LSLException('Full stream info not available');
+      }
+      return _fullInfo!.address;
+    };
   }
 
   @override
@@ -103,6 +110,14 @@ class LSLInletIsolate extends LSLIsolateWorkerBase {
     if (result != 0) {
       throw LSLException('Error opening stream: $result');
     }
+
+    // If the inlet was created successfully, set the full stream info
+    _fullInfo = lsl_get_fullinfo(
+      _inlet!,
+      LSL_FOREVER,
+      Pointer<Int32>.fromAddress(data['ecPointerAddr'] as int),
+    );
+    // If there is an error, _fullInfo will remain null.
 
     return true;
   }

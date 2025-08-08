@@ -86,6 +86,9 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   lsl_inlet get _inletBang =>
       _inlet ?? (throw LSLException('Inlet not initialized'));
 
+  /// The full stream info pointer
+  lsl_streaminfo? _fullInfo;
+
   // Isolate resources (when using isolates)
 
   /// The isolate manager for handling async operations.
@@ -297,6 +300,10 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
       lsl_destroy_inlet(_inletBang);
       throw LSLException('Error opening inlet: $result');
     }
+    // if successful, set the full stream info
+    // if there is an error, it will remain null.
+    _fullInfo = lsl_get_fullinfo(_inletBang, LSL_FOREVER, _buffer.ec);
+
     return this;
   }
 

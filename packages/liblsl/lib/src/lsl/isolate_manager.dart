@@ -22,6 +22,7 @@ enum LSLMessageType {
   samplesAvailable,
   flush,
   timeCorrection,
+  getFullInfo,
 }
 
 /// A message payload for communication between isolates

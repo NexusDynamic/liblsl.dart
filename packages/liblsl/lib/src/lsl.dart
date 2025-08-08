@@ -200,7 +200,6 @@ class LSL {
   ///
   /// [waitTime] is the time to wait for streams to resolve.
   /// [maxStreams] is the maximum number of streams to resolve.
-  /// [forgetAfter] is the time to forget streams that are not seen.
   ///
   /// This method is not the most efficient way to resolve streams,
   /// but if you need a one-off resolution of streams, this is ok.
@@ -210,17 +209,78 @@ class LSL {
   static Future<List<LSLStreamInfo>> resolveStreams({
     double waitTime = 5.0,
     int maxStreams = 5,
-    double forgetAfter = 5.0,
   }) async {
-    final resolver = createContinuousStreamResolver(
-      forgetAfter: forgetAfter,
-      maxStreams: maxStreams,
-    );
+    final resolver = createResolver(maxStreams: maxStreams);
     final streams = await resolver.resolve(waitTime: waitTime);
     // free the resolver
     resolver.destroy();
     // these stream info pointers remain until they are destroyed
     return streams;
+  }
+
+  /// Resolves streams by a specific property.
+  /// The [property] parameter is the property to filter by, such as name,
+  /// type, channel count, etc.
+  /// The [value] parameter is the value to filter by.
+  /// The [waitTime] parameter determines how long to wait for streams to
+  /// resolve, if the value is 0, the default of forever will be used, and will
+  /// only return when the [minStreamCount] is met.
+  /// The [minStreamCount] parameter is the minimum number of streams to
+  /// resolve, it must be greater than 0.
+  /// Returns a list of [LSLStreamInfo] objects that match the filter.
+  /// Throws an [LSLException] if the resolver is not created or if there is an
+  /// error resolving streams.
+  /// You may get less streams than the [minStreamCount] if there are not enough
+  /// streams available AND you have set a [waitTime] > 0.
+  static Future<List<LSLStreamInfo>> resolveStreamsByProperty({
+    required LSLStreamProperty property,
+    required String value,
+    double waitTime = 5.0,
+    int minStreamCount = 0,
+    int maxStreams = 5,
+  }) async {
+    final resolver = createResolver(maxStreams: maxStreams);
+    final streams = await resolver.resolveByProperty(
+      property: property,
+      value: value,
+      waitTime: waitTime,
+      minStreamCount: minStreamCount,
+    );
+    // free the resolver
+    resolver.destroy();
+    // these stream info pointers remain until they are destroyed
+    return streams;
+  }
+
+  /// Resolves streams by a predicate function.
+  /// The [predicate] parameter is an
+  /// [XPath 1.0 predicate](http://en.wikipedia.org/w/index.php?title=XPath_1.0)
+  /// e.g. `name='MyStream' and type='EEG'` or `starts-with(name, 'My')`.
+  /// The [waitTime] parameter determines how long to wait for streams to
+  /// resolve, if the value is 0, the default of forever will be used, and will
+  /// only return when the [minStreamCount] is met.
+  /// The [minStreamCount] parameter is the minimum number of streams to
+  /// resolve, it must be greater than 0.
+  static Future<List<LSLStreamInfo>> resolveStreamsByPredicate({
+    required String predicate,
+    double waitTime = 5.0,
+    int minStreamCount = 0,
+    int maxStreams = 5,
+  }) async {
+    final resolver = createResolver(maxStreams: maxStreams);
+    final streams = await resolver.resolveByPredicate(
+      predicate: predicate,
+      waitTime: waitTime,
+      minStreamCount: minStreamCount,
+    );
+    // free the resolver
+    resolver.destroy();
+    // these stream info pointers remain until they are destroyed
+    return streams;
+  }
+
+  static LSLStreamResolver createResolver({int maxStreams = 5}) {
+    return LSLStreamResolver(maxStreams: maxStreams)..create();
   }
 
   /// Creates a new [LSLStreamResolverContinuous] for continuous stream

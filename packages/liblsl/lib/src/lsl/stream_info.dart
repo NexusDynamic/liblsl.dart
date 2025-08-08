@@ -14,6 +14,38 @@ extension StreamInfoList on List<LSLStreamInfo> {
   }
 }
 
+// abstract class LSLMetadataNode {
+//   final String name;
+//   late final lsl_xml_ptr _nodePtr;
+
+//   LSLMetadataNode(this.name, {lsl_xml_ptr? nodePtr}) {
+//     if (nodePtr != null) {
+//       _nodePtr = nodePtr;
+//     }
+//   }
+
+//   @override
+//   String toString() => name;
+// }
+
+// class LSLMetadataGroup extends LSLMetadataNode {
+//   final List<LSLMetadataNode> children;
+
+//   LSLMetadataGroup(super.name, this.children) {
+//     _nodePtr = lsl_create_metadata_group(name.toNativeUtf8().cast<Char>());
+//     for (final child in children) {
+//       lsl_add_metadata_child(_nodePtr, child._nodePtr);
+//     }
+//   }
+
+//   @override
+//   String toString() => 'LSLMetadataGroup[$name]';
+// }
+
+// class LSLDescription {
+//   final lsl_streaminfo? _fullInfo;
+// }
+
 /// Representation of the lsl_streaminfo_struct_ from the LSL C API.
 class LSLStreamInfo extends LSLObj {
   final String streamName;
@@ -40,6 +72,7 @@ class LSLStreamInfo extends LSLObj {
   }) : _streamInfo = streamInfo {
     if (streamInfo != null) {
       _streamInfo = streamInfo;
+      // _description = lsl_get_desc(streamInfo);
       super.create();
     }
   }
@@ -159,6 +192,17 @@ class LSLStreamInfo extends LSLObj {
     }
     super.destroy();
   }
+
+  // lsl_xml_ptr addMetadataGroup(String groupName) {
+  //   if (_streamInfo == null) {
+  //     throw LSLException('StreamInfo not created or destroyed');
+  //   }
+  //   final groupNamePtr = groupName
+  //       .toNativeUtf8(allocator: allocate)
+  //       .cast<Char>();
+  //   addAllocList([groupNamePtr]);
+  //   return lsl_add_metadata_group(_streamInfo!, groupNamePtr);
+  // }
 
   @override
   String toString() {
