@@ -6,12 +6,17 @@ import 'test_lsl_config.dart';
 
 void main() {
   group('MultiLayerCoordinator Tests', () {
-    setUpAll(() async {
+    setUp(() async {
       // Initialize LSL with test-optimized configuration
       TestLSLConfig.initializeForTesting();
 
       // Clear any existing LSL streams before starting tests
       await _clearAllLSLStreams();
+    });
+
+    tearDown(() async {
+      // Add a forced wait to ensure all LSL resources are released
+      await Future.delayed(Duration(milliseconds: 100));
     });
 
     tearDownAll(() async {
@@ -679,8 +684,8 @@ void main() {
 Future<void> _clearAllLSLStreams() async {
   try {
     final streams = await LSL.resolveStreams(waitTime: 0.5, maxStreams: 100);
-    print('Found ${streams.length} existing LSL streams to clear');
-
+    print('Found ${streams.length} existing LSL streams still visible.');
+    streams.destroy();
     // Wait a bit for any streams to be released naturally
     await Future.delayed(const Duration(milliseconds: 200));
   } catch (e) {

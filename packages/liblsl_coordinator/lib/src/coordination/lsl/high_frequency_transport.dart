@@ -584,6 +584,7 @@ void _inletConsumerIsolate(_InletIsolateParams params) async {
     for (final inlet in inlets) {
       try {
         await inlet.destroy();
+        //inlet.streamInfo.destroy();
       } catch (e) {
         print('Error destroying inlet: $e');
       }
@@ -667,6 +668,7 @@ void _outletProducerIsolate(_OutletIsolateParams params) async {
     if (outlet != null) {
       try {
         await outlet.destroy();
+        //outlet.streamInfo.destroy();
       } catch (e) {
         print('Error destroying outlet: $e');
       }
@@ -694,6 +696,13 @@ Future<void> _discoverAndConnectGameStreams(
       (s) =>
           (params.receiveOwnMessages || s.sourceId != 'game_${params.nodeId}'),
     );
+
+    // destroy the rest of the streamInfos that are not in gameStreams
+    final restStreams =
+        streams
+            .where((s) => !gameStreams.any((gs) => gs.sourceId == s.sourceId))
+            .toList();
+    restStreams.destroy();
 
     for (final stream in gameStreams) {
       try {

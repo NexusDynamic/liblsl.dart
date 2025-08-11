@@ -7,6 +7,9 @@ void main() {
     final apiConfig = LSLApiConfig(
       ipv6: IPv6Mode.disable,
       resolveScope: ResolveScope.link,
+      listenAddress: '127.0.0.1', // Use loopback for testing
+      addressesOverride: ['224.0.0.183'],
+      knownPeers: ['127.0.0.1'],
     );
     LSL.setConfigContent(apiConfig);
   });
@@ -43,8 +46,10 @@ void main() {
         await Future.delayed(Duration(milliseconds: 300));
 
         // Test basic resolution
-        final resolvedStreams = await LSL.resolveStreams(waitTime: 2.0);
-
+        final resolvedStreams = await LSL.resolveStreams(
+          waitTime: 2.0,
+          maxStreams: 20,
+        );
         expect(resolvedStreams.length, greaterThanOrEqualTo(2));
 
         final testStreams = resolvedStreams
@@ -70,13 +75,12 @@ void main() {
         expect(stream2.sourceId, equals('test2'));
 
         // Cleanup
-        outlet1.destroy();
-        outlet2.destroy();
+        await outlet1.destroy();
+        await outlet2.destroy();
         streamInfo1.destroy();
         streamInfo2.destroy();
-        for (final stream in testStreams) {
-          stream.destroy();
-        }
+        testStreams.clear();
+        resolvedStreams.destroy();
       });
 
       test('should handle empty resolution results', () async {
@@ -105,8 +109,8 @@ void main() {
         await Future.delayed(Duration(milliseconds: 300));
       });
 
-      tearDown(() {
-        testOutlet.destroy();
+      tearDown(() async {
+        await testOutlet.destroy();
         testStream.destroy();
       });
 
@@ -120,7 +124,7 @@ void main() {
         expect(resolvedStreams.length, equals(1));
         expect(resolvedStreams.first.streamName, equals('PropertyTestStream'));
 
-        resolvedStreams.first.destroy();
+        resolvedStreams.destroy();
       });
 
       test('should resolve by stream type', () async {
@@ -188,7 +192,7 @@ void main() {
         expect(resolvedStreams.first.streamName, equals('PropertyTestStream'));
         expect(resolvedStreams.first.sourceId, equals('property_test_123'));
 
-        resolvedStreams.first.destroy();
+        resolvedStreams.destroy();
       });
 
       test('should resolve by sample rate', () async {
@@ -283,13 +287,11 @@ void main() {
         await Future.delayed(Duration(milliseconds: 500));
       });
 
-      tearDown(() {
+      tearDown(() async {
         for (final outlet in testOutlets) {
-          outlet.destroy();
+          await outlet.destroy();
         }
-        for (final stream in testStreams) {
-          stream.destroy();
-        }
+        testStreams.destroy();
       });
 
       test('should resolve by simple name predicate', () async {
@@ -302,7 +304,7 @@ void main() {
         expect(resolvedStreams.first.streamName, equals('BioSemi_EEG_32'));
         expect(resolvedStreams.first.streamType, equals(LSLContentType.eeg));
 
-        resolvedStreams.first.destroy();
+        resolvedStreams.destroy();
       });
 
       test('should resolve by type predicate', () async {
@@ -321,9 +323,7 @@ void main() {
             .toList();
         expect(testEEGStreams.length, equals(2));
 
-        for (final stream in resolvedStreams) {
-          stream.destroy();
-        }
+        resolvedStreams.destroy();
       });
 
       test('should resolve using starts-with predicate', () async {
@@ -338,9 +338,7 @@ void main() {
             .toList();
         expect(bioSemiStreams.length, equals(2));
 
-        for (final stream in resolvedStreams) {
-          stream.destroy();
-        }
+        resolvedStreams.destroy();
       });
 
       test('should resolve using combined AND predicate', () async {
@@ -355,9 +353,7 @@ void main() {
         );
         expect(targetStream.streamType, equals(LSLContentType.eeg));
 
-        for (final stream in resolvedStreams) {
-          stream.destroy();
-        }
+        resolvedStreams.destroy();
       });
 
       test('should resolve using combined OR predicate', () async {
@@ -376,9 +372,7 @@ void main() {
             .toList();
         expect(testStreamsFound.length, equals(2));
 
-        for (final stream in resolvedStreams) {
-          stream.destroy();
-        }
+        resolvedStreams.destroy();
       });
 
       test('should resolve using channel count predicate', () async {
@@ -393,9 +387,7 @@ void main() {
         );
         expect(targetStream.channelCount, equals(32));
 
-        for (final stream in resolvedStreams) {
-          stream.destroy();
-        }
+        resolvedStreams.destroy();
       });
 
       test('should resolve using sample rate comparison', () async {
@@ -414,9 +406,7 @@ void main() {
             .toList();
         expect(highSampleRateStreams.length, equals(2));
 
-        for (final stream in resolvedStreams) {
-          stream.destroy();
-        }
+        resolvedStreams.destroy();
       });
 
       test('should resolve using complex metadata predicate', () async {
@@ -434,9 +424,7 @@ void main() {
         expect(targetStream.channelCount, equals(32));
         expect(targetStream.streamType, equals(LSLContentType.eeg));
 
-        for (final stream in resolvedStreams) {
-          stream.destroy();
-        }
+        resolvedStreams.destroy();
       });
 
       test('should handle invalid predicate gracefully', () async {
@@ -491,12 +479,10 @@ void main() {
         expect(targetStream.channelCount, equals(2));
 
         // Cleanup
-        testOutlet.destroy();
+        await testOutlet.destroy();
         testStream.destroy();
         continuousResolver.destroy();
-        for (final stream in resolvedStreams) {
-          stream.destroy();
-        }
+        resolvedStreams.destroy();
       });
 
       test('should handle continuous resolver with property filter', () async {
@@ -542,14 +528,12 @@ void main() {
         expect(testStreamsFound.length, equals(2));
 
         // Cleanup
-        testOutlet1.destroy();
-        testOutlet2.destroy();
+        await testOutlet1.destroy();
+        await testOutlet2.destroy();
         testStream1.destroy();
         testStream2.destroy();
         continuousResolver.destroy();
-        for (final stream in mocapStreams) {
-          stream.destroy();
-        }
+        mocapStreams.destroy();
       });
 
       test('should handle continuous resolver with predicate', () async {
@@ -583,12 +567,10 @@ void main() {
         expect(targetStream.sampleRate, equals(256.0));
 
         // Cleanup
-        testOutlet.destroy();
+        await testOutlet.destroy();
         testStream.destroy();
         continuousResolver.destroy();
-        for (final stream in resolvedStreams) {
-          stream.destroy();
-        }
+        resolvedStreams.destroy();
       });
     });
 

@@ -8,10 +8,6 @@ import 'test_lsl_config.dart';
 /// This tests the unified layer API in a controlled environment
 void main() {
   group('Mock-Based Integration Tests', () {
-    setUpAll(() {
-      // Initialize LSL with test-optimized configuration
-      TestLSLConfig.initializeForTesting();
-    });
     setUp(() {
       MockLSL.reset();
     });

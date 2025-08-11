@@ -13,6 +13,9 @@ void main() {
     final apiConfig = LSLApiConfig(
       ipv6: IPv6Mode.disable,
       resolveScope: ResolveScope.link,
+      listenAddress: '127.0.0.1', // Use loopback for testing
+      addressesOverride: ['224.0.0.183'],
+      knownPeers: ['127.0.0.1'],
     );
     LSL.setConfigContent(apiConfig);
   });
@@ -50,7 +53,7 @@ void main() {
         () => outlet.waitForConsumer(timeout: 1.0),
         throwsA(isA<LSLTimeout>()),
       );
-      outlet.destroy();
+      await outlet.destroy();
       streamInfo.destroy();
     });
     test('push a default (float) sample', () async {
@@ -59,7 +62,7 @@ void main() {
       final result = await outlet.pushSample([5.0, 8.0]);
       expect(result, 0); // 0 typically means success
 
-      outlet.destroy();
+      await outlet.destroy();
       streamInfo.destroy();
     });
 
@@ -72,7 +75,7 @@ void main() {
       final result = await outlet.pushSample(['Test Sample']);
       expect(result, 0);
 
-      outlet.destroy();
+      await outlet.destroy();
       streamInfo.destroy();
     });
     test('Create outlet and resolve available streams', () async {
@@ -94,7 +97,7 @@ void main() {
       expect(foundStreamInfo, isNotNull);
       expect(foundStreamInfo?.streamName, 'DartLSLStream');
 
-      outlet.destroy();
+      await outlet.destroy();
       streamInfo.destroy();
     });
     test('outlet, resolve, inlet, pull sample', () async {
@@ -124,7 +127,7 @@ void main() {
 
       await Future.delayed(Duration(milliseconds: 10));
 
-      final streams = await LSL.resolveStreams(waitTime: 0.1);
+      final streams = await LSL.resolveStreams(waitTime: 1.0);
       expect(streams.length, greaterThan(0));
       // Find and validate the stream
       final streamInfo = streams.firstWhere(
@@ -165,8 +168,8 @@ void main() {
       //await senderFuture; // Wait for the sender to finish
 
       // Clean up
-      inlet.destroy();
-      outlet.destroy();
+      await inlet.destroy();
+      await outlet.destroy();
       oStreamInfo.destroy();
       streamInfo.destroy();
     });

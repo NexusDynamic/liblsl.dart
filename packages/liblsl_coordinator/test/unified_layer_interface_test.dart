@@ -5,11 +5,13 @@ import 'package:liblsl_coordinator/liblsl_coordinator.dart';
 import 'test_lsl_config.dart';
 
 void main() {
-  setUpAll(() async {
-    TestLSLConfig.initializeForTesting();
-  });
-
   group('Unified Layer Interface Tests', () {
+    setUp(() async {
+      TestLSLConfig.initializeForTesting();
+    });
+    tearDown(() async {
+      await Future.delayed(Duration(milliseconds: 100));
+    });
     late MultiLayerCoordinator coordinator;
     late CoordinationLayer gameLayer;
     late CoordinationLayer coordinationLayer;
@@ -397,6 +399,12 @@ void main() {
   });
 
   group('LayerDataEvent Tests', () {
+    setUp(() async {
+      TestLSLConfig.initializeForTesting();
+    });
+    tearDown(() async {
+      await Future.delayed(Duration(milliseconds: 100));
+    });
     test('should create layer data events correctly', () {
       final now = DateTime.now();
       final event = LayerDataEvent(

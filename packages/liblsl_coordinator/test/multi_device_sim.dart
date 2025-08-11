@@ -48,7 +48,13 @@ void main() {
           channelFormat: LSLChannelFormat.int32,
           channelCount: 1,
         ),
-        lslApiConfig: LSLApiConfig(ipv6: IPv6Mode.disable),
+        lslApiConfig: LSLApiConfig(
+          ipv6: IPv6Mode.disable,
+          resolveScope: ResolveScope.link,
+          listenAddress: '127.0.0.1', // Use loopback for testing
+          addressesOverride: ['224.0.0.183'],
+          knownPeers: ['127.0.0.1'],
+        ),
       );
       transports.add(transport);
       return transport;

@@ -21,7 +21,13 @@ void main() {
           useIsolate: false, // Start with non-isolate mode for unit tests
           channelCount: 2, // Support both single events and event+value pairs
         ),
-        lslApiConfig: LSLApiConfig(ipv6: IPv6Mode.disable),
+        lslApiConfig: LSLApiConfig(
+          ipv6: IPv6Mode.disable,
+          resolveScope: ResolveScope.link,
+          listenAddress: '127.0.0.1', // Use loopback for testing
+          addressesOverride: ['224.0.0.183'],
+          knownPeers: ['127.0.0.1'],
+        ),
       );
     });
 

@@ -8,9 +8,14 @@ import 'test_lsl_config.dart';
 /// followed by end users to avoid resource leaks and conflicts.
 void main() {
   group('Resource Management Examples', () {
-    setUpAll(() async {
+    setUp(() async {
       // Initialize LSL with optimal configuration for testing
       TestLSLConfig.initializeForTesting();
+    });
+
+    tearDown(() async {
+      // add a forced wait of 100ms
+      await Future.delayed(Duration(milliseconds: 100));
     });
 
     group('Basic Coordinator Lifecycle', () {

@@ -6,7 +6,10 @@ class TestLSLConfig {
     return LSLApiConfig(
       // Disable IPv6 for faster resolution
       ipv6: IPv6Mode.disable,
-
+      resolveScope: ResolveScope.link,
+      listenAddress: '127.0.0.1', // Use loopback for testing
+      addressesOverride: ['224.0.0.183'],
+      knownPeers: ['127.0.0.1'],
       // Faster stream expiry - streams expire in 0.5 seconds instead of default (15s)
       // This helps with cleanup between tests
       watchdogTimeThreshold: 0.5, // Expire streams in 0.5 seconds

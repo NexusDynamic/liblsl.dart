@@ -8,6 +8,9 @@ void main() {
     final apiConfig = LSLApiConfig(
       ipv6: IPv6Mode.disable,
       resolveScope: ResolveScope.link,
+      listenAddress: '127.0.0.1', // Use loopback for testing
+      addressesOverride: ['224.0.0.183'],
+      knownPeers: ['127.0.0.1'],
     );
     LSL.setConfigContent(apiConfig);
   });
@@ -55,7 +58,7 @@ void main() {
           expect(resolvedStream, isA<LSLStreamInfo>());
           expect(resolvedStream is LSLStreamInfoWithMetadata, isFalse);
 
-          outlet.destroy();
+          await outlet.destroy();
           streamInfo.destroy();
           resolvedStream.destroy();
         },
@@ -100,8 +103,8 @@ void main() {
             equals(basicStream.channelCount),
           );
 
-          inlet.destroy();
-          outlet.destroy();
+          await inlet.destroy();
+          await outlet.destroy();
           streamInfo.destroy();
           basicStream.destroy();
         },
@@ -149,11 +152,11 @@ void main() {
             returnsNormally,
           );
 
-          inlet.destroy();
+          await inlet.destroy();
           basicStreamInfo.destroy();
         }
 
-        outlet.destroy();
+        await outlet.destroy();
         streamInfo.destroy();
       });
     });
@@ -190,8 +193,8 @@ void main() {
           expect(inlet.streamInfo, equals(basicStream));
           expect(inlet.streamInfo is LSLStreamInfoWithMetadata, isFalse);
 
-          inlet.destroy();
-          outlet.destroy();
+          await inlet.destroy();
+          await outlet.destroy();
           streamInfo.destroy();
           basicStream.destroy();
         },
@@ -230,8 +233,8 @@ void main() {
           expect(inlet.streamInfo, equals(basicStream));
           expect(inlet.streamInfo is LSLStreamInfoWithMetadata, isFalse);
 
-          inlet.destroy();
-          outlet.destroy();
+          await inlet.destroy();
+          await outlet.destroy();
           streamInfo.destroy();
           basicStream.destroy();
         },
@@ -271,8 +274,8 @@ void main() {
             returnsNormally,
           );
 
-          inlet.destroy();
-          outlet.destroy();
+          await inlet.destroy();
+          await outlet.destroy();
           streamInfo.destroy();
           basicStream.destroy();
         },
@@ -313,8 +316,8 @@ void main() {
             returnsNormally,
           );
 
-          inlet.destroy();
-          outlet.destroy();
+          await inlet.destroy();
+          await outlet.destroy();
           streamInfo.destroy();
           basicStream.destroy();
         },
@@ -595,8 +598,8 @@ void main() {
         expect(lastLabelChild.textValue, equals('O2'));
 
         // Cleanup
-        inlet.destroy();
-        outlet.destroy();
+        await inlet.destroy();
+        await outlet.destroy();
         streamInfo.destroy();
         basicStreamInfo.destroy();
       });
@@ -689,10 +692,10 @@ void main() {
         expect(inlet2.streamInfo, isA<LSLStreamInfoWithMetadata>());
 
         // Clean up all instances
-        inlet1.destroy();
-        inlet2.destroy();
-        outlet.destroy();
-        outlet2.destroy();
+        await inlet1.destroy();
+        await inlet2.destroy();
+        await outlet.destroy();
+        await outlet2.destroy();
         streamInfo.destroy();
         streamInfo2.destroy();
         basicStream.destroy();

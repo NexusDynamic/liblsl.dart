@@ -3,8 +3,16 @@ import 'package:test/test.dart';
 import 'package:liblsl/lsl.dart';
 import 'package:liblsl_coordinator/liblsl_coordinator.dart';
 
+import 'test_lsl_config.dart';
+
 void main() {
   group('Simple Layer API Tests', () {
+    setUp(() async {
+      TestLSLConfig.initializeForTesting();
+    });
+    tearDown(() async {
+      await Future.delayed(Duration(milliseconds: 100));
+    });
     test('should create protocol configurations correctly', () {
       // Test basic protocol
       final basicProtocol = ProtocolConfigs.basic;

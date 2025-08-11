@@ -12,11 +12,8 @@ void main() {
   group('Performance Tests', () {
     late List<HighFrequencyLSLTransport> transports;
 
-    setUpAll(() {
-      TestLSLConfig.initializeForTesting();
-    });
-
     setUp(() {
+      TestLSLConfig.initializeForTesting();
       transports = [];
       MockLSL.reset();
     });
@@ -30,6 +27,7 @@ void main() {
         }
       }
       transports.clear();
+      await Future.delayed(Duration(milliseconds: 100));
     });
 
     HighFrequencyLSLTransport createTransport(

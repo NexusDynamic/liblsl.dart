@@ -11,12 +11,9 @@ void main() {
   group('Isolate Separation Tests', () {
     late List<HighFrequencyLSLTransport> transports;
 
-    setUpAll(() {
+    setUp(() {
       // Initialize LSL with test-optimized configuration
       TestLSLConfig.initializeForTesting();
-    });
-
-    setUp(() {
       transports = [];
     });
 

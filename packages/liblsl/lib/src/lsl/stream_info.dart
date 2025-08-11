@@ -599,7 +599,6 @@ class LSLStreamInfoWithMetadata extends LSLStreamInfo {
   /// Create from existing lsl_streaminfo pointer (with metadata)
   factory LSLStreamInfoWithMetadata.fromStreamInfo(lsl_streaminfo streamInfo) {
     final Pointer<Utf8> streamName = lsl_get_name(streamInfo) as Pointer<Utf8>;
-    print(streamName.toDartString());
     final Pointer<Utf8> streamType = lsl_get_type(streamInfo) as Pointer<Utf8>;
     final int channelCount = lsl_get_channel_count(streamInfo);
     final double sampleRate = lsl_get_nominal_srate(streamInfo);

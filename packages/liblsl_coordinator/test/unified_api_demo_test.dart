@@ -2,8 +2,16 @@ import 'package:test/test.dart';
 import 'package:liblsl/lsl.dart';
 import 'package:liblsl_coordinator/liblsl_coordinator.dart';
 
+import 'test_lsl_config.dart';
+
 void main() {
   group('Unified Layer API Demo Tests', () {
+    setUp(() async {
+      TestLSLConfig.initializeForTesting();
+    });
+    tearDown(() async {
+      await Future.delayed(Duration(milliseconds: 100));
+    });
     test('should demonstrate the new unified layer API', () async {
       // Create a coordinator with a custom protocol
       final customProtocol = ProtocolConfig(

@@ -120,6 +120,7 @@ class LSLNetworkTransport implements NetworkTransport {
         if (_inlets.any(
           (inlet) => inlet.streamInfo.sourceId == stream.sourceId,
         )) {
+          stream.destroy();
           continue;
         }
 
@@ -152,18 +153,22 @@ class LSLNetworkTransport implements NetworkTransport {
   @override
   Future<void> unsubscribeFromSource(String sourceId) async {
     try {
-      _inlets.removeWhere((inlet) {
+      // Remove inlets for this source
+      for (final inlet in _inlets) {
         if (inlet.streamInfo.sourceId == 'coord_$sourceId') {
           try {
-            inlet.destroy();
+            await inlet.destroy();
+            //inlet.streamInfo.destroy();
           } catch (e) {
             print(
               'Error destroying inlet for ${inlet.streamInfo.sourceId}: $e',
             );
           }
-          return true;
         }
-        return false;
+      }
+      // cleanup list of inlets
+      _inlets.removeWhere((inlet) {
+        return inlet.destroyed;
       });
     } catch (e) {
       throw LSLTransportException(
@@ -209,16 +214,16 @@ class LSLNetworkTransport implements NetworkTransport {
   Future<void> _discoverNewStreams() async {
     try {
       // @TODO: Replace with a continuous resolver.
+      print("Stream discovery started for node $nodeId, stream $streamName");
+      // note: this ignores our own stream
       final streams = await LSL.resolveStreamsByPredicate(
-        predicate: "name='$streamName' and starts-with(source_id, 'coord_')",
+        predicate:
+            "name='$streamName' and starts-with(source_id, 'coord_') and source_id != 'coord_$nodeId'",
         waitTime: 1.0,
         maxStreams: 50,
       );
-      final coordinationStreams = streams.where(
-        (s) => s.sourceId != 'coord_$nodeId',
-      );
 
-      for (final stream in coordinationStreams) {
+      for (final stream in streams) {
         // Check if we already have an inlet for this stream
         if (_inlets.any(
           (inlet) => inlet.streamInfo.sourceId == stream.sourceId,
@@ -259,7 +264,8 @@ class LSLNetworkTransport implements NetworkTransport {
       // Clean up inlets
       for (final inlet in _inlets) {
         try {
-          inlet.destroy();
+          await inlet.destroy();
+          // inlet.streamInfo.destroy();
         } catch (e) {
           print('Error destroying inlet ${inlet.streamInfo.sourceId}: $e');
         }
@@ -269,7 +275,8 @@ class LSLNetworkTransport implements NetworkTransport {
       // Clean up outlet
       if (_outlet != null) {
         try {
-          _outlet!.destroy();
+          await _outlet!.destroy();
+          // _outlet!.streamInfo.destroy();
         } catch (e) {
           print('Error destroying outlet: $e');
         }

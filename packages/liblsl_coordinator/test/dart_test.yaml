@@ -1,6 +1,7 @@
 test_on: vm
 timeout: 15s
-
+# this avoids stream name conflicts in tests
+concurrency: 1
 # Global test configuration
 override_platforms:
   vm:

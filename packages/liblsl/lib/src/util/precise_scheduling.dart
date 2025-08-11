@@ -41,7 +41,6 @@ void runPreciseInterval<T>(
 
     state = callback(state);
     if (completer.isCompleted) {
-      print('Precise interval loop completed');
       break;
     }
   }
