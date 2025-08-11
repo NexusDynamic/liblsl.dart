@@ -195,25 +195,44 @@ class LSL {
     }
 
     await inlet.create();
-    
+
     // If metadata is requested and we don't already have it, get full info from the inlet
     if (includeMetadata && streamInfo is! LSLStreamInfoWithMetadata) {
       await inlet.getFullInfo(timeout: createTimeout);
     }
-    
+
     return inlet;
   }
 
-  /// Resolves streams available on the network immediately.
+  /// Discovers all available LSL streams on the network.
   ///
-  /// [waitTime] is the time to wait for streams to resolve.
-  /// [maxStreams] is the maximum number of streams to resolve.
+  /// This method provides a simple way to find all streams currently broadcasting
+  /// on the network without any filtering criteria. It's ideal for discovery
+  /// scenarios where you want to see what's available.
   ///
-  /// This method is not the most efficient way to resolve streams,
-  /// but if you need a one-off resolution of streams, this is ok.
-  /// It is recommended to use [LSLStreamResolverContinuous] for continuous
-  /// stream resolution, which runs in the background and you can call
-  /// [LSLStreamResolverContinuous.resolve] to get the latest streams.
+  /// **Parameters:**
+  /// - [waitTime]: Maximum time to wait for streams (default: 5.0 seconds)
+  /// - [maxStreams]: Maximum number of streams to return (default: 5)
+  ///
+  /// **Returns:** List of [LSLStreamInfo] objects representing discovered streams
+  ///
+  /// **Usage Example:**
+  /// ```dart
+  /// // Discover all available streams
+  /// final streams = await LSL.resolveStreams(waitTime: 2.0);
+  /// for (final stream in streams) {
+  ///   print('Found: ${stream.streamName} (${stream.streamType})');
+  /// }
+  /// ```
+  ///
+  /// **Performance Note:**
+  /// This method creates and destroys a resolver for each call. For continuous
+  /// monitoring, use [createContinuousStreamResolver] for better efficiency.
+  ///
+  /// **See Also:**
+  /// - [resolveStreamsByProperty] for property-based filtering
+  /// - [resolveStreamsByPredicate] for complex XPath filtering
+  /// - [createContinuousStreamResolver] for continuous monitoring
   static Future<List<LSLStreamInfo>> resolveStreams({
     double waitTime = 5.0,
     int maxStreams = 5,
@@ -226,20 +245,52 @@ class LSL {
     return streams;
   }
 
-  /// Resolves streams by a specific property.
-  /// The [property] parameter is the property to filter by, such as name,
-  /// type, channel count, etc.
-  /// The [value] parameter is the value to filter by.
-  /// The [waitTime] parameter determines how long to wait for streams to
-  /// resolve, if the value is 0, the default of forever will be used, and will
-  /// only return when the [minStreamCount] is met.
-  /// The [minStreamCount] parameter is the minimum number of streams to
-  /// resolve, it must be greater than 0.
-  /// Returns a list of [LSLStreamInfo] objects that match the filter.
-  /// Throws an [LSLException] if the resolver is not created or if there is an
-  /// error resolving streams.
-  /// You may get less streams than the [minStreamCount] if there are not enough
-  /// streams available AND you have set a [waitTime] > 0.
+  /// Discovers LSL streams matching a specific property value.
+  ///
+  /// This method filters streams based on a single property-value pair,
+  /// making it ideal for finding streams by name, type, or other specific
+  /// characteristics.
+  ///
+  /// **Parameters:**
+  /// - [property]: The stream property to filter by (see [LSLStreamProperty])
+  /// - [value]: The exact value to match (case-sensitive)
+  /// - [waitTime]: Maximum wait time in seconds (default: 5.0)
+  /// - [minStreamCount]: Minimum streams to find before returning (default: 0)
+  /// - [maxStreams]: Maximum streams to return (default: 5)
+  ///
+  /// **Available Properties:**
+  /// - `name`: Stream name (exact match)
+  /// - `type`: Content type (e.g., 'EEG', 'EMG', 'Audio')
+  /// - `channelCount`: Number of channels (as string)
+  /// - `sampleRate`: Sampling rate (as string with full precision)
+  /// - `channelFormat`: Data format (e.g., 'float32', 'int16')
+  /// - `sourceId`: Unique source identifier
+  ///
+  /// **Usage Examples:**
+  /// ```dart
+  /// // Find EEG streams
+  /// final eegStreams = await LSL.resolveStreamsByProperty(
+  ///   property: LSLStreamProperty.type,
+  ///   value: 'EEG',
+  ///   waitTime: 2.0,
+  /// );
+  ///
+  /// // Find a specific stream by name
+  /// final myStream = await LSL.resolveStreamsByProperty(
+  ///   property: LSLStreamProperty.name,
+  ///   value: 'MyDataStream',
+  ///   waitTime: 1.0,
+  /// );
+  /// ```
+  ///
+  /// **Returns:** List of [LSLStreamInfo] objects matching the criteria
+  ///
+  /// **Note:** If [minStreamCount] > 0 and [waitTime] > 0, the method may
+  /// return fewer streams than requested if the timeout is reached.
+  ///
+  /// **See Also:**
+  /// - [resolveStreamsByPredicate] for complex filtering with XPath
+  /// - [resolveStreams] for discovering all streams
   static Future<List<LSLStreamInfo>> resolveStreamsByProperty({
     required LSLStreamProperty property,
     required String value,
@@ -260,15 +311,65 @@ class LSL {
     return streams;
   }
 
-  /// Resolves streams by a predicate function.
-  /// The [predicate] parameter is an
-  /// [XPath 1.0 predicate](http://en.wikipedia.org/w/index.php?title=XPath_1.0)
-  /// e.g. `name='MyStream' and type='EEG'` or `starts-with(name, 'My')`.
-  /// The [waitTime] parameter determines how long to wait for streams to
-  /// resolve, if the value is 0, the default of forever will be used, and will
-  /// only return when the [minStreamCount] is met.
-  /// The [minStreamCount] parameter is the minimum number of streams to
-  /// resolve, it must be greater than 0.
+  /// Discovers LSL streams using XPath 1.0 predicate expressions.
+  ///
+  /// This method provides powerful filtering capabilities using XPath predicates,
+  /// allowing complex queries involving multiple criteria, text functions,
+  /// and metadata inspection.
+  ///
+  /// **Parameters:**
+  /// - [predicate]: XPath 1.0 predicate expression (see examples below)
+  /// - [waitTime]: Maximum wait time in seconds (default: 5.0)
+  /// - [minStreamCount]: Minimum streams to find before returning (default: 0)
+  /// - [maxStreams]: Maximum streams to return (default: 5)
+  ///
+  /// **Available XPath Functions:**
+  /// - `starts-with(field, text)`: Check if field starts with text
+  /// - `contains(field, text)`: Check if field contains text
+  /// - `count(path)`: Count matching elements in metadata
+  /// - Standard comparison operators: `=`, `!=`, `<`, `<=`, `>`, `>=`
+  /// - Logical operators: `and`, `or`, `not()`
+  ///
+  /// **Queryable Fields:**
+  /// - `name`: Stream name
+  /// - `type`: Content type
+  /// - `channel_count`: Number of channels
+  /// - `nominal_srate`: Sample rate
+  /// - `source_id`: Source identifier
+  /// - `//info/desc/...`: Metadata elements in description
+  ///
+  /// **Usage Examples:**
+  /// ```dart
+  /// // Basic property matching
+  /// final streams = await LSL.resolveStreamsByPredicate(
+  ///   predicate: "name='EEG_Stream' and type='EEG'",
+  /// );
+  ///
+  /// // Text functions
+  /// final bioStreams = await LSL.resolveStreamsByPredicate(
+  ///   predicate: "starts-with(name, 'BioSemi') or contains(name, 'EEG')",
+  /// );
+  ///
+  /// // Numeric comparisons
+  /// final highSampleRate = await LSL.resolveStreamsByPredicate(
+  ///   predicate: "nominal_srate >= 1000 and channel_count = 32",
+  /// );
+  ///
+  /// // Metadata queries
+  /// final withChannels = await LSL.resolveStreamsByPredicate(
+  ///   predicate: "count(//info/desc/channels/channel) > 0",
+  /// );
+  /// ```
+  ///
+  /// **Returns:** List of [LSLStreamInfo] objects matching the predicate
+  ///
+  /// **Error Handling:**
+  /// Invalid XPath expressions return empty results rather than throwing exceptions.
+  ///
+  /// **See Also:**
+  /// - [XPath 1.0 Specification](http://en.wikipedia.org/w/index.php?title=XPath_1.0)
+  /// - [resolveStreamsByProperty] for simple property filtering
+  /// - [resolveStreams] for discovering all streams
   static Future<List<LSLStreamInfo>> resolveStreamsByPredicate({
     required String predicate,
     double waitTime = 5.0,
@@ -291,16 +392,54 @@ class LSL {
     return LSLStreamResolver(maxStreams: maxStreams)..create();
   }
 
-  /// Creates a new [LSLStreamResolverContinuous] for continuous stream
-  /// resolution. It allocates and starts resolving immediately.
-  /// You can use [LSLStreamResolverContinuous.resolve] to get the latest
-  /// streams.
+  /// Creates a continuous stream resolver for efficient long-term monitoring.
   ///
-  /// [forgetAfter] is the time to forget streams that are not seen.
-  /// [maxStreams] is the maximum number of streams to resolve.
+  /// Unlike one-shot resolution methods, this creates a persistent resolver that
+  /// continuously monitors for streams in the background, providing efficient
+  /// repeated queries without the overhead of creating new resolvers.
   ///
-  /// @note: You must call [LSLStreamResolverContinuous.destroy] to free the
-  /// resources when you are done with the resolver.
+  /// **Parameters:**
+  /// - [forgetAfter]: Time in seconds to forget unseen streams (default: 5.0)
+  /// - [maxStreams]: Maximum number of streams to track (default: 5)
+  ///
+  /// **Key Features:**
+  /// - Continuous background monitoring
+  /// - Automatic stream discovery and forgetting
+  /// - Support for property and predicate filtering
+  /// - Memory efficient for repeated queries
+  ///
+  /// **Usage Example:**
+  /// ```dart
+  /// // Create continuous resolver
+  /// final resolver = LSL.createContinuousStreamResolver(
+  ///   forgetAfter: 10.0,
+  ///   maxStreams: 20,
+  /// );
+  ///
+  /// // Use for multiple queries
+  /// final allStreams = await resolver.resolve(waitTime: 1.0);
+  /// // later
+  /// final moreStreams = await resolver.resolve(waitTime: 5.0);
+  ///
+  /// // Clean up when done
+  /// resolver.destroy();
+  /// ```
+  ///
+  /// **Memory Management:**
+  /// Always call [LSLStreamResolverContinuous.destroy] when finished to
+  /// prevent memory leaks. The resolver runs background threads that need
+  /// explicit cleanup.
+  ///
+  /// **Performance:**
+  /// Ideal for applications that need frequent stream discovery, such as
+  /// real-time monitoring dashboards or connection managers.
+  ///
+  /// **Returns:** Configured and initialized [LSLStreamResolverContinuous]
+  ///
+  /// **See Also:**
+  /// - [LSLStreamResolverContinuous.resolve] for basic resolution
+  /// - [LSLStreamResolverContinuous.resolveByProperty] for property filtering
+  /// - [LSLStreamResolverContinuous.resolveByPredicate] for XPath filtering
   static LSLStreamResolverContinuous createContinuousStreamResolver({
     double forgetAfter = 5.0,
     int maxStreams = 5,

@@ -22,10 +22,14 @@ class LSLInletIsolate extends LSLIsolateWorkerBase {
   final Map<LSLMessageType, FutureOr Function(Map<String, dynamic>)> _handlers =
       {};
 
+  /// Creates a new instance of [LSLInletIsolate].
+  /// The [sendPort] is used for communication with the main isolate.
+  /// This constructor registers the handlers for the isolate messages.
   LSLInletIsolate(super.sendPort) : super() {
     _registerHandlers();
   }
 
+  /// Sets the handlers for the isolate messages.
   void _registerHandlers() {
     _handlers[LSLMessageType.createInlet] = _createInlet;
     _handlers[LSLMessageType.pullSample] = _pullSample;
@@ -51,6 +55,9 @@ class LSLInletIsolate extends LSLIsolateWorkerBase {
   }
 
   @override
+  /// Handles incoming messages from the main isolate.
+  /// This method processes the message based on its type and returns the result.
+  /// If the message type is not supported, it throws an [LSLException].
   Future<dynamic> handleMessage(LSLMessage message) async {
     final type = message.type;
     final data = message.data;
@@ -63,8 +70,13 @@ class LSLInletIsolate extends LSLIsolateWorkerBase {
   }
 
   @protected
+  /// Not yet implemented.
   external Future<dynamic> pullChunk(Map<String, dynamic> data);
 
+  /// Creates an inlet for the specified stream info.
+  /// The [data] parameter contains the necessary information to create the
+  /// inlet, such as stream info, max buffer size, max chunk length, and whether
+  /// to recover from lost samples.
   Future<Map<String, dynamic>> _createInlet(Map<String, dynamic> data) async {
     // Deserialize stream info
     final streamInfoData = data['streamInfo'] as Map<String, dynamic>;
@@ -125,6 +137,7 @@ class LSLInletIsolate extends LSLIsolateWorkerBase {
     };
   }
 
+  /// Pulls a sample from the inlet.
   Future<Map<String, dynamic>> _pullSample(Map<String, dynamic> data) async {
     if (_inlet == null || _streamInfo == null) {
       throw LSLException('Inlet not created');
@@ -146,6 +159,7 @@ class LSLInletIsolate extends LSLIsolateWorkerBase {
     return LSLSerializer.serializeSamplePointer(sample);
   }
 
+  /// Flushes the inlet, clearing any buffered samples.
   Future<int> _flush(Map<String, dynamic>? data) async {
     if (_inlet == null) {
       throw LSLException('Inlet not created');
@@ -154,6 +168,7 @@ class LSLInletIsolate extends LSLIsolateWorkerBase {
     return lsl_inlet_flush(_inlet!);
   }
 
+  /// Returns the number of samples available in the inlet.
   Future<int> _samplesAvailable(Map<String, dynamic>? data) async {
     if (_inlet == null) {
       throw LSLException('Inlet not created');
@@ -175,6 +190,7 @@ class LSLInletIsolate extends LSLIsolateWorkerBase {
     return timeCorrection;
   }
 
+  /// Cleans up the inlet and stream info.
   Future<void> _destroy(Map<String, dynamic>? data) async {
     if (_inlet != null) {
       lsl_close_stream(_inlet!);

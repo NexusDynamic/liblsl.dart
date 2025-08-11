@@ -37,7 +37,7 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// The [LSLStreamInfo] stream information for this inlet.
   /// The stream info for this inlet
   LSLStreamInfo _streamInfo;
-  
+
   @override
   LSLStreamInfo get streamInfo => _streamInfo;
 
@@ -480,9 +480,7 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// **See also:** [getFullInfoSync] for direct calls
   Future<void> _getFullInfoIsolated(double timeout) async {
     final response = await _isolateManagerBang.sendMessage(
-      LSLMessage(LSLMessageType.getFullInfo, {
-        'timeout': timeout,
-      }),
+      LSLMessage(LSLMessageType.getFullInfo, {'timeout': timeout}),
     );
 
     if (!response.success) {
@@ -505,7 +503,7 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
     final fullStreamInfo = lsl_get_fullinfo(_inletBang, timeout, ec);
     final int errorCode = ec.value;
     ec.free();
-    
+
     if (errorCode == 0 && !fullStreamInfo.isNullPointer) {
       // Replace the streamInfo with the full version
       _streamInfo = LSLStreamInfoWithMetadata.fromStreamInfo(fullStreamInfo);

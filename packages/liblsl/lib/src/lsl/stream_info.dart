@@ -14,8 +14,16 @@ extension StreamInfoList on List<LSLStreamInfo> {
   }
 }
 
+/// Base class for interacting with LibLSL XML elements.
+///
+/// This class provides low-level access to LibLSL's XML API, allowing navigation
+/// and inspection of XML nodes. Most users should use [LSLXmlNode] instead for
+/// a higher-level interface.
+///
+/// The XML structure in LibLSL follows standard XML conventions with elements
+/// that can contain text content and/or child elements.
 class LSLXml {
-  /// The XML description of the stream.
+  /// The underlying LibLSL XML pointer.
   final lsl_xml_ptr xmlPtr;
 
   /// Creates a new LSLXml object.
@@ -130,6 +138,33 @@ class LSLXml {
   }
 }
 
+/// An XML node in LibLSL's metadata structure.
+///
+/// This class represents a unified XML node that can contain both text content
+/// and child elements, matching LibLSL's C API behavior. Unlike separate element
+/// and text node classes, this unified approach handles both `<name>value</name>`
+/// and `<name><child/></name>` patterns seamlessly.
+///
+/// **Key Features:**
+/// - Access text content via [textValue] getter/setter
+/// - Access child elements via [children] getter
+/// - Add child elements with [addChildElement] and [addChildValue]
+/// - Navigate hierarchy with inherited methods from [LSLXml]
+///
+/// **Example Usage:**
+/// ```dart
+/// final root = description.value;
+///
+/// // Add text content: <manufacturer>SCCN</manufacturer>
+/// root.addChildValue('manufacturer', 'SCCN');
+///
+/// // Add container element: <channels></channels>
+/// final channels = root.addChildElement('channels');
+///
+/// // Add nested structure
+/// final channel = channels.addChildElement('channel');
+/// channel.addChildValue('label', 'C3');
+/// ```
 class LSLXmlNode extends LSLXml {
   String get name => _name;
   set name(String value) {
@@ -194,7 +229,7 @@ class LSLXmlNode extends LSLXml {
     return children;
   }
 
-  /// Adds a child element with text content (like <name>value</name>)
+  /// Adds a child element with text content (like &lt;name&gt;value&lt;/name&gt;)
   LSLXmlNode addChildValue(String name, String value) {
     if (name.isEmpty) {
       throw LSLException('Child name cannot be empty');
@@ -214,7 +249,7 @@ class LSLXmlNode extends LSLXml {
     return LSLXmlNode.fromXmlPtr(lastChildPtr);
   }
 
-  /// Adds a child element (like <name></name>)
+  /// Adds a child element (like &lt;name&gt;&lt;/name&gt;)
   LSLXmlNode addChildElement(String name) {
     if (name.isEmpty) {
       throw LSLException('Child name cannot be empty');
@@ -245,6 +280,30 @@ class LSLXmlNode extends LSLXml {
   int get hashCode => xmlPtr.address.hashCode;
 }
 
+/// Provides access to a stream's metadata description element.
+///
+/// This class wraps LibLSL's description XML structure, providing a Dart-friendly
+/// interface for accessing and modifying stream metadata. The description contains
+/// the root XML element that can hold manufacturer info, channel details,
+/// acquisition settings, and other custom metadata.
+///
+/// **Key Properties:**
+/// - [value]: The root XML node of the description
+///
+/// **Usage Pattern:**
+/// ```dart
+/// final streamInfo = await LSL.createStreamInfo(...);
+/// final description = streamInfo.description;
+/// final rootElement = description.value;
+///
+/// // Add metadata
+/// rootElement.addChildValue('manufacturer', 'SCCN');
+/// final channels = rootElement.addChildElement('channels');
+/// ```
+///
+/// **Memory Management:**
+/// The description shares the lifetime of its parent [LSLStreamInfoWithMetadata].
+/// Destroying the stream info will invalidate this description.
 class LSLDescription {
   final lsl_streaminfo _fullInfo;
   late final lsl_xml_ptr _descriptionPtr;
@@ -487,8 +546,45 @@ class LSLStreamInfo extends LSLObj {
   }
 }
 
-/// Stream info with metadata/description access.
-/// This class extends LSLStreamInfo to provide access to the stream's metadata.
+/// Stream info with full metadata and description access.
+///
+/// This class extends [LSLStreamInfo] to provide immediate access to the stream's
+/// metadata through the [description] property. It represents a "full" stream info
+/// object that includes complete XML metadata structure, as opposed to the basic
+/// stream info returned by stream resolution.
+///
+/// **When You Get This Type:**
+/// - Creating new streams with `LSL.createStreamInfo()`
+/// - After calling `LSL.createInlet()` with `includeMetadata: true`
+/// - Reconstructing from XML with `fromXml()`
+///
+/// **Key Features:**
+/// - Immediate [description] access without additional network calls
+/// - Full XML metadata structure for complex stream annotations
+/// - All methods from base [LSLStreamInfo] class
+///
+/// **Metadata Usage:**
+/// ```dart
+/// final streamInfo = await LSL.createStreamInfo(
+///   streamName: 'EEG_Stream',
+///   channelCount: 32,
+/// );
+///
+/// final description = streamInfo.description;
+/// final root = description.value;
+///
+/// // Add manufacturer and channel info
+/// root.addChildValue('manufacturer', 'BioSemi');
+/// final channels = root.addChildElement('channels');
+/// for (int i = 0; i < 32; i++) {
+///   final ch = channels.addChildElement('channel');
+///   ch.addChildValue('label', 'CH${i + 1}');
+/// }
+/// ```
+///
+/// **See Also:**
+/// - [LSLStreamInfo] for basic stream information
+/// - [LSLDescription] for metadata access patterns
 class LSLStreamInfoWithMetadata extends LSLStreamInfo {
   LSLStreamInfoWithMetadata({
     required super.streamName,
