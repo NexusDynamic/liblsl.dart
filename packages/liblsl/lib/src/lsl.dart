@@ -53,7 +53,7 @@ class LSL {
   /// [channelCount] is the number of channels in the stream.
   /// [streamType] is the stream's [LSLChannelFormat] (e.g. string, int8).
   /// [sourceId] is the source ID of the stream which should be unique.
-  static Future<LSLStreamInfo> createStreamInfo({
+  static Future<LSLStreamInfoWithMetadata> createStreamInfo({
     String streamName = "DartLSLStream",
     LSLContentType streamType = LSLContentType.eeg,
     int channelCount = 1,
@@ -61,13 +61,14 @@ class LSL {
     LSLChannelFormat channelFormat = LSLChannelFormat.float32,
     String sourceId = "DartLSL",
   }) async {
-    final streamInfo = LSLStreamInfo(
+    final streamInfo = LSLStreamInfoWithMetadata(
       streamName: streamName,
       streamType: streamType,
       channelCount: channelCount,
       sampleRate: sampleRate,
       channelFormat: channelFormat,
       sourceId: sourceId,
+      streamInfo: null, // Will be created in create() method
     );
     streamInfo.create();
     return streamInfo;
@@ -118,6 +119,8 @@ class LSL {
   ///  chunk length from the stream is used.
   /// [recover] is whether to recover from lost samples.
   /// [createTimeout] is the timeout for creating the inlet.
+  /// [includeMetadata] if true, the stream info will include metadata access.
+  /// This will automatically fetch full stream info with metadata.
   /// [useIsolates] determines whether to use isolates for thread safety.
   /// If true, the inlet will use isolates to ensure thread safety.
   /// Important: If you do not use isolates, you must ensure that you deal with
@@ -129,6 +132,7 @@ class LSL {
     int chunkSize = 0,
     bool recover = true,
     double createTimeout = LSL_FOREVER,
+    bool includeMetadata = false,
     bool useIsolates = true,
   }) async {
     if (!streamInfo.created) {
@@ -157,9 +161,10 @@ class LSL {
       );
     }
 
-    // Use isolated implementation
+    // Create inlet and get full info if metadata is requested
+    LSLInlet inlet;
     if (dataType == double) {
-      final inlet = LSLInlet<double>(
+      inlet = LSLInlet<double>(
         streamInfo,
         maxBuffer: maxBuffer,
         chunkSize: chunkSize,
@@ -167,10 +172,8 @@ class LSL {
         createTimeout: createTimeout,
         useIsolates: useIsolates,
       );
-      await inlet.create();
-      return inlet;
     } else if (dataType == int) {
-      final inlet = LSLInlet<int>(
+      inlet = LSLInlet<int>(
         streamInfo,
         maxBuffer: maxBuffer,
         chunkSize: chunkSize,
@@ -178,10 +181,8 @@ class LSL {
         createTimeout: createTimeout,
         useIsolates: useIsolates,
       );
-      await inlet.create();
-      return inlet;
     } else if (dataType == String) {
-      final inlet = LSLInlet<String>(
+      inlet = LSLInlet<String>(
         streamInfo,
         maxBuffer: maxBuffer,
         chunkSize: chunkSize,
@@ -189,11 +190,18 @@ class LSL {
         createTimeout: createTimeout,
         useIsolates: useIsolates,
       );
-      await inlet.create();
-      return inlet;
+    } else {
+      throw LSLException('Unsupported data type: $dataType');
     }
 
-    throw LSLException('Unsupported data type: $dataType');
+    await inlet.create();
+    
+    // If metadata is requested and we don't already have it, get full info from the inlet
+    if (includeMetadata && streamInfo is! LSLStreamInfoWithMetadata) {
+      await inlet.getFullInfo(timeout: createTimeout);
+    }
+    
+    return inlet;
   }
 
   /// Resolves streams available on the network immediately.

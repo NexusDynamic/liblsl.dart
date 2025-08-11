@@ -9,7 +9,7 @@ import 'package:native_toolchain_c/src/native_toolchain/android_ndk.dart';
 /// It is possible, but untested, to compile liblsl for WASM.
 /// Here is the command that successfully compiled it for WASM:
 /// ```bash
-/// LSL_SRC=./src/liblsl-9e3823bb
+/// LSL_SRC=./src/liblsl-bea40e2c
 /// emcc -pthread -sPTHREAD_POOL_SIZE=32 -sEXPORT_NAME=liblsl --no-entry \
 ///       -sENVIRONMENT=web,worker -DVERSION=1.16.2 -DLSL_ABI_VERSION=2 \
 ///       -DASIO_NO_DEPRECATED -DBOOST_ALL_NO_LIB -DLIBLSL_EXPORTS \
@@ -104,7 +104,7 @@ void main(List<String> args) async {
   await build(args, (input, output) async {
     // This needs to be manually copied from CMakeLists.txt.
     const String libLSLVersion = '1.16.2';
-    const String libLSLBranch = '9e3823bb';
+    const String libLSLBranch = 'bea40e2c';
     const String libLSLPath = 'src/liblsl-$libLSLBranch';
     final OS targetOs = input.config.code.targetOS;
     final packageName = stripPrefix(targetOs, input.packageName);

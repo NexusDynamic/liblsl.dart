@@ -18,7 +18,6 @@ class LSLInletIsolate extends LSLIsolateWorkerBase {
   LSLStreamInfo? _streamInfo;
   late final LslPullSample _pullFn;
   late final bool _isStreamInfoOwner;
-  lsl_streaminfo? _fullInfo;
 
   final Map<LSLMessageType, FutureOr Function(Map<String, dynamic>)> _handlers =
       {};
@@ -36,10 +35,18 @@ class LSLInletIsolate extends LSLIsolateWorkerBase {
     _handlers[LSLMessageType.destroy] = _destroy;
     _handlers[LSLMessageType.pullChunk] = pullChunk;
     _handlers[LSLMessageType.getFullInfo] = (data) async {
-      if (_fullInfo == null) {
-        throw LSLException('Full stream info not available');
+      if (_inlet == null) {
+        throw LSLException('Inlet not created');
       }
-      return _fullInfo!.address;
+      final timeout = data['timeout'] as double;
+      final ec = allocate<Int32>();
+      final fullInfoPtr = lsl_get_fullinfo(_inlet!, timeout, ec);
+      final result = ec.value;
+      ec.free();
+      if (result != 0) {
+        throw LSLException('Error getting full info: $result');
+      }
+      return fullInfoPtr.address;
     };
   }
 
@@ -58,7 +65,7 @@ class LSLInletIsolate extends LSLIsolateWorkerBase {
   @protected
   external Future<dynamic> pullChunk(Map<String, dynamic> data);
 
-  Future<bool> _createInlet(Map<String, dynamic> data) async {
+  Future<Map<String, dynamic>> _createInlet(Map<String, dynamic> data) async {
     // Deserialize stream info
     final streamInfoData = data['streamInfo'] as Map<String, dynamic>;
 
@@ -107,19 +114,15 @@ class LSLInletIsolate extends LSLIsolateWorkerBase {
     lsl_open_stream(_inlet!, timeout, ec);
     final result = ec.value;
     ec.free();
+
     if (result != 0) {
       throw LSLException('Error opening stream: $result');
     }
 
-    // If the inlet was created successfully, set the full stream info
-    _fullInfo = lsl_get_fullinfo(
-      _inlet!,
-      LSL_FOREVER,
-      Pointer<Int32>.fromAddress(data['ecPointerAddr'] as int),
-    );
-    // If there is an error, _fullInfo will remain null.
-
-    return true;
+    return {
+      'inletAddress': _inlet!.address,
+      'streamInfoAddress': _streamInfo!.streamInfo.address,
+    };
   }
 
   Future<Map<String, dynamic>> _pullSample(Map<String, dynamic> data) async {

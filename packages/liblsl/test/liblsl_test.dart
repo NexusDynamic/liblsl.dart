@@ -8,6 +8,14 @@ import 'dart:ffi';
 import 'package:ffi/ffi.dart' show StringUtf8Pointer, malloc;
 
 void main() {
+  setUp(() {
+    // set up basic API config
+    final apiConfig = LSLApiConfig(
+      ipv6: IPv6Mode.disable,
+      resolveScope: ResolveScope.link,
+    );
+    LSL.setConfigContent(apiConfig);
+  });
   group('LSL ffi direct', () {
     test('Check lsl library version', () {
       expect(lsl_library_version(), 116);

@@ -1476,6 +1476,13 @@ external double lsl_get_created_at(lsl_streaminfo info);
 @ffi.Native<NativeLsl_get_uid>()
 external ffi.Pointer<ffi.Char> lsl_get_uid(lsl_streaminfo info);
 
+/// Reset the UID of the stream info to a new random value.
+///
+/// This can be used to generate a UID if one doesn't exist.
+/// @return An immutable library-owned pointer to the new string value. @sa lsl_destroy_string()
+@ffi.Native<NativeLsl_reset_uid>()
+external ffi.Pointer<ffi.Char> lsl_reset_uid(lsl_streaminfo info);
+
 /// Session ID for the given stream.
 ///
 /// The session id is an optional human-assigned identifier of the recording session.
@@ -3312,6 +3319,9 @@ typedef NativeLsl_get_created_at = ffi.Double Function(lsl_streaminfo info);
 typedef DartLsl_get_created_at = double Function(lsl_streaminfo info);
 typedef NativeLsl_get_uid = ffi.Pointer<ffi.Char> Function(lsl_streaminfo info);
 typedef DartLsl_get_uid = ffi.Pointer<ffi.Char> Function(lsl_streaminfo info);
+typedef NativeLsl_reset_uid =
+    ffi.Pointer<ffi.Char> Function(lsl_streaminfo info);
+typedef DartLsl_reset_uid = ffi.Pointer<ffi.Char> Function(lsl_streaminfo info);
 typedef NativeLsl_get_session_id =
     ffi.Pointer<ffi.Char> Function(lsl_streaminfo info);
 typedef DartLsl_get_session_id =

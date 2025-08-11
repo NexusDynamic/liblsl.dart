@@ -2,6 +2,7 @@ import 'dart:ffi';
 
 import 'package:liblsl/lsl.dart';
 import 'package:liblsl/native_liblsl.dart';
+import 'package:liblsl/src/ffi/mem.dart';
 import 'package:liblsl/src/lsl/base.dart';
 import 'package:liblsl/src/lsl/helper.dart';
 import 'package:liblsl/src/lsl/isolate_manager.dart';
@@ -34,8 +35,11 @@ import 'package:liblsl/src/util/reusable_buffer.dart';
 /// ```
 class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// The [LSLStreamInfo] stream information for this inlet.
+  /// The stream info for this inlet
+  LSLStreamInfo _streamInfo;
+  
   @override
-  final LSLStreamInfo streamInfo;
+  LSLStreamInfo get streamInfo => _streamInfo;
 
   /// Whether to use isolates for thread safety.
   /// Default is true, which means it will use isolates for thread safety.
@@ -86,8 +90,31 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   lsl_inlet get _inletBang =>
       _inlet ?? (throw LSLException('Inlet not initialized'));
 
-  /// The full stream info pointer
-  lsl_streaminfo? _fullInfo;
+  /// Gets the full stream info with metadata from this inlet.
+  /// **Parameters:**
+  /// - [timeout]: Maximum wait time in seconds
+  /// **Execution:**
+  /// - Isolated mode: Async message passing to worker isolate
+  ///   [_getFullInfoIsolated]
+  /// - Direct mode: Immediate FFI call wrapped in Future
+  ///   [_getFullInfoDirect]
+  /// **Returns:** Future that completes when full info is retrieved.
+  /// **See also:** [getFullInfoSync] for zero-overhead direct calls
+  Future<void> getFullInfo({required double timeout}) async => _useIsolates
+      ? await _getFullInfoIsolated(timeout)
+      : _getFullInfoDirect(timeout);
+
+  /// Synchronously gets the full stream info with metadata from this inlet.
+  /// **Direct mode only** - throws [LSLException] if `useIsolates: true`.
+  /// This provides maximum timing precision by eliminating all async overhead.
+  /// **Example:**
+  /// ```dart
+  /// final inlet = await LSL.createInlet<double>(streamInfo: info, useIsolates: false);
+  /// // Get full info with zero async overhead
+  /// inlet.getFullInfoSync(timeout: 2.0);
+  /// ```
+  void getFullInfoSync({required double timeout}) =>
+      requireDirect(() => _getFullInfoDirect(timeout));
 
   // Isolate resources (when using isolates)
 
@@ -113,7 +140,7 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   ///   will want to still run this in an isolate to avoid blocking the main
   ///   isolate.
   LSLInlet(
-    this.streamInfo, {
+    this._streamInfo, {
     this.maxBuffer = 360,
     this.chunkSize = 0,
     this.recover = true,
@@ -300,9 +327,6 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
       lsl_destroy_inlet(_inletBang);
       throw LSLException('Error opening inlet: $result');
     }
-    // if successful, set the full stream info
-    // if there is an error, it will remain null.
-    _fullInfo = lsl_get_fullinfo(_inletBang, LSL_FOREVER, _buffer.ec);
 
     return this;
   }
@@ -446,6 +470,48 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
       throw LSLException('Error getting time correction: $result');
     }
     return timeCorrection;
+  }
+
+  /// Gets the full stream info with metadata from the inlet in isolated mode.
+  /// This is used when `useIsolates: true`.
+  /// **Parameters:**
+  /// - [timeout]: Maximum wait time in seconds
+  /// **Throws:** [LSLException] if getting full info fails.
+  /// **See also:** [getFullInfoSync] for direct calls
+  Future<void> _getFullInfoIsolated(double timeout) async {
+    final response = await _isolateManagerBang.sendMessage(
+      LSLMessage(LSLMessageType.getFullInfo, {
+        'timeout': timeout,
+      }),
+    );
+
+    if (!response.success) {
+      throw LSLException('Error getting full info: ${response.error}');
+    }
+
+    final fullStreamInfoAddr = response.result as int;
+    final fullStreamInfo = lsl_streaminfo.fromAddress(fullStreamInfoAddr);
+    _streamInfo = LSLStreamInfoWithMetadata.fromStreamInfo(fullStreamInfo);
+  }
+
+  /// Gets the full stream info with metadata from the inlet directly using FFI calls.
+  /// This may used when `useIsolates: false`.
+  /// **Parameters:**
+  /// - [timeout]: Maximum wait time in seconds
+  /// **Throws:** [LSLException] if getting full info fails.
+  /// **Note:** This method is only available when `useIsolates: false`.
+  void _getFullInfoDirect(double timeout) {
+    final Pointer<Int32> ec = allocate<Int32>();
+    final fullStreamInfo = lsl_get_fullinfo(_inletBang, timeout, ec);
+    final int errorCode = ec.value;
+    ec.free();
+    
+    if (errorCode == 0 && !fullStreamInfo.isNullPointer) {
+      // Replace the streamInfo with the full version
+      _streamInfo = LSLStreamInfoWithMetadata.fromStreamInfo(fullStreamInfo);
+    } else if (errorCode != 0) {
+      throw LSLException('Error getting full info: $errorCode');
+    }
   }
 
   Future<int> _samplesAvailableIsolated() async {

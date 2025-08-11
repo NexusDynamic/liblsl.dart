@@ -1,3 +1,16 @@
+# 0.9.0
+
+This is a major update that includes breaking changes. It introduces a new `LSLStreamInfoWithMetadata` class that allows for operations aligned with the C/C++ API that support reading and manipulation of the metadata associated with a stream. By default, when resolving streams, the metadata is not included and can only be retrieved after creating an inlet with the new method `LSLInlet.getFullInfo`, or, during inlet creation, you may pass `includeMetadata: true` to the constructor to include the metadata in the inlet.
+
+In addition, the stream resolver methods have been updated, and now there are `LSL.resolveStreamsByProperty` and `LSL.resolveStreamsByPredicate` methods to filter streams during the resolution process. The `LSL.resolveStreams` method will still continue to resolve all available streams. The continuous versions of the filtered resolvers have not yet been implemented, but will be in the next release.
+
+## Main changes in this release:
+- 🚀 Introduced `LSLStreamInfoWithMetadata` class that allows for reading and manipulating stream metadata, aligning with the C/C++ API.
+- 🚀 Updated stream resolvers, and added `LSL.resolveStreamsByProperty` and `LSL.resolveStreamsByPredicate` methods to the main `LSL` class.
+- 🚀 Updated `LSLInlet` to include a new method `getFullInfo` that retrieves the full stream info with metadata.
+- 🚀 Updated `LSLInlet` constructor with the `includeMetadata` property.
+
+
 # 0.8.1
 
 Dependency updates. Added a new static method `createContinuousStreamResolver` to the `LSL` class for creating and managing your own continuous stream resolver, existing stream resolver method works the same, but now you have the option to keep resolving streams in the background while the API is being used.
