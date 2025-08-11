@@ -16,9 +16,9 @@ environment:
 # Add regular dependencies here.
 dependencies:
   meta: ^1.16.0
-  # liblsl: ^0.8.0
-  liblsl:
-    path: ../liblsl
+  liblsl: ^0.9.0
+  # liblsl:
+  #   path: ../liblsl
   synchronized: ^3.4.0
   # path: ^1.8.0
 
