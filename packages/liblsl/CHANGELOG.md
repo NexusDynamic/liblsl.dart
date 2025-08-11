@@ -9,7 +9,10 @@ In addition, the stream resolver methods have been updated, and now there are `L
 - 🚀 Updated stream resolvers, and added `LSL.resolveStreamsByProperty` and `LSL.resolveStreamsByPredicate` methods to the main `LSL` class.
 - 🚀 Updated `LSLInlet` to include a new method `getFullInfo` that retrieves the full stream info with metadata.
 - 🚀 Updated `LSLInlet` constructor with the `includeMetadata` property.
-
+- 🚀 Added `resetUid` method to `LSLStreamInfo``
+  - This method was also added to `liblsl`
+- Forked `liblsl` version updated to commit `bea40e2c`.
+- Added a bunch of `XML` classes to handle the metadata, which group children and can be used for creating nodes or traversing the XML tree.
 
 # 0.8.1
 
