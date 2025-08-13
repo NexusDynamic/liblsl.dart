@@ -192,9 +192,12 @@ void main() {
         );
 
         try {
+          await coordinator.initialize();
+
+          await Future.delayed(const Duration(milliseconds: 500));
+
           // Initialize all coordinators
           await Future.wait([
-            coordinator.initialize(),
             participant1.initialize(),
             participant2.initialize(),
           ]);

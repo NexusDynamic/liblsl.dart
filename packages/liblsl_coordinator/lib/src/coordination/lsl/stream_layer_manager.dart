@@ -68,7 +68,7 @@ class StreamLayerManager {
     // Create inlets based on requirements
     if (layerConfig.requiresInletFromAll) {
       await _createInlets();
-    } else if (isCoordinator) {
+    } else if (isCoordinator && layerConfig.coordinatorRequiresInletFromAll) {
       // Coordinator gets inlets from all participants
       await _createInlets();
     }
@@ -95,7 +95,7 @@ class StreamLayerManager {
     if (layerConfig.useIsolate && _outletSendPort != null) {
       _outletSendPort!.send({'action': 'send_data', 'data': data});
     } else {
-      _outlet!.pushSampleSync(data);
+      await _outlet!.pushSample(data);
     }
   }
 
@@ -144,13 +144,8 @@ class StreamLayerManager {
       streamInfo: streamInfo,
       chunkSize: layerConfig.streamConfig.chunkSize,
       maxBuffer: layerConfig.streamConfig.maxBuffer,
-      useIsolates: false, // Disable isolates for now to avoid FFI issues
+      useIsolates: layerConfig.streamConfig.isolateOutlet,
     );
-
-    // Disable isolate creation for now
-    // if (layerConfig.useIsolate) {
-    //   await _createOutletIsolate();
-    // }
   }
 
   /// Create inlets for this layer
@@ -283,8 +278,29 @@ class StreamLayerManager {
       print(
         '[StreamLayerManager] $layerId: Creating inlet for sourceId: ${streamInfo.sourceId}',
       );
-      await _createInletForSourceId(streamInfo.sourceId);
+      await _createInletForStreamInfo(streamInfo);
     }
+  }
+
+  Future<void> _createInletForStreamInfo(LSLStreamInfo streamInfo) async {
+    final inlet = await LSL.createInlet(
+      streamInfo: streamInfo,
+      maxBuffer: layerConfig.streamConfig.maxBuffer,
+      chunkSize: layerConfig.streamConfig.chunkSize,
+      recover: true,
+      useIsolates:
+          layerConfig
+              .streamConfig
+              .isolateInlet, // Disable isolates for now to avoid FFI issues
+    );
+
+    _inlets[streamInfo.sourceId] = inlet;
+    _inletControllers[streamInfo.sourceId] =
+        StreamController<List<dynamic>>.broadcast();
+
+    print(
+      '[StreamLayerManager] $layerId: Successfully created inlet for sourceId: ${streamInfo.sourceId} - Total inlets: ${_inlets.length}',
+    );
   }
 
   /// Create inlet for a specific source ID
@@ -321,21 +337,7 @@ class StreamLayerManager {
     print(
       '[StreamLayerManager] $layerId: Found stream for sourceId $sourceId, creating inlet',
     );
-
-    final inlet = await LSL.createInlet(
-      streamInfo: streamInfo,
-      maxBuffer: layerConfig.streamConfig.maxBuffer,
-      chunkSize: layerConfig.streamConfig.chunkSize,
-      recover: true,
-      useIsolates: false, // Disable isolates for now to avoid FFI issues
-    );
-
-    _inlets[sourceId] = inlet;
-    _inletControllers[sourceId] = StreamController<List<dynamic>>.broadcast();
-
-    print(
-      '[StreamLayerManager] $layerId: Successfully created inlet for sourceId: $sourceId - Total inlets: ${_inlets.length}',
-    );
+    await _createInletForStreamInfo(streamInfo);
   }
 
   /// Start polling inlets (non-isolate mode)
@@ -353,7 +355,7 @@ class StreamLayerManager {
         final inlet = entry.value;
 
         try {
-          final sample = inlet.pullSampleSync();
+          final sample = await inlet.pullSample();
           if (sample.isNotEmpty) {
             final sourceNodeId = sourceId.replaceFirst('${layerId}_', '');
 

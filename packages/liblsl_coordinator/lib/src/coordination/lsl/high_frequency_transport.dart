@@ -2,8 +2,10 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:isolate';
 import 'package:liblsl/lsl.dart';
+import 'package:liblsl_coordinator/liblsl_coordinator.dart';
 import 'package:synchronized/synchronized.dart';
 import '../core/coordination_message.dart';
+import '../utils/logging.dart';
 import 'lsl_transport.dart';
 
 /// High-frequency configuration for critical data streams
@@ -20,6 +22,14 @@ class HighFrequencyConfig {
   /// Use separate isolate for polling
   final bool useIsolate;
 
+  /// If we should create isolated inlets (a second-layer isolate)
+  /// This is not usually necessary if [useIsolate] is true
+  final bool useIsolateInlet;
+
+  /// If we should create isolated outlets (a second-layer isolate)
+  /// This is not usually necessary if [useIsolate] is true
+  final bool useIsolateOutlet;
+
   /// Channel format for the game data stream
   final LSLChannelFormat channelFormat;
 
@@ -31,6 +41,8 @@ class HighFrequencyConfig {
     this.useBusyWait = true,
     this.bufferSize = 1000,
     this.useIsolate = true,
+    this.useIsolateInlet = false,
+    this.useIsolateOutlet = false,
     this.channelFormat = LSLChannelFormat.int32,
     this.channelCount = 1,
   }) : assert(targetFrequency > 0, 'Target frequency must be positive'),
@@ -49,6 +61,11 @@ class HighFrequencyLSLTransport extends LSLNetworkTransport {
   // Separate isolates for inlet and outlet
   Isolate? _inletIsolate;
   Isolate? _outletIsolate;
+
+  final Lock _lock = Lock();
+  final Completer<void> _readyCompleter = Completer<void>();
+
+  List<NetworkNode> _knownNodes = [];
 
   // Communication ports
   ReceivePort? _inletReceivePort;
@@ -91,21 +108,52 @@ class HighFrequencyLSLTransport extends LSLNetworkTransport {
 
   @override
   Future<void> initialize() async {
-    await super.initialize();
+    if (initialized) return;
+    await _lock.synchronized(() async {
+      // @TODO: fix and remove duplicate code
+      // await super.initialize(); this, doesnt work
+      if (initialized) return;
+      initialized = true;
+      logger.finest(
+        'Initializing high-frequency LSL transport for node $nodeId, stream $streamName',
+      );
 
-    if (_config.useIsolate) {
-      await _startSeparateIsolates();
-    }
+      if (_config.useIsolate) {
+        // Start separate isolates for inlet and outlet
+        logger.finest(
+          'Starting separate isolates for high-frequency transport',
+        );
+
+        await _startSeparateIsolates();
+      }
+      _readyCompleter.complete();
+    });
+  }
+
+  Future<void> initializeWithTopology(List<NetworkNode> knownNodes) async {
+    _knownNodes = knownNodes;
+    logger.finest(
+      'Initializing high-frequency LSL transport with topology: ${_knownNodes.length} nodes',
+    );
+
+    // Initialize the transport
+    await initialize();
   }
 
   /// Start separate isolates for inlet consumer and outlet producer
   Future<void> _startSeparateIsolates() async {
     try {
-      // Start inlet consumer isolate
-      await _startInletConsumerIsolate();
-
       // Start outlet producer isolate
+      logger.finest(
+        'Starting outlet producer isolate for high-frequency transport',
+      );
       await _startOutletProducerIsolate();
+
+      // Start inlet consumer isolate
+      logger.finest(
+        'Starting inlet consumer isolate for high-frequency transport',
+      );
+      await _startInletConsumerIsolate();
 
       // Wait for both isolates to be ready
       await Future.delayed(const Duration(milliseconds: 200));
@@ -125,8 +173,6 @@ class HighFrequencyLSLTransport extends LSLNetworkTransport {
       sendPort: _inletReceivePort!.sendPort,
       receiveOwnMessages: _receiveOwnMessages,
     );
-
-    _inletIsolate = await Isolate.spawn(_inletConsumerIsolate, isolateParams);
 
     // Listen for messages from inlet isolate
     _inletReceivePort!.listen((message) {
@@ -149,10 +195,30 @@ class HighFrequencyLSLTransport extends LSLNetworkTransport {
           default:
             break;
         }
+      } else if (message is LogRecord) {
+        Log.logIsolateMessage(message);
       } else if (message is SendPort) {
         _inletSendPort = message;
+        if (_knownNodes.isNotEmpty) {
+          // Notify inlet isolate about initial topology
+          logger.finest('Sending initial topology to inlet consumer isolate');
+          _inletSendPort!.send(
+            _IsolateMessage(
+              type: _IsolateMessageType.configUpdate,
+              data: {'nodes': _knownNodes.map((n) => n.toMap()).toList()},
+              timestamp: DateTime.now().microsecondsSinceEpoch,
+            ),
+          );
+        }
       }
     });
+    logger.finest(
+      'Spawning inlet consumer isolate for high-frequency transport',
+    );
+    _inletIsolate = await Isolate.spawn(_inletConsumerIsolate, isolateParams);
+    logger.finest(
+      'Inlet consumer isolate started for high-frequency transport',
+    );
   }
 
   /// Start outlet producer isolate (sends data to other nodes)
@@ -166,8 +232,6 @@ class HighFrequencyLSLTransport extends LSLNetworkTransport {
       sendPort: _outletReceivePort!.sendPort,
     );
 
-    _outletIsolate = await Isolate.spawn(_outletProducerIsolate, isolateParams);
-
     // Listen for messages from outlet isolate
     _outletReceivePort!.listen((message) {
       if (message is _IsolateMessage) {
@@ -178,10 +242,14 @@ class HighFrequencyLSLTransport extends LSLNetworkTransport {
           default:
             break;
         }
+      } else if (message is LogRecord) {
+        Log.logIsolateMessage(message);
       } else if (message is SendPort) {
         _outletSendPort = message;
       }
     });
+
+    _outletIsolate = await Isolate.spawn(_outletProducerIsolate, isolateParams);
   }
 
   /// Send game data with multiple channels and any data type
@@ -263,11 +331,88 @@ class HighFrequencyLSLTransport extends LSLNetworkTransport {
     return '${nodeId}_${DateTime.now().microsecondsSinceEpoch}';
   }
 
+  Future<void> updateTopology(List<NetworkNode> nodes) async {
+    if (!initialized) {
+      throw LSLTransportException('Transport not initialized');
+    }
+    await _readyCompleter.future;
+    if (_inletSendPort == null) {
+      logger.warning('Inlet send port is null, cannot update topology');
+      return;
+    }
+
+    // Notify inlet consumer isolate about topology change
+    logger.finest(
+      'Updating topology with ${nodes.length} nodes for high-frequency transport',
+    );
+    _inletSendPort!.send(
+      _IsolateMessage(
+        type: _IsolateMessageType.configUpdate,
+        data: {'nodes': nodes.map((n) => n.toMap()).toList()},
+        timestamp: DateTime.now().microsecondsSinceEpoch,
+      ),
+    );
+  }
+
+  Future<void> pause() async {
+    // Pause inlet consumer isolate
+    if (_inletSendPort != null) {
+      logger.info('Pausing inlet consumer isolate');
+      _inletSendPort!.send(
+        _IsolateMessage(
+          type: _IsolateMessageType.pause,
+          data: {},
+          timestamp: DateTime.now().microsecondsSinceEpoch,
+        ),
+      );
+    }
+
+    // Pause outlet producer isolate
+    if (_outletSendPort != null) {
+      logger.info('Pausing outlet producer isolate');
+      _outletSendPort!.send(
+        _IsolateMessage(
+          type: _IsolateMessageType.pause,
+          data: {},
+          timestamp: DateTime.now().microsecondsSinceEpoch,
+        ),
+      );
+    }
+  }
+
+  Future<void> resume() async {
+    // Resume inlet consumer isolate
+    if (_inletSendPort != null) {
+      logger.info('Resuming inlet consumer isolate');
+      _inletSendPort!.send(
+        _IsolateMessage(
+          type: _IsolateMessageType.resume,
+          data: {},
+          timestamp: DateTime.now().microsecondsSinceEpoch,
+        ),
+      );
+    }
+
+    // Resume outlet producer isolate
+    if (_outletSendPort != null) {
+      logger.info('Resuming outlet producer isolate');
+      _outletSendPort!.send(
+        _IsolateMessage(
+          type: _IsolateMessageType.resume,
+          data: {},
+          timestamp: DateTime.now().microsecondsSinceEpoch,
+        ),
+      );
+    }
+  }
+
   @override
   Future<void> dispose() async {
+    logger.finest('Disposing high-frequency LSL transport');
     try {
       // Stop inlet consumer isolate
       if (_inletSendPort != null) {
+        logger.finest('Stopping inlet consumer isolate');
         _inletSendPort!.send(
           _IsolateMessage(
             type: _IsolateMessageType.shutdown,
@@ -279,6 +424,7 @@ class HighFrequencyLSLTransport extends LSLNetworkTransport {
 
       // Stop outlet producer isolate
       if (_outletSendPort != null) {
+        logger.finest('Stopping outlet producer isolate');
         _outletSendPort!.send(
           _IsolateMessage(
             type: _IsolateMessageType.shutdown,
@@ -301,7 +447,7 @@ class HighFrequencyLSLTransport extends LSLNetworkTransport {
       _inletSendPort = null;
       _outletSendPort = null;
     } catch (e) {
-      print('Error disposing high-frequency transport: $e');
+      logger.severe('Error disposing high-frequency transport: $e');
     }
 
     await super.dispose();
@@ -351,6 +497,8 @@ enum _IsolateMessageType {
   sendMessage,
   configUpdate,
   shutdown,
+  pause,
+  resume,
 }
 
 /// Message wrapper for isolate communication
@@ -489,16 +637,28 @@ Future<void> _runPrecisePollingInterval(
   bool Function() isRunning,
   Future<void> Function() callback, {
   Duration startBusyAt = const Duration(microseconds: 100),
+  bool Function()? isPaused,
+  Duration pauseDuration = const Duration(milliseconds: 100),
 }) async {
+  logger.fine('Starting precise polling interval: $interval');
   final sw = Stopwatch()..start();
 
   for (int i = 1; isRunning(); i++) {
+    if (isPaused?.call() ?? false) {
+      logger.fine('Polling paused, waiting for resume');
+      while (isPaused?.call() ?? false) {
+        await Future.delayed(pauseDuration);
+      }
+      logger.fine('Polling resumed');
+    }
     final nextAwake = interval * i;
     final toSleep = (nextAwake - sw.elapsed) - startBusyAt;
 
     // Sleep efficiently until close to target time
     if (toSleep > Duration.zero) {
-      sleep(toSleep);
+      // sleep(toSleep);
+      // less precise but avoids busy-waiting
+      await Future.delayed(toSleep);
     }
 
     // Precise busy-wait for the final stretch
@@ -514,10 +674,15 @@ Future<void> _runPrecisePollingInterval(
 
 /// Inlet consumer isolate entry point - only handles receiving data
 void _inletConsumerIsolate(_InletIsolateParams params) async {
+  Log.sendPort = params.sendPort;
+  logger.finest(
+    'Inlet isolate entry point. Starting polling for '
+    'node ${params.nodeId}, stream ${params.streamName}',
+  );
   final receivePort = ReceivePort();
   params.sendPort.send(receivePort.sendPort);
 
-  final inlets = <LSLInlet>[];
+  List<LSLInlet> inlets = <LSLInlet>[];
   final timeCorrections = <String, double>{};
   final Lock lock = Lock();
 
@@ -528,13 +693,28 @@ void _inletConsumerIsolate(_InletIsolateParams params) async {
   var samplesProcessed = 0;
   var droppedSamples = 0;
   var lastStatsUpdate = DateTime.now();
+  logger.finest('Preparing resolver for game data streams');
+  final resolver = LSLStreamResolverContinuousByPredicate(
+    predicate:
+        "name='${params.streamName}' and starts-with(source_id, 'game_')",
+    maxStreams: 50,
+  );
+  resolver.create();
 
   try {
     // Discover and connect to existing game data streams
-    await _discoverAndConnectGameStreams(params, inlets, timeCorrections);
+    logger.finest('Discovering existing game data streams');
+
+    await _discoverAndConnectGameStreams(
+      params,
+      inlets,
+      timeCorrections,
+      resolver,
+    );
 
     // Start high-frequency polling loop
     if (config.useBusyWait) {
+      logger.finest('Using busy-wait polling for high-frequency transport');
       await _busyWaitInletPollingLoop(
         params,
         inlets,
@@ -560,8 +740,10 @@ void _inletConsumerIsolate(_InletIsolateParams params) async {
             lastStatsUpdate = now;
           }
         },
+        resolver,
       );
     } else {
+      logger.finest('Using timer-based polling for high-frequency transport');
       await _timerBasedInletPollingLoop(
         params,
         inlets,
@@ -572,6 +754,7 @@ void _inletConsumerIsolate(_InletIsolateParams params) async {
       );
     }
   } catch (e) {
+    logger.severe('Error in inlet consumer isolate: $e');
     params.sendPort.send(
       _IsolateMessage(
         type: _IsolateMessageType.error,
@@ -581,6 +764,7 @@ void _inletConsumerIsolate(_InletIsolateParams params) async {
     );
   } finally {
     // Clean up
+    logger.finest('Cleaning up inlet consumer isolate');
     for (final inlet in inlets) {
       try {
         await inlet.destroy();
@@ -589,13 +773,71 @@ void _inletConsumerIsolate(_InletIsolateParams params) async {
         print('Error destroying inlet: $e');
       }
     }
-
+    resolver.destroy();
     receivePort.close();
   }
 }
 
+Future<List<LSLInlet>> _addInletForNodes(
+  HighFrequencyConfig config,
+  List<NetworkNode> nodes,
+  List<LSLInlet> inlets,
+  LSLStreamResolverContinuous resolver,
+) async {
+  final availableStreams = await resolver.resolve(waitTime: 0.5);
+  for (final node in nodes) {
+    try {
+      final stream = availableStreams.firstWhere(
+        (s) => s.sourceId == 'game_${node.nodeId}',
+        orElse:
+            () => throw Exception('Stream not found for node ${node.nodeId}'),
+      );
+
+      if (!inlets.any((i) => i.streamInfo.sourceId == stream.sourceId)) {
+        logger.info('Creating inlet for node ${node.nodeId}');
+        final inlet = await LSL.createInlet(
+          streamInfo: stream,
+          maxBuffer: 1000,
+          chunkSize: 1,
+          recover: true,
+          useIsolates: config.useIsolateInlet,
+        );
+        inlets.add(inlet);
+        // remove from stream list
+        availableStreams.remove(stream);
+        await inlet.getTimeCorrection(timeout: 1.0);
+      }
+    } catch (e) {
+      logger.warning('Failed to find stream for node ${node.nodeId}: $e');
+    }
+  }
+  // Destroy any remaining streams that were not used
+  availableStreams.destroy();
+  return inlets;
+}
+
+Future<List<LSLInlet>> _removeInlets(
+  List<LSLInlet> remove,
+  List<LSLInlet> inlets,
+) async {
+  for (final inlet in remove) {
+    try {
+      await inlet.destroy();
+      //inlet.streamInfo.destroy();
+      inlets.remove(inlet);
+    } catch (e) {
+      logger.warning('Failed to destroy inlet: $e');
+    }
+  }
+  return inlets;
+}
+
 /// Outlet producer isolate entry point - only handles sending data
 void _outletProducerIsolate(_OutletIsolateParams params) async {
+  Log.sendPort = params.sendPort;
+  logger.finest(
+    'Starting outlet producer isolate for high-frequency transport',
+  );
   final receivePort = ReceivePort();
   params.sendPort.send(receivePort.sendPort);
 
@@ -618,7 +860,7 @@ void _outletProducerIsolate(_OutletIsolateParams params) async {
       streamInfo: streamInfo,
       chunkSize: 1,
       maxBuffer: config.bufferSize,
-      useIsolates: false,
+      useIsolates: config.useIsolateOutlet,
     );
 
     // Listen for messages from main thread
@@ -653,9 +895,11 @@ void _outletProducerIsolate(_OutletIsolateParams params) async {
 
     // Keep the isolate alive
     while (isRunning) {
-      await Future.delayed(const Duration(milliseconds: 10));
+      await Future.delayed(const Duration(milliseconds: 100));
     }
+    logger.finest('Shutting down outlet producer isolate');
   } catch (e) {
+    logger.severe('Error in outlet producer isolate: $e');
     params.sendPort.send(
       _IsolateMessage(
         type: _IsolateMessageType.error,
@@ -670,7 +914,7 @@ void _outletProducerIsolate(_OutletIsolateParams params) async {
         await outlet.destroy();
         //outlet.streamInfo.destroy();
       } catch (e) {
-        print('Error destroying outlet: $e');
+        logger.severe('Error destroying outlet: $e');
       }
     }
 
@@ -683,43 +927,45 @@ Future<void> _discoverAndConnectGameStreams(
   _InletIsolateParams params,
   List<LSLInlet> inlets,
   Map<String, double> timeCorrections,
+  LSLStreamResolverContinuous resolver,
 ) async {
   try {
-    final streams = await LSL.resolveStreamsByPredicate(
-      predicate:
-          "name='${params.streamName}' and starts-with(source_id, 'game_')",
-      waitTime: 2.0,
-      maxStreams: 50,
-    );
+    final streams = await resolver.resolve();
 
     final gameStreams = streams.where(
       (s) =>
           (params.receiveOwnMessages || s.sourceId != 'game_${params.nodeId}'),
     );
 
+    logger.finest(
+      'Discovered ${gameStreams.length} game streams for node ${params.nodeId}. recievesOwnMessages: ${params.receiveOwnMessages}',
+    );
     // destroy the rest of the streamInfos that are not in gameStreams
     final restStreams =
         streams
             .where((s) => !gameStreams.any((gs) => gs.sourceId == s.sourceId))
             .toList();
+    logger.finest(
+      "Ignoring ${restStreams.length} non-game streams: [${restStreams.map((s) => s.sourceId).join(', ')}]",
+    );
     restStreams.destroy();
 
     for (final stream in gameStreams) {
       try {
-        // Create inlet without isolate for direct access to getTimeCorrection
+        logger.info('Creating inlet for game stream ${stream.sourceId}');
         final inlet = await LSL.createInlet(
           streamInfo: stream,
           maxBuffer: params.config.bufferSize,
           chunkSize: 1,
           recover: true,
-          useIsolates: false, // Direct mode for getTimeCorrection access
+          useIsolates: params.config.useIsolateInlet,
         );
 
         inlets.add(inlet);
 
         // Get initial time correction (this takes time on first call)
         try {
-          final correction = inlet.getTimeCorrectionSync(timeout: 1.0);
+          final correction = await inlet.getTimeCorrection(timeout: 1.0);
           timeCorrections[stream.sourceId] = correction;
 
           params.sendPort.send(
@@ -735,15 +981,17 @@ Future<void> _discoverAndConnectGameStreams(
             ),
           );
         } catch (e) {
-          print('Failed to get time correction for ${stream.sourceId}: $e');
+          logger.warning(
+            'Failed to get time correction for ${stream.sourceId}: $e',
+          );
           timeCorrections[stream.sourceId] = 0.0;
         }
       } catch (e) {
-        print('Failed to create inlet for ${stream.sourceId}: $e');
+        logger.severe('Failed to create inlet for ${stream.sourceId}: $e');
       }
     }
   } catch (e) {
-    print('Error discovering game streams: $e');
+    logger.severe('Error discovering game streams: $e');
   }
 }
 
@@ -757,6 +1005,7 @@ Future<void> _busyWaitInletPollingLoop(
   Lock lock,
   bool Function() isRunning,
   void Function(int processed, int dropped) onStats,
+  LSLStreamResolverContinuous resolver,
 ) async {
   var samplesProcessed = 0;
   var droppedSamples = 0;
@@ -764,23 +1013,59 @@ Future<void> _busyWaitInletPollingLoop(
   final interval = Duration(microseconds: config.targetIntervalMicroseconds);
   final busyWaitThreshold = Duration(microseconds: 100);
 
+  var paused = false;
+  logger.finest(
+    'Starting busy-wait polling loop for node ${params.nodeId}, stream ${params.streamName}',
+  );
   // Listen for isolate messages
-  receivePort.listen((message) {
+  receivePort.listen((message) async {
     if (message is _IsolateMessage) {
+      logger.finest(
+        'busyWaitInlet: Received isolate message of type ${message.type} with data: ${message.data}',
+      );
       switch (message.type) {
         case _IsolateMessageType.configUpdate:
-          // Update configuration
-          final newFreq = message.data['frequency'] as double?;
-          if (newFreq != null) {
-            config = HighFrequencyConfig(
-              targetFrequency: newFreq,
-              useBusyWait: message.data['useBusyWait'] ?? config.useBusyWait,
-              bufferSize: config.bufferSize,
-              useIsolate: config.useIsolate,
-              channelFormat: config.channelFormat,
-              channelCount: config.channelCount,
+          // Update node toplology
+          if (message.data.containsKey('nodes')) {
+            logger.info(
+              'Updating node topology with ${message.data['nodes'].length} nodes',
+            );
+            final nodes =
+                (message.data['nodes'] as List)
+                    .map((n) => NetworkNode.fromMap(n as Map<String, dynamic>))
+                    .toList();
+
+            final addedNodes =
+                nodes
+                    .where(
+                      (n) =>
+                          !inlets.any((i) => i.streamInfo.sourceId == n.nodeId),
+                    )
+                    .toList();
+            final removedNodes =
+                inlets
+                    .where(
+                      (i) =>
+                          !nodes.any((n) => n.nodeId == i.streamInfo.sourceId),
+                    )
+                    .toList();
+            inlets = await _removeInlets(removedNodes, inlets);
+            inlets = await _addInletForNodes(
+              config,
+              addedNodes,
+              inlets,
+              resolver,
             );
           }
+
+          break;
+        case _IsolateMessageType.pause:
+          logger.fine('Polling paused by isolate message');
+          paused = true;
+          break;
+        case _IsolateMessageType.resume:
+          logger.fine('Polling resumed by isolate message');
+          paused = false;
           break;
         case _IsolateMessageType.shutdown:
           return; // Exit the function to stop polling
@@ -791,79 +1076,86 @@ Future<void> _busyWaitInletPollingLoop(
   });
 
   // Use precise interval technique
-  await _runPrecisePollingInterval(interval, isRunning, () async {
-    // Poll all inlets for new game data
-    for (final inlet in inlets) {
-      try {
-        final sample = inlet.pullSampleSync(timeout: 0.0);
-        if (sample.isNotEmpty) {
-          final pollTime = DateTime.now().microsecondsSinceEpoch;
+  await _runPrecisePollingInterval(
+    interval,
+    isRunning,
+    () async {
+      // Poll all inlets for new game data
+      for (final inlet in inlets) {
+        try {
+          final sample = await inlet.pullSample(timeout: 0.0);
+          if (sample.isNotEmpty) {
+            final pollTime = DateTime.now().microsecondsSinceEpoch;
 
-          // Get current time correction (fast after initial call)
-          final sourceId = inlet.streamInfo.sourceId;
-          var correction = timeCorrections[sourceId] ?? 0.0;
+            // Get current time correction (fast after initial call)
+            final sourceId = inlet.streamInfo.sourceId;
+            var correction = timeCorrections[sourceId] ?? 0.0;
 
-          try {
-            // Update time correction periodically (every 100 samples)
-            await lock.synchronized(() async {
-              if (samplesProcessed % 100 == 0) {
-                final newCorrection = inlet.getTimeCorrectionSync(
-                  timeout: 0.001,
-                );
-                if ((newCorrection - correction).abs() > 0.001) {
-                  timeCorrections[sourceId] = newCorrection;
-                  correction = newCorrection;
-
-                  params.sendPort.send(
-                    _IsolateMessage(
-                      type: _IsolateMessageType.timeCorrectionUpdate,
-                      data:
-                          TimeCorrectionInfo(
-                            sourceId: sourceId,
-                            correctionSeconds: newCorrection,
-                            timestamp: DateTime.now(),
-                          ).toMap(),
-                      timestamp: DateTime.now().microsecondsSinceEpoch,
-                    ),
+            try {
+              // Update time correction periodically (every 100 samples)
+              await lock.synchronized(() async {
+                if (samplesProcessed % 100 == 0) {
+                  final newCorrection = await inlet.getTimeCorrection(
+                    timeout: 0.001,
                   );
+                  if ((newCorrection - correction).abs() > 0.001) {
+                    timeCorrections[sourceId] = newCorrection;
+                    correction = newCorrection;
+
+                    params.sendPort.send(
+                      _IsolateMessage(
+                        type: _IsolateMessageType.timeCorrectionUpdate,
+                        data:
+                            TimeCorrectionInfo(
+                              sourceId: sourceId,
+                              correctionSeconds: newCorrection,
+                              timestamp: DateTime.now(),
+                            ).toMap(),
+                        timestamp: DateTime.now().microsecondsSinceEpoch,
+                      ),
+                    );
+                  }
                 }
-              }
-            });
+              });
 
-            final gameSample = GameDataSample(
-              sourceId: sourceId,
-              channelData: sample.data,
-              timestamp: pollTime,
-              timeCorrection: correction,
-              channelFormat: config.channelFormat,
-            );
-
-            params.sendPort.send(
-              _IsolateMessage(
-                type: _IsolateMessageType.gameDataSample,
-                data: gameSample.toMap(),
+              final gameSample = GameDataSample(
+                sourceId: sourceId,
+                channelData: sample.data,
                 timestamp: pollTime,
-              ),
-            );
+                timeCorrection: correction,
+                channelFormat: config.channelFormat,
+              );
 
-            samplesProcessed++;
-          } catch (e) {
-            print('Error processing game data sample: $e');
-            droppedSamples++;
+              params.sendPort.send(
+                _IsolateMessage(
+                  type: _IsolateMessageType.gameDataSample,
+                  data: gameSample.toMap(),
+                  timestamp: pollTime,
+                ),
+              );
+
+              samplesProcessed++;
+            } catch (e) {
+              logger.shout('Error processing game data sample: $e');
+              droppedSamples++;
+            }
           }
+        } catch (e) {
+          logger.severe('Error polling inlet: $e');
         }
-      } catch (e) {
-        print('Error polling inlet: $e');
       }
-    }
 
-    // Send stats periodically
-    if (samplesProcessed % 1000 == 0 && samplesProcessed > 0) {
-      onStats(samplesProcessed, droppedSamples);
-      samplesProcessed = 0;
-      droppedSamples = 0;
-    }
-  }, startBusyAt: busyWaitThreshold);
+      // Send stats periodically
+      if (samplesProcessed % 1000 == 0 && samplesProcessed > 0) {
+        onStats(samplesProcessed, droppedSamples);
+        samplesProcessed = 0;
+        droppedSamples = 0;
+      }
+    },
+    startBusyAt: busyWaitThreshold,
+    isPaused: () => paused,
+    pauseDuration: const Duration(milliseconds: 100),
+  );
 }
 
 /// Timer-based polling loop (less precise but lower CPU usage) - inlet only
@@ -875,9 +1167,30 @@ Future<void> _timerBasedInletPollingLoop(
   Map<String, double> timeCorrections,
   bool Function() isRunning,
 ) async {
+  var paused = false;
+  // Listen for isolate messages
+  receivePort.listen((message) {
+    if (message is _IsolateMessage) {
+      switch (message.type) {
+        case _IsolateMessageType.pause:
+          logger.fine('Polling paused by isolate message');
+          paused = true;
+          break;
+        case _IsolateMessageType.resume:
+          logger.fine('Polling resumed by isolate message');
+          paused = false;
+          break;
+        default:
+          break;
+      }
+    }
+  });
   final timer = Timer.periodic(
     Duration(microseconds: config.targetIntervalMicroseconds),
     (timer) async {
+      if (paused) {
+        return;
+      }
       if (!isRunning()) {
         timer.cancel();
         return;
@@ -886,7 +1199,7 @@ Future<void> _timerBasedInletPollingLoop(
       // Similar polling logic as busy wait but less precise
       for (final inlet in inlets) {
         try {
-          final sample = inlet.pullSampleSync(timeout: 0.0);
+          final sample = await inlet.pullSample(timeout: 0.0);
           if (sample.isNotEmpty) {
             final sourceId = inlet.streamInfo.sourceId;
             final correction = timeCorrections[sourceId] ?? 0.0;
@@ -908,7 +1221,7 @@ Future<void> _timerBasedInletPollingLoop(
             );
           }
         } catch (e) {
-          print('Error polling inlet: $e');
+          logger.severe('Error polling inlet: $e');
         }
       }
     },
@@ -919,7 +1232,7 @@ Future<void> _timerBasedInletPollingLoop(
     await Future.delayed(const Duration(milliseconds: 100));
     return isRunning();
   });
-
+  logger.finest('Stopping timer-based polling loop');
   timer.cancel();
 }
 

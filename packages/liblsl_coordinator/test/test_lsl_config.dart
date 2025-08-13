@@ -18,7 +18,7 @@ class TestLSLConfig {
       // Default is usually 32 ports starting at 16572
       // We'll use 1000 ports to handle many concurrent streams
       basePort: 17000, // Start higher to avoid conflicts
-      portRange: 1000, // 17000-18000 gives us 1000 ports -> 500 streams
+      portRange: 10000, // 17000-27000 gives us 10000 ports -> 5000 streams
       multicastPort: 16571, // Keep standard multicast port
       // Faster continuous resolve for quicker discovery/cleanup
       continuousResolveInterval:

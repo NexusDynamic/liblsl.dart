@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:liblsl_coordinator/src/coordination/utils/logging.dart';
+
 import '../core/coordination_config.dart';
 import '../core/coordination_node.dart';
 import '../core/coordination_message.dart';
@@ -40,9 +42,29 @@ class GamingCoordinationNode implements CoordinationNode {
                  ? coordinationConfig.receiveOwnMessages
                  : true,
        ) {
+    logger.fine(
+      'Creating GamingCoordinationNode for $nodeName ($nodeId) with streams: '
+      '$coordinationStreamName (coordination), $gameDataStreamName (game data)',
+    );
     // Forward coordination events as game events
-    _coordinationNode.eventStream.listen((event) {
+    _coordinationNode.eventStream.listen((event) async {
       _gameEventController.add(GameEvent.fromCoordinationEvent(event));
+      // if the event is node connect/disconnect, we should send it to the
+      // game data transport as well to make sure the inlet/outlet state is
+      // updated
+      if (event is TopologyChangedEvent) {
+        logger.fine(
+          'Gaming Coordination Node: Received topology update: ${event.nodes.length} nodes',
+        );
+        if (_gameDataTransport.initialized) {
+          await _gameDataTransport.updateTopology(event.nodes);
+        } else {
+          logger.warning(
+            'Gaming Coordination Node: Game data transport not initialized',
+          );
+          await _gameDataTransport.initializeWithTopology(event.nodes);
+        }
+      }
     });
 
     // Forward high-performance messages as game events
@@ -94,7 +116,7 @@ class GamingCoordinationNode implements CoordinationNode {
   @override
   Future<void> initialize() async {
     await _coordinationNode.initialize();
-    await _gameDataTransport.initialize();
+    //await _gameDataTransport.initialize();
   }
 
   @override
@@ -231,6 +253,16 @@ class GamingCoordinationNode implements CoordinationNode {
   /// Send multi-channel double data (e.g., position coordinates)
   Future<void> sendPositionData(List<double> coordinates) async {
     await _gameDataTransport.sendPositionData(coordinates);
+  }
+
+  /// Pause the game data transport
+  Future<void> pauseGameDataTransport() async {
+    await _gameDataTransport.pause();
+  }
+
+  /// Resume the game data transport
+  Future<void> resumeGameDataTransport() async {
+    await _gameDataTransport.resume();
   }
 
   @override

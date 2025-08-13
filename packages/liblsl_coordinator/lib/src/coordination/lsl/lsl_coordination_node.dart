@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 import 'package:liblsl/lsl.dart';
 
+import '../utils/logging.dart';
 import '../core/coordination_config.dart';
 import '../core/coordination_node.dart';
 import '../core/coordination_message.dart';
@@ -148,7 +149,7 @@ class LSLCoordinationNode implements CoordinationNode {
     }
 
     _setRole(NodeRole.discovering, 'join() called');
-    _emitEvent(RoleChangedEvent(NodeRole.disconnected, _role));
+    _emitEvent(RoleChangedEvent(NodeRole.discovering, _role));
 
     // Start discovery process
     _startDiscovery();
@@ -178,7 +179,7 @@ class LSLCoordinationNode implements CoordinationNode {
       await _transport.sendMessage(message);
     } catch (e) {
       // If transport fails, try to handle gracefully
-      print('Transport send failed: $e');
+      logger.severe('Transport send failed: $e');
       await _handleTransportFailure();
     }
   }
@@ -202,9 +203,13 @@ class LSLCoordinationNode implements CoordinationNode {
   void _handleMessage(CoordinationMessage message) {
     // Ignore our own messages unless configured to receive them
     if (!_config.receiveOwnMessages && message.senderId == _nodeId) {
+      logger.finest('Ignoring own message: ${message.messageId} from $_nodeId');
       return;
     }
 
+    logger.finest(
+      'Handling message: ${message.messageId} from ${message.senderId}',
+    );
     switch (message) {
       case DiscoveryMessage():
         _handleDiscoveryMessage(message);
@@ -230,7 +235,8 @@ class LSLCoordinationNode implements CoordinationNode {
   void _handleDiscoveryMessage(DiscoveryMessage message) {
     // Never process our own discovery messages for coordinator election
     if (message.senderId == _nodeId) {
-      return;
+      logger.info('(not)Ignoring own discovery message: ${message.messageId}');
+      // return;
     }
 
     _updateKnownNode(message.senderId, message.nodeName, message.role);
@@ -246,6 +252,9 @@ class LSLCoordinationNode implements CoordinationNode {
   }
 
   void _handleJoinRequestMessage(JoinRequestMessage message) {
+    logger.finest(
+      'Received join request from ${message.senderId} (${message.nodeName}) my role: $_role',
+    );
     if (_role == NodeRole.coordinator) {
       _updateKnownNode(
         message.senderId,
@@ -274,6 +283,9 @@ class LSLCoordinationNode implements CoordinationNode {
   }
 
   void _handleJoinResponseMessage(JoinResponseMessage message) {
+    logger.finest(
+      'Received join response from ${message.senderId}, accepted: ${message.accepted}',
+    );
     if (message.accepted && _role == NodeRole.discovering) {
       _setRole(NodeRole.participant, 'join response accepted');
       _coordinatorId = message.senderId;
@@ -294,10 +306,16 @@ class LSLCoordinationNode implements CoordinationNode {
   }
 
   void _handleHeartbeatMessage(HeartbeatMessage message) {
+    logger.finest(
+      'Received heartbeat from ${message.senderId}, status: ${message.status}',
+    );
     _updateKnownNode(message.senderId, null, null);
   }
 
   void _handleTopologyUpdateMessage(TopologyUpdateMessage message) {
+    logger.finest(
+      'Received topology update from ${message.senderId}, nodes: ${message.nodes.length}',
+    );
     if (message.senderId == _coordinatorId) {
       _knownNodes.clear();
       for (final node in message.nodes) {
@@ -311,6 +329,9 @@ class LSLCoordinationNode implements CoordinationNode {
   }
 
   void _handleApplicationMessage(ApplicationMessage message) {
+    logger.finest(
+      'Received application message from ${message.senderId}, type: ${message.applicationType}',
+    );
     _emitEvent(ApplicationEvent(message.applicationType, message.payload));
   }
 
@@ -328,8 +349,8 @@ class LSLCoordinationNode implements CoordinationNode {
   }
 
   void _startDiscovery() {
-    // CRITICAL FIX: Stop any existing discovery before starting new one
     if (_discoveryTimer != null) {
+      logger.warning('Discovery already started, stopping existing timer');
       _stopDiscovery();
     }
 
@@ -350,6 +371,7 @@ class LSLCoordinationNode implements CoordinationNode {
   }
 
   void _stopDiscovery() {
+    logger.finest('Stopping discovery process');
     _discoveryTimer?.cancel();
     _discoveryTimer = null;
     _promotionTimer?.cancel();
@@ -357,6 +379,11 @@ class LSLCoordinationNode implements CoordinationNode {
   }
 
   void _startHeartbeat() {
+    if (_heartbeatTimer != null) {
+      logger.warning('Heartbeat already started, stopping existing timer');
+      _heartbeatTimer?.cancel();
+      _heartbeatTimer = null;
+    }
     _heartbeatTimer = Timer.periodic(
       Duration(milliseconds: (_config.heartbeatInterval * 1000).round()),
       (_) => _sendHeartbeat(),
@@ -364,6 +391,11 @@ class LSLCoordinationNode implements CoordinationNode {
   }
 
   void _startCleanupTimer() {
+    if (_cleanupTimer != null) {
+      logger.warning('Cleanup timer already started, stopping existing timer');
+      _cleanupTimer?.cancel();
+      _cleanupTimer = null;
+    }
     _cleanupTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       _cleanupStaleNodes();
     });
@@ -381,6 +413,7 @@ class LSLCoordinationNode implements CoordinationNode {
   }
 
   void _sendDiscoveryMessage() {
+    logger.finest('Sending discovery message from $_nodeId ($_nodeName)');
     final message = DiscoveryMessage(
       messageId: _generateMessageId(),
       senderId: _nodeId,
@@ -394,6 +427,9 @@ class LSLCoordinationNode implements CoordinationNode {
   }
 
   void _sendJoinRequest() {
+    logger.finest(
+      'Sending join request from $_nodeId ($_nodeName) to coordinator $_coordinatorId',
+    );
     final message = JoinRequestMessage(
       messageId: _generateMessageId(),
       senderId: _nodeId,
@@ -406,6 +442,7 @@ class LSLCoordinationNode implements CoordinationNode {
   }
 
   void _sendHeartbeat() {
+    logger.finest('Sending heartbeat from $_nodeId ($_nodeName)');
     final message = HeartbeatMessage(
       messageId: _generateMessageId(),
       senderId: _nodeId,
@@ -428,14 +465,16 @@ class LSLCoordinationNode implements CoordinationNode {
   }
 
   void _becomeCoordinator() {
+    logger.info('Becoming coordinator for node $_nodeId ($_nodeName)');
     // Prevent double promotion
     if (_role == NodeRole.coordinator) {
+      logger.warning('Already coordinator, skipping promotion');
       return;
     }
 
     // Check if transport is stable before becoming coordinator
     if (!_transport.isConnected) {
-      // TODO: Re-enable after fixing underlying transport issue
+      logger.warning('Transport not connected, cannot become coordinator');
       // return;
     }
 
@@ -456,12 +495,14 @@ class LSLCoordinationNode implements CoordinationNode {
     _startHeartbeat();
 
     _emitEvent(RoleChangedEvent(oldRole, _role));
+    _broadcastTopologyUpdate();
     _emitEvent(
       TopologyChangedEvent(_knownNodes.values.toList(), _coordinatorId),
     );
   }
 
   void _broadcastTopologyUpdate() {
+    logger.finest('Broadcasting topology update from $_nodeId ($_nodeName)');
     final message = TopologyUpdateMessage(
       messageId: _generateMessageId(),
       senderId: _nodeId,
@@ -473,6 +514,8 @@ class LSLCoordinationNode implements CoordinationNode {
   }
 
   void _cleanupStaleNodes() {
+    if (!_isActive) return;
+    logger.finest('Cleaning up stale nodes for $_nodeId ($_nodeName)');
     final now = DateTime.now();
     final timeout = Duration(seconds: _config.nodeTimeout.round());
 
@@ -507,7 +550,9 @@ class LSLCoordinationNode implements CoordinationNode {
   }
 
   void _handleCoordinatorFailure() {
-    print('_handleCoordinatorFailure called for coordinator: $_coordinatorId');
+    logger.severe(
+      '_handleCoordinatorFailure called for coordinator: $_coordinatorId',
+    );
     _coordinatorId = null;
 
     // Check if we should become the new coordinator
@@ -546,13 +591,13 @@ class LSLCoordinationNode implements CoordinationNode {
   /// Safely send a message, handling transport failures
   void _sendMessageSafely(CoordinationMessage message) {
     _transport.sendMessage(message).catchError((e) {
-      print('Failed to send ${message.messageType} message: $e');
+      logger.severe('Failed to send ${message.messageType} message: $e');
       // For non-critical messages, just log the error
       // Critical failures are handled in the public sendMessage method
 
       // If this is a heartbeat failure and we're coordinator, trigger recovery
       if (message.messageType == 'heartbeat' && _role == NodeRole.coordinator) {
-        print('Heartbeat failed for coordinator, triggering recovery');
+        logger.severe('Heartbeat failed for coordinator, triggering recovery');
         _handleTransportFailure();
       }
     });
@@ -560,11 +605,11 @@ class LSLCoordinationNode implements CoordinationNode {
 
   /// Handle transport failures by attempting recovery
   Future<void> _handleTransportFailure() async {
-    print('Transport failure detected, attempting recovery...');
+    logger.severe('Transport failure detected, attempting recovery...');
 
     // If we're coordinator and transport fails, we need to step down
     if (_role == NodeRole.coordinator) {
-      print('Coordinator transport failed, stepping down...');
+      logger.severe('Coordinator transport failed, stepping down...');
 
       // Stop all coordinator activities first
       _stopAllTimers();
@@ -578,7 +623,7 @@ class LSLCoordinationNode implements CoordinationNode {
       // Try to restart discovery after a delay
       Future.delayed(Duration(milliseconds: 500), () {
         if (_isActive && _role == NodeRole.disconnected) {
-          print('Restarting discovery after transport failure');
+          logger.info('Restarting discovery after transport failure');
           _setRole(NodeRole.discovering, 'transport failure recovery');
           _emitEvent(
             RoleChangedEvent(NodeRole.disconnected, NodeRole.discovering),

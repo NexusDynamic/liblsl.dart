@@ -130,4 +130,24 @@ class NetworkNode {
       metadata: metadata ?? this.metadata,
     );
   }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'nodeId': nodeId,
+      'nodeName': nodeName,
+      'role': role.toString(),
+      'lastSeen': lastSeen.toIso8601String(),
+      'metadata': metadata,
+    };
+  }
+
+  NetworkNode.fromMap(Map<String, dynamic> map)
+    : nodeId = map['nodeId'] as String,
+      nodeName = map['nodeName'] as String,
+      role = NodeRole.values.firstWhere(
+        (e) => e.toString() == map['role'],
+        orElse: () => NodeRole.disconnected,
+      ),
+      lastSeen = DateTime.parse(map['lastSeen'] as String),
+      metadata = Map<String, dynamic>.from(map['metadata'] as Map);
 }

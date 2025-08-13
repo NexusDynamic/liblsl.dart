@@ -6,7 +6,3 @@ concurrency: 1
 override_platforms:
   vm:
     timeout: 15s
-    
-# Set environment for better test isolation
-environment:
-  LSL_CONFIG_PATH: ""

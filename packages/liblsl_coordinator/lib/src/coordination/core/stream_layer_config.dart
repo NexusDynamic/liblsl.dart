@@ -28,6 +28,9 @@ class StreamLayerConfig {
   /// Whether each node should have inlets for all other nodes
   final bool requiresInletFromAll;
 
+  /// if the coordinator requires inlets from all nodes
+  final bool coordinatorRequiresInletFromAll;
+
   /// Custom metadata for this layer
   final Map<String, dynamic> metadata;
 
@@ -40,6 +43,7 @@ class StreamLayerConfig {
     this.priority = LayerPriority.medium,
     this.requiresOutlet = true,
     this.requiresInletFromAll = true,
+    this.coordinatorRequiresInletFromAll = true,
     this.metadata = const {},
   });
 
@@ -77,6 +81,7 @@ class StreamLayerConfig {
       'priority': priority.index,
       'requiresOutlet': requiresOutlet,
       'requiresInletFromAll': requiresInletFromAll,
+      'coordinatorRequiresInletFromAll': coordinatorRequiresInletFromAll,
       'metadata': metadata,
     };
   }
@@ -95,6 +100,8 @@ class StreamLayerConfig {
               LayerPriority.medium.index],
       requiresOutlet: map['requiresOutlet'] as bool? ?? true,
       requiresInletFromAll: map['requiresInletFromAll'] as bool? ?? true,
+      coordinatorRequiresInletFromAll:
+          map['coordinatorRequiresInletFromAll'] as bool? ?? true,
       metadata: map['metadata'] as Map<String, dynamic>? ?? const {},
     );
   }
@@ -110,6 +117,8 @@ class StreamConfig {
   final LSLChannelFormat channelFormat;
   final int maxBuffer;
   final int chunkSize;
+  final bool isolateInlet;
+  final bool isolateOutlet;
 
   const StreamConfig({
     required this.streamName,
@@ -119,6 +128,8 @@ class StreamConfig {
     this.channelFormat = LSLChannelFormat.float32,
     this.maxBuffer = 360,
     this.chunkSize = 32,
+    this.isolateInlet = true,
+    this.isolateOutlet = true,
   });
 
   StreamConfig copyWith({
@@ -304,6 +315,8 @@ class ProtocolConfigs {
           channelCount: 1,
           sampleRate: LSL_IRREGULAR_RATE,
           channelFormat: LSLChannelFormat.string,
+          isolateInlet: false,
+          isolateOutlet: false,
         ),
         isPausable: false,
         useIsolate: true,
@@ -318,6 +331,7 @@ class ProtocolConfigs {
           streamName: 'game_data',
           streamType: LSLContentType.custom('game'),
           channelCount: 4,
+
           sampleRate: LSL_IRREGULAR_RATE,
           channelFormat: LSLChannelFormat.float32,
         ),
@@ -360,6 +374,8 @@ class ProtocolConfigs {
           channelCount: 8,
           sampleRate: 1000.0,
           channelFormat: LSLChannelFormat.float32,
+          isolateInlet: false,
+          isolateOutlet: false,
         ),
         isPausable: true,
         useIsolate: true,
@@ -400,6 +416,8 @@ class ProtocolConfigs {
           channelCount: 4,
           sampleRate: LSL_IRREGULAR_RATE,
           channelFormat: LSLChannelFormat.float32,
+          isolateInlet: false,
+          isolateOutlet: false,
         ),
         isPausable: true,
         useIsolate: true,
@@ -416,6 +434,8 @@ class ProtocolConfigs {
           channelCount: 8,
           sampleRate: 1000.0,
           channelFormat: LSLChannelFormat.float32,
+          isolateInlet: false,
+          isolateOutlet: false,
         ),
         isPausable: true,
         useIsolate: true,
