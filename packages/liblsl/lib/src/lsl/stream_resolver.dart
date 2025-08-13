@@ -258,3 +258,92 @@ class LSLStreamResolverContinuous extends LSLStreamResolver {
     return 'LSLStreamResolverContinuous{maxStreams: $maxStreams, forgetAfter: $forgetAfter}';
   }
 }
+
+class LSLStreamResolverContinuousByPredicate
+    extends LSLStreamResolverContinuous {
+  final String predicate;
+
+  /// Creates a new LSLStreamResolverContinuousByPredicate object.
+  ///
+  /// The [predicate] parameter is an
+  /// [XPath 1.0 predicate](http://en.wikipedia.org/w/index.php?title=XPath_1.0)
+  /// e.g. `name='MyStream' and type='EEG'` or `starts-with(name, 'My')`.
+  /// The [forgetAfter] parameter determines how long the resolver should
+  /// remember streams after they have not been seen.
+  /// The [maxStreams] parameter determines the maximum number of streams
+  /// to resolve, ideally, this would be the exact number of streams you expect
+  /// to be available.
+  LSLStreamResolverContinuousByPredicate({
+    required this.predicate,
+    super.forgetAfter = 5.0,
+    super.maxStreams = 5,
+  }) : super();
+
+  @override
+  LSLStreamResolverContinuous create() {
+    super.create();
+
+    _resolver = lsl_create_continuous_resolver_bypred(
+      predicate.toNativeUtf8().cast<Char>(),
+      forgetAfter,
+    );
+    return this;
+  }
+
+  @override
+  String toString() {
+    return 'LSLStreamResolverContinuousByPredicate{predicate: $predicate, maxStreams: $maxStreams, forgetAfter: $forgetAfter}';
+  }
+
+  @override
+  // ignore: unnecessary_overrides
+  void destroy() {
+    super.destroy();
+  }
+}
+
+class LSLStreamResolverContinuousByProperty
+    extends LSLStreamResolverContinuous {
+  final LSLStreamProperty property;
+  final String value;
+
+  /// Creates a new LSLStreamResolverContinuousByProperty object.
+  ///
+  /// The [property] parameter is the property to filter by, such as name,
+  /// type, channel count, etc.
+  /// The [value] parameter is the value to filter by.
+  /// The [forgetAfter] parameter determines how long the resolver should
+  /// remember streams after they have not been seen.
+  /// The [maxStreams] parameter determines the maximum number of streams
+  /// to resolve, ideally, this would be the exact number of streams you expect
+  /// to be available.
+  LSLStreamResolverContinuousByProperty({
+    required this.property,
+    required this.value,
+    super.forgetAfter = 5.0,
+    super.maxStreams = 5,
+  }) : super();
+
+  @override
+  LSLStreamResolverContinuous create() {
+    super.create();
+
+    _resolver = lsl_create_continuous_resolver_byprop(
+      property.lslName.toNativeUtf8().cast<Char>(),
+      value.toNativeUtf8().cast<Char>(),
+      forgetAfter,
+    );
+    return this;
+  }
+
+  @override
+  String toString() {
+    return 'LSLStreamResolverContinuousByProperty{property: $property, value: $value, maxStreams: $maxStreams, forgetAfter: $forgetAfter}';
+  }
+
+  @override
+  // ignore: unnecessary_overrides
+  void destroy() {
+    super.destroy();
+  }
+}

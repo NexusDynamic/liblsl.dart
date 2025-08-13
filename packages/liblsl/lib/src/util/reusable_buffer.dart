@@ -13,6 +13,12 @@ abstract class LSLReusableBuffer<T extends NativeType> {
   /// channels.
   final int capacity;
 
+  bool _freed = false;
+
+  /// Whether the buffer has been freed.
+  /// This is used to prevent double freeing of the buffer.
+  bool get freed => _freed;
+
   /// The error code pointer.
   final Pointer<Int32> ec = allocate<Int32>();
 
@@ -28,6 +34,7 @@ abstract class LSLReusableBuffer<T extends NativeType> {
   void free() {
     buffer.free();
     ec.free();
+    _freed = true;
   }
 }
 

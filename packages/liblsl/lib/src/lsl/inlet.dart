@@ -325,6 +325,7 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
     final result = _buffer.ec.value;
     if (result != 0) {
       lsl_destroy_inlet(_inletBang);
+      _buffer.free();
       throw LSLException('Error opening inlet: $result');
     }
 
@@ -356,6 +357,7 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
     );
 
     if (!response.success) {
+      _buffer.free();
       throw LSLException('Error creating inlet: ${response.error}');
     }
 
@@ -408,10 +410,12 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
       timeout,
       _buffer.ec,
     );
-    return _processSampleResponse(
+    final sample = _processSampleResponse(
       samplePointer.timestamp,
       samplePointer.errorCode,
     );
+
+    return sample;
   }
 
   /// Flushes the inlet's buffer in isolated mode.
@@ -499,10 +503,8 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// **Throws:** [LSLException] if getting full info fails.
   /// **Note:** This method is only available when `useIsolates: false`.
   void _getFullInfoDirect(double timeout) {
-    final Pointer<Int32> ec = allocate<Int32>();
-    final fullStreamInfo = lsl_get_fullinfo(_inletBang, timeout, ec);
-    final int errorCode = ec.value;
-    ec.free();
+    final fullStreamInfo = lsl_get_fullinfo(_inletBang, timeout, _buffer.ec);
+    final int errorCode = _buffer.ec.value;
 
     if (errorCode == 0 && !fullStreamInfo.isNullPointer) {
       // Replace the streamInfo with the full version

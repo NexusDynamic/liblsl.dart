@@ -11,7 +11,7 @@ workspace:
   - packages/liblsl_timing
   - packages/liblsl_analysis
 dev_dependencies:
-  melos: ^7.0.0-dev.7
+  melos: ^7.0.0-dev.9
 
 
 melos:
