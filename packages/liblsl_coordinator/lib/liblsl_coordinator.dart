@@ -1,22 +1,48 @@
-/// Support for doing something awesome.
+/// LibLSL Coordinator - Transport-agnostic coordination library
 ///
-/// More dartdocs go here.
+/// This library provides transport-agnostic coordination capabilities that
+/// automatically select the best transport for the current platform:
+/// - LSL transport on native platforms (Android, iOS, Desktop)
+/// - WebSocket transport on web platforms
+///
+/// ## Basic Usage
+/// 
+/// ```dart
+/// import 'package:liblsl_coordinator/liblsl_coordinator.dart';
+/// 
+/// // Create a session - transport is automatically selected
+/// final result = await CoordinatorFactory.createSession(
+///   sessionId: 'my_session',
+///   nodeId: 'node_1',
+///   nodeName: 'My Node',
+///   topology: NetworkTopology.hierarchical,
+/// );
+/// 
+/// final session = result.session;
+/// await session.join();
+/// ```
+///
+/// ## Platform-Specific Usage
+///
+/// For native platforms with LSL support:
+/// ```dart
+/// import 'package:liblsl_coordinator/liblsl_coordinator_lsl.dart';
+/// ```
+///
+/// For web platforms:
+/// ```dart
+/// import 'package:liblsl_coordinator/liblsl_coordinator_web.dart';
+/// ```
 library;
 
-export 'src/liblsl_coordinator_base.dart';
-export 'src/coordination/core/coordination_config.dart';
-export 'src/coordination/core/coordination_node.dart';
-export 'src/coordination/core/coordination_message.dart';
-export 'src/coordination/core/network_transport.dart';
-export 'src/coordination/core/leader_election.dart';
-export 'src/coordination/core/stream_layer_config.dart';
-export 'src/coordination/core/coordination_layer.dart';
-export 'src/coordination/core/multi_layer_coordinator.dart';
-export 'src/coordination/lsl/lsl_coordination_node.dart';
-export 'src/coordination/lsl/lsl_transport.dart';
-export 'src/coordination/lsl/high_frequency_transport.dart';
-export 'src/coordination/lsl/gaming_coordination_node.dart';
-export 'src/coordination/lsl/stream_layer_manager.dart';
-export 'src/coordination/utils/coordination_extensions.dart';
+// Export core factory and configuration
+export 'src/coordinator_factory.dart';
+export 'src/session_config.dart';
 
-// TODO: Export any libraries intended for clients of this package.
+// Export core interfaces
+export 'src/session/coordination_session.dart';
+export 'src/session/data_stream.dart';
+export 'src/session/stream_config.dart';
+
+// Export utilities
+export 'src/utils/logging.dart';

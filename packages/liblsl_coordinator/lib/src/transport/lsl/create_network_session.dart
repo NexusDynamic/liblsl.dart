@@ -1,0 +1,52 @@
+/// LSL transport implementation for conditional imports
+/// 
+/// This provides the standard function signature that the conditional import
+/// system expects, while delegating to the LSL transport implementation.
+library;
+
+import 'dart:async';
+import '../../session_config.dart' as config;
+import 'lsl_factory_adapter.dart';
+
+/// Create a network session using LSL transport
+/// 
+/// This function signature matches the WebSocket equivalent, enabling
+/// seamless conditional imports based on platform.
+Future<config.SessionResult> createNetworkSession(config.SessionConfig sessionConfig) async {
+  final factory = LSLTransportFactory.instance;
+  
+  // Initialize if not already done
+  if (!factory.isAvailable) {
+    throw UnsupportedError('LSL transport not available on this platform');
+  }
+  
+  // Auto-initialize with default config if no transport config provided
+  if (!sessionConfig.transportConfig.containsKey('lsl')) {
+    await factory.initialize();
+  } else {
+    await factory.initialize(sessionConfig.transportConfig);
+  }
+  
+  return await factory.createSession(sessionConfig);
+}
+
+/// Get transport information for LSL
+Map<String, dynamic> getTransportInfo() {
+  final factory = LSLTransportFactory.instance;
+  return {
+    'name': factory.name,
+    'available': factory.isAvailable,
+    'supported_platforms': factory.supportedPlatforms,
+    'active_sessions': factory.activeSessionIds.length,
+  };
+}
+
+/// Initialize LSL transport with specific configuration
+Future<void> initializeTransport([Map<String, dynamic>? config]) async {
+  await LSLTransportFactory.instance.initialize(config);
+}
+
+/// Dispose of LSL transport resources
+Future<void> disposeTransport() async {
+  await LSLTransportFactory.instance.dispose();
+}
