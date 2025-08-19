@@ -1,6 +1,4 @@
 import 'dart:async';
-import '../session/coordination_session.dart';
-import '../session/data_stream.dart';
 import '../transport/lsl/connection/lsl_connection_manager.dart';
 import '../transport/lsl/core/lsl_coordination_session.dart';
 import '../transport/lsl/core/lsl_data_stream.dart';
@@ -126,7 +124,7 @@ class CoordinatorResourceManager implements ResourceManager {
     
     // Count resource states
     for (final resource in _resources.values) {
-      switch (resource.state) {
+      switch (resource.resourceState) {
         case ResourceState.active:
           activeResources++;
           break;
@@ -162,8 +160,8 @@ class CoordinatorResourceManager implements ResourceManager {
       erroredResources: erroredResources,
       lastUpdated: now,
       customMetrics: {
-        'sessions': _resources.whereType<LSLCoordinationSession>().length,
-        'dataStreams': _resources.whereType<LSLDataStream>().length,
+        'sessions': _resources.values.whereType<LSLCoordinationSession>().length,
+        'dataStreams': _resources.values.whereType<LSLDataStream>().length,
         'connectionManagers': _connectionManagers.length,
         'connections': connectionStats,
         'lastHealthCheck': _lastHealthCheck.toIso8601String(),

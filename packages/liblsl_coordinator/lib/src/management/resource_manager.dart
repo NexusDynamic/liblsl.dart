@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:liblsl_coordinator/src/event.dart';
+
 /// Abstract interface for managing resources with proper lifecycle
 abstract class ResourceManager {
   /// Unique identifier for this resource manager
@@ -66,8 +68,8 @@ abstract class ManagedResource {
   /// Unique identifier for this resource
   String get resourceId;
 
-  /// Current state of the resource
-  ResourceState get state;
+  /// Current state of the resource (renamed to avoid conflicts with session state)
+  ResourceState get resourceState;
 
   /// Metadata associated with this resource
   Map<String, dynamic> get metadata;
@@ -92,11 +94,11 @@ abstract class ManagedResource {
 }
 
 /// Resource events
-sealed class ResourceEvent {
+sealed class ResourceEvent extends TimestampedEvent {
   final String resourceId;
-  final DateTime timestamp;
 
-  const ResourceEvent(this.resourceId, this.timestamp);
+  const ResourceEvent(this.resourceId, DateTime timestamp)
+    : super(eventId: 'resource_event_$resourceId', timestamp: timestamp);
 }
 
 class ResourceCreated extends ResourceEvent {

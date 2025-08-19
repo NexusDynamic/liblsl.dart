@@ -4,10 +4,12 @@ import 'dart:isolate';
 import 'package:logging/logging.dart';
 export 'package:logging/logging.dart' show LogRecord;
 
-Logger get logger => Log.logger;
+Logger get logger => Log._logger;
 
 class Log {
-  static final logger = Logger('LSLCoordinator');
+  static const String loggerName = 'LSLCoordinator';
+  static const String isolateLoggerName = 'LSLCoordinator (Isolate)';
+  static Logger _logger = Logger(loggerName);
   static SendPort? _sendPort;
   static StreamSubscription<LogRecord>? _subscription;
 
@@ -18,9 +20,12 @@ class Log {
     if (port != null) {
       // Isolate logging does not alter the root logger's level,
       Logger.root.level = Level.ALL;
+      _logger = Logger(isolateLoggerName);
       _subscription = Logger.root.onRecord.listen((LogRecord record) {
         _sendPort?.send(record);
       });
+    } else {
+      _logger = Logger(loggerName);
     }
   }
 

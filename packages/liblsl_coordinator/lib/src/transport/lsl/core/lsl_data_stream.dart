@@ -8,17 +8,14 @@ import '../config/lsl_stream_config.dart';
 import '../connection/lsl_connection_manager.dart';
 import '../isolate/lsl_isolate_controller.dart';
 import '../isolate/lsl_polling_isolates.dart';
+import 'lsl_stream_manager.dart';
 
 /// LSL implementation of DataStream with isolate integration
-class LSLDataStream implements DataStream, ManagedResource {
+class LSLDataStream extends LSLStreamManager implements DataStream {
   @override
   final String streamId;
 
-  @override
-  final LSLStreamConfig config;
-
   final LSLConnectionManager _connectionManager;
-  final String _nodeId;
 
   // Isolate controllers for producer/consumer operations
   LSLIsolateController? _inletController;
@@ -27,14 +24,13 @@ class LSLDataStream implements DataStream, ManagedResource {
   // Stream controllers for data flow
   final StreamController<LSLSample> _dataStreamController =
       StreamController<LSLSample>.broadcast();
-  final StreamController<DataStreamEvent> _eventController =
+  final StreamController<DataStreamEvent> _dataEventController =
       StreamController<DataStreamEvent>.broadcast();
 
   // Data sinks for producers
-  StreamSink<LSLSample>? _dataSink;
+  StreamSink<List<dynamic>>? _dataSink;
 
   // State management
-  ResourceState _resourceState = ResourceState.created;
   bool _isActive = false;
   bool _isPaused = false;
 
@@ -49,75 +45,57 @@ class LSLDataStream implements DataStream, ManagedResource {
 
   LSLDataStream({
     required this.streamId,
-    required this.config,
+    required LSLStreamConfig config,
     required LSLConnectionManager connectionManager,
     required String nodeId,
   }) : _connectionManager = connectionManager,
-       _nodeId = nodeId;
+       super(resourceId: streamId, nodeId: nodeId, config: config);
 
   @override
   bool get isActive => _isActive;
 
   @override
-  ResourceState get state => _resourceState;
-
-  @override
   Map<String, dynamic> get metadata => {
+    ...super.metadata,
     'streamId': streamId,
     'protocol': config.protocol.runtimeType.toString(),
     'sampleRate': config.maxSampleRate,
     'channelCount': config.channelCount,
-    'nodeId': _nodeId,
   };
 
+  /// DataStream events (filtered from base class stream events)
   @override
-  Stream<DataStreamEvent> get events => _eventController.stream;
-
-  @override
-  Stream<ResourceStateEvent> get stateChanges {
-    // For now, return empty stream - internal state changes are logged
-    // External consumers should listen to the main events stream
-    return const Stream.empty();
-  }
-
-  @override
-  String get resourceId => streamId;
+  Stream<DataStreamEvent> get events =>
+      super.events
+          .where((event) => event is DataStreamEvent)
+          .cast<DataStreamEvent>();
 
   // === LIFECYCLE METHODS ===
 
   @override
-  Future<void> initialize() async {
-    if (_resourceState != ResourceState.created) {
-      throw DataStreamException('Stream $streamId is not in created state');
-    }
-
+  Future<void> onInitialize() async {
     try {
-      logger.info('Initializing LSL data stream $streamId (node: $_nodeId)');
-      _updateState(ResourceState.initializing);
+      logger.info('Initializing LSL data stream $streamId (node: $nodeId)');
 
       // Setup stream resolver for discovery
       if (config.protocol.isConsumer || config.protocol.isRelay) {
         await _setupStreamDiscovery();
       }
 
-      _updateState(ResourceState.idle);
       logger.info('LSL data stream $streamId initialized successfully');
     } catch (e) {
-      _updateState(ResourceState.error);
-      _eventController.add(
-        DataStreamError(streamId, 'Initialization failed: $e', e),
-      );
+      emitEvent(DataStreamError(streamId, 'Initialization failed: $e', e));
       rethrow;
     }
   }
 
   @override
-  Future<void> activate() async {
+  Future<void> onActivate() async {
     await start();
   }
 
   @override
-  Future<void> deactivate() async {
+  Future<void> onDeactivate() async {
     await stop();
   }
 
@@ -127,7 +105,6 @@ class LSLDataStream implements DataStream, ManagedResource {
 
     try {
       logger.info('Starting LSL data stream $streamId');
-      _updateState(ResourceState.active);
 
       // Start producer (outlet) if needed
       if (config.protocol.isProducer || config.protocol.isRelay) {
@@ -140,10 +117,9 @@ class LSLDataStream implements DataStream, ManagedResource {
       }
 
       _isActive = true;
-      _eventController.add(DataStreamStarted(streamId));
+      emitEvent(DataStreamStarted(streamId));
     } catch (e) {
-      _updateState(ResourceState.error);
-      _eventController.add(DataStreamError(streamId, 'Start failed: $e', e));
+      emitEvent(DataStreamError(streamId, 'Start failed: $e', e));
       rethrow;
     }
   }
@@ -154,12 +130,9 @@ class LSLDataStream implements DataStream, ManagedResource {
 
     try {
       logger.info('Stopping LSL data stream $streamId');
-      _updateState(ResourceState.stopping);
 
       // Stop isolate controllers
       await _inletController?.stop();
-
-      // clear stream infos
       await _outletController?.stop();
 
       // Close data sink
@@ -168,22 +141,19 @@ class LSLDataStream implements DataStream, ManagedResource {
 
       _isActive = false;
       _isPaused = false;
-      _updateState(ResourceState.stopped);
-      _eventController.add(DataStreamStopped(streamId));
+      emitEvent(DataStreamStopped(streamId));
     } catch (e) {
-      _updateState(ResourceState.error);
-      _eventController.add(DataStreamError(streamId, 'Stop failed: $e', e));
+      emitEvent(DataStreamError(streamId, 'Stop failed: $e', e));
       rethrow;
     }
   }
 
   @override
-  Future<void> dispose() async {
+  Future<void> onDispose() async {
     await stop();
 
     try {
       logger.info('Disposing LSL data stream $streamId');
-      _updateState(ResourceState.disposed);
 
       // Cancel discovery timer
       _discoveryTimer?.cancel();
@@ -197,20 +167,24 @@ class LSLDataStream implements DataStream, ManagedResource {
 
       // Close stream controllers
       await _dataStreamController.close();
-      await _eventController.close();
+      await _dataEventController.close();
 
       // Clear discovered streams
       _discoveredStreams.values.toList().destroy();
       _discoveredStreams.clear();
     } catch (e) {
-      _eventController.add(DataStreamError(streamId, 'Dispose failed: $e', e));
+      // Don't add events during disposal as controller may be closed
       rethrow;
     }
   }
 
   @override
   Future<bool> healthCheck() async {
-    return _isActive && _resourceState == ResourceState.active;
+    // Use base class health check and add data stream specific checks
+    final baseHealthy = await super.healthCheck();
+    if (!baseHealthy) return false;
+
+    return _isActive && resourceState == ResourceState.active;
   }
 
   // === DATA STREAM INTERFACE ===
@@ -221,7 +195,7 @@ class LSLDataStream implements DataStream, ManagedResource {
     if (!_isActive) return null;
 
     // Create typed sink that converts to LSLSample
-    return _DataStreamSink<T>(_sendData);
+    return _DataStreamSink<T>(_sendData, _handleSinkError);
   }
 
   @override
@@ -251,7 +225,7 @@ class LSLDataStream implements DataStream, ManagedResource {
       _isPaused = true;
       logger.info('LSL data stream $streamId paused');
     } catch (e) {
-      _eventController.add(DataStreamError(streamId, 'Pause failed: $e', e));
+      emitEvent(DataStreamError(streamId, 'Pause failed: $e', e));
       rethrow;
     }
   }
@@ -273,7 +247,7 @@ class LSLDataStream implements DataStream, ManagedResource {
       _isPaused = false;
       logger.info('LSL data stream $streamId resumed');
     } catch (e) {
-      _eventController.add(DataStreamError(streamId, 'Resume failed: $e', e));
+      emitEvent(DataStreamError(streamId, 'Resume failed: $e', e));
       rethrow;
     }
   }
@@ -370,7 +344,7 @@ class LSLDataStream implements DataStream, ManagedResource {
     final predicate = config.transportConfig.resolverConfig.dataPredicate(
       config.id,
       metadataFilters: {
-        'nodeId': _nodeId, // Or other filtering criteria
+        'nodeId': nodeId, // Or other filtering criteria
       },
     );
 
@@ -413,9 +387,7 @@ class LSLDataStream implements DataStream, ManagedResource {
       }
     } catch (e) {
       logger.warning('Stream discovery failed for $streamId: $e');
-      _eventController.add(
-        DataStreamError(streamId, 'Stream discovery failed: $e', e),
-      );
+      emitEvent(DataStreamError(streamId, 'Stream discovery failed: $e', e));
     }
   }
 
@@ -440,8 +412,8 @@ class LSLDataStream implements DataStream, ManagedResource {
     // Start outlet isolate
     logger.info('DEBUG: Creating isolate params');
     final params = LSLOutletIsolateParams(
-      streamConfig: config,
-      nodeId: _nodeId,
+      config: config.pollingConfig,
+      nodeId: nodeId,
       // sendPort will be set by controller
     );
 
@@ -460,7 +432,7 @@ class LSLDataStream implements DataStream, ManagedResource {
     });
 
     // Setup data sink
-    _dataSink = _DataStreamSink<LSLSample>(_sendToOutlet);
+    _dataSink = _DataStreamSink<List<dynamic>>(_sendToOutlet, _handleSinkError);
   }
 
   Future<void> _startConsumer() async {
@@ -484,7 +456,7 @@ class LSLDataStream implements DataStream, ManagedResource {
     // Start inlet isolate - use same pattern as outlet
     logger.info('DEBUG: Creating inlet isolate params');
     final params = LSLInletIsolateParams(
-      nodeId: _nodeId,
+      nodeId: nodeId,
       config: config.pollingConfig,
       sendPort: null, // Will be set by controller like outlet
       receiveOwnMessages: true, // Usually don't want to receive our own data
@@ -525,7 +497,7 @@ class LSLDataStream implements DataStream, ManagedResource {
         break;
 
       case IsolateMessageType.error:
-        _eventController.add(
+        emitEvent(
           DataStreamError(
             streamId,
             message.data['error'] as String,
@@ -543,7 +515,7 @@ class LSLDataStream implements DataStream, ManagedResource {
   void _handleOutletMessage(IsolateMessage message) {
     switch (message.type) {
       case IsolateMessageType.error:
-        _eventController.add(
+        emitEvent(
           DataStreamError(
             streamId,
             message.data['error'] as String,
@@ -558,51 +530,46 @@ class LSLDataStream implements DataStream, ManagedResource {
     }
   }
 
+  /// Handle errors from data sink
+  void _handleSinkError(Object error, [StackTrace? stackTrace]) {
+    logger.warning('Data sink error for stream $streamId: $error');
+    emitEvent(DataStreamError(streamId, 'Sink error: $error', error));
+
+    // Update resource state to error if it's a critical error
+    if (resourceState == ResourceState.active) {
+      updateResourceState(ResourceState.error, 'Data sink error: $error');
+    }
+  }
+
   Future<void> _sendData(dynamic data) async {
     if (_isPaused) return;
 
-    // Convert data to LSLSample if needed
-    LSLSample sample;
-    if (data is LSLSample) {
-      sample = data;
-    } else if (data is List) {
-      sample = LSLSample(
-        data,
-        DateTime.now().microsecondsSinceEpoch.toDouble(),
-        0,
-      );
-    } else {
-      sample = LSLSample(
-        [data],
-        DateTime.now().microsecondsSinceEpoch.toDouble(),
-        0,
-      );
-    }
-
-    await _sendToOutlet(sample);
+    await (data is List
+        ? _sendToOutlet(data)
+        : _sendToOutlet([data])); // Ensure we always send a list
   }
 
-  Future<void> _sendToOutlet(LSLSample sample) async {
-    if (_outletController == null || _isPaused) return;
+  Future<void> _sendToOutlet(List<dynamic> sample) async {
+    if (_isPaused) return;
 
     try {
-      await _outletController!.sendCommand(IsolateCommand.sendData, {
-        'outletId': streamId,
-        'samples': [sample],
-      });
+      if (_outletController != null) {
+        // Send via isolate controller
+        await _outletController!.sendCommand(IsolateCommand.sendData, {
+          'outletId': streamId,
+          'samples': [sample],
+        });
+      } else {
+        // Send via direct outlet
+        final outlet = getOutlet(streamId);
+        if (outlet != null) {
+          await outlet.pushSample(sample);
+        }
+      }
     } catch (e) {
       logger.warning('Send failed for LSL data stream $streamId: $e');
-      _eventController.add(DataStreamError(streamId, 'Send failed: $e', e));
+      emitEvent(DataStreamError(streamId, 'Send failed: $e', e));
     }
-  }
-
-  void _updateState(ResourceState newState) {
-    final oldState = _resourceState;
-    _resourceState = newState;
-
-    logger.fine(
-      'LSL data stream $streamId state changed: $oldState -> $newState',
-    );
   }
 
   /// Helper method to convert config to map
@@ -657,9 +624,10 @@ class LSLDataStream implements DataStream, ManagedResource {
 /// Custom StreamSink that converts data to LSLSample format
 class _DataStreamSink<T> implements StreamSink<T> {
   final Future<void> Function(T) _sendFunction;
+  final void Function(Object, StackTrace?) _errorFunction;
   bool _isClosed = false;
 
-  _DataStreamSink(this._sendFunction);
+  _DataStreamSink(this._sendFunction, this._errorFunction);
 
   @override
   void add(T data) {
@@ -670,7 +638,7 @@ class _DataStreamSink<T> implements StreamSink<T> {
   @override
   void addError(Object error, [StackTrace? stackTrace]) {
     if (_isClosed) throw StateError('StreamSink is closed');
-    // TODO: Handle errors properly
+    _errorFunction(error, stackTrace);
   }
 
   @override

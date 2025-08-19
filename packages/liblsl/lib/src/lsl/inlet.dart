@@ -100,7 +100,9 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   ///   [_getFullInfoDirect]
   /// **Returns:** Future that completes when full info is retrieved.
   /// **See also:** [getFullInfoSync] for zero-overhead direct calls
-  Future<void> getFullInfo({required double timeout}) async => _useIsolates
+  Future<LSLStreamInfoWithMetadata> getFullInfo({
+    required double timeout,
+  }) async => _useIsolates
       ? await _getFullInfoIsolated(timeout)
       : _getFullInfoDirect(timeout);
 
@@ -113,7 +115,7 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// // Get full info with zero async overhead
   /// inlet.getFullInfoSync(timeout: 2.0);
   /// ```
-  void getFullInfoSync({required double timeout}) =>
+  LSLStreamInfoWithMetadata getFullInfoSync({required double timeout}) =>
       requireDirect(() => _getFullInfoDirect(timeout));
 
   // Isolate resources (when using isolates)
@@ -482,7 +484,7 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// - [timeout]: Maximum wait time in seconds
   /// **Throws:** [LSLException] if getting full info fails.
   /// **See also:** [getFullInfoSync] for direct calls
-  Future<void> _getFullInfoIsolated(double timeout) async {
+  Future<LSLStreamInfoWithMetadata> _getFullInfoIsolated(double timeout) async {
     final response = await _isolateManagerBang.sendMessage(
       LSLMessage(LSLMessageType.getFullInfo, {'timeout': timeout}),
     );
@@ -493,7 +495,9 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
 
     final fullStreamInfoAddr = response.result as int;
     final fullStreamInfo = lsl_streaminfo.fromAddress(fullStreamInfoAddr);
-    _streamInfo = LSLStreamInfoWithMetadata.fromStreamInfo(fullStreamInfo);
+    final streamInfo = LSLStreamInfoWithMetadata.fromStreamInfo(fullStreamInfo);
+    _streamInfo = streamInfo;
+    return streamInfo;
   }
 
   /// Gets the full stream info with metadata from the inlet directly using FFI calls.
@@ -502,16 +506,19 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// - [timeout]: Maximum wait time in seconds
   /// **Throws:** [LSLException] if getting full info fails.
   /// **Note:** This method is only available when `useIsolates: false`.
-  void _getFullInfoDirect(double timeout) {
+  LSLStreamInfoWithMetadata _getFullInfoDirect(double timeout) {
     final fullStreamInfo = lsl_get_fullinfo(_inletBang, timeout, _buffer.ec);
     final int errorCode = _buffer.ec.value;
 
     if (errorCode == 0 && !fullStreamInfo.isNullPointer) {
       // Replace the streamInfo with the full version
-      _streamInfo = LSLStreamInfoWithMetadata.fromStreamInfo(fullStreamInfo);
-    } else if (errorCode != 0) {
-      throw LSLException('Error getting full info: $errorCode');
+      final streamInfo = LSLStreamInfoWithMetadata.fromStreamInfo(
+        fullStreamInfo,
+      );
+      _streamInfo = streamInfo;
+      return streamInfo;
     }
+    throw LSLException('Error getting full info: $errorCode');
   }
 
   Future<int> _samplesAvailableIsolated() async {

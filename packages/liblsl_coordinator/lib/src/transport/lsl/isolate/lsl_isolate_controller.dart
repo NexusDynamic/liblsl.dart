@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:isolate';
 import '../config/lsl_stream_config.dart';
 import '../../../utils/logging.dart';
+import '../../../utils/stream_controller_extensions.dart';
 
 /// Controller for managing LSL operations in isolates
 /// Extracts the proven patterns from high-frequency transport
@@ -14,9 +15,16 @@ class LSLIsolateController {
   SendPort? _sendPort;
   final StreamController<IsolateMessage> _messageController =
       StreamController<IsolateMessage>.broadcast();
+  final StreamController<IsolateError> _errorController =
+      StreamController<IsolateError>.broadcast();
 
   bool _isActive = false;
+  bool _hasErrors = false;
+  int _restartCount = 0;
   final Completer<void> _readyCompleter = Completer<void>();
+  final List<IsolateError> _recentErrors = [];
+  static const int _maxErrorHistory = 10;
+  static const int _maxRestartAttempts = 3;
 
   LSLIsolateController({
     required this.controllerId,
@@ -31,6 +39,18 @@ class LSLIsolateController {
 
   /// Stream of messages from the isolate
   Stream<IsolateMessage> get messages => _messageController.stream;
+
+  /// Stream of isolate errors
+  Stream<IsolateError> get errors => _errorController.stream;
+
+  /// Whether the isolate has encountered errors
+  bool get hasErrors => _hasErrors;
+
+  /// Number of restart attempts
+  int get restartCount => _restartCount;
+
+  /// Recent error history
+  List<IsolateError> get recentErrors => List.unmodifiable(_recentErrors);
 
   /// Get the send port for responses (used for command responses)
   SendPort? get responseSendPort => _receivePort?.sendPort;
@@ -48,23 +68,27 @@ class LSLIsolateController {
 
       // Listen for messages from isolate
       _receivePort!.listen((message) {
-        print(
-          'DEBUG CONTROLLER: Received message from isolate: ${message.runtimeType}',
-        );
+        logger.finest('Received message from isolate: ${message.runtimeType}');
         if (message is SendPort) {
-          print('DEBUG CONTROLLER: Received SendPort, setting ready');
+          logger.fine('Received SendPort from isolate, setting ready');
           _sendPort = message;
           if (!_readyCompleter.isCompleted) {
             _readyCompleter.complete();
-            print('DEBUG CONTROLLER: Ready completer completed');
+            logger.fine('Ready completer completed');
           } else {
-            print('DEBUG CONTROLLER: Ready completer already completed');
+            logger.fine('Ready completer already completed');
           }
         } else if (message is IsolateMessage) {
-          print('DEBUG CONTROLLER: Received IsolateMessage: ${message.type}');
-          _messageController.add(message);
+          logger.fine('Received isolate message: ${message.type}');
+
+          // Handle error messages specifically
+          if (message.type == IsolateMessageType.error) {
+            _handleIsolateError(message);
+          }
+
+          _messageController.addEvent(message);
         } else if (message is LogRecord) {
-          print('DEBUG CONTROLLER: Received LogRecord');
+          logger.finest('Forwarded log record from isolate');
           // Forward directly to the existing logging system
           Log.logIsolateMessage(message);
         } else {
@@ -78,7 +102,7 @@ class LSLIsolateController {
       if (params is LSLOutletIsolateParams) {
         params =
             LSLOutletIsolateParams(
-                  streamConfig: params.streamConfig,
+                  config: params.config,
                   nodeId: params.nodeId,
                   sendPort: _receivePort!.sendPort,
                 )
@@ -159,6 +183,161 @@ class LSLIsolateController {
     _sendPort = null;
 
     await _messageController.close();
+    await _errorController.close();
+  }
+
+  /// Handle an error message from the isolate
+  void _handleIsolateError(IsolateMessage errorMessage) {
+    final error = IsolateError(
+      controllerId: controllerId,
+      errorMessage: errorMessage.data['error']?.toString() ?? 'Unknown error',
+      cause: errorMessage.data['cause']?.toString(),
+      timestamp: DateTime.fromMicrosecondsSinceEpoch(errorMessage.timestamp),
+      isolateState: _isActive ? IsolateState.running : IsolateState.stopped,
+    );
+
+    _hasErrors = true;
+    _addToErrorHistory(error);
+    _errorController.addEvent(error);
+
+    logger.warning('Isolate $controllerId error: ${error.errorMessage}');
+
+    // Check if we should attempt automatic recovery
+    if (_shouldAttemptRecovery(error)) {
+      _scheduleRecovery(error);
+    }
+  }
+
+  /// Add error to history, maintaining max size
+  void _addToErrorHistory(IsolateError error) {
+    _recentErrors.add(error);
+    if (_recentErrors.length > _maxErrorHistory) {
+      _recentErrors.removeAt(0);
+    }
+  }
+
+  /// Determine if automatic recovery should be attempted
+  bool _shouldAttemptRecovery(IsolateError error) {
+    // Don't attempt recovery if we've already restarted too many times
+    if (_restartCount >= _maxRestartAttempts) {
+      logger.warning('Isolate $controllerId: Maximum restart attempts reached');
+      return false;
+    }
+
+    // Don't attempt recovery for certain fatal errors
+    if (error.isFatal) {
+      logger.warning(
+        'Isolate $controllerId: Fatal error, no recovery attempted',
+      );
+      return false;
+    }
+
+    // Check for rapid error succession
+    final recentErrorCount =
+        _recentErrors.where((e) {
+          return DateTime.now().difference(e.timestamp).inMinutes < 1;
+        }).length;
+
+    if (recentErrorCount > 5) {
+      logger.warning(
+        'Isolate $controllerId: Too many recent errors, no recovery attempted',
+      );
+      return false;
+    }
+
+    return true;
+  }
+
+  /// Schedule an automatic recovery attempt
+  void _scheduleRecovery(IsolateError error) {
+    final delay = Duration(
+      seconds: (1 << _restartCount),
+    ); // Exponential backoff
+    logger.info(
+      'Isolate $controllerId: Scheduling recovery in ${delay.inSeconds} seconds',
+    );
+
+    Timer(delay, () async {
+      try {
+        await _attemptRecovery(error);
+      } catch (e) {
+        logger.severe('Isolate $controllerId: Recovery attempt failed: $e');
+        // Create a new error for the failed recovery
+        final recoveryError = IsolateError(
+          controllerId: controllerId,
+          errorMessage: 'Recovery attempt failed: $e',
+          timestamp: DateTime.now(),
+          isolateState: IsolateState.failed,
+          isFatal: true,
+        );
+        _addToErrorHistory(recoveryError);
+        _errorController.addEvent(recoveryError);
+      }
+    });
+  }
+
+  /// Attempt to recover the isolate
+  Future<void> _attemptRecovery(IsolateError originalError) async {
+    logger.info(
+      'Isolate $controllerId: Attempting recovery (attempt ${_restartCount + 1})',
+    );
+
+    _restartCount++;
+
+    // Stop the current isolate
+    await stop();
+
+    // Wait a moment for cleanup
+    await Future.delayed(const Duration(milliseconds: 500));
+
+    // Note: Automatic restart would require preserving the original entry point and params
+    // For now, we just log the recovery attempt. The parent component should listen to
+    // error events and handle restart if needed.
+
+    logger.info(
+      'Isolate $controllerId: Recovery attempt completed. Parent should restart if needed.',
+    );
+
+    // Emit a recovery event
+    final recoveryEvent = IsolateError(
+      controllerId: controllerId,
+      errorMessage: 'Recovery attempted for: ${originalError.errorMessage}',
+      timestamp: DateTime.now(),
+      isolateState: IsolateState.recovering,
+    );
+    _addToErrorHistory(recoveryEvent);
+    _errorController.addEvent(recoveryEvent);
+  }
+
+  /// Get current error statistics
+  IsolateErrorStats getErrorStats() {
+    final now = DateTime.now();
+    final last24Hours =
+        _recentErrors.where((e) {
+          return now.difference(e.timestamp).inHours < 24;
+        }).toList();
+
+    final lastHour =
+        _recentErrors.where((e) {
+          return now.difference(e.timestamp).inHours < 1;
+        }).toList();
+
+    return IsolateErrorStats(
+      totalErrors: _recentErrors.length,
+      errorsLast24Hours: last24Hours.length,
+      errorsLastHour: lastHour.length,
+      restartCount: _restartCount,
+      hasErrors: _hasErrors,
+      lastError: _recentErrors.isNotEmpty ? _recentErrors.last : null,
+    );
+  }
+
+  /// Clear error state (useful after manual recovery)
+  void clearErrors() {
+    _hasErrors = false;
+    _recentErrors.clear();
+    _restartCount = 0;
+    logger.info('Isolate $controllerId: Error state cleared');
   }
 }
 
@@ -179,12 +358,12 @@ class LSLInletIsolateParams {
 
 /// Parameters for LSL outlet isolate operations
 class LSLOutletIsolateParams {
-  final LSLStreamConfig streamConfig;
+  final LSLPollingConfig config;
   final String nodeId;
   final SendPort? sendPort;
 
   const LSLOutletIsolateParams({
-    required this.streamConfig,
+    required this.config,
     required this.nodeId,
     this.sendPort,
   });
@@ -273,6 +452,65 @@ class LSLIsolateException implements Exception {
 
   @override
   String toString() => 'LSLIsolateException: $message';
+}
+
+/// Represents the state of an isolate
+enum IsolateState {
+  created,
+  starting,
+  running,
+  stopping,
+  stopped,
+  failed,
+  recovering,
+}
+
+/// Represents an error that occurred in an isolate
+class IsolateError {
+  final String controllerId;
+  final String errorMessage;
+  final String? cause;
+  final DateTime timestamp;
+  final IsolateState isolateState;
+  final bool isFatal;
+
+  const IsolateError({
+    required this.controllerId,
+    required this.errorMessage,
+    this.cause,
+    required this.timestamp,
+    required this.isolateState,
+    this.isFatal = false,
+  });
+
+  @override
+  String toString() {
+    return 'IsolateError($controllerId): $errorMessage${cause != null ? ' (cause: $cause)' : ''} at $timestamp';
+  }
+}
+
+/// Statistics about isolate errors
+class IsolateErrorStats {
+  final int totalErrors;
+  final int errorsLast24Hours;
+  final int errorsLastHour;
+  final int restartCount;
+  final bool hasErrors;
+  final IsolateError? lastError;
+
+  const IsolateErrorStats({
+    required this.totalErrors,
+    required this.errorsLast24Hours,
+    required this.errorsLastHour,
+    required this.restartCount,
+    required this.hasErrors,
+    this.lastError,
+  });
+
+  @override
+  String toString() {
+    return 'IsolateErrorStats(total: $totalErrors, 24h: $errorsLast24Hours, 1h: $errorsLastHour, restarts: $restartCount)';
+  }
 }
 
 /// Metrics for isolate performance monitoring

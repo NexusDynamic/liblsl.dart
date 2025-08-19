@@ -16,6 +16,46 @@ abstract class NetworkSession {
   Stream<SessionEvent> get events;
 }
 
+/// Configuration for network connection limits and behavior
+class ConnectionConfig {
+  /// Maximum number of peer connections in P2P or hybrid topologies
+  final int maxPeerConnections;
+  
+  /// Maximum number of client connections to monitor (server role)
+  final int maxClientConnections;
+  
+  /// Maximum number of leader connections in hybrid topology
+  final int maxLeaderConnections;
+  
+  /// Whether to enable redundant coordinator connections
+  final bool enableRedundantConnections;
+  
+  /// How long to remember disconnected nodes/streams (seconds)
+  final double forgetAfter;
+  
+  const ConnectionConfig({
+    this.maxPeerConnections = 10,
+    this.maxClientConnections = 50,
+    this.maxLeaderConnections = 5,
+    this.enableRedundantConnections = true,
+    this.forgetAfter = 10.0,
+  });
+  
+  /// Create a configuration optimized for small lab setups
+  factory ConnectionConfig.smallLab() => const ConnectionConfig(
+    maxPeerConnections: 5,
+    maxClientConnections: 20,
+    maxLeaderConnections: 3,
+  );
+  
+  /// Create a configuration optimized for large experiments
+  factory ConnectionConfig.largeLab() => const ConnectionConfig(
+    maxPeerConnections: 20,
+    maxClientConnections: 100,
+    maxLeaderConnections: 10,
+  );
+}
+
 /// Universal configuration for creating coordination sessions
 /// 
 /// This provides a transport-agnostic way to configure sessions while
@@ -45,6 +85,9 @@ class SessionConfig {
   /// Transport-specific configuration
   final Map<String, dynamic> transportConfig;
   
+  /// Connection configuration for network topology management
+  final ConnectionConfig connectionConfig;
+  
   const SessionConfig({
     required this.sessionId,
     required this.nodeId,
@@ -54,6 +97,7 @@ class SessionConfig {
     this.nodeMetadata = const {},
     this.heartbeatInterval = const Duration(seconds: 5),
     this.transportConfig = const {},
+    this.connectionConfig = const ConnectionConfig(),
   });
   
   /// Create a copy with updated values
@@ -66,6 +110,7 @@ class SessionConfig {
     Map<String, dynamic>? nodeMetadata,
     Duration? heartbeatInterval,
     Map<String, dynamic>? transportConfig,
+    ConnectionConfig? connectionConfig,
   }) {
     return SessionConfig(
       sessionId: sessionId ?? this.sessionId,
@@ -76,6 +121,7 @@ class SessionConfig {
       nodeMetadata: nodeMetadata ?? this.nodeMetadata,
       heartbeatInterval: heartbeatInterval ?? this.heartbeatInterval,
       transportConfig: transportConfig ?? this.transportConfig,
+      connectionConfig: connectionConfig ?? this.connectionConfig,
     );
   }
   

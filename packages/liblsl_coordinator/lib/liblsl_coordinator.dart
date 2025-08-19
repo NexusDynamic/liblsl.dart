@@ -46,3 +46,4 @@ export 'src/session/stream_config.dart';
 
 // Export utilities
 export 'src/utils/logging.dart';
+export 'src/utils/stream_controller_extensions.dart';

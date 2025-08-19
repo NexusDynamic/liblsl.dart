@@ -11,27 +11,21 @@ import 'lsl_isolate_controller.dart';
 /// Inlet consumer isolate - receives streamInfo addresses and creates inlets dynamically
 void lslInletConsumerIsolate(LSLInletIsolateParams params) async {
   try {
-    print(
-      'DEBUG ISOLATE: Inlet consumer isolate starting for node ${params.nodeId}',
-    );
-
     if (params.sendPort == null) {
-      print('DEBUG ISOLATE: ERROR - No SendPort provided to inlet isolate!');
-      return;
+      throw ArgumentError('No SendPort provided to inlet isolate!');
     }
 
     // Setup isolate logging
     Log.sendPort = params.sendPort;
 
-    final logger = Log.logger;
     logger.finest('Inlet consumer isolate starting for node ${params.nodeId}');
 
-    print('DEBUG ISOLATE: Setting up communication');
+    logger.fine('Setting up communication');
     // Setup communication with main isolate
     final receivePort = ReceivePort();
-    print('DEBUG ISOLATE: Sending receive port SendPort to main isolate');
+    logger.fine('Sending receive port SendPort to main isolate');
     params.sendPort!.send(receivePort.sendPort);
-    print('DEBUG ISOLATE: SendPort sent successfully');
+    logger.fine('SendPort sent successfully');
 
     final Map<int, LSLInlet> inlets = {}; // Map streamInfo address to inlet
     final Map<int, double> timeCorrections = {};
@@ -46,10 +40,10 @@ void lslInletConsumerIsolate(LSLInletIsolateParams params) async {
     try {
       final exitCompleter = Completer<void>();
       Completer<void>? pauseCompleter;
-      print('DEBUG ISOLATE: Setting up message listener');
+      logger.fine('Setting up message listener');
       // Listen for commands from main isolate
       receivePort.listen((message) async {
-        print('DEBUG ISOLATE: Received message: ${message.runtimeType}');
+        logger.finest('Received message: ${message.runtimeType}');
         if (message is IsolateMessage) {
           await _handleInletCommand(
             message,
@@ -78,7 +72,7 @@ void lslInletConsumerIsolate(LSLInletIsolateParams params) async {
         }
       });
 
-      print('DEBUG ISOLATE: Starting polling loop');
+      logger.fine('Starting polling loop');
       // Start the appropriate polling loop based on configuration
       while (!exitCompleter.isCompleted) {
         // Wait for resume if paused
@@ -87,7 +81,7 @@ void lslInletConsumerIsolate(LSLInletIsolateParams params) async {
         }
 
         if (config.useBusyWait) {
-          print('DEBUG ISOLATE: Using busy-wait polling loop');
+          logger.fine('Using busy-wait polling loop');
           logger.finest('Starting busy-wait polling loop');
           await _busyWaitPollingLoop(params, inlets, config, () => isRunning, (
             processed,
@@ -111,7 +105,7 @@ void lslInletConsumerIsolate(LSLInletIsolateParams params) async {
             }
           }, logger);
         } else {
-          print('DEBUG ISOLATE: Using timer-based polling loop');
+          logger.fine('Using timer-based polling loop');
           logger.finest('Starting timer-based polling loop');
 
           await _timerBasedPollingLoop(
@@ -134,12 +128,12 @@ void lslInletConsumerIsolate(LSLInletIsolateParams params) async {
         }
       }
     } catch (e, stackTrace) {
-      print('DEBUG ISOLATE: Inlet isolate error: $e');
-      print('DEBUG ISOLATE: Stack trace: $stackTrace');
+      logger.severe('Inlet isolate error: $e');
+      logger.severe('Stack trace: $stackTrace');
       try {
         params.sendPort?.send(IsolateMessage.error('Inlet isolate error', e));
       } catch (sendError) {
-        print('DEBUG ISOLATE: Failed to send error message: $sendError');
+        logger.severe('Failed to send error message: $sendError');
       }
     } finally {
       // Cleanup all inlets
@@ -159,43 +153,38 @@ void lslInletConsumerIsolate(LSLInletIsolateParams params) async {
       receivePort.close();
     }
   } catch (e, stackTrace) {
-    print('DEBUG ISOLATE: Inlet isolate outer error: $e');
-    print('DEBUG ISOLATE: Stack trace: $stackTrace');
+    logger.severe('Inlet isolate outer error: $e', e, stackTrace);
   }
 }
 
 /// Outlet producer isolate - receives outlet configs and creates outlets dynamically
 void lslOutletProducerIsolate(LSLOutletIsolateParams params) async {
   try {
-    print(
-      'DEBUG ISOLATE: Outlet producer isolate starting for node ${params.nodeId}',
-    );
+    // Remove debug print - will be logged after logging setup
 
     if (params.sendPort == null) {
-      print('DEBUG ISOLATE: ERROR - No SendPort provided to isolate!');
-      return;
+      throw ArgumentError('No SendPort provided to isolate!');
     }
 
     // Setup isolate logging
     Log.sendPort = params.sendPort;
 
-    final logger = Log.logger;
     logger.finest('Outlet producer isolate starting for node ${params.nodeId}');
 
-    print('DEBUG ISOLATE: Setting up communication');
+    logger.fine('Setting up communication');
     // Setup communication
     final receivePort = ReceivePort();
-    print('DEBUG ISOLATE: Sending receive port SendPort to main isolate');
+    logger.fine('Sending receive port SendPort to main isolate');
     params.sendPort!.send(receivePort.sendPort);
-    print('DEBUG ISOLATE: SendPort sent successfully');
+    logger.fine('SendPort sent successfully');
 
     final Map<String, LSLOutlet> outlets = {}; // Map outlet ID to outlet
     var isRunning = true;
 
-    print('DEBUG ISOLATE: Setting up message listener');
+    logger.fine('Setting up message listener');
     // Listen for commands from main isolate
     receivePort.listen((message) async {
-      print('DEBUG ISOLATE: Received message: ${message.runtimeType}');
+      logger.finest('Received message: ${message.runtimeType}');
       if (message is IsolateMessage) {
         await _handleOutletCommand(
           message,
@@ -207,21 +196,20 @@ void lslOutletProducerIsolate(LSLOutletIsolateParams params) async {
       }
     });
 
-    print('DEBUG ISOLATE: Starting main loop');
+    logger.fine('Starting main loop');
     // Keep isolate alive until stopped
     while (isRunning) {
       await Future.delayed(const Duration(milliseconds: 10));
     }
   } catch (e, stackTrace) {
-    print('DEBUG ISOLATE: Outlet isolate error: $e');
-    print('DEBUG ISOLATE: Stack trace: $stackTrace');
+    logger.severe('Outlet isolate error: $e', e, stackTrace);
     try {
       params.sendPort?.send(IsolateMessage.error('Outlet isolate error', e));
     } catch (sendError) {
-      print('DEBUG ISOLATE: Failed to send error message: $sendError');
+      logger.severe('Failed to send error message: $sendError');
     }
   } finally {
-    print('DEBUG ISOLATE: Cleaning up isolate');
+    logger.fine('Cleaning up isolate');
     // Note: outlets and receivePort are scoped within try block
     // Cleanup will be handled by isolate termination
   }

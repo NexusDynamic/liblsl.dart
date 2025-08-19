@@ -5,6 +5,7 @@ import '../../../session/data_stream.dart';
 import '../../../session/stream_config.dart';
 import '../../../session_config.dart' as universal;
 import '../../../management/network_event_bus.dart';
+import '../../../management/coordinator_resource_manager.dart';
 import '../config/lsl_channel_format.dart';
 import '../connection/lsl_network_state.dart';
 import '../protocol/lsl_coordination_protocol.dart';
@@ -32,7 +33,7 @@ class LSLNetworkFactory {
 
   bool _isInitialized = false;
   final Map<String, LSLCoordinationSession> _activeSessions = {};
-  // TODO: Create proper resource manager - for now just track sessions manually
+  CoordinatorResourceManager? _resourceManager;
 
   /// Initialize the LSL API and factory
   /// This must be called before any other operations
@@ -48,6 +49,13 @@ class LSLNetworkFactory {
     await LSLApiManager.initialize(
       config ?? LSLApiManager.createDefaultConfig(),
     );
+
+    // Initialize resource manager
+    _resourceManager = CoordinatorResourceManager(
+      managerId: 'lsl_network_factory',
+    );
+    await _resourceManager!.initialize();
+    await _resourceManager!.start();
 
     _isInitialized = true;
     logger.info('LSL Network Factory initialized successfully');
@@ -75,7 +83,10 @@ class LSLNetworkFactory {
     );
 
     // Create all the necessary components
-    final connectionManager = LSLConnectionManager(managerId: sessionId);
+    final connectionManager = LSLConnectionManager(
+      managerId: sessionId,
+      nodeId: nodeId,
+    );
     final networkState = LSLNetworkState(
       nodeId: nodeId,
       nodeName: nodeName,
@@ -112,8 +123,12 @@ class LSLNetworkFactory {
     );
 
     _activeSessions[sessionId] = session;
-    // TODO: Add proper resource management integration
-    // await _resourceManager.addResource(session as ManagedResource);
+
+    // Add to resource management
+    if (_resourceManager != null) {
+      _resourceManager!.addConnectionManager(connectionManager);
+      await _resourceManager!.addResource(session);
+    }
 
     // Create and return the network session wrapper
     final networkSession = NetworkSession._(session, this);
@@ -149,7 +164,11 @@ class LSLNetworkFactory {
     await Future.wait(futures);
     _activeSessions.clear();
 
-    // TODO: Cleanup proper resource manager when implemented
+    // Cleanup resource manager
+    if (_resourceManager != null) {
+      await _resourceManager!.dispose();
+      _resourceManager = null;
+    }
 
     _isInitialized = false;
     logger.info('LSL Network Factory disposed');
@@ -165,9 +184,10 @@ class LSLNetworkFactory {
 
   Future<void> _removeSession(String sessionId) async {
     final session = _activeSessions.remove(sessionId);
-    if (session != null) {
-      // TODO: Add proper resource management integration
-      // await _resourceManager.removeResource(session.sessionId);
+    if (session != null && _resourceManager != null) {
+      // Remove session and connection manager from resource management
+      await _resourceManager!.removeResource(sessionId);
+      await _resourceManager!.removeConnectionManager(sessionId);
     }
   }
 }
