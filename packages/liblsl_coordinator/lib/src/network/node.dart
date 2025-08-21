@@ -16,35 +16,6 @@ enum NodeCapability {
 }
 
 extension NodeCapabilityExtension on NodeCapability {
-  static bool mayProduceData(Set<NodeCapability> capabilities) {
-    return !capabilities.contains(NodeCapability.none) &&
-            capabilities.contains(NodeCapability.participant) ||
-        capabilities.contains(NodeCapability.relay) ||
-        capabilities.contains(NodeCapability.transformer);
-  }
-
-  static bool mayProduceCoordination(Set<NodeCapability> capabilities) {
-    return !capabilities.contains(NodeCapability.none) &&
-            capabilities.contains(NodeCapability.coordinator) ||
-        capabilities.contains(NodeCapability.relay);
-  }
-
-  static bool mayConsumeData(Set<NodeCapability> capabilities) {
-    return !capabilities.contains(NodeCapability.none) &&
-            capabilities.contains(NodeCapability.observer) ||
-        capabilities.contains(NodeCapability.participant) ||
-        capabilities.contains(NodeCapability.relay) ||
-        capabilities.contains(NodeCapability.transformer);
-  }
-
-  static bool mayConsumeCoordination(Set<NodeCapability> capabilities) {
-    return !capabilities.contains(NodeCapability.none);
-  }
-
-  static bool mayProcessData(Set<NodeCapability> capabilities) {
-    return capabilities.contains(NodeCapability.transformer);
-  }
-
   static bool mayBePromoted(
     Set<NodeCapability> capabilities,
     NodeCapability target,

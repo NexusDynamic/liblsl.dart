@@ -193,9 +193,7 @@ abstract class Stream<T extends StreamConfig>
 
 abstract class CoordinationStream<T extends CoordinationStreamConfig>
     extends Stream<T> {
-  /// Configuration for the coordination stream.
-
-  CoordinationStream(CoordinationStreamConfig super.config);
+  CoordinationStream(super.config);
 }
 
 abstract class DataStream<T extends StreamConfig> extends Stream<T> {
