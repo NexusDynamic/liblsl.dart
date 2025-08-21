@@ -1097,6 +1097,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.4.0"
+  uid:
+    dependency: transitive
+    description:
+      name: uid
+      sha256: "69d18def8200e7eb64b7fabed347fa095604b96cc8955271f45c875cb7260c50"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.0.2"
   url_launcher_linux:
     dependency: transitive
     description:
