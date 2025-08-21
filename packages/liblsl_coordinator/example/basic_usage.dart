@@ -11,7 +11,7 @@ void main() async {
   // this is a reference implementation, both a mix of classes and configsß
   final Map<String, dynamic> configBlueprint = {
     // === Required ===
-    // Session (NetworkSession())
+    // Session (CoordinationSession())
     'session': {
       'sessionName':
           'liblsl_coordinator_example', // Human-readable name for the session, used to generate a reproducable ID

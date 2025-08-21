@@ -1,6 +1,6 @@
 import 'package:uuid/uuid.dart';
 
-abstract class Identity {
+abstract interface class IIdentity {
   /// Returns a unique identifier for the identity.
   String get id;
 
@@ -11,12 +11,7 @@ abstract class Identity {
   String? get description;
 }
 
-abstract class UniqueIdentity extends Identity {
+abstract interface class IUniqueIdentity extends IIdentity {
   /// Returns a unique identifier that is guaranteed to be globally unique.
-  String get uId;
-  static const Uuid _uuid = Uuid();
-
-  static String generateUniqueId() {
-    return _uuid.v4();
-  }
+  final String uId = Uuid().v4();
 }
