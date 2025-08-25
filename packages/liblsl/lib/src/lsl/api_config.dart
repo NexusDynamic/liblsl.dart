@@ -666,6 +666,107 @@ class LSLApiConfig {
     }
     return '{${addresses.join(', ')}}';
   }
+
+  // Helper function to compare lists
+  bool _listEquals(List? a, List? b) {
+    if (a == null || b == null) return a == b;
+    if (a.length != b.length) return false;
+    for (int i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+
+    return other is LSLApiConfig &&
+        other.multicastPort == multicastPort &&
+        other.basePort == basePort &&
+        other.portRange == portRange &&
+        other.ipv6 == ipv6 &&
+        other.resolveScope == resolveScope &&
+        other.listenAddress == listenAddress &&
+        other.ipv6MulticastGroup == ipv6MulticastGroup &&
+        _listEquals(other.machineAddresses, machineAddresses) &&
+        _listEquals(other.linkAddresses, linkAddresses) &&
+        _listEquals(other.siteAddresses, siteAddresses) &&
+        _listEquals(other.organizationAddresses, organizationAddresses) &&
+        _listEquals(other.globalAddresses, globalAddresses) &&
+        _listEquals(other.addressesOverride, addressesOverride) &&
+        other.ttlOverride == ttlOverride &&
+        _listEquals(other.knownPeers, knownPeers) &&
+        other.sessionId == sessionId &&
+        other.watchdogCheckInterval == watchdogCheckInterval &&
+        other.watchdogTimeThreshold == watchdogTimeThreshold &&
+        other.multicastMinRTT == multicastMinRTT &&
+        other.multicastMaxRTT == multicastMaxRTT &&
+        other.unicastMinRTT == unicastMinRTT &&
+        other.unicastMaxRTT == unicastMaxRTT &&
+        other.continuousResolveInterval == continuousResolveInterval &&
+        other.timerResolution == timerResolution &&
+        other.maxCachedQueries == maxCachedQueries &&
+        other.timeUpdateInterval == timeUpdateInterval &&
+        other.timeUpdateMinProbes == timeUpdateMinProbes &&
+        other.timeProbeCount == timeProbeCount &&
+        other.timeProbeInterval == timeProbeInterval &&
+        other.timeProbeMaxRTT == timeProbeMaxRTT &&
+        other.outletBufferReserveMs == outletBufferReserveMs &&
+        other.outletBufferReserveSamples == outletBufferReserveSamples &&
+        other.sendSocketBufferSize == sendSocketBufferSize &&
+        other.inletBufferReserveMs == inletBufferReserveMs &&
+        other.inletBufferReserveSamples == inletBufferReserveSamples &&
+        other.receiveSocketBufferSize == receiveSocketBufferSize &&
+        other.smoothingHalftime == smoothingHalftime &&
+        other.forceDefaultTimestamps == forceDefaultTimestamps &&
+        other.logLevel == logLevel &&
+        other.logFile == logFile;
+  }
+
+  @override
+  int get hashCode {
+    return multicastPort.hashCode ^
+        basePort.hashCode ^
+        portRange.hashCode ^
+        ipv6.hashCode ^
+        resolveScope.hashCode ^
+        listenAddress.hashCode ^
+        ipv6MulticastGroup.hashCode ^
+        machineAddresses.hashCode ^
+        linkAddresses.hashCode ^
+        siteAddresses.hashCode ^
+        organizationAddresses.hashCode ^
+        globalAddresses.hashCode ^
+        addressesOverride.hashCode ^
+        ttlOverride.hashCode ^
+        knownPeers.hashCode ^
+        sessionId.hashCode ^
+        watchdogCheckInterval.hashCode ^
+        watchdogTimeThreshold.hashCode ^
+        multicastMinRTT.hashCode ^
+        multicastMaxRTT.hashCode ^
+        unicastMinRTT.hashCode ^
+        unicastMaxRTT.hashCode ^
+        continuousResolveInterval.hashCode ^
+        timerResolution.hashCode ^
+        maxCachedQueries.hashCode ^
+        timeUpdateInterval.hashCode ^
+        timeUpdateMinProbes.hashCode ^
+        timeProbeCount.hashCode ^
+        timeProbeInterval.hashCode ^
+        timeProbeMaxRTT.hashCode ^
+        outletBufferReserveMs.hashCode ^
+        outletBufferReserveSamples.hashCode ^
+        sendSocketBufferSize.hashCode ^
+        inletBufferReserveMs.hashCode ^
+        inletBufferReserveSamples.hashCode ^
+        receiveSocketBufferSize.hashCode ^
+        smoothingHalftime.hashCode ^
+        forceDefaultTimestamps.hashCode ^
+        logLevel.hashCode ^
+        logFile.hashCode;
+  }
 }
 
 /// Helper extension to add firstWhereOrNull functionality
