@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:liblsl/lsl.dart';
 import 'package:liblsl_coordinator/liblsl_coordinator.dart';
-import 'package:liblsl_coordinator/transports/lsl/lsl_coordination.dart';
+import 'package:liblsl_coordinator/transports/lsl.dart';
 import 'package:synchronized/synchronized.dart';
 
 /// LSL-based discovery mechanism for network nodes for a given stream
@@ -114,11 +114,12 @@ class LslDiscovery extends LSLResource implements IPausable {
 
   @override
   Future<void> dispose() async {
-    // Clean up LSL discovery mechanisms here.
+    // Clean up LSL discovery
     _stopDiscovery();
     _resolver.destroy();
+    // Ensure no discovery is in progress so we can safely clear the stream
+    // infos
     await _discoveryLock.synchronized(() async {
-      // Ensure no discovery is in progress
       _discoveredStreams.destroy();
       _discoveredStreams.clear();
     });
