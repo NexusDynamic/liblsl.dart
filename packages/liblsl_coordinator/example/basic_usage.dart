@@ -1,4 +1,5 @@
 import 'package:logging/logging.dart';
+import 'package:liblsl_coordinator/framework.dart';
 
 void main() async {
   // Setup logging to see what's happening
@@ -6,6 +7,12 @@ void main() async {
   Logger.root.onRecord.listen((record) {
     print('${record.level.name}: ${record.time}: ${record.message}');
   });
+
+  final CoordinationSessionConfig sessionConfig = CoordinationSessionConfig(
+    name: 'liblsl_coordinator_example',
+    maxNodes: 10,
+    minNodes: 1,
+  );
 
   // This demonstrates how I want to have the config laid out,
   // this is a reference implementation, both a mix of classes and configsß
@@ -67,7 +74,7 @@ void main() async {
   };
 
   // Create the session using the configuration blueprint (handles initialization and creation)
-  final CoordinationSession session = await CoordinatorFactory.createSession( ... );
+  final CoordinationSession session = CoordinationSession(sessionConfig);
 
   final DataStream dataStream = await session.createDataStream(
     StreamConfigs.communication(

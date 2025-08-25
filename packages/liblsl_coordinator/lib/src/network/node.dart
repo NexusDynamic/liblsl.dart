@@ -1,4 +1,7 @@
 import 'package:liblsl_coordinator/interfaces.dart';
+import 'package:liblsl_coordinator/logging.dart';
+import 'package:meta/meta.dart';
+import 'dart:math';
 
 /// Represents the type of a node in the network.
 /// Type, in this case means essentially the MAXIMUM privileges
@@ -39,22 +42,48 @@ extension NodeCapabilityExtension on NodeCapability {
   }
 }
 
-class NodeConfig implements IConfig {
+class NodeConfig implements IConfig, IUniqueIdentity {
+  @override
+  final String uId;
+
+  /// Identifier for the node (for logging and identification purposes).
+  /// If not provided, the hashCode of the object will be used.
+  @override
+  String get id => suppliedId ?? 'node-${hashCode.toString()}';
+
   /// Human-readable name for the node.
+  @override
   final String name;
 
-  /// Unique identifier for the node.
-  final String id;
+  @override
+  String? get description => 'Configuration for node $name (id: $id)';
+
+  /// Internal storage for the id, if provided.
+  final String? suppliedId;
 
   /// Type of the node.
   /// This is a [NodeCapability] enum value.
   final Set<NodeCapability> capabilities;
 
+  /// Creates a new [NodeConfig] with the given parameters.
+  /// If [id] is not provided, an ID based on the hashCode will be used.
+  ///   The [id] is not guaranteed to be unique, and should be used only for
+  ///   logging and identification purposes.
+  /// The [name] is a human-readable name for the node.
+  /// The [capabilities] is a set of [NodeCapability] enum values that
+  ///  define the maximum capabilities of the node.
+  /// By default, the node is a participant node.
+  /// The [uId] is a unique identifier for the node
+  ///   Note: this should generally not be set manually, and should be
+  ///   generated automatically, the argument is there to allow mirroring
+  ///  of existing /found nodes, and maintain their uId.
   NodeConfig({
     required this.name,
-    required this.id,
+    String? id,
+    String? uId,
     this.capabilities = const {NodeCapability.participant},
-  }) {
+  }) : suppliedId = id,
+       uId = uId ?? Uuid().v4() {
     validate(throwOnError: true);
   }
 
@@ -89,22 +118,75 @@ class NodeConfig implements IConfig {
   NodeConfig copyWith({
     String? name,
     String? id,
+    String? uId,
     Set<NodeCapability>? capabilities,
   }) {
     return NodeConfig(
       name: name ?? this.name,
       id: id ?? this.id,
+      uId: uId ?? this.uId,
       capabilities: capabilities ?? this.capabilities,
     );
   }
 
   @override
   String toString() {
-    return 'NodeConfig(name: $name, id: $id, capabilities: $capabilities)';
+    return 'NodeConfig(uId: $uId, name: $name, id: $id, capabilities: $capabilities)';
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is NodeConfig &&
+        other.runtimeType == runtimeType &&
+        other.uId == uId &&
+        other.name == name &&
+        other.suppliedId == suppliedId &&
+        other.capabilities == capabilities;
+  }
+
+  @override
+  int get hashCode {
+    return uId.hashCode ^
+        name.hashCode ^
+        suppliedId.hashCode ^
+        capabilities.hashCode;
   }
 }
 
-abstract class Node implements IConfigurable<NodeConfig>, IUniqueIdentity {
+class NodeConfigFactory implements IConfigFactory<NodeConfig> {
+  @override
+  NodeConfig defaultConfig() {
+    return NodeConfig(
+      name: 'Default Node',
+      id: 'node-${Random().nextInt(10000)}',
+      capabilities: {NodeCapability.coordinator, NodeCapability.participant},
+    );
+  }
+
+  @override
+  NodeConfig fromMap(Map<String, dynamic> map) {
+    return NodeConfig(
+      name: map['name'] ?? 'Default Node',
+      id: map['id'] ?? 'node-${Random().nextInt(10000)}',
+      capabilities:
+          (map['capabilities'] as List<dynamic>?)
+              ?.map(
+                (e) => NodeCapability.values.firstWhere(
+                  (cap) => cap.toString() == e,
+                  orElse: () => NodeCapability.participant,
+                ),
+              )
+              .toSet() ??
+          {NodeCapability.participant},
+    );
+  }
+}
+
+class Node implements IConfigurable<NodeConfig>, IUniqueIdentity, IHasMetadata {
+  @override
+  String get uId => config.uId;
+
   /// Unique identifier for the node.
   @override
   String get id => config.id;
@@ -113,10 +195,32 @@ abstract class Node implements IConfigurable<NodeConfig>, IUniqueIdentity {
   @override
   String get name => config.name;
 
+  @override
+  String? get description => 'Node $name (id: $id)';
+
   /// Configuration for the node.
   /// This is a [NodeConfig] object.
   @override
   final NodeConfig config;
+
+  late DateTime _lastSeen;
+  DateTime get lastSeen => _lastSeen;
+
+  final DateTime _createdAt = DateTime.now();
+  DateTime get createdAt => _createdAt;
+
+  /// The node's reported start time.
+  DateTime? _nodeStartedAt;
+  DateTime? get nodeStartedAt => _nodeStartedAt;
+
+  DateTime? _promotedAt;
+
+  DateTime? get promotedAt => _promotedAt;
+
+  final Map<String, dynamic> _metadata = {};
+
+  @override
+  Map<String, dynamic> get metadata => Map.unmodifiable(_metadata);
 
   /// Type of the node.
   /// This is a [NodeCapability] enum value.
@@ -126,76 +230,146 @@ abstract class Node implements IConfigurable<NodeConfig>, IUniqueIdentity {
     if (!config.validate()) {
       throw ArgumentError('Invalid node configuration: ${config.toMap()}');
     }
+    _lastSeen = DateTime.now();
+    _metadata['type'] = config.capabilities.join(',');
+    _metadata['randomRoll'] = Random().nextDouble().toString();
+    _metadata['role'] = 'none';
+    _metadata['createdAt'] = _createdAt.toIso8601String();
+    _metadata['id'] = id;
+    _metadata['uId'] = id;
+    _metadata['name'] = name;
+    _metadata['version'] = '1.0.0';
+    _metadata['nodeStartedAt'] = _nodeStartedAt?.toIso8601String() ?? '';
   }
 
-  ObserverNode get asObserver =>
-      NodeCapabilityExtension.mayBePromoted(
-            capabilities,
-            NodeCapability.observer,
-          )
-          ? this as ObserverNode
-          : throw StateError('Node cannot be promoted to Observer');
+  @protected
+  void seen() {
+    _lastSeen = DateTime.now();
+  }
 
-  ParticipantNode get asParticipant =>
-      NodeCapabilityExtension.mayBePromoted(
-            capabilities,
-            NodeCapability.participant,
-          )
-          ? this as ParticipantNode
-          : throw StateError('Node cannot be promoted to Participant');
+  @override
+  dynamic getMetadata(String key, {dynamic defaultValue}) {
+    return _metadata[key] ?? defaultValue;
+  }
 
-  RelayNode get asRelay =>
-      NodeCapabilityExtension.mayBePromoted(capabilities, NodeCapability.relay)
-          ? this as RelayNode
-          : throw StateError('Node cannot be promoted to Relay');
+  /// Attempts to promote the current node to an [ObserverNode].
+  ObserverNode get asObserver {
+    if (!NodeCapabilityExtension.mayBePromoted(
+      capabilities,
+      NodeCapability.observer,
+    )) {
+      throw StateError('Node cannot be promoted to Observer');
+    }
+    _promotedAt = DateTime.now();
+    _metadata['role'] = 'observer';
+    logger.finest('Node $name promoted to Observer');
+    return this as ObserverNode;
+  }
 
-  TransformerNode get asTransformer =>
-      NodeCapabilityExtension.mayBePromoted(
-            capabilities,
-            NodeCapability.transformer,
-          )
-          ? this as TransformerNode
-          : throw StateError('Node cannot be promoted to Transformer');
+  /// Attempts to promote the current node to a [ParticipantNode].
+  ParticipantNode get asParticipant {
+    if (!NodeCapabilityExtension.mayBePromoted(
+      capabilities,
+      NodeCapability.participant,
+    )) {
+      throw StateError('Node cannot be promoted to Participant');
+    }
+    _promotedAt = DateTime.now();
+    _metadata['role'] = 'participant';
+    logger.finest('Node $name promoted to Participant');
+    return this as ParticipantNode;
+  }
 
-  CoordinatorNode get asCoordinator =>
-      NodeCapabilityExtension.mayBePromoted(
-            capabilities,
-            NodeCapability.coordinator,
-          )
-          ? this as CoordinatorNode
-          : throw StateError('Node cannot be promoted to Coordinator');
+  /// Attempts to promote the current node to a [RelayNode].
+  RelayNode get asRelay {
+    if (!NodeCapabilityExtension.mayBePromoted(
+      capabilities,
+      NodeCapability.relay,
+    )) {
+      throw StateError('Node cannot be promoted to Relay');
+    }
+    _promotedAt = DateTime.now();
+    _metadata['role'] = 'relay';
+    logger.finest('Node $name promoted to Relay');
+    return this as RelayNode;
+  }
 
-  ParticipatingCoordinatorNode get asParticipatingCoordinator =>
-      NodeCapabilityExtension.mayBePromoted(
-            capabilities,
-            NodeCapability.coordinator,
-          )
-          ? this as ParticipatingCoordinatorNode
-          : throw StateError(
-            'Node cannot be promoted to Participating Coordinator',
-          );
+  /// Attempts to promote the current node to a [TransformerNode].
+  TransformerNode get asTransformer {
+    if (!NodeCapabilityExtension.mayBePromoted(
+      capabilities,
+      NodeCapability.transformer,
+    )) {
+      throw StateError('Node cannot be promoted to Transformer');
+    }
+    _promotedAt = DateTime.now();
+    _metadata['role'] = 'transformer';
+    logger.finest('Node $name promoted to Transformer');
+    return this as TransformerNode;
+  }
+
+  /// Attempts to promote the current node to a [CoordinatorNode].
+  CoordinatorNode get asCoordinator {
+    if (!NodeCapabilityExtension.mayBePromoted(
+      capabilities,
+      NodeCapability.coordinator,
+    )) {
+      throw StateError('Node cannot be promoted to Coordinator');
+    }
+    _promotedAt = DateTime.now();
+    _metadata['role'] = 'coordinator';
+    logger.finest('Node $name promoted to Coordinator');
+    return this as CoordinatorNode;
+  }
 }
 
-abstract class ObserverNode extends Node {
-  ObserverNode(super.config);
+/// Observer nodes can only observe the network, and cannot
+/// participate in sending data or and cannot coordinate. They can
+/// receive coordination messages, but cannot send them.
+class ObserverNode extends Node {
+  @override
+  String? get description => 'Observer Node $name (id: $id)';
+  ObserverNode(super.config) : super() {
+    _metadata['role'] = 'observer';
+  }
 }
 
-abstract class ParticipantNode extends Node {
-  ParticipantNode(super.config);
+/// Participant nodes can produce and consume data, but cannot
+/// participate in coordination (but will receive coordination messages).
+class ParticipantNode extends Node {
+  @override
+  String? get description => 'Participant Node $name (id: $id)';
+  ParticipantNode(super.config) : super() {
+    _metadata['role'] = 'participant';
+  }
 }
 
-abstract class CoordinatorNode extends Node {
-  CoordinatorNode(super.config);
+/// Coordinator nodes can coordinate the network, and may also participate
+/// in data streams (if they have the capability).
+class CoordinatorNode extends Node {
+  @override
+  String? get description => 'Coordinator Node $name (id: $id)';
+  CoordinatorNode(super.config) : super() {
+    _metadata['role'] = 'coordinator';
+  }
 }
 
-abstract class ParticipatingCoordinatorNode extends Node {
-  ParticipatingCoordinatorNode(super.config);
+/// Relay nodes can relay data between nodes, but cannot
+/// produce or consume data (non-relayed) themselves.
+class RelayNode extends Node {
+  @override
+  String? get description => 'Relay Node $name (id: $id)';
+  RelayNode(super.config) : super() {
+    _metadata['role'] = 'relay';
+  }
 }
 
-abstract class RelayNode extends Node {
-  RelayNode(super.config);
-}
-
-abstract class TransformerNode extends Node {
-  TransformerNode(super.config);
+/// Transformer nodes are a special case of relay nodes that can
+/// also transform data as it passes through them.
+class TransformerNode extends Node {
+  @override
+  String? get description => 'Transformer Node $name (id: $id)';
+  TransformerNode(super.config) : super() {
+    _metadata['role'] = 'transformer';
+  }
 }

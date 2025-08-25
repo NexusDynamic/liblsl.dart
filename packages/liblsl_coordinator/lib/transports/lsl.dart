@@ -1,5 +1,5 @@
 library;
 
-/// LibLSL Coordinator - LSL transport implementation
-
-/// TODO: Reorganize, confirm exports
+export 'lsl/lsl_coordination.dart';
+export 'lsl/lsl_stream.dart';
+export 'lsl/lsl_transport.dart';

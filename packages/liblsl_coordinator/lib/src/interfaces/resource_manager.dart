@@ -4,7 +4,7 @@ import 'package:meta/meta.dart';
 
 import 'package:liblsl_coordinator/interfaces.dart';
 
-abstract interface class IResourceManager {
+abstract interface class IResourceManager implements IUniqueIdentity {
   @protected
   FutureOr<void> manageResource<R extends IResource>(R resource);
   @protected
