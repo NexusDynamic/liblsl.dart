@@ -39,12 +39,28 @@ class LSLStreamInfoHelper {
   static const String nodeStartedAtKey = 'node_started_at';
 
   /// Generates a standardized stream name for a given stream configuration
-  /// and node information.
+  /// and node information. 
+  /// Now uses clean names without encoding node/role information in the name.
+  /// All filtering information is stored in metadata instead.
   static String generateStreamName(
     NetworkStreamConfig config, {
     required Node node,
   }) {
-    return '${config.name}-${node.id}-${node.getMetadata('role', defaultValue: 'none')}';
+    // Use clean stream name - all other info goes in metadata
+    return config.name;
+  }
+
+  /// Generates a unique source ID for a given stream configuration and node.
+  /// This ensures each outlet has a globally unique source ID that identifies:
+  /// 1. The source node (nodeId)
+  /// 2. The stream type/name
+  /// 3. A unique identifier (nodeUID) to guarantee uniqueness per outlet
+  /// Format: nodeId_streamName_nodeUID
+  static String generateSourceID(
+    NetworkStreamConfig config, {
+    required Node node,
+  }) {
+    return '${node.id}_${config.name}_${node.uId}';
   }
 
   static Map<String, String> parseStreamName(String name) {
@@ -66,6 +82,7 @@ class LSLStreamInfoHelper {
     required Node node,
   }) async {
     final streamName = generateStreamName(config, node: node);
+    final sourceId = generateSourceID(config, node: node);
 
     final LSLStreamInfoWithMetadata info = await LSL.createStreamInfo(
       streamName: streamName,
@@ -73,6 +90,7 @@ class LSLStreamInfoHelper {
       channelCount: config.channels,
       channelFormat: config.dataType.toLSLChannelFormat(),
       sampleRate: config.sampleRate,
+      sourceId: sourceId, // Use unique source ID
     );
 
     // Add standard metadata
@@ -151,6 +169,8 @@ class LSLStreamInfoHelper {
     String? nodeCapabilities,
     String? sourceIdPrefix,
     String? sourceIdSuffix,
+    String? excludeSourceId,
+    String? excludeSourceIdPrefix, // New parameter for prefix exclusion
     // Metadata filtering options for promotion strategy
     double? randomRollLessThan,
     double? randomRollGreaterThan,
@@ -169,6 +189,12 @@ class LSLStreamInfoHelper {
     }
     if (sourceIdSuffix != null) {
       conditions.add("ends-with(source_id, '$sourceIdSuffix')");
+    }
+    if (excludeSourceId != null) {
+      conditions.add("not(source_id='$excludeSourceId')");
+    }
+    if (excludeSourceIdPrefix != null) {
+      conditions.add("not(starts-with(source_id, '$excludeSourceIdPrefix'))");
     }
     if (sessionName != null) {
       conditions.add("//info/desc/$sessionNameKey='$sessionName'");
@@ -206,30 +232,34 @@ class LSLStreamInfoHelper {
 }
 
 /// Mixin providing shared LSL functionality for both coordination and data streams
+/// mixin with isolate support for LSL streams
 mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
     on NetworkStream<T, M> {
-  /// The node associated with this stream
+  // Abstract getters to be implemented
   Node get streamNode;
-
-  /// Session configuration for metadata
   CoordinationSessionConfig get streamSessionConfig;
-
-  /// LSL transport for creating managed resources
   LSLTransport get lslTransport;
 
-  // LSL managed resources
+  // Control flags
+  bool get useIsolates => true; // Default to using isolates
+  // Separate settings for inlets vs outlets
+  bool get useBusyWaitInlets => false; // Override in data streams
+  bool get useBusyWaitOutlets => false; // Event-driven outlets by default
+
+  // Isolate manager
+  IsolateStreamManager? _isolateManager;
+
+  // LSL resources
   OutletResource? _outletResource;
   final List<InletResource> _inletResources = <InletResource>[];
+  final List<LSLStreamInfo> _inletStreamInfos = <LSLStreamInfo>[];
 
-  // Internal message handling
+  // Message handling
   final StreamController<M> _incomingController =
       StreamController<M>.broadcast();
   final StreamController<M> _outgoingController = StreamController<M>();
 
-  Timer? _messagePollingTimer;
-  Timer? _outboxProcessingTimer;
-
-  // Resource management
+  // State
   bool _created = false;
   bool _disposed = false;
   bool _started = false;
@@ -251,18 +281,63 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
     if (_created) return;
     if (_disposed) throw StateError('Cannot create disposed stream');
 
-    // Create outlet for sending messages via transport
+    // Create isolate manager if using isolates
+    if (useIsolates) {
+      _isolateManager = IsolateStreamManager(
+        streamId: id,
+        dataType: config.dataType,
+        useIsolates: true,
+        useBusyWaitInlets: useBusyWaitInlets,
+        useBusyWaitOutlets: useBusyWaitOutlets,
+      );
+
+      // Listen to incoming data from isolates
+      _isolateManager!.incomingData.listen((dataMessage) {
+        final message = _createMessageFromIsolateData(dataMessage);
+        if (message != null) {
+          _incomingController.add(message);
+        }
+      });
+    }
+
+    // Create outlet
     final streamInfo = await LSLStreamInfoHelper.createStreamInfo(
       config: config,
       sessionConfig: streamSessionConfig,
       node: streamNode,
     );
 
-    _outletResource = await lslTransport.createOutlet(streamInfo: streamInfo);
+    // Setup outlet based on isolate usage
+    if (useIsolates && _isolateManager != null) {
+      // When using isolates: pass only StreamInfo, isolate creates its own outlet
+      await _isolateManager!.createOutletIsolate(
+        streamInfo: streamInfo, // Pass StreamInfo, not outlet
+        sampleRate: config.sampleRate,
+        channelCount: config.channels,
+        pollingInterval: _getPollingInterval(),
+      );
+      // Don't create outlet in main thread when using isolates
+      _outletResource = null;
+    } else {
+      // When not using isolates: create outlet in main thread
+      _outletResource = await lslTransport.createOutlet(streamInfo: streamInfo);
+    }
+
     _created = true;
 
-    // Start processing outbox messages
+    // Start processing outbox
     _startOutboxProcessing();
+  }
+
+  Duration _getPollingInterval() {
+    if (useBusyWaitOutlets) {
+      // For busy-wait, use microsecond precision based on sample rate
+      final microsecondsPerSample = (1000000 / config.sampleRate).round();
+      return Duration(microseconds: microsecondsPerSample);
+    } else {
+      // For coordination streams, use reasonable polling interval
+      return Duration(milliseconds: 10);
+    }
   }
 
   @override
@@ -272,69 +347,109 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
     _manager = newManager;
   }
 
-  /// Adds an inlet for receiving messages from another node
+  /// Add inlet for receiving from another node
+  /// Checks if an inlet already exists for the given source ID
+  bool hasInletForSource(String sourceId) {
+    if (useIsolates) {
+      // When using isolates, check StreamInfo list
+      return _inletStreamInfos.any((streamInfo) => streamInfo.sourceId == sourceId);
+    } else {
+      // When not using isolates, check inlet resources
+      return _inletResources.any((inletResource) => 
+        inletResource.inlet.streamInfo.sourceId == sourceId);
+    }
+  }
+
   Future<void> addInlet(LSLStreamInfo streamInfo) async {
     if (!_created) throw StateError('Stream not created');
+    if (_disposed) return;
 
-    final inletResource = await lslTransport.createInlet(
-      streamInfo: streamInfo,
-      includeMetadata: true,
-    );
-    _inletResources.add(inletResource);
+    if (useIsolates && _isolateManager != null) {
+      // When using isolates: only store StreamInfo, let isolate create inlets
+      _inletStreamInfos.add(streamInfo);
+      
+      // Recreate inlet isolate with all StreamInfo addresses
+      await _isolateManager!.createInletIsolate(
+        streamInfos: _inletStreamInfos,
+        pollingInterval: _getPollingInterval(),
+      );
+    } else {
+      // When not using isolates: create inlet in main thread
+      final inletResource = await lslTransport.createInlet(
+        streamInfo: streamInfo,
+        includeMetadata: true,
+      );
+      _inletResources.add(inletResource);
+    }
 
-    // Start message polling if not already started
+    // Start if not already started
     if (!_started) {
       await start();
     }
   }
 
-  /// Starts internal message polling
   Future<void> start() async {
     if (_started) return;
     _started = true;
 
-    _startMessagePolling();
+    if (useIsolates && _isolateManager != null) {
+      await _isolateManager!.start();
+      
+      // Connect isolate data stream to inbox
+      _isolateManager!.incomingData.listen((isolateData) {
+        final message = _createMessageFromIsolateData(isolateData);
+        if (message != null) {
+          _incomingController.add(message);
+        }
+      });
+    } else {
+      // Direct mode - start polling timers
+      _startDirectPolling();
+    }
   }
 
-  /// Stops message polling
   Future<void> stop() async {
     if (!_started) return;
     _started = false;
 
-    _messagePollingTimer?.cancel();
-    _outboxProcessingTimer?.cancel();
+    if (_isolateManager != null) {
+      await _isolateManager!.stop();
+    }
   }
 
-  void _startMessagePolling() {
-    _messagePollingTimer?.cancel();
-    _messagePollingTimer = Timer.periodic(
-      Duration(milliseconds: 10), // High frequency polling
-      (timer) async {
-        if (!_started || paused || _inletResources.isEmpty) return;
+  void _startDirectPolling() {
+    // For non-isolate mode, use regular timers
+    Timer.periodic(_getPollingInterval(), (_) async {
+      if (!_started || paused) return;
 
-        for (final inletResource in _inletResources) {
-          try {
-            final sample = await inletResource.inlet.pullSample(timeout: 0.0);
-            if (sample.isNotEmpty) {
-              final message = _createMessageFromSample(sample);
-              if (message != null) {
-                _incomingController.add(message);
-              }
+      for (final inletResource in _inletResources) {
+        try {
+          final sample = await inletResource.inlet.pullSample(timeout: 0.0);
+          if (sample.isNotEmpty) {
+            final message = _createMessageFromSample(sample);
+            if (message != null) {
+              _incomingController.add(message);
             }
-          } catch (e) {
-            // Handle errors gracefully - inlet might be disposed
           }
+        } catch (e) {
+          logger.warning('Error polling inlet: $e');
         }
-      },
-    );
+      }
+    });
   }
 
   void _startOutboxProcessing() {
-    _outboxProcessingTimer?.cancel();
-    _outgoingController.stream.listen((message) {
-      if (_outletResource != null && _started && !paused) {
+    _outgoingController.stream.listen((message) async {
+      if (!_started || paused) return;
+
+      final sampleData = _createSampleFromMessage(message);
+
+      if (useIsolates && _isolateManager != null) {
+        // Send through isolate
+        await _isolateManager!.sendData(sampleData);
+      } else if (_outletResource != null) {
+        // Direct send
         try {
-          final sampleData = _createSampleFromMessage(message);
           _outletResource!.outlet.pushSample(sampleData);
         } catch (e) {
           logger.warning('Failed to send message: $e');
@@ -343,17 +458,10 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
     });
   }
 
-  /// Override this method to convert LSL sample to message type
-  M? _createMessageFromSample(LSLSample sample) {
-    // Default implementation - subclasses should override
-    return null;
-  }
-
-  /// Override this method to convert message to LSL sample data
-  List<dynamic> _createSampleFromMessage(M message) {
-    // Default implementation - subclasses should override
-    return [message.toString()];
-  }
+  // Abstract methods to be implemented by subclasses
+  M? _createMessageFromSample(LSLSample sample) => null;
+  M? _createMessageFromIsolateData(IsolateDataMessage data) => null;
+  List<dynamic> _createSampleFromMessage(M message) => [message.toString()];
 
   @override
   Future<void> sendMessage(M message) async {
@@ -370,14 +478,18 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
   @override
   Future<void> pause() async {
     if (paused) return;
-    _messagePollingTimer?.cancel();
+    if (_isolateManager != null) {
+      await _isolateManager!.stop();
+    }
     super.pause();
   }
 
   @override
   Future<void> resume() async {
     if (!paused) return;
-    _startMessagePolling();
+    if (_isolateManager != null) {
+      await _isolateManager!.start();
+    }
     super.resume();
   }
 
@@ -387,22 +499,28 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
 
     await stop();
 
-    // Dispose managed resources - they will handle their own cleanup
+    // Dispose isolate manager
+    if (_isolateManager != null) {
+      await _isolateManager!.dispose();
+    }
+
+    // Dispose LSL resources
     _outletResource?.dispose();
     for (final inletResource in _inletResources) {
       inletResource.dispose();
     }
     _inletResources.clear();
+    
+    // Dispose StreamInfos (main thread's responsibility)
+    for (final streamInfo in _inletStreamInfos) {
+      streamInfo.destroy();
+    }
+    _inletStreamInfos.clear();
 
     await _incomingController.close();
     await _outgoingController.close();
 
     _disposed = true;
-    try {
-      await _manager?.releaseResource(uId);
-    } catch (e) {
-      logger.warning('Failed to release resource $uId: $e');
-    }
   }
 }
 
@@ -417,11 +535,16 @@ class LSLDataStream extends DataStream<DataStreamConfig, IMessage>
   @override
   final LSLTransport lslTransport;
 
-  // Additional data stream specific functionality
-  final StreamController<List<double>> _dataController =
-      StreamController<List<double>>.broadcast();
+  @override
+  bool get useBusyWaitInlets => true; // Use busy-wait for data stream inlets
+  @override
+  bool get useBusyWaitOutlets => false; // Event-driven outlets for data streams
 
-  Stream<List<double>> get incoming => _dataController.stream;
+  // Typed data stream based on config
+  final StreamController<List<dynamic>> _typedDataController =
+      StreamController<List<dynamic>>.broadcast();
+
+  Stream<List<dynamic>> get dataStream => _typedDataController.stream;
 
   LSLDataStream({
     required DataStreamConfig config,
@@ -434,11 +557,11 @@ class LSLDataStream extends DataStream<DataStreamConfig, IMessage>
   String get name => 'LSL Data Stream ${config.name}';
 
   @override
-  String get description => 'LSL data stream for ${config.name}';
+  String get description => 'High-precision data stream for ${config.name}';
 
-  /// Sends numerical data directly (for high-frequency data streams)
-  void sendData(List<double> data) {
-    if (!started) return;
+  /// Send typed data based on stream configuration
+  void sendData(List<dynamic> data) {
+    if (!started) throw StateError('Stream not started');
 
     if (data.length != config.channels) {
       throw ArgumentError(
@@ -446,39 +569,132 @@ class LSLDataStream extends DataStream<DataStreamConfig, IMessage>
       );
     }
 
-    // Send via LSL outlet directly for performance
-    if (_outletResource != null) {
+    // Validate data types
+    _validateDataType(data);
+
+    // Send directly through outlet or isolate
+    if (useIsolates && _isolateManager != null) {
+      _isolateManager!.sendData(data);
+    } else if (_outletResource != null) {
       _outletResource!.outlet.pushSample(data);
     }
   }
 
-  @override
-  IMessage? _createMessageFromSample(LSLSample sample) {
-    // For data streams, we emit both raw data and message
-    final data = sample.data as List<double>;
-    if (data.isNotEmpty) {
-      // Emit to data stream
-      _dataController.add(data);
+  void sendDataTyped<T>(List<T> data) {
+    if (!started) throw StateError('Stream not started');
+
+    if (data.length != config.channels) {
+      throw ArgumentError(
+        'Data length ${data.length} does not match channels ${config.channels}',
+      );
     }
 
-    // For now, data streams don't use message-based communication
-    // This could be extended later for control messages
+    // Validate data types
+    _validateDataType(data);
+
+    // Send directly through outlet or isolate
+    if (useIsolates && _isolateManager != null) {
+      _isolateManager!.sendData(data);
+    } else if (_outletResource != null) {
+      _outletResource!.outlet.pushSample(data);
+    }
+  }
+
+  void _validateDataType(List<dynamic> data) {
+    for (final value in data) {
+      switch (config.dataType) {
+        case StreamDataType.float32:
+        case StreamDataType.double64:
+          if (value is! num) {
+            throw ArgumentError(
+              'Expected numeric value, got ${value.runtimeType}',
+            );
+          }
+          break;
+        case StreamDataType.int8:
+        case StreamDataType.int16:
+        case StreamDataType.int32:
+        case StreamDataType.int64:
+          if (value is! int) {
+            throw ArgumentError('Expected int value, got ${value.runtimeType}');
+          }
+          break;
+        case StreamDataType.string:
+          if (value is! String) {
+            throw ArgumentError(
+              'Expected String value, got ${value.runtimeType}',
+            );
+          }
+          break;
+      }
+    }
+  }
+
+  @override
+  IMessage? _createMessageFromIsolateData(IsolateDataMessage data) {
+    // Emit typed data
+    _typedDataController.add(data.data);
+
+    // Create appropriate message based on data type
+    switch (config.dataType) {
+      case StreamDataType.float32:
+      case StreamDataType.double64:
+        if (data.data.every((v) => v is num)) {
+          return MessageFactory.double64Message(
+            data: data.data.map((v) => (v as num).toDouble()).toList(),
+            channels: config.channels,
+            timestamp: data.timestamp,
+          );
+        }
+        break;
+      case StreamDataType.int8:
+      case StreamDataType.int16:
+      case StreamDataType.int32:
+      case StreamDataType.int64:
+        if (data.data.every((v) => v is int)) {
+          return MessageFactory.int32Message(
+            data: data.data.cast<int>(),
+            channels: config.channels,
+            timestamp: data.timestamp,
+          );
+        }
+        break;
+      case StreamDataType.string:
+        if (data.data.every((v) => v is String)) {
+          return MessageFactory.stringMessage(
+            data: data.data.cast<String>(),
+            channels: config.channels,
+            timestamp: data.timestamp,
+          );
+        }
+        break;
+    }
     return null;
   }
 
   @override
+  IMessage? _createMessageFromSample(LSLSample sample) {
+    // Emit raw data
+    _typedDataController.add(sample.data);
+    return _createMessageFromIsolateData(
+      IsolateDataMessage(
+        streamId: id,
+        messageId: generateUid(),
+        timestamp: DateTime.now(),
+        data: sample.data,
+        lslTimestamp: sample.timestamp,
+      ),
+    );
+  }
+
+  @override
   List<dynamic> _createSampleFromMessage(IMessage message) {
-    // For data streams, messages are rare - mostly used for control
-    // Actual data goes through sendData() method for performance
-    if (message is StringMessage) {
-      return [message.data];
-    }
-    return [message.toString()];
+    return message.data;
   }
 
   @override
   Future<void> dispose() async {
-    await _dataController.close();
+    await _typedDataController.close();
     await super.dispose();
   }
 }
@@ -527,6 +743,11 @@ class LSLCoordinationStream
   @override
   final LSLTransport lslTransport;
 
+  @override
+  bool get useBusyWaitInlets => false; // Event-driven coordination inlets
+  @override
+  bool get useBusyWaitOutlets => false; // Event-driven coordination outlets
+
   LSLCoordinationStream({
     required CoordinationStreamConfig config,
     required this.streamNode,
@@ -535,30 +756,34 @@ class LSLCoordinationStream
   }) : super(config);
 
   @override
-  String get description => 'LSL coordination stream for ${config.name}';
+  String get description => 'Coordination stream for ${config.name}';
+
+  @override
+  StringMessage? _createMessageFromIsolateData(IsolateDataMessage data) {
+    if (data.data.isNotEmpty && data.data[0] is String) {
+      return MessageFactory.stringMessage(
+        data: [data.data[0] as String],
+        timestamp: data.timestamp,
+        channels: 1,
+      );
+    }
+    return null;
+  }
 
   @override
   StringMessage? _createMessageFromSample(LSLSample sample) {
-    final messageJson = sample.data[0] as String;
-    final timestamp =
-        sample.timestamp > 0
-            ? DateTime.fromMillisecondsSinceEpoch(
-              (sample.timestamp * 1000).round(),
-            )
-            : DateTime.now();
-
-    return MessageFactory.stringMessage(
-      data: [messageJson],
-      timestamp: timestamp,
-      channels: 1,
-    );
+    if (sample.data.isNotEmpty) {
+      return MessageFactory.stringMessage(
+        data: [sample.data[0] as String],
+        timestamp: DateTime.now(),
+        channels: 1,
+      );
+    }
+    return null;
   }
 
   @override
   List<dynamic> _createSampleFromMessage(StringMessage message) {
-    return [message.data];
+    return message.data;
   }
-
-  // The LSLStreamMixin provides inbox, outbox, and sendMessage implementations
-  // But the compiler may need explicit confirmation for @mustBeOverridden methods
 }

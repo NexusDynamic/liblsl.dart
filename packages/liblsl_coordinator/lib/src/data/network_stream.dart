@@ -5,6 +5,18 @@ import 'package:meta/meta.dart';
 
 enum StreamDataType { float32, double64, int8, int16, int32, int64, string }
 
+/// Defines who should participate in a data stream
+enum StreamParticipationMode {
+  /// Only coordinator receives data from all nodes (hierarchical)
+  coordinatorOnly,
+  /// All nodes send data, all nodes receive data (fully connected)
+  allNodes,
+  /// All nodes send data, only coordinator receives (default)
+  sendAll_receiveCoordinator,
+  /// Custom participation based on node configuration
+  custom,
+}
+
 /// Transport-specific extensions to stream configuration.
 abstract class TransportStreamConfig implements IConfig {}
 
@@ -118,6 +130,9 @@ class DataStreamConfig extends NetworkStreamConfig {
   /// Transport-specific configuration for the data stream.
   @override
   final TransportStreamConfig? _transportConfig;
+  
+  /// Defines who should participate in this data stream
+  final StreamParticipationMode participationMode;
 
   /// Transport-specific configuration for the data stream.
   @override
@@ -131,6 +146,7 @@ class DataStreamConfig extends NetworkStreamConfig {
     required super.channels,
     required super.sampleRate,
     required super.dataType,
+    this.participationMode = StreamParticipationMode.sendAll_receiveCoordinator,
     TransportStreamConfig? transportConfig,
   }) : _transportConfig = transportConfig;
 

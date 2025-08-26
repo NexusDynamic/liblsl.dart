@@ -296,7 +296,7 @@ class Node implements IConfigurable<NodeConfig>, IUniqueIdentity, IHasMetadata {
     _promotedAt = DateTime.now();
     setMetadata('role', 'observer');
     logger.finest('Node $name promoted to Observer');
-    return this as ObserverNode;
+    return NodeFactory.observerNodeFromNode(this);
   }
 
   /// Attempts to promote the current node to a [ParticipantNode].
@@ -310,7 +310,7 @@ class Node implements IConfigurable<NodeConfig>, IUniqueIdentity, IHasMetadata {
     _promotedAt = DateTime.now();
     setMetadata('role', 'participant');
     logger.finest('Node $name promoted to Participant');
-    return this as ParticipantNode;
+    return NodeFactory.participantNodeFromNode(this);
   }
 
   /// Attempts to promote the current node to a [RelayNode].
@@ -324,7 +324,7 @@ class Node implements IConfigurable<NodeConfig>, IUniqueIdentity, IHasMetadata {
     _promotedAt = DateTime.now();
     setMetadata('role', 'relay');
     logger.finest('Node $name promoted to Relay');
-    return this as RelayNode;
+    return NodeFactory.relayNodeFromNode(this);
   }
 
   /// Attempts to promote the current node to a [TransformerNode].
@@ -338,7 +338,7 @@ class Node implements IConfigurable<NodeConfig>, IUniqueIdentity, IHasMetadata {
     _promotedAt = DateTime.now();
     setMetadata('role', 'transformer');
     logger.finest('Node $name promoted to Transformer');
-    return this as TransformerNode;
+    return NodeFactory.transformerNodeFromNode(this);
   }
 
   /// Attempts to promote the current node to a [CoordinatorNode].
@@ -352,7 +352,7 @@ class Node implements IConfigurable<NodeConfig>, IUniqueIdentity, IHasMetadata {
     _promotedAt = DateTime.now();
     setMetadata('role', 'coordinator');
     logger.finest('Node $name promoted to Coordinator');
-    return this as CoordinatorNode;
+    return NodeFactory.coordinatorNodeFromNode(this);
   }
 }
 
@@ -418,5 +418,53 @@ class TransformerNode extends Node {
   String? get description => 'Transformer Node $name (id: $id)';
   TransformerNode(super.config) : super() {
     setMetadata('role', 'transformer');
+  }
+}
+
+class NodeFactory {
+  /// Creates a node from a configuration.
+  /// The type of node created depends on the capabilities
+  /// specified in the configuration.
+  Node createNode(NodeConfig config) {
+    if (!config.validate(throwOnError: true)) {
+      throw ArgumentError('Invalid node configuration: ${config.toMap()}');
+    }
+    if (config.capabilities.contains(NodeCapability.coordinator)) {
+      return CoordinatorNode(config);
+    } else if (config.capabilities.contains(NodeCapability.transformer)) {
+      return TransformerNode(config);
+    } else if (config.capabilities.contains(NodeCapability.relay)) {
+      return RelayNode(config);
+    } else if (config.capabilities.contains(NodeCapability.participant)) {
+      return ParticipantNode(config);
+    } else if (config.capabilities.contains(NodeCapability.observer)) {
+      return ObserverNode(config);
+    } else {
+      return NullNode();
+    }
+  }
+
+  static NullNode nullNodeFromNode(Node node) {
+    return NullNode();
+  }
+
+  static ObserverNode observerNodeFromNode(Node node) {
+    return ObserverNode(node.config);
+  }
+
+  static ParticipantNode participantNodeFromNode(Node node) {
+    return ParticipantNode(node.config);
+  }
+
+  static RelayNode relayNodeFromNode(Node node) {
+    return RelayNode(node.config);
+  }
+
+  static TransformerNode transformerNodeFromNode(Node node) {
+    return TransformerNode(node.config);
+  }
+
+  static CoordinatorNode coordinatorNodeFromNode(Node node) {
+    return CoordinatorNode(node.config);
   }
 }

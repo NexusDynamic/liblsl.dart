@@ -112,6 +112,33 @@ class UserEvent extends Event {
   }) : super(name: name ?? 'user-event-$id', eventType: EventType.user);
 }
 
+/// Event for controlling data stream operations
+class StreamControlEvent extends CoordinationEvent {
+  /// The action to perform (start, stop, pause, resume)
+  final String action;
+  
+  /// The name/ID of the stream to control
+  final String streamName;
+  
+  StreamControlEvent({
+    required this.action,
+    required this.streamName,
+    required super.id,
+    required super.description,
+    String? name,
+    super.timestamp,
+    super.metadata,
+  }) : super(name: name ?? 'stream-control-$id');
+  
+  @override
+  Map<String, dynamic> toMap() {
+    final map = super.toMap();
+    map['action'] = action;
+    map['streamName'] = streamName;
+    return map;
+  }
+}
+
 /// Discovery events for stream resolution
 abstract class DiscoveryEvent extends CoordinationEvent {
   DiscoveryEvent({

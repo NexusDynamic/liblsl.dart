@@ -1,0 +1,333 @@
+@startuml
+!theme sandstone
+class LSLCoordinationSession {
+---
++«get»transportType(): String
++toString(): String
+}
+CoordinationSession <|-- LSLCoordinationSession
+class LSLTransportConfig {
++lslApiConfig: LSLApiConfig
++coordinationFrequency: double
+---
++toString(): String
++toMap(): Map<String, dynamic
++validate(): bool
++copyWith(): LSLTransportConfig
+}
+TransportConfig <|-- LSLTransportConfig
+LSLTransportConfig ..> LSLApiConfig
+abstract class TransportConfig {
+---
+}
+TransportConfig ..|> IConfig
+abstract class Transport {
+---
+}
+Transport ..|> IConfigurable
+class NodeConfig {
++name: String
++id: String
++capabilities: Set<NodeCapability
+---
++validate(): bool
++toMap(): Map<String, dynamic
++copyWith(): NodeConfig
++standard(): NodeConfig
++toString(): String
+}
+NodeConfig ..|> IConfig
+abstract class Node {
++config: NodeConfig
+-lastSeen: DateTime
+-createdAt: DateTime
+-nodeStartedAt: DateTime?
+-promotedAt: DateTime?
+-metadata: Map<String, String
+---
++«get»id(): String
++«get»name(): String
++«get»lastSeen(): DateTime
++«get»createdAt(): DateTime
++«get»nodeStartedAt(): DateTime?
++«get»promotedAt(): DateTime?
++«get»metadata(): Map<String, String
++«get»capabilities(): Set<NodeCapability
++seen(): void
++getMetadata(): String?
++«get»asObserver(): ObserverNode
++«get»asParticipant(): ParticipantNode
++«get»asRelay(): RelayNode
++«get»asTransformer(): TransformerNode
++«get»asCoordinator(): CoordinatorNode
+}
+Node ..> NodeConfig
+Node ..> DateTime
+Node ..|> IConfigurable
+Node ..|> IUniqueIdentity
+Node ..|> IHasMetadata
+abstract class ObserverNode {
+---
+}
+Node <|-- ObserverNode
+abstract class ParticipantNode {
+---
+}
+Node <|-- ParticipantNode
+abstract class CoordinatorNode {
+---
+}
+Node <|-- CoordinatorNode
+abstract class RelayNode {
+---
+}
+Node <|-- RelayNode
+abstract class TransformerNode {
+---
+}
+Node <|-- TransformerNode
+abstract class NetworkTopologyConfig {
+---
++«get»maxNodes(): int
+}
+NetworkTopologyConfig ..|> IConfig
+abstract class NetworkTopology {
+-nodes: Map<String, Node
+---
++addNode(): void
++removeNode(): void
++addNodes(): void
++removeNodes(): void
+}
+NetworkTopology ..|> IIdentity
+NetworkTopology ..|> IConfigurable
+NetworkTopology ..|> IHasMetadata
+class HierarchicalNetworkTopologyConfig {
++maxNodes: int
++autoPromotion: bool
++promotionStrategy: PromotionStrategy?
+---
++validate(): bool
++toMap(): Map<String, dynamic
++copyWith(): HierarchicalNetworkTopologyConfig
++standard(): HierarchicalNetworkTopologyConfig
++toString(): String
+}
+HierarchicalNetworkTopologyConfig ..> PromotionStrategy
+HierarchicalNetworkTopologyConfig ..|> NetworkTopologyConfig
+class HierarchicalNetworkTopology {
++id: String
++name: String
++description: String
+-metadata: Map<String, String
++config: HierarchicalNetworkTopologyConfig
+---
++«get»metadata(): Map<String, String
++«get»nodes(): Map<String, Node
++getMetadata(): String?
+}
+NetworkTopology <|-- HierarchicalNetworkTopology
+HierarchicalNetworkTopology ..> HierarchicalNetworkTopologyConfig
+class CoordinationSessionConfig {
++name: String
++maxNodes: int
++minNodes: int
+---
++validate(): bool
++toMap(): Map<String, dynamic
++toString(): String
++copyWith(): CoordinationSessionConfig
++standard(): CoordinationSessionConfig
+}
+CoordinationSessionConfig ..|> IConfig
+abstract class CoordinationSession {
++config: CoordinationSessionConfig
+-created: bool
+-initialized: bool
+-joined: bool
+-disposed: bool
+-paused: bool
+---
++«get»name(): String
++«get»id(): String
++«get»created(): bool
++«get»initialized(): bool
++«get»joined(): bool
++«get»disposed(): bool
++«get»paused(): bool
++create(): void
++dispose(): void
++initialize(): void
++join(): void
++leave(): void
++pause(): void
++resume(): void
+}
+CoordinationSession ..> CoordinationSessionConfig
+CoordinationSession ..|> IResourceManager
+CoordinationSession ..|> IInitializable
+CoordinationSession ..|> ILifecycle
+CoordinationSession ..|> IJoinable
+CoordinationSession ..|> IPausable
+CoordinationSession ..|> IUniqueIdentity
+CoordinationSession ..|> IConfigurable
+abstract class PromotionStrategy {
+---
+}
+PromotionStrategy ..|> IIdentity
+class PromotionStrategyFirst {
+---
++«get»id(): String
++«get»name(): String
++«get»description(): String?
++promote(): Node
++toString(): String
+}
+PromotionStrategy <|-- PromotionStrategyFirst
+class PromotionStrategyRandom {
+---
++«get»id(): String
++«get»name(): String
++«get»description(): String?
++promote(): Node
++toString(): String
+}
+PromotionStrategy <|-- PromotionStrategyRandom
+class CoordinationConfig {
++name: String
++sessionConfig: CoordinationSessionConfig
++streamConfig: CoordinationStreamConfig
++initialStreamConfigs: StreamConfig[0..*]?
++topologyConfig: NetworkTopologyConfig
++transportConfig: TransportConfig
+---
++validate(): bool
++toMap(): Map<String, dynamic
++copyWith(): CoordinationConfig
++toString(): String
+}
+CoordinationConfig ..> CoordinationSessionConfig
+CoordinationConfig ..> CoordinationStreamConfig
+CoordinationConfig ..> NetworkTopologyConfig
+CoordinationConfig ..> TransportConfig
+CoordinationConfig ..|> IConfig
+class StreamConfig {
++name: String
++channelCount: int
++sampleRate: double
++dataType: StreamDataType
+---
++validate(): bool
++toMap(): Map<String, dynamic
++toString(): String
++copyWith(): StreamConfig
+}
+StreamConfig ..> StreamDataType
+StreamConfig ..|> IConfig
+class CoordinationStreamConfig {
+---
++toMap(): Map<String, dynamic
++standard(): CoordinationStreamConfig
++toString(): String
+}
+StreamConfig <|-- CoordinationStreamConfig
+abstract class Stream {
++config: T
+-nodes: Map<String, Node
+-producers: String[0..*]
+-consumers: String[0..*]
+---
++«get»id(): String
++«get»name(): String
++«get»channelCount(): int
++«get»sampleRate(): double
++«get»dataType(): StreamDataType
++«get»hasProducers(): bool
++«get»hasConsumers(): bool
++«get»producers(): String[0..*]
++«get»consumers(): String[0..*]
++isProducer(): bool
++isConsumer(): bool
++addProducer(): void
++addConsumer(): void
+}
+Stream ..> T
+Stream ..|> IConfigurable
+Stream ..|> IUniqueIdentity
+Stream ..|> IResource
+abstract class CoordinationStream {
+---
+}
+Stream <|-- CoordinationStream
+abstract class DataStream {
+---
+}
+Stream <|-- DataStream
+interface IIdentity {
+---
++«get»id(): String
++«get»name(): String
++«get»description(): String?
+}
+interface IUniqueIdentity {
++uId: String
+---
+}
+IIdentity <|-- IUniqueIdentity
+interface IResource {
+---
+}
+IResource ..|> IUniqueIdentity
+interface ILifecycle {
+---
++«get»created(): bool
++«get»disposed(): bool
++create(): FutureOr<void
++dispose(): FutureOr<void
+}
+interface IInitializable {
+---
++«get»initialized(): bool
++initialize(): FutureOr<void
+}
+interface IPausable {
+---
++«get»paused(): bool
++pause(): FutureOr<void
++resume(): FutureOr<void
+}
+interface IStartable {
+---
++«get»started(): bool
++«get»stopped(): bool
++start(): FutureOr<void
++stop(): FutureOr<void
+}
+interface IJoinable {
+---
++«get»joined(): bool
++join(): FutureOr<void
++leave(): FutureOr<void
+}
+interface IConfig {
+---
++validate(): bool
++toMap(): Map<String, dynamic
++copyWith(): IConfig
++standard(): IConfig
+}
+interface IConfigurable {
+---
++«get»config(): T
+}
+interface IHasMetadata {
+---
++«get»metadata(): Map<String, String
++getMetadata(): String?
+}
+interface IResourceManager {
+---
++manageResource(): FutureOr<void
++releaseResource(): FutureOr<R
+}
+@enduml

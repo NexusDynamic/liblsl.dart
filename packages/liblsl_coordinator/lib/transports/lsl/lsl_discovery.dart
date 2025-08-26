@@ -188,10 +188,8 @@ class LslDiscovery extends LSLResource implements IPausable, IResourceManager {
 
   @override
   Future<void> create() async {
+    if (created) return;
     await super.create();
-    if (_currentPredicate != null) {
-      startDiscovery(predicate: _currentPredicate!);
-    }
   }
 
   /// Start event-driven discovery with the given predicate and optional timeout
@@ -204,7 +202,7 @@ class LslDiscovery extends LSLResource implements IPausable, IResourceManager {
 
     // If predicate changed, destroy old resolver and create new one
     if (_currentPredicate != predicate || _resolver == null) {
-      _stopDiscovery();
+      stopDiscovery();
       _currentPredicate = predicate;
 
       _resolver = LSLStreamResolverContinuousByPredicate(
@@ -245,7 +243,7 @@ class LslDiscovery extends LSLResource implements IPausable, IResourceManager {
     );
   }
 
-  void _stopDiscovery() {
+  void stopDiscovery() {
     _discoveryInterval?.cancel();
     _discoveryInterval = null;
     _timeoutTimer?.cancel();
@@ -262,7 +260,17 @@ class LslDiscovery extends LSLResource implements IPausable, IResourceManager {
       if (disposed || !created) return;
 
       try {
+        // Update internal list
+        _discoveredStreams.destroy();
+        _discoveredStreams.clear();
+
         final newStreams = await _resolver!.resolve();
+        
+        // Debug: Log what the resolver returned
+        logger.finest('Resolver returned ${newStreams.length} streams:');
+        for (int i = 0; i < newStreams.length; i++) {
+          logger.finest('  [$i] ${newStreams[i].streamName} sourceId=${newStreams[i].sourceId}');
+        }
 
         // Check if we found new streams
         if (newStreams.isNotEmpty) {
@@ -283,8 +291,6 @@ class LslDiscovery extends LSLResource implements IPausable, IResourceManager {
         }
 
         // Update internal list
-        _discoveredStreams.destroy();
-        _discoveredStreams.clear();
         _discoveredStreams.addAllStreamInfos(newStreams, manager: this);
       } catch (e) {
         // Handle discovery errors gracefully
@@ -378,18 +384,20 @@ class LslDiscovery extends LSLResource implements IPausable, IResourceManager {
   @override
   Future<void> dispose() async {
     // Clean up LSL discovery
-    _stopDiscovery();
-
-    // Close event controller
-    await _eventController.close();
-
-    // Ensure no discovery is in progress so we can safely clear the stream
-    // infos
+    stopDiscovery();
+    if (disposed) return;
     await _discoveryLock.synchronized(() async {
+      if (disposed) return;
+      await super.dispose();
+
+      // Close event controller
+      await _eventController.close();
+
+      // Ensure no discovery is in progress so we can safely clear the stream
+      // infos
+
       _discoveredStreams.destroy();
       _discoveredStreams.clear();
     });
-
-    await super.dispose();
   }
 }
