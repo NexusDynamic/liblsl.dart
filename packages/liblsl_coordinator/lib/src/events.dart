@@ -111,3 +111,14 @@ class UserEvent extends Event {
     super.metadata,
   }) : super(name: name ?? 'user-event-$id', eventType: EventType.user);
 }
+
+/// Discovery events for stream resolution
+abstract class DiscoveryEvent extends CoordinationEvent {
+  DiscoveryEvent({
+    required super.id,
+    required super.description,
+    String? name,
+    super.timestamp,
+    super.metadata,
+  }) : super(name: name ?? 'discovery-event-$id');
+}

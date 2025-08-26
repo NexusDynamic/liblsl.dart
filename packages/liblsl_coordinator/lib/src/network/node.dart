@@ -1,6 +1,7 @@
 import 'package:liblsl_coordinator/interfaces.dart';
 import 'package:liblsl_coordinator/logging.dart';
 import 'package:meta/meta.dart';
+import 'package:collection/collection.dart';
 import 'dart:math';
 
 /// Represents the type of a node in the network.
@@ -42,7 +43,7 @@ extension NodeCapabilityExtension on NodeCapability {
   }
 }
 
-class NodeConfig implements IConfig, IUniqueIdentity {
+class NodeConfig implements IConfig, IUniqueIdentity, IHasMetadata {
   @override
   final String uId;
 
@@ -54,6 +55,11 @@ class NodeConfig implements IConfig, IUniqueIdentity {
   /// Human-readable name for the node.
   @override
   final String name;
+
+  final Map<String, dynamic> _metadata;
+
+  @override
+  Map<String, dynamic> get metadata => Map.unmodifiable(_metadata);
 
   @override
   String? get description => 'Configuration for node $name (id: $id)';
@@ -82,8 +88,10 @@ class NodeConfig implements IConfig, IUniqueIdentity {
     String? id,
     String? uId,
     this.capabilities = const {NodeCapability.participant},
+    Map<String, dynamic>? metadata,
   }) : suppliedId = id,
-       uId = uId ?? Uuid().v4() {
+       uId = uId ?? Uuid().v4(),
+       _metadata = metadata ?? {} {
     validate(throwOnError: true);
   }
 
@@ -106,26 +114,43 @@ class NodeConfig implements IConfig, IUniqueIdentity {
   }
 
   @override
+  dynamic getMetadata(String key, {dynamic defaultValue}) {
+    return _metadata[key] ?? defaultValue;
+  }
+
+  void setMetadata(String key, dynamic value) {
+    _metadata[key] = value;
+  }
+
+  /// Converts the configuration to a map representation.
+  @override
   Map<String, dynamic> toMap() {
     return {
       'name': name,
       'id': id,
       'capabilities': capabilities.map((e) => e.toString()).toList(),
+      'uId': uId,
+      'metadata': _metadata,
     };
   }
 
+  /// Creates a copy of the configuration with the given parameters.
+  /// If a parameter is not provided, the value from the current
+  /// configuration is used.
   @override
   NodeConfig copyWith({
     String? name,
     String? id,
     String? uId,
     Set<NodeCapability>? capabilities,
+    Map<String, dynamic>? metadata,
   }) {
     return NodeConfig(
       name: name ?? this.name,
       id: id ?? this.id,
       uId: uId ?? this.uId,
       capabilities: capabilities ?? this.capabilities,
+      metadata: metadata ?? _metadata,
     );
   }
 
@@ -142,7 +167,8 @@ class NodeConfig implements IConfig, IUniqueIdentity {
         other.uId == uId &&
         other.name == name &&
         other.suppliedId == suppliedId &&
-        other.capabilities == capabilities;
+        other.capabilities == capabilities &&
+        const DeepCollectionEquality().equals(other._metadata, _metadata);
   }
 
   @override
@@ -150,11 +176,14 @@ class NodeConfig implements IConfig, IUniqueIdentity {
     return uId.hashCode ^
         name.hashCode ^
         suppliedId.hashCode ^
-        capabilities.hashCode;
+        capabilities.hashCode ^
+        const DeepCollectionEquality().hash(_metadata);
   }
 }
 
+/// Factory for creating [NodeConfig] objects.
 class NodeConfigFactory implements IConfigFactory<NodeConfig> {
+  /// Returns the default / basic config
   @override
   NodeConfig defaultConfig() {
     return NodeConfig(
@@ -164,6 +193,7 @@ class NodeConfigFactory implements IConfigFactory<NodeConfig> {
     );
   }
 
+  /// Creates a config from a map
   @override
   NodeConfig fromMap(Map<String, dynamic> map) {
     return NodeConfig(
@@ -183,6 +213,7 @@ class NodeConfigFactory implements IConfigFactory<NodeConfig> {
   }
 }
 
+/// Configuration for the LSL transport.
 class Node implements IConfigurable<NodeConfig>, IUniqueIdentity, IHasMetadata {
   @override
   String get uId => config.uId;
@@ -217,10 +248,8 @@ class Node implements IConfigurable<NodeConfig>, IUniqueIdentity, IHasMetadata {
 
   DateTime? get promotedAt => _promotedAt;
 
-  final Map<String, dynamic> _metadata = {};
-
   @override
-  Map<String, dynamic> get metadata => Map.unmodifiable(_metadata);
+  Map<String, dynamic> get metadata => config.metadata;
 
   /// Type of the node.
   /// This is a [NodeCapability] enum value.
@@ -231,15 +260,15 @@ class Node implements IConfigurable<NodeConfig>, IUniqueIdentity, IHasMetadata {
       throw ArgumentError('Invalid node configuration: ${config.toMap()}');
     }
     _lastSeen = DateTime.now();
-    _metadata['type'] = config.capabilities.join(',');
-    _metadata['randomRoll'] = Random().nextDouble().toString();
-    _metadata['role'] = 'none';
-    _metadata['createdAt'] = _createdAt.toIso8601String();
-    _metadata['id'] = id;
-    _metadata['uId'] = id;
-    _metadata['name'] = name;
-    _metadata['version'] = '1.0.0';
-    _metadata['nodeStartedAt'] = _nodeStartedAt?.toIso8601String() ?? '';
+    setMetadata('type', config.capabilities.join(','));
+    setMetadata('randomRoll', Random().nextDouble().toString());
+    setMetadata('role', 'none');
+    setMetadata('createdAt', _createdAt.toIso8601String());
+    setMetadata('id', id);
+    setMetadata('uId', id);
+    setMetadata('name', name);
+    setMetadata('version', '1.0.0');
+    setMetadata('nodeStartedAt', _nodeStartedAt?.toIso8601String() ?? '');
   }
 
   @protected
@@ -247,9 +276,13 @@ class Node implements IConfigurable<NodeConfig>, IUniqueIdentity, IHasMetadata {
     _lastSeen = DateTime.now();
   }
 
+  void setMetadata(String key, dynamic value) {
+    config.setMetadata(key, value);
+  }
+
   @override
   dynamic getMetadata(String key, {dynamic defaultValue}) {
-    return _metadata[key] ?? defaultValue;
+    return config.getMetadata(key, defaultValue: defaultValue);
   }
 
   /// Attempts to promote the current node to an [ObserverNode].
@@ -261,7 +294,7 @@ class Node implements IConfigurable<NodeConfig>, IUniqueIdentity, IHasMetadata {
       throw StateError('Node cannot be promoted to Observer');
     }
     _promotedAt = DateTime.now();
-    _metadata['role'] = 'observer';
+    setMetadata('role', 'observer');
     logger.finest('Node $name promoted to Observer');
     return this as ObserverNode;
   }
@@ -275,7 +308,7 @@ class Node implements IConfigurable<NodeConfig>, IUniqueIdentity, IHasMetadata {
       throw StateError('Node cannot be promoted to Participant');
     }
     _promotedAt = DateTime.now();
-    _metadata['role'] = 'participant';
+    setMetadata('role', 'participant');
     logger.finest('Node $name promoted to Participant');
     return this as ParticipantNode;
   }
@@ -289,7 +322,7 @@ class Node implements IConfigurable<NodeConfig>, IUniqueIdentity, IHasMetadata {
       throw StateError('Node cannot be promoted to Relay');
     }
     _promotedAt = DateTime.now();
-    _metadata['role'] = 'relay';
+    setMetadata('role', 'relay');
     logger.finest('Node $name promoted to Relay');
     return this as RelayNode;
   }
@@ -303,7 +336,7 @@ class Node implements IConfigurable<NodeConfig>, IUniqueIdentity, IHasMetadata {
       throw StateError('Node cannot be promoted to Transformer');
     }
     _promotedAt = DateTime.now();
-    _metadata['role'] = 'transformer';
+    setMetadata('role', 'transformer');
     logger.finest('Node $name promoted to Transformer');
     return this as TransformerNode;
   }
@@ -317,10 +350,24 @@ class Node implements IConfigurable<NodeConfig>, IUniqueIdentity, IHasMetadata {
       throw StateError('Node cannot be promoted to Coordinator');
     }
     _promotedAt = DateTime.now();
-    _metadata['role'] = 'coordinator';
+    setMetadata('role', 'coordinator');
     logger.finest('Node $name promoted to Coordinator');
     return this as CoordinatorNode;
   }
+}
+
+/// A node that does not participate in the network at all.
+class NullNode extends Node {
+  @override
+  String? get description => 'Null Node (id: $id)';
+  NullNode()
+    : super(
+        NodeConfig(
+          name: 'Null Node',
+          id: 'null-node',
+          capabilities: {NodeCapability.none},
+        ),
+      );
 }
 
 /// Observer nodes can only observe the network, and cannot
@@ -330,7 +377,7 @@ class ObserverNode extends Node {
   @override
   String? get description => 'Observer Node $name (id: $id)';
   ObserverNode(super.config) : super() {
-    _metadata['role'] = 'observer';
+    setMetadata('role', 'observer');
   }
 }
 
@@ -340,7 +387,7 @@ class ParticipantNode extends Node {
   @override
   String? get description => 'Participant Node $name (id: $id)';
   ParticipantNode(super.config) : super() {
-    _metadata['role'] = 'participant';
+    setMetadata('role', 'participant');
   }
 }
 
@@ -350,7 +397,7 @@ class CoordinatorNode extends Node {
   @override
   String? get description => 'Coordinator Node $name (id: $id)';
   CoordinatorNode(super.config) : super() {
-    _metadata['role'] = 'coordinator';
+    setMetadata('role', 'coordinator');
   }
 }
 
@@ -360,7 +407,7 @@ class RelayNode extends Node {
   @override
   String? get description => 'Relay Node $name (id: $id)';
   RelayNode(super.config) : super() {
-    _metadata['role'] = 'relay';
+    setMetadata('role', 'relay');
   }
 }
 
@@ -370,6 +417,6 @@ class TransformerNode extends Node {
   @override
   String? get description => 'Transformer Node $name (id: $id)';
   TransformerNode(super.config) : super() {
-    _metadata['role'] = 'transformer';
+    setMetadata('role', 'transformer');
   }
 }

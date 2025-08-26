@@ -1,4 +1,5 @@
 import 'package:liblsl_coordinator/liblsl_coordinator.dart';
+import 'package:liblsl_coordinator/transports/lsl.dart';
 import 'package:liblsl/lsl.dart';
 
 /// Transport configuration for LSL-based coordination.
@@ -103,8 +104,63 @@ class LSLTransportConfigFactory implements IConfigFactory<LSLTransportConfig> {
   }
 }
 
+/// Resource wrapper for LSL outlets with proper lifecycle management
+class OutletResource extends LSLResource {
+  final LSLOutlet outlet;
+
+  OutletResource({required this.outlet, super.manager}) : super(id: 'outlet') {
+    create();
+  }
+
+  @override
+  String get id => 'lsl-outlet-${outlet.hashCode}';
+
+  @override
+  String? get description => 'LSL Outlet Resource (id: $id)';
+
+  @override
+  Future<void> create() async {
+    await super.create();
+    // No additional creation needed for outlet
+  }
+
+  @override
+  Future<void> dispose() async {
+    outlet.destroy();
+    await super.dispose();
+  }
+}
+
+/// Resource wrapper for LSL inlets with proper lifecycle management
+class InletResource extends LSLResource {
+  final LSLInlet inlet;
+
+  InletResource({required this.inlet, super.manager}) : super(id: 'inlet') {
+    create();
+  }
+
+  @override
+  String get id => 'lsl-inlet-${inlet.hashCode}';
+
+  @override
+  String? get description => 'LSL Inlet Resource (id: $id)';
+
+  @override
+  Future<void> create() async {
+    await super.create();
+    // No additional creation needed for inlet
+  }
+
+  @override
+  Future<void> dispose() async {
+    inlet.destroy();
+    await super.dispose();
+  }
+}
+
 /// LSL Transport implementation for coordination.
-class LSLTransport<T extends LSLTransportConfig> implements ITransport {
+class LSLTransport<T extends LSLTransportConfig> extends LSLResource
+    implements ITransport, IResourceManager {
   /// The transport ID
   @override
   String get id => 'lsl_transport';
@@ -132,11 +188,15 @@ class LSLTransport<T extends LSLTransportConfig> implements ITransport {
   @override
   final T config;
 
+  /// Managed resources (outlets, inlets, discovery instances, etc.)
+  final Map<String, IResource> _resources = {};
+
   /// Creates a new [LSLTransport] with the given [config].
   /// If no configuration is provided, a default configuration is used.
   LSLTransport({T? config})
-    : config = config ?? LSLTransportConfigFactory().defaultConfig() as T {
-    config!.validate(throwOnError: true);
+    : config = config ?? LSLTransportConfigFactory().defaultConfig() as T,
+      super(id: 'lsl_transport') {
+    this.config.validate(throwOnError: true);
   }
 
   /// Ensures that the transport is initialized before use.
@@ -180,7 +240,94 @@ class LSLTransport<T extends LSLTransportConfig> implements ITransport {
   Future<void> create() async {
     _ensureInitialized();
     if (_created) return;
+    await super.create();
     _created = true;
+  }
+
+  @override
+  void manageResource<R extends IResource>(R resource) {
+    resource.updateManager(this);
+    _resources[resource.uId] = resource;
+  }
+
+  @override
+  R releaseResource<R extends IResource>(String resourceUID) {
+    final resource = _resources.remove(resourceUID);
+    if (resource == null) {
+      throw StateError('Resource with UID $resourceUID not found');
+    }
+    resource.updateManager(null);
+    return resource as R;
+  }
+
+  /// Creates a managed LSL outlet resource
+  Future<OutletResource> createOutlet({
+    required LSLStreamInfo streamInfo,
+    IResourceManager? manager,
+  }) async {
+    _ensureCreated();
+    final outlet = await LSL.createOutlet(streamInfo: streamInfo);
+    final resource = OutletResource(outlet: outlet, manager: manager ?? this);
+
+    // Only manage the resource if no external manager is specified
+    if (manager == null) {
+      manageResource(resource);
+    } else {
+      manager.manageResource(resource);
+    }
+
+    return resource;
+  }
+
+  /// Creates a managed LSL inlet resource
+  Future<InletResource> createInlet({
+    required LSLStreamInfo streamInfo,
+    bool includeMetadata = true,
+    IResourceManager? manager,
+  }) async {
+    _ensureCreated();
+    final inlet = await LSL.createInlet(
+      streamInfo: streamInfo,
+      includeMetadata: includeMetadata,
+    );
+    final resource = InletResource(inlet: inlet, manager: manager ?? this);
+
+    // Only manage the resource if no external manager is specified
+    if (manager == null) {
+      manageResource(resource);
+    } else {
+      manager.manageResource(resource);
+    }
+
+    return resource;
+  }
+
+  /// Creates a managed discovery resource
+  Future<LslDiscovery> createDiscovery({
+    required NetworkStreamConfig streamConfig,
+    required CoordinationConfig coordinationConfig,
+    required String id,
+    String? predicate,
+    IResourceManager? manager,
+  }) async {
+    _ensureCreated();
+    final discovery = LslDiscovery(
+      streamConfig: streamConfig,
+      coordinationConfig: coordinationConfig,
+      id: id,
+      predicate: predicate,
+      manager: manager ?? this,
+    );
+    await discovery.create();
+
+    // Only manage the resource if no external manager is specified
+    if (manager == null) {
+      manageResource(discovery);
+    } else {
+      manager.manageResource(discovery);
+    }
+
+    return discovery;
   }
 
   /// Disposes the LSL transport and releases any resources.
@@ -188,6 +335,19 @@ class LSLTransport<T extends LSLTransportConfig> implements ITransport {
   @override
   Future<void> dispose() async {
     _ensureCreated();
+
+    // Dispose all managed resources
+    final disposeFutures = <Future>[];
+    for (final resource in _resources.values) {
+      final dispose = resource.dispose();
+      if (dispose is Future) {
+        disposeFutures.add(dispose);
+      }
+    }
+    await Future.wait(disposeFutures);
+    _resources.clear();
+
+    await super.dispose();
     _disposed = true;
     _created = false;
     _initialized = false;
@@ -195,18 +355,36 @@ class LSLTransport<T extends LSLTransportConfig> implements ITransport {
 
   @override
   Future<NetworkStream> createStream(
-    NetworkStreamConfig config, {
-    List<Node>? producers,
-    List<Node>? consumers,
+    NetworkStreamConfig streamConfig, {
+    CoordinationSession? coordinationSession,
   }) async {
     _ensureCreated();
-    // Create and return an LSL stream with the given configuration.
-    throw UnimplementedError();
-    // return LSLNetworkStreamFactory().createDataStream(
-    //   config,
-    //   producers: producers,
-    //   consumers: consumers,
-    // );
+
+    if (coordinationSession == null) {
+      throw ArgumentError('CoordinationSession is required for LSL transport');
+    }
+
+    if (coordinationSession is! LSLCoordinationSession) {
+      throw ArgumentError(
+        'LSL transport requires LSLCoordinationSession, got ${coordinationSession.runtimeType}',
+      );
+    }
+
+    // Use the factory to create the appropriate stream type
+    final factory = LSLNetworkStreamFactory();
+
+    if (streamConfig is CoordinationStreamConfig) {
+      return await factory.createCoordinationStream(
+        streamConfig,
+        coordinationSession,
+      );
+    } else if (streamConfig is DataStreamConfig) {
+      return await factory.createDataStream(streamConfig, coordinationSession);
+    } else {
+      throw ArgumentError(
+        'Unknown stream config type: ${streamConfig.runtimeType}',
+      );
+    }
   }
 
   @override

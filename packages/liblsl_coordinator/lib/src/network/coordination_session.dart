@@ -310,6 +310,11 @@ abstract class CoordinationSession
     if (!_paused) return;
     _paused = false;
   }
+
+  @protected
+  void updateThisNode(Node node) {
+    _thisNode = node;
+  }
 }
 
 /// Promotion strategy

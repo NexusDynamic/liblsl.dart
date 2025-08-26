@@ -9,8 +9,7 @@ abstract interface class ITransport<T extends ITransportConfig>
     implements IConfigurable<T>, IInitializable, IIdentity, ILifecycle {
   /// Creates a stream with the current transport for the given configuration.
   FutureOr<NetworkStream> createStream(
-    NetworkStreamConfig config, {
-    List<Node>? producers,
-    List<Node>? consumers,
+    NetworkStreamConfig streamConfig, {
+    CoordinationSession? coordinationSession,
   });
 }

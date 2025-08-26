@@ -9,7 +9,7 @@ extension LSLType on StreamDataType {
   LSLChannelFormat toLSLChannelFormat() {
     switch (this) {
       case StreamDataType.int8:
-        LSLChannelFormat.int8;
+        return LSLChannelFormat.int8;
       case StreamDataType.int16:
         return LSLChannelFormat.int16;
       case StreamDataType.int32:
@@ -23,7 +23,6 @@ extension LSLType on StreamDataType {
       case StreamDataType.string:
         return LSLChannelFormat.string;
     }
-    throw UnsupportedError('Unsupported StreamDataType: $this');
   }
 }
 
@@ -36,6 +35,8 @@ class LSLStreamInfoHelper {
   static const String nodeIdKey = 'node_id';
   static const String nodeRoleKey = 'node_role';
   static const String nodeCapabilitiesKey = 'node_capabilities';
+  static const String randomRollKey = 'random_roll';
+  static const String nodeStartedAtKey = 'node_started_at';
 
   /// Generates a standardized stream name for a given stream configuration
   /// and node information.
@@ -88,6 +89,18 @@ class LSLStreamInfoHelper {
       (node.capabilities.join(',')),
     );
 
+    // Add random roll if available
+    final randomRoll = node.getMetadata('randomRoll');
+    if (randomRoll != null) {
+      rootElement.addChildValue(randomRollKey, randomRoll);
+    }
+
+    // Add node started time if available
+    final nodeStartedAt = node.getMetadata('nodeStartedAt');
+    if (nodeStartedAt != null) {
+      rootElement.addChildValue(nodeStartedAtKey, nodeStartedAt);
+    }
+
     return info;
   }
 
@@ -119,6 +132,15 @@ class LSLStreamInfoHelper {
   /// );```
   /// This would generate a predicate like:
   /// "starts-with(name, 'mystream') and //info/desc/session='mysession'"
+  ///
+  /// For metadata filtering (promotion strategy):
+  /// ```dart
+  /// final predicate = LSLStreamInfoHelper.generatePredicate(
+  ///   streamNamePrefix: 'coordination',
+  ///   sessionName: 'mysession',
+  ///   randomRollLessThan: myRandomRoll,
+  /// );```
+  ///
   /// which can be used with [LSLStreamResolverContinuousByPredicate].
   static String generatePredicate({
     String? streamNamePrefix,
@@ -129,6 +151,11 @@ class LSLStreamInfoHelper {
     String? nodeCapabilities,
     String? sourceIdPrefix,
     String? sourceIdSuffix,
+    // Metadata filtering options for promotion strategy
+    double? randomRollLessThan,
+    double? randomRollGreaterThan,
+    String? nodeStartedBefore,
+    String? nodeStartedAfter,
   }) {
     final List<String> conditions = [];
     if (streamNamePrefix != null) {
@@ -144,17 +171,31 @@ class LSLStreamInfoHelper {
       conditions.add("ends-with(source_id, '$sourceIdSuffix')");
     }
     if (sessionName != null) {
-      conditions.add("//info/desc/$sessionName='$sessionName'");
+      conditions.add("//info/desc/$sessionNameKey='$sessionName'");
     }
     if (nodeId != null) {
-      conditions.add("//info/desc/$nodeId='$nodeId'");
+      conditions.add("//info/desc/$nodeIdKey='$nodeId'");
     }
     if (nodeRole != null) {
-      conditions.add("//info/desc/$nodeRole='$nodeRole'");
+      conditions.add("//info/desc/$nodeRoleKey='$nodeRole'");
     }
     if (nodeCapabilities != null) {
-      conditions.add("//info/desc/$nodeCapabilities='$nodeCapabilities'");
+      conditions.add("//info/desc/$nodeCapabilitiesKey='$nodeCapabilities'");
     }
+    // Metadata filtering for promotion strategy
+    if (randomRollLessThan != null) {
+      conditions.add("//info/desc/$randomRollKey < $randomRollLessThan");
+    }
+    if (randomRollGreaterThan != null) {
+      conditions.add("//info/desc/$randomRollKey > $randomRollGreaterThan");
+    }
+    if (nodeStartedBefore != null) {
+      conditions.add("//info/desc/$nodeStartedAtKey < '$nodeStartedBefore'");
+    }
+    if (nodeStartedAfter != null) {
+      conditions.add("//info/desc/$nodeStartedAtKey > '$nodeStartedAfter'");
+    }
+
     if (conditions.isEmpty) {
       throw ArgumentError('At least one parameter must be provided');
     }
@@ -164,95 +205,360 @@ class LSLStreamInfoHelper {
   /// f
 }
 
-/// Factory for creating LSL-based network streams.
-class LSLNetworkStreamFactory extends NetworkStreamFactory {
+/// Mixin providing shared LSL functionality for both coordination and data streams
+mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
+    on NetworkStream<T, M> {
+  /// The node associated with this stream
+  Node get streamNode;
+
+  /// Session configuration for metadata
+  CoordinationSessionConfig get streamSessionConfig;
+
+  /// LSL transport for creating managed resources
+  LSLTransport get lslTransport;
+
+  // LSL managed resources
+  OutletResource? _outletResource;
+  final List<InletResource> _inletResources = <InletResource>[];
+
+  // Internal message handling
+  final StreamController<M> _incomingController =
+      StreamController<M>.broadcast();
+  final StreamController<M> _outgoingController = StreamController<M>();
+
+  Timer? _messagePollingTimer;
+  Timer? _outboxProcessingTimer;
+
+  // Resource management
+  bool _created = false;
+  bool _disposed = false;
+  bool _started = false;
+  IResourceManager? _manager;
+
   @override
-  Future<DataStream> createDataStream(
-    NetworkStreamConfig config, {
-    List<Node>? producers,
-    List<Node>? consumers,
-  }) async {
-    // Create and return an LSL stream with the given configuration.
-    throw UnimplementedError();
+  bool get created => _created;
+
+  @override
+  bool get disposed => _disposed;
+
+  @override
+  IResourceManager? get manager => _manager;
+
+  bool get started => _started;
+
+  @override
+  Future<void> create() async {
+    if (_created) return;
+    if (_disposed) throw StateError('Cannot create disposed stream');
+
+    // Create outlet for sending messages via transport
+    final streamInfo = await LSLStreamInfoHelper.createStreamInfo(
+      config: config,
+      sessionConfig: streamSessionConfig,
+      node: streamNode,
+    );
+
+    _outletResource = await lslTransport.createOutlet(streamInfo: streamInfo);
+    _created = true;
+
+    // Start processing outbox messages
+    _startOutboxProcessing();
   }
 
   @override
-  Future<LSLCoordinationStream> createCoordinationStream(
-    CoordinationStreamConfig config, {
-    List<Node>? producers,
-    List<Node>? consumers,
-  }) async {
-    // Create and return an LSL coordination stream with the given configuration.
-    throw UnimplementedError();
+  Future<void> updateManager(IResourceManager? newManager) async {
+    if (_manager == newManager) return;
+    _manager?.releaseResource(uId);
+    _manager = newManager;
+  }
+
+  /// Adds an inlet for receiving messages from another node
+  Future<void> addInlet(LSLStreamInfo streamInfo) async {
+    if (!_created) throw StateError('Stream not created');
+
+    final inletResource = await lslTransport.createInlet(
+      streamInfo: streamInfo,
+      includeMetadata: true,
+    );
+    _inletResources.add(inletResource);
+
+    // Start message polling if not already started
+    if (!_started) {
+      await start();
+    }
+  }
+
+  /// Starts internal message polling
+  Future<void> start() async {
+    if (_started) return;
+    _started = true;
+
+    _startMessagePolling();
+  }
+
+  /// Stops message polling
+  Future<void> stop() async {
+    if (!_started) return;
+    _started = false;
+
+    _messagePollingTimer?.cancel();
+    _outboxProcessingTimer?.cancel();
+  }
+
+  void _startMessagePolling() {
+    _messagePollingTimer?.cancel();
+    _messagePollingTimer = Timer.periodic(
+      Duration(milliseconds: 10), // High frequency polling
+      (timer) async {
+        if (!_started || paused || _inletResources.isEmpty) return;
+
+        for (final inletResource in _inletResources) {
+          try {
+            final sample = await inletResource.inlet.pullSample(timeout: 0.0);
+            if (sample.isNotEmpty) {
+              final message = _createMessageFromSample(sample);
+              if (message != null) {
+                _incomingController.add(message);
+              }
+            }
+          } catch (e) {
+            // Handle errors gracefully - inlet might be disposed
+          }
+        }
+      },
+    );
+  }
+
+  void _startOutboxProcessing() {
+    _outboxProcessingTimer?.cancel();
+    _outgoingController.stream.listen((message) {
+      if (_outletResource != null && _started && !paused) {
+        try {
+          final sampleData = _createSampleFromMessage(message);
+          _outletResource!.outlet.pushSample(sampleData);
+        } catch (e) {
+          logger.warning('Failed to send message: $e');
+        }
+      }
+    });
+  }
+
+  /// Override this method to convert LSL sample to message type
+  M? _createMessageFromSample(LSLSample sample) {
+    // Default implementation - subclasses should override
+    return null;
+  }
+
+  /// Override this method to convert message to LSL sample data
+  List<dynamic> _createSampleFromMessage(M message) {
+    // Default implementation - subclasses should override
+    return [message.toString()];
+  }
+
+  @override
+  Future<void> sendMessage(M message) async {
+    if (!_started) throw StateError('Stream not started');
+    _outgoingController.add(message);
+  }
+
+  @override
+  Stream<M> get inbox => _incomingController.stream;
+
+  @override
+  StreamSink<M> get outbox => _outgoingController.sink;
+
+  @override
+  Future<void> pause() async {
+    if (paused) return;
+    _messagePollingTimer?.cancel();
+    super.pause();
+  }
+
+  @override
+  Future<void> resume() async {
+    if (!paused) return;
+    _startMessagePolling();
+    super.resume();
+  }
+
+  @override
+  Future<void> dispose() async {
+    if (_disposed) return;
+
+    await stop();
+
+    // Dispose managed resources - they will handle their own cleanup
+    _outletResource?.dispose();
+    for (final inletResource in _inletResources) {
+      inletResource.dispose();
+    }
+    _inletResources.clear();
+
+    await _incomingController.close();
+    await _outgoingController.close();
+
+    _disposed = true;
+    try {
+      await _manager?.releaseResource(uId);
+    } catch (e) {
+      logger.warning('Failed to release resource $uId: $e');
+    }
   }
 }
 
-class LSLCoordinationStream extends CoordinationStream {
-  /// The transport configuration used for this coordination stream.
-  late final LSLTransportConfig transportConfig;
+/// LSL-based data stream implementation
+// ignore: missing_override_of_must_be_overridden
+class LSLDataStream extends DataStream<DataStreamConfig, IMessage>
+    with RuntimeTypeUID, LSLStreamMixin<DataStreamConfig, IMessage> {
+  @override
+  final Node streamNode;
+  @override
+  final CoordinationSessionConfig streamSessionConfig;
+  @override
+  final LSLTransport lslTransport;
 
-  LSLCoordinationStream(super.config) {
-    if (config.transportConfig is! LSLTransportConfig) {
-      logger.warning(
-        'LSLCoordinationStream requires LSLTransportConfig, '
-        ' but got ${config.transportConfig.runtimeType}. '
-        'Using default LSLTransportConfig.',
+  // Additional data stream specific functionality
+  final StreamController<List<double>> _dataController =
+      StreamController<List<double>>.broadcast();
+
+  Stream<List<double>> get incoming => _dataController.stream;
+
+  LSLDataStream({
+    required DataStreamConfig config,
+    required this.streamNode,
+    required this.streamSessionConfig,
+    required this.lslTransport,
+  }) : super(config);
+
+  @override
+  String get name => 'LSL Data Stream ${config.name}';
+
+  @override
+  String get description => 'LSL data stream for ${config.name}';
+
+  /// Sends numerical data directly (for high-frequency data streams)
+  void sendData(List<double> data) {
+    if (!started) return;
+
+    if (data.length != config.channels) {
+      throw ArgumentError(
+        'Data length ${data.length} does not match channels ${config.channels}',
       );
-      transportConfig = LSLTransportConfigFactory().defaultConfig();
-    } else {
-      transportConfig = config.transportConfig as LSLTransportConfig;
+    }
+
+    // Send via LSL outlet directly for performance
+    if (_outletResource != null) {
+      _outletResource!.outlet.pushSample(data);
     }
   }
 
   @override
-  FutureOr<void> sendMessage(Message message) {
-    // Implement sending a message via LSL here.
-    throw UnimplementedError();
+  IMessage? _createMessageFromSample(LSLSample sample) {
+    // For data streams, we emit both raw data and message
+    final data = sample.data as List<double>;
+    if (data.isNotEmpty) {
+      // Emit to data stream
+      _dataController.add(data);
+    }
+
+    // For now, data streams don't use message-based communication
+    // This could be extended later for control messages
+    return null;
   }
 
   @override
-  FutureOr<void> create() {
-    // TODO: implement create
-    throw UnimplementedError();
+  List<dynamic> _createSampleFromMessage(IMessage message) {
+    // For data streams, messages are rare - mostly used for control
+    // Actual data goes through sendData() method for performance
+    if (message is StringMessage) {
+      return [message.data];
+    }
+    return [message.toString()];
   }
 
   @override
-  // TODO: implement created
-  bool get created => throw UnimplementedError();
+  Future<void> dispose() async {
+    await _dataController.close();
+    await super.dispose();
+  }
+}
 
+/// Factory for creating LSL-based network streams.
+class LSLNetworkStreamFactory
+    extends NetworkStreamFactory<LSLCoordinationSession> {
   @override
-  // TODO: implement description
-  String? get description => throw UnimplementedError();
-
-  @override
-  FutureOr<void> dispose() {
-    // TODO: implement dispose
-    throw UnimplementedError();
+  Future<LSLDataStream> createDataStream(
+    DataStreamConfig config,
+    LSLCoordinationSession session,
+  ) async {
+    return LSLDataStream(
+      config: config,
+      streamNode: session.thisNode,
+      streamSessionConfig: session.config,
+      lslTransport: session.transport,
+    );
   }
 
   @override
-  // TODO: implement disposed
-  bool get disposed => throw UnimplementedError();
-
-  @override
-  // TODO: implement inbox
-  Stream<StringMessage> get inbox => throw UnimplementedError();
-
-  @override
-  // TODO: implement manager
-  IResourceManager? get manager => throw UnimplementedError();
-
-  @override
-  // TODO: implement outbox
-  StreamSink<StringMessage> get outbox => throw UnimplementedError();
-
-  @override
-  // TODO: implement uId
-  String get uId => throw UnimplementedError();
-
-  @override
-  FutureOr<void> updateManager(IResourceManager? newManager) {
-    // TODO: implement updateManager
-    throw UnimplementedError();
+  Future<LSLCoordinationStream> createCoordinationStream(
+    CoordinationStreamConfig config,
+    LSLCoordinationSession session,
+  ) async {
+    return LSLCoordinationStream(
+      config: config,
+      streamNode: session.thisNode,
+      streamSessionConfig: session.config,
+      lslTransport: session.transport,
+    );
   }
+}
+
+/// LSL-based coordination stream with internal message polling
+// ignore: missing_override_of_must_be_overridden
+class LSLCoordinationStream
+    extends CoordinationStream<CoordinationStreamConfig, StringMessage>
+    with
+        RuntimeTypeUID,
+        LSLStreamMixin<CoordinationStreamConfig, StringMessage> {
+  @override
+  final Node streamNode;
+  @override
+  final CoordinationSessionConfig streamSessionConfig;
+  @override
+  final LSLTransport lslTransport;
+
+  LSLCoordinationStream({
+    required CoordinationStreamConfig config,
+    required this.streamNode,
+    required this.streamSessionConfig,
+    required this.lslTransport,
+  }) : super(config);
+
+  @override
+  String get description => 'LSL coordination stream for ${config.name}';
+
+  @override
+  StringMessage? _createMessageFromSample(LSLSample sample) {
+    final messageJson = sample.data[0] as String;
+    final timestamp =
+        sample.timestamp > 0
+            ? DateTime.fromMillisecondsSinceEpoch(
+              (sample.timestamp * 1000).round(),
+            )
+            : DateTime.now();
+
+    return MessageFactory.stringMessage(
+      data: [messageJson],
+      timestamp: timestamp,
+      channels: 1,
+    );
+  }
+
+  @override
+  List<dynamic> _createSampleFromMessage(StringMessage message) {
+    return [message.data];
+  }
+
+  // The LSLStreamMixin provides inbox, outbox, and sendMessage implementations
+  // But the compiler may need explicit confirmation for @mustBeOverridden methods
 }

@@ -280,7 +280,7 @@ class CoordinationStreamConfigFactory
 
 /// Configuration for a coordination session used to manage network nodes.
 abstract class NetworkStream<T extends NetworkStreamConfig, M extends IMessage>
-    implements IConfigurable<T>, IUniqueIdentity, IResource {
+    implements IConfigurable<T>, IUniqueIdentity, IResource, IPausable {
   /// Identifier for the stream, derived from the config hash code.
   @override
   String get id => config.hashCode.toString();
@@ -293,6 +293,11 @@ abstract class NetworkStream<T extends NetworkStreamConfig, M extends IMessage>
   /// This is a [NetworkStreamConfig] object.
   @override
   final T config;
+
+  bool _paused = false;
+
+  @override
+  bool get paused => _paused;
 
   /// Number of channels in the stream.
   int get channelCount => config.channels;
@@ -364,6 +369,18 @@ abstract class NetworkStream<T extends NetworkStreamConfig, M extends IMessage>
     }
   }
 
+  @override
+  @mustCallSuper
+  FutureOr<void> pause() {
+    _paused = true;
+  }
+
+  @override
+  @mustCallSuper
+  FutureOr<void> resume() {
+    _paused = false;
+  }
+
   /// Adds a consumer node to this stream.
   void addConsumer(Node consumer) {
     if (!_nodes.containsKey(consumer.uId)) {
@@ -415,66 +432,25 @@ abstract class DataStream<T extends DataStreamConfig, M extends IMessage>
   DataStream(super.config, {super.producers, super.consumers});
 
   @override
+  @mustBeOverridden
   FutureOr<void> sendMessage(M message) {
     // Default implementation does nothing.
     // Subclasses should override this method to provide actual functionality.
-    return Future.value();
+    throw UnimplementedError('sendMessage must be implemented by subclasses');
   }
 }
 
 /// Creates network streams.
-abstract class NetworkStreamFactory {
-  /// Creates a data stream with the given configuration.
+abstract class NetworkStreamFactory<TSession extends CoordinationSession> {
+  /// Creates a data stream with the given configuration and session context.
   FutureOr<DataStream> createDataStream(
-    DataStreamConfig config, {
-    List<Node>? producers,
-    List<Node>? consumers,
-  });
+    DataStreamConfig config,
+    TSession session,
+  );
 
-  // /// Creates a int8 data stream with the given configuration.
-  // FutureOr<DataStream<dynamic, Int8Message>> createInt8DataStream(
-  //   DataStreamConfig config, {
-  //   List<Node>? producers,
-  //   List<Node>? consumers,
-  // });
-
-  // /// Creates a int16 data stream with the given configuration.
-  // FutureOr<DataStream<dynamic, Int16Message>> createInt16DataStream(
-  //   DataStreamConfig config, {
-  //   List<Node>? producers,
-  //   List<Node>? consumers,
-  // });
-
-  // /// Creates a int32 data stream with the given configuration.
-  // FutureOr<DataStream<dynamic, Int32Message>> createInt32DataStream(
-  //   DataStreamConfig config, {
-  //   List<Node>? producers,
-  //   List<Node>? consumers,
-  // });
-
-  // /// Creates a int64 data stream with the given configuration.
-  // FutureOr<DataStream<dynamic, Int64Message>> createInt64DataStream(
-  //   DataStreamConfig config, {
-  //   List<Node>? producers,
-  //   List<Node>? consumers,
-  // });
-
-  // /// Creates a float32 data stream with the given configuration.
-  // FutureOr<DataStream<dynamic, Float32Message>> createFloat32DataStream(
-  //   DataStreamConfig config, {
-  //   List<Node>? producers,
-  //   List<Node>? consumers,
-  // });
-
-  // /// Creates a double64 data stream with the given configuration.
-  // FutureOr<DataStream<dynamic, Float32Message>> createDouble64DataStream(
-  //   DataStreamConfig config, {
-  //   List<Node>? producers,
-  //   List<Node>? consumers,
-  // });
-
-  /// Creates a coordination stream with the given configuration.
+  /// Creates a coordination stream with the given configuration and session context.
   FutureOr<CoordinationStream> createCoordinationStream(
     CoordinationStreamConfig config,
+    TSession session,
   );
 }
