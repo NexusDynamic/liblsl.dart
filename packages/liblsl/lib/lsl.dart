@@ -11,4 +11,4 @@ export 'package:liblsl/src/lsl.dart';
 export 'package:liblsl/src/lsl/exception.dart';
 export 'package:liblsl/src/lsl/api_config.dart';
 export 'package:liblsl/src/util/precise_scheduling.dart'
-    show runPreciseInterval;
+    show runPreciseInterval, runPreciseIntervalAsync;

@@ -342,8 +342,7 @@ class LSLStreamInfo extends LSLObj {
     this.sourceId = "DartLSL",
     lsl_streaminfo? streamInfo,
   }) : _streamInfo = streamInfo {
-    if (streamInfo != null) {
-      _streamInfo = streamInfo;
+    if (_streamInfo != null) {
       super.create();
     }
   }

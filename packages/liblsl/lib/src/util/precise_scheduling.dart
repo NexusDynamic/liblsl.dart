@@ -45,3 +45,34 @@ void runPreciseInterval<T>(
     }
   }
 }
+
+/// Run a callback at precise intervals asynchronously.
+/// This is a less precise version of [runPreciseInterval]
+/// that uses [Future.delayed] instead of [sleep] to reduce
+/// the impact on the main thread.
+/// The tradeoff is that the callback may be called
+/// slightly later than the specified interval.
+Future<void> runPreciseIntervalAsync<T>(
+  Duration interval,
+  FutureOr<T> Function(T state) callback, {
+  required Completer<void> completer,
+  dynamic state,
+  Duration startBusyAt = const Duration(milliseconds: 1),
+}) async {
+  final sw = Stopwatch()..start();
+
+  for (int i = 1; true; i++) {
+    final nextAwake = interval * i;
+    final toSleep = (nextAwake - sw.elapsed) - startBusyAt;
+    if (toSleep > Duration.zero) {
+      await Future.delayed(toSleep);
+    }
+
+    while (sw.elapsed < nextAwake) {}
+
+    state = callback(state);
+    if (completer.isCompleted) {
+      break;
+    }
+  }
+}
