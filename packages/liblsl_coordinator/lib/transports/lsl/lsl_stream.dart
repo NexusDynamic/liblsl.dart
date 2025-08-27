@@ -228,6 +228,45 @@ class LSLStreamInfoHelper {
     return conditions.join(' and ');
   }
 
+  /// Generates a predicate for coordinator election that checks for:
+  /// - Existing coordinators, OR
+  /// - Better candidates based on the election strategy
+  static String generateElectionPredicate({
+    required String streamName,
+    required String sessionName,
+    required String excludeSourceIdPrefix,
+    required bool isRandomStrategy,
+    double? myRandomRoll,
+    String? myStartTime,
+  }) {
+    // Base conditions that apply to all candidates
+    final baseConditions = [
+      "starts-with(name, '$streamName')",
+      "//info/desc/$sessionNameKey='$sessionName'",
+      "not(starts-with(source_id, '$excludeSourceIdPrefix'))",
+    ];
+    
+    // Election-specific conditions (OR logic)
+    final List<String> electionConditions = [];
+    
+    // Always check for existing coordinators
+    electionConditions.add("//info/desc/$nodeRoleKey='coordinator'");
+    
+    if (isRandomStrategy && myRandomRoll != null) {
+      // For random strategy: also check for better random rolls
+      electionConditions.add("//info/desc/$randomRollKey < $myRandomRoll");
+    } else if (!isRandomStrategy && myStartTime != null) {
+      // For first strategy: also check for earlier nodes
+      electionConditions.add("//info/desc/$nodeStartedAtKey < '$myStartTime'");
+    }
+    
+    // Combine base conditions (AND) with election conditions (OR)
+    final baseQuery = baseConditions.join(' and ');
+    final electionQuery = electionConditions.join(' or ');
+    
+    return '$baseQuery and ($electionQuery)';
+  }
+
   /// f
 }
 
@@ -246,8 +285,9 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
   bool get useBusyWaitInlets => false; // Override in data streams
   bool get useBusyWaitOutlets => false; // Event-driven outlets by default
 
-  // Isolate manager
-  IsolateStreamManager? _isolateManager;
+  // Isolate instances
+  StreamInletIsolate? _inletIsolate;
+  StreamOutletIsolate? _outletIsolate;
 
   // LSL resources
   OutletResource? _outletResource;
@@ -281,24 +321,7 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
     if (_created) return;
     if (_disposed) throw StateError('Cannot create disposed stream');
 
-    // Create isolate manager if using isolates
-    if (useIsolates) {
-      _isolateManager = IsolateStreamManager(
-        streamId: id,
-        dataType: config.dataType,
-        useIsolates: true,
-        useBusyWaitInlets: useBusyWaitInlets,
-        useBusyWaitOutlets: useBusyWaitOutlets,
-      );
-
-      // Listen to incoming data from isolates
-      _isolateManager!.incomingData.listen((dataMessage) {
-        final message = _createMessageFromIsolateData(dataMessage);
-        if (message != null) {
-          _incomingController.add(message);
-        }
-      });
-    }
+    // No isolate setup needed here - isolates are created per stream operation
 
     // Create outlet
     final streamInfo = await LSLStreamInfoHelper.createStreamInfo(
@@ -308,14 +331,19 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
     );
 
     // Setup outlet based on isolate usage
-    if (useIsolates && _isolateManager != null) {
-      // When using isolates: pass only StreamInfo, isolate creates its own outlet
-      await _isolateManager!.createOutletIsolate(
-        streamInfo: streamInfo, // Pass StreamInfo, not outlet
-        sampleRate: config.sampleRate,
-        channelCount: config.channels,
+    if (useIsolates) {
+      // Create outlet isolate instance
+      _outletIsolate = IsolateStreamManager.createOutletIsolate(
+        streamId: id,
+        dataType: config.dataType,
+        useBusyWaitInlets: useBusyWaitInlets,
+        useBusyWaitOutlets: useBusyWaitOutlets,
         pollingInterval: _getPollingInterval(),
+        outletAddress: streamInfo.streamInfo.address,
+        channelCount: config.channels,
+        sampleRate: config.sampleRate,
       );
+      await _outletIsolate!.create();
       // Don't create outlet in main thread when using isolates
       _outletResource = null;
     } else {
@@ -364,15 +392,37 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
     if (!_created) throw StateError('Stream not created');
     if (_disposed) return;
 
-    if (useIsolates && _isolateManager != null) {
-      // When using isolates: only store StreamInfo, let isolate create inlets
+    if (useIsolates) {
       _inletStreamInfos.add(streamInfo);
       
-      // Recreate inlet isolate with all StreamInfo addresses
-      await _isolateManager!.createInletIsolate(
-        streamInfos: _inletStreamInfos,
-        pollingInterval: _getPollingInterval(),
-      );
+      // Create inlet isolate if it doesn't exist
+      if (_inletIsolate == null) {
+        _inletIsolate = IsolateStreamManager.createInletIsolate(
+          streamId: id,
+          dataType: config.dataType,
+          useBusyWaitInlets: useBusyWaitInlets,
+          useBusyWaitOutlets: useBusyWaitOutlets,
+          pollingInterval: _getPollingInterval(),
+          initialInletAddresses: _inletStreamInfos.map((info) => info.streamInfo.address).toList(),
+        );
+        await _inletIsolate!.create();
+        
+        // Listen to incoming data from inlet isolate
+        _inletIsolate!.incomingData.listen((dataMessage) {
+          final message = _createMessageFromIsolateData(dataMessage);
+          if (message != null) {
+            _incomingController.add(message);
+          }
+        });
+        
+        // Start the inlet isolate if the stream is already started
+        if (_started) {
+          await _inletIsolate!.start();
+        }
+      } else {
+        // Add inlet to existing isolate
+        await _inletIsolate!.addInlet(streamInfo.streamInfo.address);
+      }
     } else {
       // When not using isolates: create inlet in main thread
       final inletResource = await lslTransport.createInlet(
@@ -392,16 +442,13 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
     if (_started) return;
     _started = true;
 
-    if (useIsolates && _isolateManager != null) {
-      await _isolateManager!.start();
-      
-      // Connect isolate data stream to inbox
-      _isolateManager!.incomingData.listen((isolateData) {
-        final message = _createMessageFromIsolateData(isolateData);
-        if (message != null) {
-          _incomingController.add(message);
-        }
-      });
+    if (useIsolates) {
+      if (_outletIsolate != null) {
+        await _outletIsolate!.start();
+      }
+      if (_inletIsolate != null) {
+        await _inletIsolate!.start();
+      }
     } else {
       // Direct mode - start polling timers
       _startDirectPolling();
@@ -412,8 +459,11 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
     if (!_started) return;
     _started = false;
 
-    if (_isolateManager != null) {
-      await _isolateManager!.stop();
+    if (_outletIsolate != null) {
+      await _outletIsolate!.stop();
+    }
+    if (_inletIsolate != null) {
+      await _inletIsolate!.stop();
     }
   }
 
@@ -444,9 +494,9 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
 
       final sampleData = _createSampleFromMessage(message);
 
-      if (useIsolates && _isolateManager != null) {
+      if (useIsolates && _outletIsolate != null) {
         // Send through isolate
-        await _isolateManager!.sendData(sampleData);
+        await _outletIsolate!.sendData(sampleData);
       } else if (_outletResource != null) {
         // Direct send
         try {
@@ -478,8 +528,11 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
   @override
   Future<void> pause() async {
     if (paused) return;
-    if (_isolateManager != null) {
-      await _isolateManager!.stop();
+    if (_outletIsolate != null) {
+      await _outletIsolate!.stop();
+    }
+    if (_inletIsolate != null) {
+      await _inletIsolate!.stop();
     }
     super.pause();
   }
@@ -487,8 +540,11 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
   @override
   Future<void> resume() async {
     if (!paused) return;
-    if (_isolateManager != null) {
-      await _isolateManager!.start();
+    if (_outletIsolate != null) {
+      await _outletIsolate!.start();
+    }
+    if (_inletIsolate != null) {
+      await _inletIsolate!.start();
     }
     super.resume();
   }
@@ -499,9 +555,12 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
 
     await stop();
 
-    // Dispose isolate manager
-    if (_isolateManager != null) {
-      await _isolateManager!.dispose();
+    // Dispose isolate instances
+    if (_outletIsolate != null) {
+      await _outletIsolate!.dispose();
+    }
+    if (_inletIsolate != null) {
+      await _inletIsolate!.dispose();
     }
 
     // Dispose LSL resources
@@ -573,8 +632,8 @@ class LSLDataStream extends DataStream<DataStreamConfig, IMessage>
     _validateDataType(data);
 
     // Send directly through outlet or isolate
-    if (useIsolates && _isolateManager != null) {
-      _isolateManager!.sendData(data);
+    if (useIsolates && _outletIsolate != null) {
+      _outletIsolate!.sendData(data);
     } else if (_outletResource != null) {
       _outletResource!.outlet.pushSample(data);
     }
@@ -593,8 +652,8 @@ class LSLDataStream extends DataStream<DataStreamConfig, IMessage>
     _validateDataType(data);
 
     // Send directly through outlet or isolate
-    if (useIsolates && _isolateManager != null) {
-      _isolateManager!.sendData(data);
+    if (useIsolates && _outletIsolate != null) {
+      _outletIsolate!.sendData(data);
     } else if (_outletResource != null) {
       _outletResource!.outlet.pushSample(data);
     }

@@ -270,8 +270,8 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
     // Use clean stream name and metadata filtering
     final sessionPredicate = LSLStreamInfoHelper.generatePredicate(
       streamNamePrefix: 'coordination', // Clean stream name prefix
-      sessionName: config.name,         // Filter by session in metadata
-      nodeRole: 'coordinator',          // Filter by role in metadata
+      sessionName: config.name, // Filter by session in metadata
+      nodeRole: 'coordinator', // Filter by role in metadata
     );
 
     // Listen for discovery events
@@ -365,7 +365,7 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
     // Use clean stream name and session metadata filtering
     final predicate = LSLStreamInfoHelper.generatePredicate(
       streamNamePrefix: 'coordination', // Clean stream name
-      sessionName: config.name,         // Filter by session in metadata
+      sessionName: config.name, // Filter by session in metadata
     );
 
     final streams = await LslDiscovery.discoverOnceByPredicate(predicate);
@@ -397,19 +397,64 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
     final strategy = topologyConfig.promotionStrategy;
 
     if (strategy is PromotionStrategyRandom) {
-      // Check our random roll against others
-      final myRoll = double.parse(thisNode.getMetadata('randomRoll') ?? '1.0');
-      // In a real implementation, we'd parse the rolls from candidate metadata
-      // For now, use a simple heuristic
-      return myRoll < 0.3; // 30% chance
+      // Use predicate-based election - no resource creation needed!
+      final shouldYield = await _checkElectionWithPredicate(isRandomStrategy: true);
+      return !shouldYield; // Invert: if we should yield, we should NOT become coordinator
     } else if (strategy is PromotionStrategyFirst) {
-      // Check start times
-      final myStart = thisNode.getMetadata('nodeStartedAt') ?? '';
-      // Would need to parse from candidates
-      return true; // Simplified - be coordinator if no clear earlier node
+      // Use predicate-based election for first strategy
+      final shouldYield = await _checkElectionWithPredicate(isRandomStrategy: false);
+      return !shouldYield; // Invert: if we should yield, we should NOT become coordinator
     }
 
     return true; // Default to becoming coordinator
+  }
+
+  /// Check election using LSL predicates to avoid creating temporary resources
+  Future<bool> _checkElectionWithPredicate({
+    required bool isRandomStrategy,
+  }) async {
+    final sessionName = config.name;
+    final streamName = coordinationConfig.streamConfig.name;
+
+    // Build election predicate that checks for coordinators OR better candidates
+    final myRandomRoll = isRandomStrategy 
+        ? double.parse(thisNode.metadata['randomRoll'] ?? '1.0')
+        : null;
+    final myStartTime = !isRandomStrategy
+        ? thisNode.metadata['nodeStartedAt']
+        : null;
+        
+    logger.info('Election: My random roll: $myRandomRoll, My start time: $myStartTime');
+    
+    final predicate = LSLStreamInfoHelper.generateElectionPredicate(
+      streamName: streamName,
+      sessionName: sessionName,
+      excludeSourceIdPrefix: thisNode.id, // Don't find ourselves
+      isRandomStrategy: isRandomStrategy,
+      myRandomRoll: myRandomRoll,
+      myStartTime: myStartTime,
+    );
+
+    logger.fine('Checking election with predicate: $predicate');
+
+    // Use discovery to check for better candidates without creating inlets
+    final results = await LslDiscovery.discoverOnceByPredicate(
+      predicate,
+      timeout: config.discoveryInterval,
+    );
+
+    // If any results found, we lost the election
+    final shouldYieldElection = results.isNotEmpty;
+
+    if (shouldYieldElection) {
+      logger.info(
+        'Election: Found ${results.length} better candidates, yielding election',
+      );
+    } else {
+      logger.info('Election: No better candidates found, winning election');
+    }
+
+    return shouldYieldElection;
   }
 
   Future<void> _becomeCoordinator() async {
@@ -545,8 +590,8 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
     // Discover participant nodes in our session using metadata filtering
     final predicate = LSLStreamInfoHelper.generatePredicate(
       streamNamePrefix: 'coordination', // Clean stream name
-      sessionName: config.name,         // Filter by session in metadata
-      nodeRole: 'participant',          // Filter by role in metadata
+      sessionName: config.name, // Filter by session in metadata
+      nodeRole: 'participant', // Filter by role in metadata
     );
 
     _discovery!.startDiscovery(
@@ -757,47 +802,59 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
         // Deduplicate by source ID since each outlet now has a unique source ID
         final Map<String, StreamInfoResource> uniqueStreams = {};
         final List<StreamInfoResource> duplicatesToDispose = [];
-        
-        logger.finest('Discovery ${dataDiscovery.id}: Processing ${event.streams.length} streams for ${dataStream.config.name}');
+
+        logger.finest(
+          'Discovery ${dataDiscovery.id}: Processing ${event.streams.length} streams for ${dataStream.config.name}',
+        );
         for (final stream in event.streams) {
           final sourceId = stream.streamInfo.sourceId;
-          logger.finest('Discovery ${dataDiscovery.id}: Stream ${stream.streamInfo.streamName} sourceId=$sourceId (resource: ${stream.uId})');
-          
+          logger.finest(
+            'Discovery ${dataDiscovery.id}: Stream ${stream.streamInfo.streamName} sourceId=$sourceId (resource: ${stream.uId})',
+          );
+
           if (uniqueStreams.containsKey(sourceId)) {
-            logger.fine('Discovery: Duplicate stream detected for sourceId $sourceId, marking resource ${stream.uId} for disposal');
+            logger.fine(
+              'Discovery: Duplicate stream detected for sourceId $sourceId, marking resource ${stream.uId} for disposal',
+            );
             // Don't dispose immediately - collect them for later disposal
             duplicatesToDispose.add(stream);
           } else {
             uniqueStreams[sourceId] = stream;
           }
         }
-        
+
         // Dispose duplicates after we've processed all unique streams
         for (final duplicate in duplicatesToDispose) {
           await duplicate.dispose();
         }
-        
-        logger.info('Discovery for ${dataStream.config.name}: found ${event.streams.length} streams (${uniqueStreams.length} unique by source ID)');
+
+        logger.info(
+          'Discovery for ${dataStream.config.name}: found ${event.streams.length} streams (${uniqueStreams.length} unique by source ID)',
+        );
         for (final streamResource in uniqueStreams.values) {
           if (disposed || !joined) return;
-          
+
           // Check if we already have an inlet for this source
           final sourceId = streamResource.streamInfo.sourceId;
           final streamName = streamResource.streamInfo.streamName;
           final alreadyConnected = dataStream.hasInletForSource(sourceId);
-          
+
           if (alreadyConnected) {
-            logger.finest('Skipping already connected stream: $streamName from $sourceId');
+            logger.finest(
+              'Skipping already connected stream: $streamName from $sourceId',
+            );
             continue;
           }
-          
+
           try {
-            logger.fine('Processing new stream: $streamName from $sourceId (resource: ${streamResource.uId})');
-            
+            logger.fine(
+              'Processing new stream: $streamName from $sourceId (resource: ${streamResource.uId})',
+            );
+
             // Instead of transferring resource, just extract the StreamInfo
             // The discovery will manage its own resource lifecycle
             final streamInfo = streamResource.streamInfo;
-            
+
             // Add inlet directly using the StreamInfo
             // When using isolates, the main thread doesn't need to manage the resource
             await dataStream.addInlet(streamInfo);
@@ -816,18 +873,19 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
 
     // Start discovery - conditionally exclude own streams based on participation mode
     final shouldExcludeOwnStreams = _shouldExcludeOwnStreams(dataStream.config);
-    
+
     // Generate our own source ID pattern to exclude if needed
     String? excludeSourceIdPrefix;
     if (shouldExcludeOwnStreams) {
       // Exclude streams with our source ID pattern: nodeId_streamName_*
       excludeSourceIdPrefix = '${thisNode.id}_${dataStream.config.name}_';
     }
-    
+
     final predicate = LSLStreamInfoHelper.generatePredicate(
       streamNamePrefix: dataStream.config.name, // Clean stream name
-      sessionName: config.name,                  // Filter by session in metadata
-      excludeSourceIdPrefix: excludeSourceIdPrefix, // Exclude our own streams by source ID pattern
+      sessionName: config.name, // Filter by session in metadata
+      excludeSourceIdPrefix:
+          excludeSourceIdPrefix, // Exclude our own streams by source ID pattern
     );
 
     dataDiscovery.startDiscovery(predicate: predicate);

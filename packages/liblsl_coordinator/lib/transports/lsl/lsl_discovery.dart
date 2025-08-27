@@ -265,11 +265,13 @@ class LslDiscovery extends LSLResource implements IPausable, IResourceManager {
         _discoveredStreams.clear();
 
         final newStreams = await _resolver!.resolve();
-        
+
         // Debug: Log what the resolver returned
         logger.finest('Resolver returned ${newStreams.length} streams:');
         for (int i = 0; i < newStreams.length; i++) {
-          logger.finest('  [$i] ${newStreams[i].streamName} sourceId=${newStreams[i].sourceId}');
+          logger.finest(
+            '  [$i] ${newStreams[i].streamName} sourceId=${newStreams[i].sourceId}',
+          );
         }
 
         // Check if we found new streams
@@ -375,9 +377,15 @@ class LslDiscovery extends LSLResource implements IPausable, IResourceManager {
   /// IMPORTANT: The caller is responsible for destroying the returned StreamInfos.
   /// this can be done with [LSLStreamInfo.destroy] or [List<LSLStreamInfo>.destroy]
   static Future<List<LSLStreamInfo>> discoverOnceByPredicate(
-    String predicate,
-  ) async {
-    final streams = await LSL.resolveStreamsByPredicate(predicate: predicate);
+    String predicate, {
+    Duration timeout = const Duration(seconds: 2),
+    int maxStreams = 10,
+  }) async {
+    final streams = await LSL.resolveStreamsByPredicate(
+      predicate: predicate,
+      waitTime: timeout.inMilliseconds / 1000.0,
+      maxStreams: maxStreams,
+    );
     return streams;
   }
 
