@@ -5,11 +5,19 @@ import 'dart:collection';
 import 'dart:isolate';
 import 'package:collection/collection.dart';
 import 'package:liblsl/lsl.dart';
+
 import 'package:liblsl_coordinator/framework.dart';
 import 'package:synchronized/synchronized.dart';
 
 /// Enum defining all possible isolate message types
-enum IsolateMessageType { start, stop, addInlet, removeInlet, data }
+enum IsolateMessageType {
+  start,
+  stop,
+  addInlet,
+  removeInlet,
+  data,
+  recreateOutlet,
+}
 
 /// Base class for all isolate messages - immutable for efficient message passing
 abstract class IsolateMessage {
@@ -50,6 +58,13 @@ class DataMessage extends IsolateMessage {
   const DataMessage(this.payload) : super(IsolateMessageType.data);
 }
 
+/// Message to recreate outlet - immutable
+class RecreateOutletMessage extends IsolateMessage {
+  final int address; // stream info address
+  const RecreateOutletMessage(this.address)
+    : super(IsolateMessageType.recreateOutlet);
+}
+
 /// Configuration for isolate workers
 class IsolateWorkerConfig {
   final String streamId;
@@ -79,6 +94,32 @@ class IsolateWorkerConfig {
     this.outletAddress,
     this.inletAddresses,
   });
+
+  IsolateWorkerConfig copyWith({
+    String? streamId,
+    StreamDataType? dataType,
+    int? channelCount,
+    double? sampleRate,
+    bool? useBusyWaitInlets,
+    bool? useBusyWaitOutlets,
+    Duration? pollingInterval,
+    SendPort? mainSendPort,
+    int? outletAddress,
+    List<int>? inletAddresses,
+  }) {
+    return IsolateWorkerConfig(
+      streamId: streamId ?? this.streamId,
+      dataType: dataType ?? this.dataType,
+      channelCount: channelCount ?? this.channelCount,
+      sampleRate: sampleRate ?? this.sampleRate,
+      useBusyWaitInlets: useBusyWaitInlets ?? this.useBusyWaitInlets,
+      useBusyWaitOutlets: useBusyWaitOutlets ?? this.useBusyWaitOutlets,
+      pollingInterval: pollingInterval ?? this.pollingInterval,
+      mainSendPort: mainSendPort ?? this.mainSendPort,
+      outletAddress: outletAddress ?? this.outletAddress,
+      inletAddresses: inletAddresses ?? this.inletAddresses,
+    );
+  }
 }
 
 /// Message sent from isolate to main
@@ -302,6 +343,10 @@ class StreamOutletIsolate extends StreamIsolate {
     await sendMessage(DataMessage(data));
   }
 
+  Future<void> recreateOutlet(int address) async {
+    await sendMessage(RecreateOutletMessage(address));
+  }
+
   @override
   IsolateWorkerConfig _createConfig() {
     return IsolateWorkerConfig(
@@ -372,7 +417,9 @@ class IsolateStreamManager {
 
   // Static helper methods for creating LSL resources
   static LSLOutlet _createOutlet(IsolateWorkerConfig config) {
-    final streamInfo = LSLStreamInfo.fromStreamInfoAddr(config.outletAddress!);
+    final streamInfo = LSLStreamInfoWithMetadata.fromStreamInfoAddr(
+      config.outletAddress!,
+    );
     return LSLOutlet(streamInfo, useIsolates: false)..create();
   }
 
@@ -413,7 +460,7 @@ class IsolateStreamManager {
 
 /// Base class for isolate workers with shared functionality
 abstract class IsolateWorker {
-  final IsolateWorkerConfig config;
+  IsolateWorkerConfig config;
   late final ReceivePort receivePort;
 
   IsolateWorker(this.config);
@@ -491,6 +538,7 @@ class InletWorker extends IsolateWorker {
           _handleRemoveInlet(message as RemoveInletMessage);
           break;
         case IsolateMessageType.data:
+        case IsolateMessageType.recreateOutlet:
           // Not applicable for inlet workers
           break;
       }
@@ -651,7 +699,7 @@ class InletWorker extends IsolateWorker {
 /// Worker class for handling outlet operations in isolate
 class OutletWorker extends IsolateWorker {
   // Member variables instead of excessive parameters
-  late final LSLOutlet outlet;
+  late LSLOutlet outlet;
   bool running = false;
   Timer? timer;
   Completer<void>? completer;
@@ -679,12 +727,23 @@ class OutletWorker extends IsolateWorker {
         case IsolateMessageType.data:
           _handleData(message as DataMessage);
           break;
+        case IsolateMessageType.recreateOutlet:
+          _recreateOutlet(message as RecreateOutletMessage);
+          break;
         case IsolateMessageType.addInlet:
         case IsolateMessageType.removeInlet:
           // Not applicable for outlet workers
           break;
       }
     }
+  }
+
+  void _recreateOutlet(RecreateOutletMessage message) {
+    // We own the streaminfo.
+    outlet.streamInfo.destroy();
+    outlet.destroy();
+    config = config.copyWith(outletAddress: message.address);
+    outlet = IsolateStreamManager._createOutlet(config);
   }
 
   void _handleStart() {

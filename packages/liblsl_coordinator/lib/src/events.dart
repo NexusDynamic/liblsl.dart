@@ -3,10 +3,40 @@ import 'package:liblsl_coordinator/framework.dart';
 /// Enum representing different types of events.
 enum EventType { system, data, coordination, user }
 
+extension EventTypeExtension on EventType {
+  String get shortString {
+    switch (this) {
+      case EventType.system:
+        return 'system';
+      case EventType.data:
+        return 'data';
+      case EventType.coordination:
+        return 'coordination';
+      case EventType.user:
+        return 'user';
+    }
+  }
+
+  static EventType fromString(String value) {
+    switch (value.toLowerCase()) {
+      case 'system':
+        return EventType.system;
+      case 'data':
+        return EventType.data;
+      case 'coordination':
+        return EventType.coordination;
+      case 'user':
+        return EventType.user;
+      default:
+        throw ArgumentError('Invalid EventType string: $value');
+    }
+  }
+}
+
 /// Base class for all events in the system.
 sealed class Event
     with InstanceUID
-    implements IHasMetadata, ITimestamped, IUniqueIdentity, ISerializable {
+    implements IHasMetadata, ITimestamped, ISerializable {
   /// User-specified identifier for the event, for the message UID
   /// see [InstanceUID.uId]
   @override
@@ -42,9 +72,12 @@ sealed class Event
     Map<String, dynamic>? metadata,
     this.eventType = EventType.user,
     required this.description,
+    String? uId,
   }) : timestamp = timestamp ?? DateTime.now(),
        name = name ?? 'event-$id',
-       _metadata = metadata ?? {};
+       _metadata = metadata ?? {} {
+    shadowUId = uId;
+  }
 
   /// Gets a metadata value by key, returning [defaultValue] if the
   /// key is not found.
@@ -56,23 +89,26 @@ sealed class Event
   @override
   Map<String, dynamic> toMap() {
     return {
+      'uId': uId,
       'id': id,
       'name': name,
       'timestamp': timestamp.toIso8601String(),
       'eventType': eventType.toString(),
       'metadata': _metadata,
+      'description': description,
     };
   }
 }
 
 /// System events, e.g., startup, shutdown, errors.
-sealed class SystemEvent extends Event {
+class SystemEvent extends Event {
   SystemEvent({
     required super.id,
     required super.description,
     String? name,
     super.timestamp,
     super.metadata,
+    super.uId,
   }) : super(name: name ?? 'system-event-$id', eventType: EventType.system);
 }
 
@@ -84,6 +120,7 @@ class DataEvent extends Event {
     String? name,
     super.timestamp,
     super.metadata,
+    super.uId,
   }) : super(name: name ?? 'data-event-$id', eventType: EventType.data);
 }
 
@@ -95,6 +132,7 @@ class CoordinationEvent extends Event {
     String? name,
     super.timestamp,
     super.metadata,
+    super.uId,
   }) : super(
          name: name ?? 'coordination-event-$id',
          eventType: EventType.coordination,
@@ -109,43 +147,79 @@ class UserEvent extends Event {
     String? name,
     super.timestamp,
     super.metadata,
+    super.uId,
   }) : super(name: name ?? 'user-event-$id', eventType: EventType.user);
 }
 
-/// Event for controlling data stream operations
-class StreamControlEvent extends CoordinationEvent {
-  /// The action to perform (start, stop, pause, resume)
-  final String action;
-  
-  /// The name/ID of the stream to control
-  final String streamName;
-  
-  StreamControlEvent({
-    required this.action,
-    required this.streamName,
-    required super.id,
-    required super.description,
-    String? name,
-    super.timestamp,
-    super.metadata,
-  }) : super(name: name ?? 'stream-control-$id');
-  
-  @override
-  Map<String, dynamic> toMap() {
-    final map = super.toMap();
-    map['action'] = action;
-    map['streamName'] = streamName;
-    return map;
-  }
-}
+class EventFactory {
+  Event fromMap(Map<String, dynamic> map) {
+    final eventTypeStr = map['eventType'] as String?;
+    if (eventTypeStr == null) {
+      throw ArgumentError('Event type is required in the map');
+    }
+    final eventType = EventTypeExtension.fromString(eventTypeStr);
 
-/// Discovery events for stream resolution
-abstract class DiscoveryEvent extends CoordinationEvent {
-  DiscoveryEvent({
-    required super.id,
-    required super.description,
-    String? name,
-    super.timestamp,
-    super.metadata,
-  }) : super(name: name ?? 'discovery-event-$id');
+    switch (eventType) {
+      case EventType.system:
+        return SystemEvent(
+          id: map['id'],
+          name: map['name'],
+          description: map['description'] ?? '',
+          timestamp:
+              map['timestamp'] != null
+                  ? DateTime.parse(map['timestamp'])
+                  : null,
+          metadata:
+              map['metadata'] != null
+                  ? Map<String, dynamic>.from(map['metadata'])
+                  : null,
+          uId: map['uId'],
+        );
+      case EventType.data:
+        return DataEvent(
+          id: map['id'],
+          name: map['name'],
+          description: map['description'] ?? '',
+          timestamp:
+              map['timestamp'] != null
+                  ? DateTime.parse(map['timestamp'])
+                  : null,
+          metadata:
+              map['metadata'] != null
+                  ? Map<String, dynamic>.from(map['metadata'])
+                  : null,
+          uId: map['uId'],
+        );
+      case EventType.coordination:
+        return CoordinationEvent(
+          id: map['id'],
+          name: map['name'],
+          description: map['description'] ?? '',
+          timestamp:
+              map['timestamp'] != null
+                  ? DateTime.parse(map['timestamp'])
+                  : null,
+          metadata:
+              map['metadata'] != null
+                  ? Map<String, dynamic>.from(map['metadata'])
+                  : null,
+          uId: map['uId'],
+        );
+      case EventType.user:
+        return UserEvent(
+          id: map['id'],
+          name: map['name'],
+          description: map['description'] ?? '',
+          timestamp:
+              map['timestamp'] != null
+                  ? DateTime.parse(map['timestamp'])
+                  : null,
+          metadata:
+              map['metadata'] != null
+                  ? Map<String, dynamic>.from(map['metadata'])
+                  : null,
+          uId: map['uId'],
+        );
+    }
+  }
 }

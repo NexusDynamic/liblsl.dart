@@ -33,13 +33,14 @@ class LSLStreamInfoHelper {
   static const String streamNameKey = 'stream_name';
   static const String sessionNameKey = 'session';
   static const String nodeIdKey = 'node_id';
+  static const String nodeUIdKey = 'node_uid';
   static const String nodeRoleKey = 'node_role';
   static const String nodeCapabilitiesKey = 'node_capabilities';
   static const String randomRollKey = 'random_roll';
   static const String nodeStartedAtKey = 'node_started_at';
 
   /// Generates a standardized stream name for a given stream configuration
-  /// and node information. 
+  /// and node information.
   /// Now uses clean names without encoding node/role information in the name.
   /// All filtering information is stored in metadata instead.
   static String generateStreamName(
@@ -60,18 +61,19 @@ class LSLStreamInfoHelper {
     NetworkStreamConfig config, {
     required Node node,
   }) {
-    return '${node.id}_${config.name}_${node.uId}';
+    return '${config.name}//${node.role}//${node.uId}//${node.id}';
   }
 
-  static Map<String, String> parseStreamName(String name) {
-    final parts = name.split('-');
-    if (parts.length < 3) {
+  static Map<String, String> parseSourceId(String name) {
+    final parts = name.split('//');
+    if (parts.length < 4) {
       throw FormatException('Invalid stream name format: $name');
     }
     return {
-      streamNameKey: parts.sublist(0, parts.length - 2).join('-'),
-      nodeIdKey: parts[parts.length - 2],
-      nodeRoleKey: parts[parts.length - 1],
+      nodeIdKey: parts[3],
+      nodeRoleKey: parts[1],
+      nodeUIdKey: parts[2],
+      streamNameKey: parts[0],
     };
   }
 
@@ -119,6 +121,8 @@ class LSLStreamInfoHelper {
       rootElement.addChildValue(nodeStartedAtKey, nodeStartedAt);
     }
 
+    rootElement.addChildValue(nodeUIdKey, node.uId);
+
     return info;
   }
 
@@ -165,6 +169,7 @@ class LSLStreamInfoHelper {
     String? streamNameSuffix,
     String? sessionName,
     String? nodeId,
+    String? nodeUId,
     String? nodeRole,
     String? nodeCapabilities,
     String? sourceIdPrefix,
@@ -201,6 +206,9 @@ class LSLStreamInfoHelper {
     }
     if (nodeId != null) {
       conditions.add("//info/desc/$nodeIdKey='$nodeId'");
+    }
+    if (nodeUId != null) {
+      conditions.add("//info/desc/$nodeUIdKey='$nodeUId'");
     }
     if (nodeRole != null) {
       conditions.add("//info/desc/$nodeRoleKey='$nodeRole'");
@@ -245,13 +253,13 @@ class LSLStreamInfoHelper {
       "//info/desc/$sessionNameKey='$sessionName'",
       "not(starts-with(source_id, '$excludeSourceIdPrefix'))",
     ];
-    
+
     // Election-specific conditions (OR logic)
     final List<String> electionConditions = [];
-    
+
     // Always check for existing coordinators
     electionConditions.add("//info/desc/$nodeRoleKey='coordinator'");
-    
+
     if (isRandomStrategy && myRandomRoll != null) {
       // For random strategy: also check for better random rolls
       electionConditions.add("//info/desc/$randomRollKey < $myRandomRoll");
@@ -259,11 +267,11 @@ class LSLStreamInfoHelper {
       // For first strategy: also check for earlier nodes
       electionConditions.add("//info/desc/$nodeStartedAtKey < '$myStartTime'");
     }
-    
+
     // Combine base conditions (AND) with election conditions (OR)
     final baseQuery = baseConditions.join(' and ');
     final electionQuery = electionConditions.join(' or ');
-    
+
     return '$baseQuery and ($electionQuery)';
   }
 
@@ -300,7 +308,7 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
   final StreamController<M> _outgoingController = StreamController<M>();
 
   // State
-  bool _created = false;
+  bool _created = true;
   bool _disposed = false;
   bool _started = false;
   IResourceManager? _manager;
@@ -323,33 +331,33 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
 
     // No isolate setup needed here - isolates are created per stream operation
 
-    // Create outlet
-    final streamInfo = await LSLStreamInfoHelper.createStreamInfo(
-      config: config,
-      sessionConfig: streamSessionConfig,
-      node: streamNode,
-    );
+    // // Create outlet
+    // final streamInfo = await LSLStreamInfoHelper.createStreamInfo(
+    //   config: config,
+    //   sessionConfig: streamSessionConfig,
+    //   node: streamNode,
+    // );
 
-    // Setup outlet based on isolate usage
-    if (useIsolates) {
-      // Create outlet isolate instance
-      _outletIsolate = IsolateStreamManager.createOutletIsolate(
-        streamId: id,
-        dataType: config.dataType,
-        useBusyWaitInlets: useBusyWaitInlets,
-        useBusyWaitOutlets: useBusyWaitOutlets,
-        pollingInterval: _getPollingInterval(),
-        outletAddress: streamInfo.streamInfo.address,
-        channelCount: config.channels,
-        sampleRate: config.sampleRate,
-      );
-      await _outletIsolate!.create();
-      // Don't create outlet in main thread when using isolates
-      _outletResource = null;
-    } else {
-      // When not using isolates: create outlet in main thread
-      _outletResource = await lslTransport.createOutlet(streamInfo: streamInfo);
-    }
+    // // Setup outlet based on isolate usage
+    // if (useIsolates) {
+    //   // Create outlet isolate instance
+    //   _outletIsolate = IsolateStreamManager.createOutletIsolate(
+    //     streamId: id,
+    //     dataType: config.dataType,
+    //     useBusyWaitInlets: useBusyWaitInlets,
+    //     useBusyWaitOutlets: useBusyWaitOutlets,
+    //     pollingInterval: _getPollingInterval(),
+    //     outletAddress: streamInfo.streamInfo.address,
+    //     channelCount: config.channels,
+    //     sampleRate: config.sampleRate,
+    //   );
+    //   await _outletIsolate!.create();
+    //   // Don't create outlet in main thread when using isolates
+    //   _outletResource = null;
+    // } else {
+    //   // When not using isolates: create outlet in main thread
+    //   _outletResource = await lslTransport.createOutlet(streamInfo: streamInfo);
+    // }
 
     _created = true;
 
@@ -369,9 +377,22 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
   }
 
   @override
-  Future<void> updateManager(IResourceManager? newManager) async {
-    if (_manager == newManager) return;
-    _manager?.releaseResource(uId);
+  void updateManager(IResourceManager? newManager) {
+    if (_disposed) {
+      throw StateError('Resource has been disposed');
+    }
+    if (_manager == newManager) {
+      logger.finest(
+        'Resource manager is already set to ${newManager?.name} (${newManager?.uId})',
+      );
+      return;
+    }
+    if (_manager != null && newManager != null) {
+      throw StateError(
+        'Resource is already managed by ${_manager!.name} (${_manager!.uId}) '
+        'please release it before assigning a new manager',
+      );
+    }
     _manager = newManager;
   }
 
@@ -380,21 +401,23 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
   bool hasInletForSource(String sourceId) {
     if (useIsolates) {
       // When using isolates, check StreamInfo list
-      return _inletStreamInfos.any((streamInfo) => streamInfo.sourceId == sourceId);
+      return _inletStreamInfos.any(
+        (streamInfo) => streamInfo.sourceId == sourceId,
+      );
     } else {
       // When not using isolates, check inlet resources
-      return _inletResources.any((inletResource) => 
-        inletResource.inlet.streamInfo.sourceId == sourceId);
+      return _inletResources.any(
+        (inletResource) => inletResource.inlet.streamInfo.sourceId == sourceId,
+      );
     }
   }
 
   Future<void> addInlet(LSLStreamInfo streamInfo) async {
-    if (!_created) throw StateError('Stream not created');
     if (_disposed) return;
 
     if (useIsolates) {
       _inletStreamInfos.add(streamInfo);
-      
+
       // Create inlet isolate if it doesn't exist
       if (_inletIsolate == null) {
         _inletIsolate = IsolateStreamManager.createInletIsolate(
@@ -403,10 +426,11 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
           useBusyWaitInlets: useBusyWaitInlets,
           useBusyWaitOutlets: useBusyWaitOutlets,
           pollingInterval: _getPollingInterval(),
-          initialInletAddresses: _inletStreamInfos.map((info) => info.streamInfo.address).toList(),
+          initialInletAddresses:
+              _inletStreamInfos.map((info) => info.streamInfo.address).toList(),
         );
         await _inletIsolate!.create();
-        
+
         // Listen to incoming data from inlet isolate
         _inletIsolate!.incomingData.listen((dataMessage) {
           final message = _createMessageFromIsolateData(dataMessage);
@@ -414,7 +438,7 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
             _incomingController.add(message);
           }
         });
-        
+
         // Start the inlet isolate if the stream is already started
         if (_started) {
           await _inletIsolate!.start();
@@ -569,7 +593,7 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
       inletResource.dispose();
     }
     _inletResources.clear();
-    
+
     // Dispose StreamInfos (main thread's responsibility)
     for (final streamInfo in _inletStreamInfos) {
       streamInfo.destroy();
@@ -580,6 +604,108 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
     await _outgoingController.close();
 
     _disposed = true;
+  }
+
+  /// Call this if the stream configuration changes and you need to
+  /// recreate the outlet with updated settings (so other nodes can see changes)
+  /// Be careful, because it will cause issues if there are inlets connected
+  /// to the old outlet.
+  Future<void> recreateOutlet() async {
+    if (_disposed) {
+      throw StateError('Cannot recreate outlet of disposed stream');
+    }
+    if (_outletResource == null && _outletIsolate == null) {
+      throw StateError('No outlet to recreate');
+    }
+
+    // Create stream info using existing configuration
+    final streamInfo = await LSLStreamInfoHelper.createStreamInfo(
+      config: config,
+      sessionConfig: streamSessionConfig,
+      node: streamNode,
+    );
+
+    logger.info(
+      'Recreating outlet for stream ${config.name} with streminfo: $streamInfo',
+    );
+
+    if (useIsolates && _outletIsolate != null) {
+      // Recreate outlet in isolate
+      return await _outletIsolate!.recreateOutlet(
+        streamInfo.streamInfo.address,
+      );
+    } else if (_outletResource != null) {
+      // Recreate outlet in main thread
+      // @TODO: implement recreateOutlet in OutletResource
+      // return _outletResource!.recreateOutlet();
+    } else {
+      throw StateError('No outlet to recreate');
+    }
+  }
+
+  /// Create an outlet for this stream using the existing configuration
+  /// No arguments needed - uses stream config and node metadata
+  Future<void> createOutlet() async {
+    if (_outletResource != null || _outletIsolate != null) {
+      logger.fine('Outlet already exists for stream ${config.name}');
+      return;
+    }
+
+    logger.info('Creating outlet for stream ${config.name}');
+
+    // Create stream info using existing configuration
+    final streamInfo = await LSLStreamInfoHelper.createStreamInfo(
+      config: config,
+      sessionConfig: streamSessionConfig,
+      node: streamNode,
+    );
+
+    if (useIsolates) {
+      // Create outlet isolate
+      logger.info(
+        '[${streamNode.id}] Creating outlet isolate for stream ${config.name} ',
+      );
+      _outletIsolate = StreamOutletIsolate(
+        streamId: id,
+        dataType: config.dataType,
+        pollingInterval: _getPollingInterval(),
+        outletAddress: streamInfo.streamInfo.address,
+        channelCount: config.channels,
+        sampleRate: config.sampleRate,
+        useBusyWaitInlets: useBusyWaitInlets,
+        useBusyWaitOutlets: useBusyWaitOutlets,
+      );
+      logger.info('[${streamNode.id}] running create()');
+      await _outletIsolate!.create();
+      logger.info('[${streamNode.id}] create() completed, listening');
+      // Connect outgoing messages to isolate
+      _outgoingController.stream.listen((message) async {
+        if (!_disposed && _outletIsolate != null) {
+          final sampleData = _createSampleFromMessage(message);
+          await _outletIsolate!.sendData(sampleData);
+        }
+      });
+      logger.info('[${streamNode.id}] starting isolate');
+      await _outletIsolate!.start();
+      logger.info('Outlet isolate for stream ${config.hashCode} started');
+    } else {
+      // Create outlet resource directly
+      _outletResource = await lslTransport.createOutlet(streamInfo: streamInfo);
+
+      // Connect outgoing messages to outlet
+      _outgoingController.stream.listen((message) async {
+        if (!_disposed && _outletResource != null) {
+          final sampleData = _createSampleFromMessage(message);
+          try {
+            _outletResource!.outlet.pushSample(sampleData);
+          } catch (e) {
+            logger.warning('Failed to send message: $e');
+          }
+        }
+      });
+
+      logger.info('Created outlet for stream ${config.name}');
+    }
   }
 }
 

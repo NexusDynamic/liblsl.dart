@@ -1,3 +1,4 @@
+import 'package:meta/meta.dart';
 import 'package:uuid/uuid.dart';
 export 'package:uuid/uuid.dart';
 
@@ -44,8 +45,9 @@ mixin RuntimeTypeUID on IUniqueIdentity {
 
 /// Mixin for per-instance unique IDs
 mixin InstanceUID implements IUniqueIdentity {
-  String? _uId;
+  @protected
+  String? shadowUId;
 
   @override
-  String get uId => _uId ??= generateUid();
+  String get uId => shadowUId ??= generateUid();
 }

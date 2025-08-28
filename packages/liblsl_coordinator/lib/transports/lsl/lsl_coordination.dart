@@ -61,7 +61,7 @@ class LSLResource with InstanceUID implements IResource {
   }
 
   @override
-  FutureOr<void> updateManager(IResourceManager? newManager) async {
+  void updateManager(IResourceManager? newManager) {
     if (_disposed) {
       throw StateError('Resource has been disposed');
     }
@@ -71,7 +71,7 @@ class LSLResource with InstanceUID implements IResource {
       );
       return;
     }
-    if (_manager != null) {
+    if (_manager != null && newManager != null) {
       throw StateError(
         'Resource is already managed by ${_manager!.name} (${_manager!.uId}) '
         'please release it before assigning a new manager',
@@ -100,6 +100,53 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
   /// @TODO: properly implement
   final Map<String, IResource> _resources = {};
 
+  // Coordination state
+  bool _isCoordinator = false;
+  final List<Node> _connectedNodes = [];
+  String? _coordinatorUId;
+  Timer? _coordinatorHeartbeatTimer;
+  Timer? _heartbeatTimer;
+
+  // LSL resources for coordination
+  LSLCoordinationStream? _coordinationStream;
+  LSLOutlet? _coordinationOutlet;
+  LSLInlet? _coordinationInlet;
+  LslDiscovery? _discovery;
+  Timer? _discoveryTimer;
+  Timer? _coordinationPollTimer;
+
+  final HierarchicalTopology _topology;
+
+  // Stream controllers for events
+  final StreamController<CoordinationEvent> _coordinationEventsController =
+      StreamController<CoordinationEvent>.broadcast();
+  final StreamController<UserEvent> _userEventsController =
+      StreamController<UserEvent>.broadcast();
+
+  Stream<CoordinationEvent> get coordinationEvents =>
+      _coordinationEventsController.stream;
+  Stream<UserEvent> get userEvents => _userEventsController.stream;
+
+  StreamSubscription<StringMessage>? _coordinationStreamSubscription;
+
+  bool get isCoordinator => _isCoordinator;
+  List<Node> get connectedNodes => List.unmodifiable(_connectedNodes);
+  String? get coordinatorUId => _coordinatorUId;
+
+  /// The LSL transport used for communication.
+  final LSLTransport _transport;
+
+  final Map<String, StreamSubscription> _dataDiscoverySubscriptions = {};
+
+  final Map<String, Timer> _dataDiscoveryTimers = {};
+
+  @override
+  LSLTransport get transport => _transport;
+
+  Timer? _coordinatorCheckTimer;
+  bool get coordinationEstablished => _coordinationEstablished;
+  bool _coordinationEstablished = false;
+
   /// Creates a new LSL coordination session with the given configuration.
   /// If no configuration is provided, anthe default configuration is used.
   LSLCoordinationSession(super.config)
@@ -109,16 +156,10 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
                 config: config.transportConfig as LSLTransportConfig,
               )
               : LSLTransport(),
+      _topology = HierarchicalTopology(
+        config: config.topologyConfig as HierarchicalTopologyConfig,
+      ),
       super();
-
-  /// The LSL transport used for communication.
-  final LSLTransport _transport;
-
-  @override
-  LSLTransport get transport => _transport;
-
-  Map<String, StreamSubscription> _dataDiscoverySubscriptions = {};
-  Map<String, Timer> _dataDiscoveryTimers = {};
 
   @override
   Future<void> manageResource<R extends IResource>(R resource) async {
@@ -130,9 +171,13 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
   Future<R> releaseResource<R extends IResource>(String resourceUID) async {
     // for now, remove from the map, but we should proxy
     final resource = _resources.remove(resourceUID);
+
     if (resource == null) {
       throw StateError('Resource with UID $resourceUID not found');
     }
+
+    await resource.updateManager(null);
+
     return resource as R;
   }
 
@@ -145,10 +190,6 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
   Future<void> create() async {
     logger.info('Creating LSL coordination session ${config.name}');
     super.create();
-    await _transport.createStream(
-      coordinationConfig.streamConfig,
-      coordinationSession: this,
-    );
   }
 
   @override
@@ -160,6 +201,22 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
       await leave();
     }
     logger.info('Disposing LSL coordination session ${config.name}');
+
+    // Dispose coordination stream first
+    if (_coordinationStream != null) {
+      await _coordinationStreamSubscription?.cancel();
+      await _coordinationStream!.dispose();
+      _coordinationStream = null;
+    }
+    _coordinationStreamSubscription = null;
+    _coordinationOutlet = null;
+    await _disposeResources();
+
+    super.dispose();
+    logger.info('Disposed LSL coordination session ${config.name}');
+  }
+
+  Future<void> _disposeResources() async {
     final List<Future> releaseFutures = [];
     for (var resource in _resources.values.toList()) {
       final r = await resource.manager?.releaseResource(resource.uId);
@@ -175,37 +232,7 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
     }
     await Future.wait(releaseFutures);
     _resources.clear();
-    super.dispose();
-    logger.info('Disposed LSL coordination session ${config.name}');
   }
-
-  // Coordination state
-  bool _isCoordinator = false;
-  final List<Node> _connectedNodes = [];
-  String? _coordinatorId;
-  Timer? _coordinatorHeartbeatTimer;
-  Timer? _heartbeatTimer;
-
-  // LSL resources for coordination
-  LSLOutlet? _coordinationOutlet;
-  LSLInlet? _coordinationInlet;
-  LslDiscovery? _discovery;
-  Timer? _discoveryTimer;
-  Timer? _coordinationPollTimer;
-
-  // Stream controllers for events
-  final StreamController<CoordinationEvent> _coordinationEventsController =
-      StreamController<CoordinationEvent>.broadcast();
-  final StreamController<UserEvent> _userEventsController =
-      StreamController<UserEvent>.broadcast();
-
-  Stream<CoordinationEvent> get coordinationEvents =>
-      _coordinationEventsController.stream;
-  Stream<UserEvent> get userEvents => _userEventsController.stream;
-
-  bool get isCoordinator => _isCoordinator;
-  List<Node> get connectedNodes => List.unmodifiable(_connectedNodes);
-  String? get coordinatorId => _coordinatorId;
 
   /// Initialize with enhanced multi-app discovery
   @override
@@ -213,8 +240,8 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
     logger.info('Initializing LSL coordination session ${config.name}');
     // Set up transport
     await _transport.initialize();
+    logger.finest('Creating LSL transport for session ${config.name}');
     await _transport.create();
-    await super.initialize();
 
     // Add unique session identifier to node metadata
     thisNode.setMetadata('sessionId', config.name);
@@ -222,9 +249,80 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
     thisNode.setMetadata('randomRoll', Random().nextDouble().toString());
     thisNode.setMetadata('nodeStartedAt', DateTime.now().toIso8601String());
 
+    await super.initialize();
+
+    // Create coordination stream and add immediate outlet with "none" role
+    await _createCoordinationStream();
+
     // Create enhanced discovery with session-specific predicates
     await _setupDiscovery();
     logger.info('Initialized LSL coordination session ${config.name}');
+  }
+
+  /// Create coordination stream and add immediate outlet with "none" role for discoverability
+  Future<void> _createCoordinationStream() async {
+    logger.info('Creating coordination stream for session ${config.name}');
+
+    // Create the coordination stream using the transport
+    _coordinationStream =
+        await _transport.createStream(
+              coordinationConfig.streamConfig,
+              coordinationSession: this,
+            )
+            as LSLCoordinationStream;
+
+    // Create an outlet for the coordination stream so other nodes can discover it
+    logger.info('[${thisNode.id}] Creating outlet for coordination stream');
+    await _coordinationStream!.createOutlet();
+
+    logger.info('[${thisNode.id}] Starting coordination stream');
+    await _coordinationStream!.start();
+
+    // Start heartbeat immediately on the coordination stream
+
+    await _startCoordinationHeartbeat();
+
+    logger.info(
+      '[${thisNode.id}] Created coordination stream with heartbeat for session ${config.name}',
+    );
+  }
+
+  /// Start coordination heartbeat on the coordination stream
+  Future<void> _startCoordinationHeartbeat() async {
+    if (_coordinationStream == null) return;
+
+    // Cancel existing heartbeat timer if any
+    _heartbeatTimer?.cancel();
+
+    // Send initial heartbeat immediately
+    await _sendCoordinationHeartbeat();
+
+    // Start periodic heartbeat
+    _heartbeatTimer = Timer.periodic(config.heartbeatInterval, (_) async {
+      await _sendCoordinationHeartbeat();
+    });
+
+    logger.fine(
+      'Started coordination heartbeat every ${config.heartbeatInterval.inSeconds}s',
+    );
+  }
+
+  /// Send heartbeat message on coordination stream
+  Future<void> _sendCoordinationHeartbeat() async {
+    if (_coordinationStream == null) return;
+
+    logger.finest('Sending coordination heartbeat from node ${thisNode.id}');
+
+    final heartbeatMessage = MessageFactory.stringMessage(
+      data: ['heartbeat'],
+      channels: 1,
+      timestamp: DateTime.now(),
+    );
+
+    // Send asynchronously to avoid blocking
+    await _coordinationStream!.sendMessage(heartbeatMessage).catchError((e) {
+      logger.warning('Failed to send coordination heartbeat: $e');
+    });
   }
 
   /// Set up enhanced discovery for multi-app coordination
@@ -234,7 +332,7 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
     final discovery = LslDiscovery(
       streamConfig: coordinationConfig.streamConfig,
       coordinationConfig: coordinationConfig,
-      id: 'enhanced-discovery-${thisNode.id}',
+      id: 'discovery-${thisNode.id}',
     );
 
     await discovery.create();
@@ -244,9 +342,6 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
     _discovery = discovery;
     logger.info('Discovery set up for session ${config.name}');
   }
-
-  Timer? _coordinatorCheckTimer;
-  bool _coordinationEstablished = false;
 
   /// join with robust coordinator election
   @override
@@ -266,35 +361,78 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
     logger.info('Starting coordinator election for session ${config.name}');
     if (_discovery == null) return;
 
-    // Build predicate for finding coordinators in the same session
-    // Use clean stream name and metadata filtering
-    final sessionPredicate = LSLStreamInfoHelper.generatePredicate(
-      streamNamePrefix: 'coordination', // Clean stream name prefix
-      sessionName: config.name, // Filter by session in metadata
-      nodeRole: 'coordinator', // Filter by role in metadata
+    // Use the unified election predicate that looks for coordinators OR better candidates
+    final topologyConfig =
+        coordinationConfig.topologyConfig as HierarchicalTopologyConfig;
+    final strategy = topologyConfig.promotionStrategy;
+    final isRandomStrategy = strategy is PromotionStrategyRandom;
+
+    final myRandomRoll =
+        isRandomStrategy
+            ? double.parse(thisNode.metadata['randomRoll'] ?? '1.0')
+            : null;
+    final myStartTime =
+        !isRandomStrategy ? thisNode.metadata['nodeStartedAt'] : null;
+
+    logger.info(
+      'Election: My random roll: $myRandomRoll, My start time: $myStartTime',
     );
+
+    // Election predicate
+    final electionPredicate = LSLStreamInfoHelper.generateElectionPredicate(
+      streamName: coordinationConfig.streamConfig.name,
+      sessionName: config.name,
+      excludeSourceIdPrefix: thisNode.id, // Don't find ourselves
+      isRandomStrategy: isRandomStrategy,
+      myRandomRoll: myRandomRoll,
+      myStartTime: myStartTime,
+    );
+
+    logger.info('Election predicate: $electionPredicate');
 
     // Listen for discovery events
     final completer = Completer<void>();
-    StreamSubscription<DiscoveryEvent>? subscription;
 
-    subscription = _discovery!.events.listen((event) {
-      if (event is StreamDiscoveredEvent) {
-        _handleStreamDiscovery(event, completer);
-      } else if (event is DiscoveryTimeoutEvent) {
-        _handleDiscoveryTimeout(event, completer);
-      }
-    });
-
-    // Start discovery with reasonable timeout
-    _discovery!.startDiscovery(
-      predicate: sessionPredicate,
-      timeout: Duration(seconds: 3), // Quick initial check
-    );
+    LslDiscovery.discoverOnceByPredicate(
+          electionPredicate,
+          timeout: config.discoveryInterval * 3,
+          maxStreams: 1,
+        )
+        .then((List<LSLStreamInfo> streamInfos) {
+          if (streamInfos.isNotEmpty) {
+            // Found coordinator or better candidate - become participant
+            logger.info(
+              'Election: Found ${streamInfos.length} better candidates, becoming participant',
+            );
+            // coordinatorStream = event.streams.first;
+            _becomeParticipant(streamInfos.first).then((_) {
+              if (!completer.isCompleted) {
+                completer.complete();
+              }
+            });
+          } else {
+            // No coordinators or better candidates found - become coordinator
+            logger.info(
+              'Election: No better candidates found, becoming coordinator',
+            );
+            _becomeCoordinator().then((_) {
+              if (!completer.isCompleted) {
+                completer.complete();
+              }
+            });
+          }
+        })
+        .catchError((e) {
+          logger.warning('Election discovery error: $e');
+          _becomeCoordinator().then((_) {
+            if (!completer.isCompleted) {
+              completer.complete();
+            }
+          });
+        });
 
     // Wait for coordination to be established
     await completer.future;
-    subscription.cancel();
 
     _coordinationEstablished = true;
 
@@ -313,202 +451,92 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
     logger.info('Coordinator election completed for session ${config.name}');
   }
 
-  void _handleStreamDiscovery(
-    StreamDiscoveredEvent event,
-    Completer<void> completer,
-  ) {
-    if (event.streams.isEmpty) return;
-
-    // Found existing coordinator(s)
-    final coordinatorStreams =
-        event.streams
-            .where((s) => s.streamInfo.sourceId.contains('Coordinator'))
-            .toList();
-
-    if (coordinatorStreams.isNotEmpty) {
-      // Join the first valid coordinator
-      final coordinator = coordinatorStreams.first;
-
-      // Verify it's for our session
-      _joinAsNode(coordinator.streamInfo).then((_) {
-        if (!completer.isCompleted) {
-          completer.complete();
-        }
-      });
+  /// Become a participant in the coordination session
+  Future<void> _becomeParticipant(LSLStreamInfo coordinatorStream) async {
+    logger.info('Becoming participant for session ${config.name}');
+    _isCoordinator = false;
+    final completer = Completer<void>();
+    // Update this node's role to participant
+    updateThisNode(thisNode.asParticipant);
+    // Recreate coordination outlet with new "participant" role prefix
+    if (_coordinationStream != null) {
+      await _coordinationStream!.recreateOutlet();
+      logger.info('Recreated coordination outlet as participant');
     }
-  }
-
-  void _handleDiscoveryTimeout(
-    DiscoveryTimeoutEvent event,
-    Completer<void> completer,
-  ) async {
-    // No coordinator found - check if we should become one
-    final shouldBecome = await _shouldBecomeCoordinator();
-
-    if (shouldBecome) {
-      await _becomeCoordinator();
-      if (!completer.isCompleted) {
-        completer.complete();
-      }
-    } else {
-      // Keep waiting for a coordinator
-      _discovery!.startDiscovery(
-        predicate: event.predicate,
-        timeout: Duration(seconds: 10), // Longer wait
-      );
-    }
-  }
-
-  /// coordinator eligibility check
-  Future<bool> _shouldBecomeCoordinator() async {
-    // Check for other potential coordinators in the session
-    // Use clean stream name and session metadata filtering
-    final predicate = LSLStreamInfoHelper.generatePredicate(
-      streamNamePrefix: 'coordination', // Clean stream name
-      sessionName: config.name, // Filter by session in metadata
+    // Extract coordinator UID from stream info
+    final sourceInfo = LSLStreamInfoHelper.parseSourceId(
+      coordinatorStream.sourceId,
     );
+    _coordinatorUId = sourceInfo[LSLStreamInfoHelper.nodeUIdKey]!;
 
-    final streams = await LslDiscovery.discoverOnceByPredicate(predicate);
-
-    // Filter for nodes that could become coordinator
-    final candidates =
-        streams.where((s) {
-          // Parse metadata if available
-          try {
-            return s.sourceId != thisNode.id;
-          } catch (_) {
-            return false;
+    LslDiscovery.discoverOnceByPredicate(
+          LSLStreamInfoHelper.generatePredicate(
+            sessionName: config.name,
+            nodeUId: _coordinatorUId,
+            nodeRole: NodeCapability.coordinator.shortString,
+          ),
+          timeout: Duration(
+            seconds: config.discoveryInterval.inSeconds * 3 * 3,
+          ),
+          maxStreams: 1,
+        )
+        .then((List<LSLStreamInfo> streamInfos) async {
+          if (streamInfos.isNotEmpty) {
+            final coordinatorStreamInfo = streamInfos.first;
+            await _coordinationStream?.addInlet(coordinatorStreamInfo);
+            _coordinationStreamSubscription?.cancel();
+            _coordinationStreamSubscription = _coordinationStream?.inbox.listen(
+              (StringMessage message) {
+                _handleCoordinationMessage(message.data.first);
+              },
+            );
+            logger.info('Created inlet for coordinator coordination stream');
+            if (!completer.isCompleted) {
+              completer.complete();
+            }
+          } else {
+            throw StateError('Failed to discover coordinator stream');
           }
-        }).toList();
+        })
+        .catchError((e) {
+          logger.warning(
+            'Timeout discovering coordinator stream, retrying... $e',
+          );
+          throw StateError('Failed to discover coordinator stream: $e');
+        });
 
-    // Clean up stream infos
-    for (final stream in streams) {
-      stream.destroy();
-    }
+    await completer.future;
 
-    if (candidates.isEmpty) {
-      // No other candidates - we should become coordinator
-      return true;
-    }
-
-    // Use promotion strategy to determine if we should become coordinator
-    final topologyConfig =
-        coordinationConfig.topologyConfig as HierarchicalTopologyConfig;
-    final strategy = topologyConfig.promotionStrategy;
-
-    if (strategy is PromotionStrategyRandom) {
-      // Use predicate-based election - no resource creation needed!
-      final shouldYield = await _checkElectionWithPredicate(isRandomStrategy: true);
-      return !shouldYield; // Invert: if we should yield, we should NOT become coordinator
-    } else if (strategy is PromotionStrategyFirst) {
-      // Use predicate-based election for first strategy
-      final shouldYield = await _checkElectionWithPredicate(isRandomStrategy: false);
-      return !shouldYield; // Invert: if we should yield, we should NOT become coordinator
-    }
-
-    return true; // Default to becoming coordinator
-  }
-
-  /// Check election using LSL predicates to avoid creating temporary resources
-  Future<bool> _checkElectionWithPredicate({
-    required bool isRandomStrategy,
-  }) async {
-    final sessionName = config.name;
-    final streamName = coordinationConfig.streamConfig.name;
-
-    // Build election predicate that checks for coordinators OR better candidates
-    final myRandomRoll = isRandomStrategy 
-        ? double.parse(thisNode.metadata['randomRoll'] ?? '1.0')
-        : null;
-    final myStartTime = !isRandomStrategy
-        ? thisNode.metadata['nodeStartedAt']
-        : null;
-        
-    logger.info('Election: My random roll: $myRandomRoll, My start time: $myStartTime');
-    
-    final predicate = LSLStreamInfoHelper.generateElectionPredicate(
-      streamName: streamName,
-      sessionName: sessionName,
-      excludeSourceIdPrefix: thisNode.id, // Don't find ourselves
-      isRandomStrategy: isRandomStrategy,
-      myRandomRoll: myRandomRoll,
-      myStartTime: myStartTime,
+    // Emit coordination event
+    _coordinationEventsController.add(
+      CoordinationEvent(
+        id: 'role_changed',
+        description: 'Node became participant',
+        metadata: {
+          'nodeId': thisNode.id,
+          'newRole': 'participant',
+          'coordinatorId': _coordinatorUId ?? 'unknown',
+        },
+      ),
     );
 
-    logger.fine('Checking election with predicate: $predicate');
-
-    // Use discovery to check for better candidates without creating inlets
-    final results = await LslDiscovery.discoverOnceByPredicate(
-      predicate,
-      timeout: config.discoveryInterval,
-    );
-
-    // If any results found, we lost the election
-    final shouldYieldElection = results.isNotEmpty;
-
-    if (shouldYieldElection) {
-      logger.info(
-        'Election: Found ${results.length} better candidates, yielding election',
-      );
-    } else {
-      logger.info('Election: No better candidates found, winning election');
-    }
-
-    return shouldYieldElection;
+    logger.info('Became participant for session ${config.name}');
   }
 
   Future<void> _becomeCoordinator() async {
     logger.info('Becoming coordinator for session ${config.name}');
     _isCoordinator = true;
-    _coordinatorId = thisNode.id;
+    _coordinatorUId = thisNode.uId;
     updateThisNode(thisNode.asCoordinator);
+    _topology.addNode(thisNode);
 
-    // Create enhanced coordination outlet
-    final streamInfo = await LSLStreamInfoHelper.createStreamInfo(
-      config: coordinationConfig.streamConfig,
-      sessionConfig: config,
-      node: thisNode,
-    );
-
-    _coordinationOutlet = await LSL.createOutlet(
-      streamInfo: streamInfo,
-      useIsolates: false, // Coordination doesn't need isolates
-    );
+    /// close the previous outlet
+    await _coordinationStream?.recreateOutlet();
 
     // Start coordinator services
     _startCoordinatorServices();
 
     logger.info('Became coordinator for session ${config.name}');
-  }
-
-  Future<void> _joinAsNode(LSLStreamInfo coordinatorStream) async {
-    logger.info('Joining as node to coordinator for session ${config.name}');
-    _isCoordinator = false;
-    updateThisNode(thisNode.asParticipant);
-
-    // Create inlet to coordinator with metadata support
-    _coordinationInlet = await LSL.createInlet<String>(
-      streamInfo: coordinatorStream,
-      includeMetadata: true,
-      useIsolates: false, // Coordination doesn't need isolates
-    );
-
-    // Create our outlet for responses
-    final streamInfo = await LSLStreamInfoHelper.createStreamInfo(
-      config: coordinationConfig.streamConfig,
-      sessionConfig: config,
-      node: thisNode,
-    );
-
-    _coordinationOutlet = await LSL.createOutlet(
-      streamInfo: streamInfo,
-      useIsolates: false,
-    );
-
-    // Start listening to coordinator
-    _startNodeServices();
-
-    logger.info('Joined coordinator for session ${config.name}');
   }
 
   void _startCoordinatorServices() {
@@ -528,46 +556,19 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
     });
   }
 
-  void _startNodeServices() {
-    logger.info('Starting node services for session ${config.name}');
-    // Start heartbeat to coordinator
-    _startHeartbeat();
-
-    // Listen to coordinator messages
-    _coordinationPollTimer?.cancel();
-    _coordinationPollTimer = Timer.periodic(
-      Duration(
-        milliseconds:
-            (1 / _transport.config.coordinationFrequency * 1000).round(),
-      ),
-      (_) async {
-        if (_coordinationInlet == null) return;
-
-        try {
-          final sample = await _coordinationInlet!.pullSample(timeout: 0.0);
-          if (sample.isNotEmpty) {
-            _handleCoordinationMessage(sample.data[0] as String);
-          }
-        } catch (e) {
-          logger.warning('Error receiving coordination message: $e');
-        }
-      },
-    );
-    logger.info('Started node services for session ${config.name}');
-  }
-
   void _broadcastCoordinatorHeartbeat() {
-    if (_coordinationOutlet == null) return;
+    if (_coordinationStream == null) return;
 
-    final heartbeat = {
-      'type': 'coordinator_heartbeat',
-      'coordinatorId': thisNode.id,
-      'sessionId': config.name,
-      'timestamp': DateTime.now().toIso8601String(),
-      'connectedNodes': _connectedNodes.length,
-    };
+    final heartbeat =
+        {
+          'type': 'coordinator_heartbeat',
+          'coordinatorId': thisNode.id,
+          'sessionId': config.name,
+          'timestamp': DateTime.now().toIso8601String(),
+          'connectedNodes': _connectedNodes.length,
+        }.toStringMessage();
 
-    _coordinationOutlet!.pushSample([jsonEncode(heartbeat)]);
+    _coordinationStream!.outbox.add(heartbeat);
   }
 
   void _sendNodeHeartbeat() {
@@ -628,7 +629,7 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
   }
 
   void _updateCoordinatorStatus(Map<String, dynamic> message) {
-    _coordinatorId = message['coordinatorId'] as String?;
+    _coordinatorUId = message['coordinatorUId'] as String?;
     // Reset coordinator check timer
     _coordinatorCheckTimer?.cancel();
     _coordinatorCheckTimer = Timer(
@@ -695,12 +696,12 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
   }
 
   void _startCoordinatorHealthCheck() {
-    Timer.periodic(config.nodeTimeout, (_) {
-      if (!_isCoordinator && _coordinatorCheckTimer == null) {
-        // No heartbeat received - coordinator might be down
-        _handleCoordinatorTimeout();
-      }
-    });
+    // Timer.periodic(config.nodeTimeout, (_) {
+    //   if (!_isCoordinator && _coordinatorCheckTimer == null) {
+    //     // No heartbeat received - coordinator might be down
+    //     _handleCoordinatorTimeout();
+    //   }
+    // });
   }
 
   /// Create enhanced data stream with isolate support
@@ -753,7 +754,7 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
         return _isCoordinator;
       case StreamParticipationMode.allNodes:
         return true; // Everyone receives data
-      case StreamParticipationMode.sendAll_receiveCoordinator:
+      case StreamParticipationMode.sendAllReceiveCoordinator:
         return _isCoordinator;
       case StreamParticipationMode.custom:
         // TODO: Implement custom logic based on node configuration
@@ -771,7 +772,7 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
       case StreamParticipationMode.allNodes:
         // Fully connected - everyone should receive from everyone INCLUDING themselves
         return false;
-      case StreamParticipationMode.sendAll_receiveCoordinator:
+      case StreamParticipationMode.sendAllReceiveCoordinator:
         // Default hierarchical - only coordinator receives, including own streams
         return !_isCoordinator;
       case StreamParticipationMode.custom:
@@ -946,6 +947,8 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
     _coordinatorHeartbeatTimer?.cancel();
     _coordinatorCheckTimer?.cancel();
     _coordinationPollTimer?.cancel();
+
+    _coordinationStreamSubscription?.cancel();
 
     // Stop all data discovery subscriptions and timers
     _dataDiscoverySubscriptions.forEach((_, sub) => sub.cancel());

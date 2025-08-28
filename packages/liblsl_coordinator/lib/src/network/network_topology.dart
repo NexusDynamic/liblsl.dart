@@ -5,7 +5,7 @@ import 'package:liblsl_coordinator/network.dart';
 /// Currently, only hierarchical topology is supported.
 enum TopologyType { hierarchical }
 
-enum NodeRole { peer, coordinator, client }
+// enum NodeRole { peer, coordinator, client }
 
 abstract class TopologyConfig implements IConfig {
   int get maxNodes;
@@ -18,18 +18,18 @@ abstract class NetworkTopology<T extends TopologyConfig>
 
   /// Adds a node to the network topology.
   void addNode(Node node) {
-    if (_nodes.containsKey(node.id)) {
-      throw ArgumentError('Node with id ${node.id} already exists');
+    if (_nodes.containsKey(node.uId)) {
+      throw ArgumentError('Node with id ${node.uId} already exists');
     }
     _nodes[node.id] = node;
   }
 
   /// Removes a node from the network topology.
-  void removeNode(String nodeId) {
-    if (!_nodes.containsKey(nodeId)) {
-      throw ArgumentError('Node with id $nodeId does not exist');
+  void removeNode(String nodeUId) {
+    if (!_nodes.containsKey(nodeUId)) {
+      throw ArgumentError('Node with id $nodeUId does not exist');
     }
-    _nodes.remove(nodeId);
+    _nodes.remove(nodeUId);
   }
 
   /// Convenience method to add multiple nodes to the network topology.
@@ -40,10 +40,24 @@ abstract class NetworkTopology<T extends TopologyConfig>
   }
 
   /// Convenience method to remove multiple nodes from the network topology.
-  void removeNodes(Iterable<String> nodeIds) {
-    for (String nodeId in nodeIds) {
-      removeNode(nodeId);
+  void removeNodes(Iterable<String> nodeUIds) {
+    for (String nodeUId in nodeUIds) {
+      removeNode(nodeUId);
     }
+  }
+
+  /// nodes with capability
+  List<Node> nodesWithCapability(NodeCapability capabaility) {
+    return _nodes.values.where((node) {
+      return node.capabilities.contains(capabaility);
+    }).toList();
+  }
+
+  /// nodes with role
+  List<Node> nodesWithRole(NodeCapability role) {
+    return _nodes.values.where((node) {
+      return node.role == role.shortString;
+    }).toList();
   }
 }
 

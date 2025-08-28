@@ -3,8 +3,18 @@ import 'dart:async';
 import 'package:liblsl/lsl.dart';
 import 'package:liblsl_coordinator/liblsl_coordinator.dart';
 import 'package:liblsl_coordinator/transports/lsl.dart';
-import 'package:liblsl_coordinator/src/events.dart';
 import 'package:synchronized/synchronized.dart';
+
+/// Discovery events for stream resolution
+class DiscoveryEvent extends CoordinationEvent {
+  DiscoveryEvent({
+    required super.id,
+    required super.description,
+    String? name,
+    super.timestamp,
+    super.metadata,
+  }) : super(name: name ?? 'discovery-event-$id');
+}
 
 extension StreamDestroyMapExtension on Map<String, StreamInfoResource> {
   /// Destroys all StreamInfo resources in the map
@@ -170,13 +180,13 @@ class LslDiscovery extends LSLResource implements IPausable, IResourceManager {
 
   @override
   R releaseResource<R extends IResource>(String resourceUId) {
-    if (_discoveredStreams.containsKey(resourceUId)) {
-      final resource = _discoveredStreams.remove(resourceUId)!;
-      resource.updateManager(null);
-      return resource as R;
-    } else {
+    final resource = _discoveredStreams.remove(resourceUId);
+
+    if (resource == null) {
       throw ArgumentError('Resource with id $resourceUId not found');
     }
+    resource.updateManager(null);
+    return resource as R;
   }
 
   /// Ensures that the resource is created before performing operations.
@@ -204,7 +214,7 @@ class LslDiscovery extends LSLResource implements IPausable, IResourceManager {
     if (_currentPredicate != predicate || _resolver == null) {
       stopDiscovery();
       _currentPredicate = predicate;
-
+      logger.finest('Creating new resolver for predicate: $predicate');
       _resolver = LSLStreamResolverContinuousByPredicate(
         predicate: predicate,
         maxStreams: maxStreams ?? coordinationConfig.topologyConfig.maxNodes,
@@ -229,8 +239,14 @@ class LslDiscovery extends LSLResource implements IPausable, IResourceManager {
     _startContinuousDiscovery();
   }
 
+  /// no-op if no timeout is active
+  void cancelTimeout() {
+    _timeoutTimer?.cancel();
+    _timeoutTimer = null;
+  }
+
   /// Starts continuous discovery that emits events when streams are found
-  void _startContinuousDiscovery() {
+  Future<void> _startContinuousDiscovery() async {
     if (_resolver == null) return;
 
     _discoveryInterval?.cancel();
@@ -241,6 +257,7 @@ class LslDiscovery extends LSLResource implements IPausable, IResourceManager {
         await _performContinuousDiscovery();
       },
     );
+    await _performContinuousDiscovery();
   }
 
   void stopDiscovery() {
@@ -274,6 +291,9 @@ class LslDiscovery extends LSLResource implements IPausable, IResourceManager {
           );
         }
 
+        // Update internal list
+        _discoveredStreams.addAllStreamInfos(newStreams, manager: this);
+
         // Check if we found new streams
         if (newStreams.isNotEmpty) {
           // Cancel timeout since we found streams
@@ -283,17 +303,11 @@ class LslDiscovery extends LSLResource implements IPausable, IResourceManager {
           // Emit discovery event
           _eventController.add(
             StreamDiscoveredEvent(
-              streams: StreamInfoResource.fromStreamInfos(
-                newStreams,
-                manager: this,
-              ),
+              streams: _discoveredStreams.values.toList(growable: false),
               predicate: _currentPredicate!,
             ),
           );
         }
-
-        // Update internal list
-        _discoveredStreams.addAllStreamInfos(newStreams, manager: this);
       } catch (e) {
         // Handle discovery errors gracefully
         logger.warning('Discovery error for predicate $_currentPredicate: $e');

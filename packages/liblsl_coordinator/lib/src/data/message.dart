@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:liblsl_coordinator/data.dart';
 import 'package:liblsl_coordinator/interfaces.dart';
 
@@ -472,6 +474,169 @@ class MessageFactory {
       data: data,
       messageType: type,
       mapping: mapping,
+      timestamp: timestamp,
+    );
+  }
+}
+
+extension StringToStringMessageExtension on String {
+  StringMessage toStringMessage() {
+    return MessageFactory.stringMessage(
+      data: [this],
+      channels: 1,
+      timestamp: DateTime.now(),
+    );
+  }
+
+  StringMessage toStringMessageTimestamped(DateTime timestamp) {
+    return MessageFactory.stringMessage(
+      data: [this],
+      channels: 1,
+      timestamp: timestamp,
+    );
+  }
+}
+
+extension MapToStringMessageExtension on Map<String, dynamic> {
+  StringMessage toStringMessage() {
+    return MessageFactory.stringMessage(
+      data: [jsonEncode(this)],
+      channels: length,
+      timestamp: DateTime.now(),
+    );
+  }
+
+  StringMessage toStringMessageTimestamped(DateTime timestamp) {
+    return MessageFactory.stringMessage(
+      data: [jsonEncode(this)],
+      channels: length,
+      timestamp: timestamp,
+    );
+  }
+}
+
+extension ListStringToStringMessageExtension on List<String> {
+  /// Converts the list of strings to a [StringMessage].
+  /// Must be ONLY used if the number of channels is equal to the length of the
+  /// list.
+  StringMessage toStringMessage() {
+    return MessageFactory.stringMessage(
+      data: this,
+      channels: length,
+      timestamp: DateTime.now(),
+    );
+  }
+
+  StringMessage toStringMessageTimestamped(DateTime timestamp) {
+    return MessageFactory.stringMessage(
+      data: this,
+      channels: length,
+      timestamp: timestamp,
+    );
+  }
+}
+
+extension ListIntToMessageExtension on List<int> {
+  /// Converts the list of integers to an [Int32Message].
+  /// Must be ONLY used if the number of channels is equal to the length of the
+  /// list.
+  Int32Message toInt32Message() {
+    return MessageFactory.int32Message(
+      data: this,
+      channels: length,
+      timestamp: DateTime.now(),
+    );
+  }
+
+  Int32Message toInt32MessageTimestamped(DateTime timestamp) {
+    return MessageFactory.int32Message(
+      data: this,
+      channels: length,
+      timestamp: timestamp,
+    );
+  }
+
+  Int16Message toInt16Message() {
+    return MessageFactory.int16Message(
+      data: this,
+      channels: length,
+      timestamp: DateTime.now(),
+    );
+  }
+
+  Int16Message toInt16MessageTimestamped(DateTime timestamp) {
+    return MessageFactory.int16Message(
+      data: this,
+      channels: length,
+      timestamp: timestamp,
+    );
+  }
+
+  Int8Message toInt8Message() {
+    return MessageFactory.int8Message(
+      data: this,
+      channels: length,
+      timestamp: DateTime.now(),
+    );
+  }
+
+  Int8Message toInt8MessageTimestamped(DateTime timestamp) {
+    return MessageFactory.int8Message(
+      data: this,
+      channels: length,
+      timestamp: timestamp,
+    );
+  }
+
+  Int64Message toInt64Message() {
+    return MessageFactory.int64Message(
+      data: this,
+      channels: length,
+      timestamp: DateTime.now(),
+    );
+  }
+
+  Int64Message toInt64MessageTimestamped(DateTime timestamp) {
+    return MessageFactory.int64Message(
+      data: this,
+      channels: length,
+      timestamp: timestamp,
+    );
+  }
+}
+
+extension ListDoubleToMessageExtension on List<double> {
+  /// Converts the list of doubles to a [Double64Message].
+  /// Must be ONLY used if the number of channels is equal to the length of the
+  /// list.
+  Double64Message toDouble64Message() {
+    return MessageFactory.double64Message(
+      data: this,
+      channels: length,
+      timestamp: DateTime.now(),
+    );
+  }
+
+  Double64Message toDouble64MessageTimestamped(DateTime timestamp) {
+    return MessageFactory.double64Message(
+      data: this,
+      channels: length,
+      timestamp: timestamp,
+    );
+  }
+
+  Float32Message toFloat32Message() {
+    return MessageFactory.float32Message(
+      data: this,
+      channels: length,
+      timestamp: DateTime.now(),
+    );
+  }
+
+  Float32Message toFloat32MessageTimestamped(DateTime timestamp) {
+    return MessageFactory.float32Message(
+      data: this,
+      channels: length,
       timestamp: timestamp,
     );
   }

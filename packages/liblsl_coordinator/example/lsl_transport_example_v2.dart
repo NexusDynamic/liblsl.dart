@@ -309,7 +309,7 @@ void _startGameInputSimulation(LSLDataStream stream) {
 
     if (frameCount % 600 == 0) {
       // Log every 10 seconds
-      print('🎮 Game: ${frameCount} frames sent');
+      print('🎮 Game: $frameCount frames sent');
     }
   });
 }

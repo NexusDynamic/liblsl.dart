@@ -19,6 +19,44 @@ enum NodeCapability {
   coordinator,
 }
 
+extension NodeCapabilityStringExtension on NodeCapability {
+  String get shortString {
+    switch (this) {
+      case NodeCapability.none:
+        return 'none';
+      case NodeCapability.observer:
+        return 'observer';
+      case NodeCapability.participant:
+        return 'participant';
+      case NodeCapability.relay:
+        return 'relay';
+      case NodeCapability.transformer:
+        return 'transformer';
+      case NodeCapability.coordinator:
+        return 'coordinator';
+    }
+  }
+
+  static NodeCapability fromString(String value) {
+    switch (value.toLowerCase()) {
+      case 'none':
+        return NodeCapability.none;
+      case 'observer':
+        return NodeCapability.observer;
+      case 'participant':
+        return NodeCapability.participant;
+      case 'relay':
+        return NodeCapability.relay;
+      case 'transformer':
+        return NodeCapability.transformer;
+      case 'coordinator':
+        return NodeCapability.coordinator;
+      default:
+        throw ArgumentError('Invalid NodeCapability string: $value');
+    }
+  }
+}
+
 extension NodeCapabilityExtension on NodeCapability {
   static bool mayBePromoted(
     Set<NodeCapability> capabilities,
@@ -198,6 +236,7 @@ class NodeConfigFactory implements IConfigFactory<NodeConfig> {
   NodeConfig fromMap(Map<String, dynamic> map) {
     return NodeConfig(
       name: map['name'] ?? 'Default Node',
+      uId: map['uId'] as String?,
       id: map['id'] ?? 'node-${Random().nextInt(10000)}',
       capabilities:
           (map['capabilities'] as List<dynamic>?)
@@ -209,6 +248,7 @@ class NodeConfigFactory implements IConfigFactory<NodeConfig> {
               )
               .toSet() ??
           {NodeCapability.participant},
+      metadata: (map['metadata'] as Map<String, dynamic>?) ?? {},
     );
   }
 }
@@ -228,6 +268,9 @@ class Node implements IConfigurable<NodeConfig>, IUniqueIdentity, IHasMetadata {
 
   @override
   String? get description => 'Node $name (id: $id)';
+
+  String get role =>
+      getMetadata('role', defaultValue: NodeCapability.none.shortString);
 
   /// Configuration for the node.
   /// This is a [NodeConfig] object.
@@ -262,10 +305,10 @@ class Node implements IConfigurable<NodeConfig>, IUniqueIdentity, IHasMetadata {
     _lastSeen = DateTime.now();
     setMetadata('type', config.capabilities.join(','));
     setMetadata('randomRoll', Random().nextDouble().toString());
-    setMetadata('role', 'none');
+    setMetadata('role', NodeCapability.none.shortString);
     setMetadata('createdAt', _createdAt.toIso8601String());
     setMetadata('id', id);
-    setMetadata('uId', id);
+    setMetadata('uId', uId);
     setMetadata('name', name);
     setMetadata('version', '1.0.0');
     setMetadata('nodeStartedAt', _nodeStartedAt?.toIso8601String() ?? '');
@@ -294,7 +337,7 @@ class Node implements IConfigurable<NodeConfig>, IUniqueIdentity, IHasMetadata {
       throw StateError('Node cannot be promoted to Observer');
     }
     _promotedAt = DateTime.now();
-    setMetadata('role', 'observer');
+    setMetadata('role', NodeCapability.observer.shortString);
     logger.finest('Node $name promoted to Observer');
     return NodeFactory.observerNodeFromNode(this);
   }
@@ -308,7 +351,7 @@ class Node implements IConfigurable<NodeConfig>, IUniqueIdentity, IHasMetadata {
       throw StateError('Node cannot be promoted to Participant');
     }
     _promotedAt = DateTime.now();
-    setMetadata('role', 'participant');
+    setMetadata('role', NodeCapability.participant.shortString);
     logger.finest('Node $name promoted to Participant');
     return NodeFactory.participantNodeFromNode(this);
   }
@@ -322,7 +365,7 @@ class Node implements IConfigurable<NodeConfig>, IUniqueIdentity, IHasMetadata {
       throw StateError('Node cannot be promoted to Relay');
     }
     _promotedAt = DateTime.now();
-    setMetadata('role', 'relay');
+    setMetadata('role', NodeCapability.relay.shortString);
     logger.finest('Node $name promoted to Relay');
     return NodeFactory.relayNodeFromNode(this);
   }
@@ -336,7 +379,7 @@ class Node implements IConfigurable<NodeConfig>, IUniqueIdentity, IHasMetadata {
       throw StateError('Node cannot be promoted to Transformer');
     }
     _promotedAt = DateTime.now();
-    setMetadata('role', 'transformer');
+    setMetadata('role', NodeCapability.transformer.shortString);
     logger.finest('Node $name promoted to Transformer');
     return NodeFactory.transformerNodeFromNode(this);
   }
@@ -350,7 +393,7 @@ class Node implements IConfigurable<NodeConfig>, IUniqueIdentity, IHasMetadata {
       throw StateError('Node cannot be promoted to Coordinator');
     }
     _promotedAt = DateTime.now();
-    setMetadata('role', 'coordinator');
+    setMetadata('role', NodeCapability.coordinator.shortString);
     logger.finest('Node $name promoted to Coordinator');
     return NodeFactory.coordinatorNodeFromNode(this);
   }
@@ -377,7 +420,7 @@ class ObserverNode extends Node {
   @override
   String? get description => 'Observer Node $name (id: $id)';
   ObserverNode(super.config) : super() {
-    setMetadata('role', 'observer');
+    setMetadata('role', NodeCapability.observer.shortString);
   }
 }
 
@@ -387,7 +430,7 @@ class ParticipantNode extends Node {
   @override
   String? get description => 'Participant Node $name (id: $id)';
   ParticipantNode(super.config) : super() {
-    setMetadata('role', 'participant');
+    setMetadata('role', NodeCapability.participant.shortString);
   }
 }
 
@@ -397,7 +440,7 @@ class CoordinatorNode extends Node {
   @override
   String? get description => 'Coordinator Node $name (id: $id)';
   CoordinatorNode(super.config) : super() {
-    setMetadata('role', 'coordinator');
+    setMetadata('role', NodeCapability.coordinator.shortString);
   }
 }
 
@@ -407,7 +450,7 @@ class RelayNode extends Node {
   @override
   String? get description => 'Relay Node $name (id: $id)';
   RelayNode(super.config) : super() {
-    setMetadata('role', 'relay');
+    setMetadata('role', NodeCapability.relay.shortString);
   }
 }
 
@@ -417,7 +460,7 @@ class TransformerNode extends Node {
   @override
   String? get description => 'Transformer Node $name (id: $id)';
   TransformerNode(super.config) : super() {
-    setMetadata('role', 'transformer');
+    setMetadata('role', NodeCapability.transformer.shortString);
   }
 }
 
