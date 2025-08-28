@@ -890,26 +890,36 @@ class LSLNetworkStreamFactory
   @override
   Future<LSLDataStream> createDataStream(
     DataStreamConfig config,
-    LSLCoordinationSession session,
+    CoordinationSession session,
   ) async {
+    if (session.transport is! LSLTransport) {
+      throw ArgumentError(
+        'Session transport must be LSLTransport, got ${session.transport.runtimeType}',
+      );
+    }
     return LSLDataStream(
       config: config,
       streamNode: session.thisNode,
       streamSessionConfig: session.config,
-      lslTransport: session.transport,
+      lslTransport: session.transport as LSLTransport,
     );
   }
 
   @override
   Future<LSLCoordinationStream> createCoordinationStream(
     CoordinationStreamConfig config,
-    LSLCoordinationSession session,
+    CoordinationSession session,
   ) async {
+    if (session.transport is! LSLTransport) {
+      throw ArgumentError(
+        'Session transport must be LSLTransport, got ${session.transport.runtimeType}',
+      );
+    }
     return LSLCoordinationStream(
       config: config,
       streamNode: session.thisNode,
       streamSessionConfig: session.config,
-      lslTransport: session.transport,
+      lslTransport: session.transport as LSLTransport,
     );
   }
 }

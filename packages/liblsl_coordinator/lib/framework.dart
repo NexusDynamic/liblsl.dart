@@ -1,5 +1,6 @@
 library;
 
+export 'coordination.dart';
 export 'data.dart';
 export 'src/events.dart';
 export 'network.dart';
