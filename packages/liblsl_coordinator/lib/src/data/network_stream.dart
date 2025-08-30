@@ -156,6 +156,8 @@ class DataStreamConfig extends NetworkStreamConfig {
   @override
   Map<String, dynamic> toMap() {
     final map = super.toMap();
+    map['participationMode'] = participationMode.toString();
+
     return map;
   }
 
@@ -174,12 +176,19 @@ class DataStreamConfig extends NetworkStreamConfig {
         other.channels == channels &&
         other.sampleRate == sampleRate &&
         other.dataType == dataType &&
+        other.participationMode == participationMode &&
         other.transportConfig == transportConfig;
   }
 
   @override
-  int get hashCode =>
-      Object.hash(name, channels, sampleRate, dataType, transportConfig);
+  int get hashCode => Object.hash(
+    name,
+    channels,
+    sampleRate,
+    dataType,
+    participationMode,
+    transportConfig,
+  );
 }
 
 class DataStreamConfigFactory implements IConfigFactory<DataStreamConfig> {
@@ -209,6 +218,11 @@ class DataStreamConfigFactory implements IConfigFactory<DataStreamConfig> {
         (e) => e.toString() == map['dataType'],
         orElse: () => StreamDataType.float32,
       ),
+      participationMode: StreamParticipationMode.values.firstWhere(
+        (e) => e.toString() == map['participationMode'],
+        orElse: () => StreamParticipationMode.sendAllReceiveCoordinator,
+      ),
+      transportConfig: null, // Needs proper handling
     );
   }
 }

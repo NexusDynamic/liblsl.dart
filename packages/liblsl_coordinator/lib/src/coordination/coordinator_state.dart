@@ -82,7 +82,7 @@ class CoordinationState {
     transitionTo(CoordinationPhase.established);
   }
 
-  void becomeParticipant(String coordinatorUId) {
+  void becomeParticipant([String? coordinatorUId]) {
     _isCoordinator = false;
     _coordinatorUId = coordinatorUId;
     transitionTo(CoordinationPhase.established);
@@ -93,6 +93,10 @@ class CoordinationState {
       _connectedNodes.add(node);
       _lastHeartbeats[node.uId] = DateTime.now();
       _nodeJoinedController.add(node);
+    } else {
+      // Update existing node info
+      final index = _connectedNodes.indexWhere((n) => n.uId == node.uId);
+      _connectedNodes[index] = node;
     }
   }
 
@@ -106,10 +110,14 @@ class CoordinationState {
   }
 
   void updateNodeHeartbeat(String nodeUId) {
+    logger.finest('Heartbeat received from $nodeUId');
     _lastHeartbeats[nodeUId] = DateTime.now();
   }
 
   List<String> getStaleNodes(Duration timeout) {
+    logger.finest(
+      'Checking for stale nodes with timeout: ${timeout.inSeconds}s, nodes: $_lastHeartbeats',
+    );
     final cutoff = DateTime.now().subtract(timeout);
     return _lastHeartbeats.entries
         .where((entry) => entry.value.isBefore(cutoff))

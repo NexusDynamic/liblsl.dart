@@ -1,96 +1,917 @@
 @startuml
 !theme sandstone
-class LSLCoordinationSession {
+abstract class IsolateMessage {
++type: IsolateMessageType
 ---
-+«get»transportType(): String
-+toString(): String
+}
+IsolateMessage ..> IsolateMessageType
+class StartMessage {
+---
+}
+IsolateMessage <|-- StartMessage
+class StopMessage {
+---
+}
+IsolateMessage <|-- StopMessage
+class AddInletMessage {
++address: int
+---
+}
+IsolateMessage <|-- AddInletMessage
+class RemoveInletMessage {
++address: int
+---
+}
+IsolateMessage <|-- RemoveInletMessage
+class DataMessage {
++payload: dynamic[0..*]
+---
+}
+IsolateMessage <|-- DataMessage
+class RecreateOutletMessage {
++address: int
+---
+}
+IsolateMessage <|-- RecreateOutletMessage
+class IsolateWorkerConfig {
++streamId: String
++dataType: StreamDataType
++channelCount: int
++sampleRate: double
++useBusyWaitInlets: bool
++useBusyWaitOutlets: bool
++pollingInterval: Duration
++mainSendPort: SendPort
++outletAddress: int?
++inletAddresses: int[0..*]?
+---
++copyWith(): IsolateWorkerConfig
+}
+IsolateWorkerConfig ..> StreamDataType
+IsolateWorkerConfig ..> SendPort
+class IsolateDataMessage {
++streamId: String
++messageId: String
++timestamp: DateTime
++data: dynamic[0..*]
++sourceId: String?
++lslTimestamp: double?
++lslTimeCorrection: double?
+---
++toMap(): Map<String, dynamic
+}
+IsolateDataMessage ..> DateTime
+abstract class StreamIsolate {
++streamId: String
++dataType: StreamDataType
++useBusyWaitInlets: bool
++useBusyWaitOutlets: bool
++pollingInterval: Duration
+-sendPort: SendPort?
+-receivePort: ReceivePort?
+-isolate: Isolate?
+-ready: Completer<void
+-incomingDataController: StreamController<IsolateDataMessage
+---
++«get»incomingData(): Stream<IsolateDataMessage
++create(): void
++sendMessage(): void
++start(): void
++stop(): void
++dispose(): void
+-_handleMessage(): void
+-_createConfig(): IsolateWorkerConfig
+-_getWorkerFunction(): void Function(IsolateWorkerConfig)
+}
+StreamIsolate ..> StreamDataType
+StreamIsolate ..> SendPort
+StreamIsolate ..> ReceivePort
+StreamIsolate ..> Isolate
+StreamIsolate ..> StreamController
+class StreamInletIsolate {
+-inletAddresses: int[0..*]
+---
++addInlet(): void
++removeInlet(): void
+-_createConfig(): IsolateWorkerConfig
+-_getWorkerFunction(): void Function(IsolateWorkerConfig)
+-_inletWorker(): void
+}
+StreamIsolate <|-- StreamInletIsolate
+class StreamOutletIsolate {
+-outletAddress: int
+-channelCount: int
+-sampleRate: double
+---
++sendData(): void
++recreateOutlet(): void
+-_createConfig(): IsolateWorkerConfig
+-_getWorkerFunction(): void Function(IsolateWorkerConfig)
+-_outletWorker(): void
+}
+StreamIsolate <|-- StreamOutletIsolate
+class IsolateStreamManager {
+---
++createInletIsolate(): StreamInletIsolate
++createOutletIsolate(): StreamOutletIsolate
++discoverOnceIsolated(): LSLStreamInfo[0..*]
+-_createOutlet(): LSLOutlet
+-_createInlets(): LSLInlet[0..*]
+-_createInletFromAddr(): LSLInlet
+-_createTypedInlet(): LSLInlet
+}
+abstract class IsolateWorker {
++config: IsolateWorkerConfig
++receivePort: ReceivePort
+---
++start(): void
+-_getWorkerName(): String
++initialize(): void
++handleMessage(): FutureOr<void
+}
+IsolateWorker ..> IsolateWorkerConfig
+IsolateWorker ..> ReceivePort
+class InletWorker {
++inlets: LSLInlet[0..*]
++timeCorrections: double[0..*]
++inletsLock: Lock
++timeCorrectionsLock: Lock
++inletAddRemoveLock: MultiLock
++bufferLock: Lock
++buffer: dynamic[0..*]Queue<Map<String, dynamic
++lastTimeCorrectionUpdate: Stopwatch
++running: bool
++timer: Timer?
++completer: Completer<void?
+---
+-_getWorkerName(): String
++initialize(): void
++handleMessage(): void
+-_handleStart(): void
+-_handleStop(): void
+-_handleAddInlet(): void
+-_handleRemoveInlet(): void
+-_updateTimeCorrections(): void
+-_pollInletsWorker(): void
+-_startBusyWaitInletsWorker(): void
+}
+IsolateWorker <|-- InletWorker
+InletWorker ..> Lock
+InletWorker ..> MultiLock
+InletWorker ..> Stopwatch
+InletWorker ..> Timer
+class OutletWorker {
++outlet: LSLOutlet
++running: bool
++timer: Timer?
++completer: Completer<void?
+---
+-_getWorkerName(): String
++initialize(): void
++handleMessage(): void
+-_recreateOutlet(): void
+-_handleStart(): void
+-_handleStop(): void
+-_handleData(): void
+}
+IsolateWorker <|-- OutletWorker
+OutletWorker ..> LSLOutlet
+OutletWorker ..> Timer
+class LSLResource {
++id: String
+-manager: IResourceManager?
+-created: bool
+-disposed: bool
+---
++«get»name(): String
++«get»description(): String?
++«get»manager(): IResourceManager?
++«get»created(): bool
++«get»disposed(): bool
++create(): FutureOr<void
++dispose(): FutureOr<void
++updateManager(): void
+}
+LSLResource ..> IResourceManager
+LSLResource ..|> IResource
+class LSLCoordinationSession {
+-transport: LSLTransport
+-controller: CoordinationController
+-dataStreams: Map<String, LSLDataStream
+---
++«get»id(): String
++«get»name(): String
++«get»description(): String
++«get»phaseChanges(): Stream<CoordinationPhase
++«get»streamCreateCommands(): Stream<CreateStreamMessage
++«get»streamStartCommands(): Stream<StartStreamMessage
++«get»streamReadyNotifications(): Stream<StreamReadyMessage
++«get»streamStopCommands(): Stream<StopStreamMessage
++«get»userMessages(): Stream<UserCoordinationMessage
++«get»configUpdates(): Stream<ConfigUpdateMessage
++«get»nodeJoined(): Stream<Node
++«get»nodeLeft(): Stream<Node
++«get»currentPhase(): CoordinationPhase
++«get»isCoordinator(): bool
++«get»coordinatorUId(): String?
++«get»connectedNodes(): Node[0..*]
++«get»transport(): LSLTransport
+-_setupStreamCommandHandlers(): void
++create(): void
++initialize(): void
++join(): void
++pause(): void
++resume(): void
+-_waitForPhase(): void
++createDataStream(): LSLDataStream
+-_createDataStream(): LSLDataStream
++getDataStream(): LSLDataStream
++pauseAcceptingNodes(): void
++resumeAcceptingNodes(): void
++«get»isAcceptingNodes(): bool
++startStream(): void
++getProducersForStream(): Set<Node
++getConsumersForStream(): Set<Node
++stopStream(): void
++sendUserMessage(): void
++updateConfig(): void
++waitForMinNodes(): void
++waitForUserMessage(): UserCoordinationMessage
++leave(): void
++dispose(): void
++manageResource(): void
++releaseResource(): R
 }
 CoordinationSession <|-- LSLCoordinationSession
+LSLCoordinationSession ..> LSLTransport
+LSLCoordinationSession ..> CoordinationController
 class LSLTransportConfig {
 +lslApiConfig: LSLApiConfig
 +coordinationFrequency: double
 ---
++«get»id(): String
++«get»name(): String
++«get»description(): String
 +toString(): String
 +toMap(): Map<String, dynamic
 +validate(): bool
 +copyWith(): LSLTransportConfig
++==(): bool
++«get»hashCode(): int
 }
-TransportConfig <|-- LSLTransportConfig
 LSLTransportConfig ..> LSLApiConfig
-abstract class TransportConfig {
+LSLTransportConfig ..|> ITransportConfig
+class LSLTransportConfigFactory {
 ---
++defaultConfig(): LSLTransportConfig
++fromMap(): LSLTransportConfig
 }
-TransportConfig ..|> IConfig
-abstract class Transport {
+LSLTransportConfigFactory ..|> IConfigFactory
+class OutletResource {
++outlet: LSLOutlet
 ---
++«get»id(): String
++«get»description(): String?
++create(): void
++dispose(): void
 }
-Transport ..|> IConfigurable
-class NodeConfig {
-+name: String
-+id: String
-+capabilities: Set<NodeCapability
+LSLResource <|-- OutletResource
+OutletResource ..> LSLOutlet
+class InletResource {
++inlet: LSLInlet
 ---
-+validate(): bool
-+toMap(): Map<String, dynamic
-+copyWith(): NodeConfig
-+standard(): NodeConfig
++«get»id(): String
++«get»description(): String?
++create(): void
++dispose(): void
+}
+LSLResource <|-- InletResource
+InletResource ..> LSLInlet
+class LSLTransport {
+-created: bool
+-initialized: bool
+-disposed: bool
++config: T
+-resources: Map<String, IResource
+---
++«get»id(): String
++«get»name(): String
++«get»description(): String
++«get»created(): bool
++«get»disposed(): bool
++«get»initialized(): bool
+-_ensureInitialized(): void
+-_ensureNotDisposed(): void
+-_ensureCreated(): void
++initialize(): void
++create(): void
++manageResource(): void
++releaseResource(): R
++createOutlet(): OutletResource
++createInlet(): InletResource
++createDiscovery(): LslDiscovery
++dispose(): void
++createStream(): NetworkStream
 +toString(): String
 }
+LSLResource <|-- LSLTransport
+LSLTransport ..> T
+LSLTransport ..|> ITransport
+LSLTransport ..|> IResourceManager
+class DiscoveryEvent {
+---
+}
+CoordinationEvent <|-- DiscoveryEvent
+class StreamInfoResource {
++streamInfo: LSLStreamInfo
+---
++«get»id(): String
++«get»description(): String?
++create(): void
++dispose(): void
++fromStreamInfos(): StreamInfoResource[0..*]
+}
+LSLResource <|-- StreamInfoResource
+StreamInfoResource ..> LSLStreamInfo
+class LSLDiscoveryEvent {
++predicate: String
+---
+}
+DiscoveryEvent <|-- LSLDiscoveryEvent
+class StreamDiscoveredEvent {
++streams: StreamInfoResource[0..*]
+---
+}
+LSLDiscoveryEvent <|-- StreamDiscoveredEvent
+class DiscoveryTimeoutEvent {
++timeoutDuration: Duration
+---
+}
+LSLDiscoveryEvent <|-- DiscoveryTimeoutEvent
+class LslDiscovery {
++streamConfig: NetworkStreamConfig
++coordinationConfig: CoordinationConfig
+-paused: bool
+-discoveryInterval: Timer?
+-timeoutTimer: Timer?
+-discoveryLock: Lock
+-discoveredStreams: Map<String, StreamInfoResource
+-eventController: StreamController<DiscoveryEvent
+-currentPredicate: String?
+-resolver: LSLStreamResolverContinuous?
+---
++«get»paused(): bool
++«get»events(): Stream<DiscoveryEvent
++«get»id(): String
++manageResource(): void
++releaseResource(): R
+-_ensureCreated(): void
++create(): void
++startDiscovery(): void
++cancelTimeout(): void
+-_startContinuousDiscovery(): void
++stopDiscovery(): void
+-_performContinuousDiscovery(): void
++pause(): void
++resume(): void
++«get»discoveredStreams(): String[0..*]
++takeMatching(): StreamInfoResource[0..*]
+-_matchesFilter(): bool
++discoverOnceByPredicate(): LSLStreamInfo[0..*]
++dispose(): void
+}
+LSLResource <|-- LslDiscovery
+LslDiscovery ..> NetworkStreamConfig
+LslDiscovery ..> CoordinationConfig
+LslDiscovery ..> Timer
+LslDiscovery ..> Lock
+LslDiscovery ..> StreamController
+LslDiscovery ..> LSLStreamResolverContinuous
+LslDiscovery ..|> IPausable
+LslDiscovery ..|> IResourceManager
+class LSLStreamInfoHelper {
++streamNameKey: String
++sessionNameKey: String
++nodeIdKey: String
++nodeUIdKey: String
++nodeRoleKey: String
++nodeCapabilitiesKey: String
++randomRollKey: String
++nodeStartedAtKey: String
+---
++generateStreamName(): String
++generateSourceID(): String
++parseSourceId(): Map<String, String
++generateInletStreamInfo(): LSLStreamInfo
++createStreamInfo(): LSLStreamInfoWithMetadata
++parseMetadata(): Map<String, String
++generatePredicate(): String
++generateElectionPredicate(): String
+}
+class LSLDataStream {
+-streamNode: Node
++streamSessionConfig: CoordinationSessionConfig
++lslTransport: LSLTransport
+-typedDataController: StreamController<dynamic[0..*]
+---
++«get»streamNode(): Node
++«get»useBusyWaitInlets(): bool
++«get»useBusyWaitOutlets(): bool
++«get»dataStream(): Stream<dynamic[0..*]
++«get»name(): String
++«get»description(): String
++sendData(): void
++updateNode(): void
++sendDataTyped(): void
+-_validateDataType(): void
+-_createMessageFromIsolateData(): IMessage?
+-_createMessageFromSample(): IMessage?
+-_createSampleFromMessage(): dynamic[0..*]
++dispose(): void
+}
+DataStream <|-- LSLDataStream
+LSLDataStream ..> Node
+LSLDataStream ..> CoordinationSessionConfig
+LSLDataStream ..> LSLTransport
+LSLDataStream ..> StreamController
+class LSLNetworkStreamFactory {
+---
++createDataStream(): LSLDataStream
++createCoordinationStream(): LSLCoordinationStream
+}
+NetworkStreamFactory <|-- LSLNetworkStreamFactory
+class LSLCoordinationStream {
+-streamNode: Node
++streamSessionConfig: CoordinationSessionConfig
++lslTransport: LSLTransport
+---
++«get»streamNode(): Node
++«get»useBusyWaitInlets(): bool
++«get»useBusyWaitOutlets(): bool
++«get»description(): String
+-_createMessageFromIsolateData(): StringMessage?
++updateNode(): void
+-_createMessageFromSample(): StringMessage?
+-_createSampleFromMessage(): dynamic[0..*]
+}
+CoordinationStream <|-- LSLCoordinationStream
+LSLCoordinationStream ..> Node
+LSLCoordinationStream ..> CoordinationSessionConfig
+LSLCoordinationStream ..> LSLTransport
+class CoordinationController {
++coordinationConfig: CoordinationConfig
++transport: LSLTransport
+-thisNode: Node
++session: CoordinationSession
+-state: CoordinationState
+-coordinationStream: LSLCoordinationStream
+-discovery: LslDiscovery
+-coordinatorHandler: CoordinatorMessageHandler?
+-participantHandler: ParticipantMessageHandler?
+-heartbeatTimer: Timer?
+-discoveryTimer: Timer?
+-nodeTimeoutTimer: Timer?
+-coordinationSubscription: StreamSubscription?
+-handlerSubscription: StreamSubscription?
+-discoverySubscription: StreamSubscription?
+-phaseController: StreamController<CoordinationPhase
+-streamCreateController: StreamController<CreateStreamMessage
+-streamStartController: StreamController<StartStreamMessage
+-streamReadyController: StreamController<StreamReadyMessage
+-streamStopController: StreamController<StopStreamMessage
+-userMessageController: StreamController<UserCoordinationMessage
+-configUpdateController: StreamController<ConfigUpdateMessage
+-nodeJoinedController: StreamController<Node
+-nodeLeftController: StreamController<Node
+---
++«get»thisNode(): Node
++«get»phaseChanges(): Stream<CoordinationPhase
++«get»streamCreateCommands(): Stream<CreateStreamMessage
++«get»streamStartCommands(): Stream<StartStreamMessage
++«get»streamReadyNotifications(): Stream<StreamReadyMessage
++«get»streamStopCommands(): Stream<StopStreamMessage
++«get»userMessages(): Stream<UserCoordinationMessage
++«get»configUpdates(): Stream<ConfigUpdateMessage
++«get»nodeJoined(): Stream<Node
++«get»nodeLeft(): Stream<Node
++«get»currentPhase(): CoordinationPhase
++«get»isCoordinator(): bool
++«get»coordinatorUId(): String?
++«get»connectedNodes(): Node[0..*]
+-_setupStateListeners(): void
++initialize(): void
++start(): void
+-_startElection(): void
+-_becomeCoordinator(): void
+-_becomeParticipant(): void
+-_connectToCoordinator(): void
+-_startCoordinatorServices(): void
+-_startParticipantServices(): void
+-_handleIncomingMessage(): void
+-_sendMessage(): void
+-_startHeartbeat(): void
+-_startNodeDiscovery(): void
+-_startNodeTimeoutCheck(): void
++pauseAcceptingNodes(): void
++resumeAcceptingNodes(): void
++«get»isAcceptingNodes(): bool
++createStream(): void
++startStream(): void
++markStreamReady(): void
++stopStream(): void
++sendUserMessage(): void
++updateConfig(): void
++dispose(): void
+}
+CoordinationController ..> CoordinationConfig
+CoordinationController ..> LSLTransport
+CoordinationController ..> Node
+CoordinationController ..> CoordinationSession
+CoordinationController ..> CoordinationState
+CoordinationController ..> LSLCoordinationStream
+CoordinationController ..> LslDiscovery
+CoordinationController ..> CoordinatorMessageHandler
+CoordinationController ..> ParticipantMessageHandler
+CoordinationController ..> Timer
+CoordinationController ..> StreamController
+class CoordinationConfig {
++name: String
++sessionConfig: CoordinationSessionConfig
++streamConfig: CoordinationStreamConfig
++initialStreamConfigs: NetworkStreamConfig[0..*]?
++topologyConfig: TopologyConfig
++transportConfig: ITransportConfig
+---
++«get»id(): String
++«get»description(): String?
++validate(): bool
++toMap(): Map<String, dynamic
++copyWith(): CoordinationConfig
++toString(): String
++==(): bool
++«get»hashCode(): int
+}
+CoordinationConfig ..> CoordinationSessionConfig
+CoordinationConfig ..> CoordinationStreamConfig
+CoordinationConfig ..> TopologyConfig
+CoordinationConfig ..> ITransportConfig
+CoordinationConfig ..|> IConfig
+class Log {
++loggerName: String
++isolateLoggerName: String
+-logger: Logger
+-sendPort: SendPort?
+-subscription: StreamSubscription<LogRecord?
+-useColors: bool
+---
++«get»useColors(): bool
++«set»useColors(): void
++defaultPrinter(): void
++«set»sendPort(): void
++wrapMessageColor(): String
++logIsolateMessage(): void
+}
+Log ..> Logger
+Log ..> SendPort
+class CoordinationState {
+-phase: CoordinationPhase
+-isCoordinator: bool
+-coordinatorUId: String?
+-connectedNodes: Node[0..*]
+-lastHeartbeats: Map<String, DateTime
+-phaseController: StreamController<CoordinationPhase
+-nodeJoinedController: StreamController<Node
+-nodeLeftController: StreamController<Node
+---
++«get»phase(): CoordinationPhase
++«get»isCoordinator(): bool
++«get»coordinatorUId(): String?
++«get»connectedNodes(): Node[0..*]
++«get»phaseChanges(): Stream<CoordinationPhase
++«get»nodeJoined(): Stream<Node
++«get»nodeLeft(): Stream<Node
++«get»isEstablished(): bool
++«get»canAcceptNodes(): bool
++transitionTo(): void
++becomeCoordinator(): void
++becomeParticipant(): void
++addNode(): void
++removeNode(): void
++updateNodeHeartbeat(): void
++getStaleNodes(): String[0..*]
++dispose(): void
+}
+CoordinationState ..> CoordinationPhase
+CoordinationState ..> StreamController
+abstract class CoordinationMessageHandler {
++state: CoordinationState
++thisNode: Node
++sessionConfig: CoordinationSessionConfig
+---
++handleMessage(): void
++sendMessage(): void
++canHandle(): bool
+}
+CoordinationMessageHandler ..> CoordinationState
+CoordinationMessageHandler ..> Node
+CoordinationMessageHandler ..> CoordinationSessionConfig
+class CoordinatorMessageHandler {
+-outgoingController: StreamController<CoordinationMessage
+-acceptingNewNodes: bool
+---
++«get»outgoingMessages(): Stream<CoordinationMessage
++canHandle(): bool
++handleMessage(): void
++sendMessage(): void
+-_handleHeartbeat(): void
+-_handleStreamReady(): void
+-_handleJoinRequest(): void
+-_handleConnectionTest(): void
+-_acceptJoin(): void
+-_rejectJoin(): void
+-_handleNodeLeaving(): void
++broadcastTopologyUpdate(): void
++broadcastStreamReady(): void
++pauseAcceptingNodes(): void
++resumeAcceptingNodes(): void
++«get»isAcceptingNodes(): bool
++broadcastCreateStream(): void
++broadcastStartStream(): void
++sendJoinOffer(): void
++broadcastStopStream(): void
++broadcastUserMessage(): void
++broadcastConfig(): void
++dispose(): void
+}
+CoordinationMessageHandler <|-- CoordinatorMessageHandler
+CoordinatorMessageHandler ..> StreamController
+class ParticipantMessageHandler {
+-outgoingController: StreamController<CoordinationMessage
+-streamCreateController: StreamController<CreateStreamMessage
+-streamStartController: StreamController<StartStreamMessage
+-streamReadyController: StreamController<StreamReadyMessage
+-streamStopController: StreamController<StopStreamMessage
+-userMessageController: StreamController<UserCoordinationMessage
+-configUpdateController: StreamController<ConfigUpdateMessage
+-pendingConnectionTests: Map<String, Completer<bool
+-connectionTestTimer: Timer?
+---
++«get»outgoingMessages(): Stream<CoordinationMessage
++«get»streamCreateCommands(): Stream<CreateStreamMessage
++«get»streamStartCommands(): Stream<StartStreamMessage
++«get»streamReadyNotifications(): Stream<StreamReadyMessage
++«get»streamStopCommands(): Stream<StopStreamMessage
++«get»userMessages(): Stream<UserCoordinationMessage
++«get»configUpdates(): Stream<ConfigUpdateMessage
++canHandle(): bool
++handleMessage(): void
++sendMessage(): void
++broadcastStreamReady(): void
+-_handleJoinAccept(): void
+-_handleJoinOffer(): void
+-_handleJoinReject(): void
+-_handleTopologyUpdate(): void
+-_handleCreateStream(): void
+-_handleStartStream(): void
+-_handleStreamReady(): void
+-_handleStopStream(): void
+-_handleUserMessage(): void
+-_handleConfigUpdate(): void
++sendJoinRequest(): void
++sendHeartbeat(): void
++announceLeaving(): void
+-_handleConnectionTestResponse(): void
++confirmConnection(): bool
++sendJoinRequestWithConfirmation(): void
++dispose(): void
+}
+CoordinationMessageHandler <|-- ParticipantMessageHandler
+ParticipantMessageHandler ..> StreamController
+ParticipantMessageHandler ..> Timer
+abstract class CoordinationMessage {
++type: CoordinationMessageType
++fromNodeUId: String
++timestamp: DateTime
++metadata: Map<String, dynamic
+---
++toMap(): Map<String, dynamic
++toJson(): String
+}
+CoordinationMessage ..> CoordinationMessageType
+CoordinationMessage ..> DateTime
+class ConnectionTestMessage {
++testId: String
+---
++toMap(): Map<String, dynamic
+}
+CoordinationMessage <|-- ConnectionTestMessage
+class ConnectionTestResponseMessage {
++testId: String
++confirmed: bool
+---
++toMap(): Map<String, dynamic
+}
+CoordinationMessage <|-- ConnectionTestResponseMessage
+class HeartbeatMessage {
++nodeRole: String
++isCoordinator: bool
+---
++toMap(): Map<String, dynamic
+}
+CoordinationMessage <|-- HeartbeatMessage
+class JoinOfferMessage {
++sessionId: String
++targetNode: Node
+---
++toMap(): Map<String, dynamic
+}
+CoordinationMessage <|-- JoinOfferMessage
+JoinOfferMessage ..> Node
+class JoinRequestMessage {
++requestingNode: Node
++sessionId: String
+---
++toMap(): Map<String, dynamic
+}
+CoordinationMessage <|-- JoinRequestMessage
+JoinRequestMessage ..> Node
+class JoinAcceptMessage {
++acceptedNodeUId: String
++currentTopology: Node[0..*]
+---
++toMap(): Map<String, dynamic
+}
+CoordinationMessage <|-- JoinAcceptMessage
+class JoinRejectMessage {
++rejectedNodeUId: String
++reason: String
+---
++toMap(): Map<String, dynamic
+}
+CoordinationMessage <|-- JoinRejectMessage
+class CreateStreamMessage {
++streamName: String
++streamConfig: DataStreamConfig
+---
++toMap(): Map<String, dynamic
+}
+CoordinationMessage <|-- CreateStreamMessage
+CreateStreamMessage ..> DataStreamConfig
+class StartStreamMessage {
++streamName: String
++streamConfig: DataStreamConfig
++startAt: DateTime?
+---
++toMap(): Map<String, dynamic
+}
+CoordinationMessage <|-- StartStreamMessage
+StartStreamMessage ..> DataStreamConfig
+StartStreamMessage ..> DateTime
+class StreamReadyMessage {
++streamName: String
+---
++toMap(): Map<String, dynamic
+}
+CoordinationMessage <|-- StreamReadyMessage
+class StopStreamMessage {
++streamName: String
+---
++toMap(): Map<String, dynamic
+}
+CoordinationMessage <|-- StopStreamMessage
+class UserCoordinationMessage {
++messageId: String
++description: String
++payload: Map<String, dynamic
+---
++toMap(): Map<String, dynamic
+}
+CoordinationMessage <|-- UserCoordinationMessage
+class ConfigUpdateMessage {
++config: Map<String, dynamic
+---
++toMap(): Map<String, dynamic
+}
+CoordinationMessage <|-- ConfigUpdateMessage
+class TopologyUpdateMessage {
++topology: Node[0..*]
+---
++toMap(): Map<String, dynamic
+}
+CoordinationMessage <|-- TopologyUpdateMessage
+class NodeLeavingMessage {
++leavingNodeUId: String
+---
++toMap(): Map<String, dynamic
+}
+CoordinationMessage <|-- NodeLeavingMessage
+class NodeConfig {
++uId: String
++name: String
+-metadata: Map<String, dynamic
++suppliedId: String?
++capabilities: Set<NodeCapability
+---
++«get»id(): String
++«get»metadata(): Map<String, dynamic
++«get»description(): String?
++validate(): bool
++getMetadata(): dynamic
++setMetadata(): void
++toMap(): Map<String, dynamic
++copyWith(): NodeConfig
++toString(): String
++==(): bool
++«get»hashCode(): int
+}
 NodeConfig ..|> IConfig
-abstract class Node {
+NodeConfig ..|> IUniqueIdentity
+NodeConfig ..|> IHasMetadata
+class NodeConfigFactory {
+---
++defaultConfig(): NodeConfig
++fromMap(): NodeConfig
+}
+NodeConfigFactory ..|> IConfigFactory
+class Node {
 +config: NodeConfig
 -lastSeen: DateTime
 -createdAt: DateTime
 -nodeStartedAt: DateTime?
 -promotedAt: DateTime?
--metadata: Map<String, String
 ---
++«get»uId(): String
 +«get»id(): String
 +«get»name(): String
++«get»description(): String?
++«get»role(): String
 +«get»lastSeen(): DateTime
 +«get»createdAt(): DateTime
 +«get»nodeStartedAt(): DateTime?
 +«get»promotedAt(): DateTime?
-+«get»metadata(): Map<String, String
++«get»metadata(): Map<String, dynamic
 +«get»capabilities(): Set<NodeCapability
 +seen(): void
-+getMetadata(): String?
++setMetadata(): void
++getMetadata(): dynamic
 +«get»asObserver(): ObserverNode
 +«get»asParticipant(): ParticipantNode
 +«get»asRelay(): RelayNode
 +«get»asTransformer(): TransformerNode
 +«get»asCoordinator(): CoordinatorNode
++toString(): String
 }
 Node ..> NodeConfig
 Node ..> DateTime
 Node ..|> IConfigurable
 Node ..|> IUniqueIdentity
 Node ..|> IHasMetadata
-abstract class ObserverNode {
+class NullNode {
 ---
++«get»description(): String?
+}
+Node <|-- NullNode
+class ObserverNode {
+---
++«get»description(): String?
 }
 Node <|-- ObserverNode
-abstract class ParticipantNode {
+class ParticipantNode {
 ---
++«get»description(): String?
 }
 Node <|-- ParticipantNode
-abstract class CoordinatorNode {
+class CoordinatorNode {
 ---
++«get»description(): String?
 }
 Node <|-- CoordinatorNode
-abstract class RelayNode {
+class RelayNode {
 ---
++«get»description(): String?
 }
 Node <|-- RelayNode
-abstract class TransformerNode {
+class TransformerNode {
 ---
++«get»description(): String?
 }
 Node <|-- TransformerNode
-abstract class NetworkTopologyConfig {
+class NodeFactory {
+---
++createNodeFromConfig(): Node
++nullNodeFromNode(): NullNode
++observerNodeFromNode(): ObserverNode
++participantNodeFromNode(): ParticipantNode
++relayNodeFromNode(): RelayNode
++transformerNodeFromNode(): TransformerNode
++coordinatorNodeFromNode(): CoordinatorNode
+}
+abstract class TopologyConfig {
 ---
 +«get»maxNodes(): int
++«get»defaultNodeConfig(): NodeConfig
 }
-NetworkTopologyConfig ..|> IConfig
+TopologyConfig ..|> IConfig
 abstract class NetworkTopology {
 -nodes: Map<String, Node
 ---
@@ -98,56 +919,87 @@ abstract class NetworkTopology {
 +removeNode(): void
 +addNodes(): void
 +removeNodes(): void
++nodesWithCapability(): Node[0..*]
++nodesWithRole(): Node[0..*]
 }
 NetworkTopology ..|> IIdentity
 NetworkTopology ..|> IConfigurable
 NetworkTopology ..|> IHasMetadata
-class HierarchicalNetworkTopologyConfig {
+class HierarchicalTopologyConfig {
 +maxNodes: int
++defaultNodeConfig: NodeConfig
++defaultCoordinatorConfig: NodeConfig
 +autoPromotion: bool
 +promotionStrategy: PromotionStrategy?
 ---
++«get»id(): String
++«get»name(): String
++«get»description(): String?
 +validate(): bool
 +toMap(): Map<String, dynamic
-+copyWith(): HierarchicalNetworkTopologyConfig
-+standard(): HierarchicalNetworkTopologyConfig
++copyWith(): HierarchicalTopologyConfig
 +toString(): String
++==(): bool
++«get»hashCode(): int
 }
-HierarchicalNetworkTopologyConfig ..> PromotionStrategy
-HierarchicalNetworkTopologyConfig ..|> NetworkTopologyConfig
-class HierarchicalNetworkTopology {
+HierarchicalTopologyConfig ..> NodeConfig
+HierarchicalTopologyConfig ..> PromotionStrategy
+HierarchicalTopologyConfig ..|> TopologyConfig
+class HierarchicalTopologyConfigFactory {
+---
++defaultConfig(): HierarchicalTopologyConfig
++fromMap(): HierarchicalTopologyConfig
+}
+HierarchicalTopologyConfigFactory ..|> IConfigFactory
+class HierarchicalTopology {
 +id: String
 +name: String
 +description: String
 -metadata: Map<String, String
-+config: HierarchicalNetworkTopologyConfig
++config: HierarchicalTopologyConfig
 ---
-+«get»metadata(): Map<String, String
++«get»metadata(): Map<String, dynamic
 +«get»nodes(): Map<String, Node
-+getMetadata(): String?
++getMetadata(): dynamic
 }
-NetworkTopology <|-- HierarchicalNetworkTopology
-HierarchicalNetworkTopology ..> HierarchicalNetworkTopologyConfig
+NetworkTopology <|-- HierarchicalTopology
+HierarchicalTopology ..> HierarchicalTopologyConfig
 class CoordinationSessionConfig {
 +name: String
 +maxNodes: int
 +minNodes: int
++heartbeatInterval: Duration
++discoveryInterval: Duration
++nodeTimeout: Duration
 ---
++«get»id(): String
++«get»description(): String?
 +validate(): bool
 +toMap(): Map<String, dynamic
 +toString(): String
 +copyWith(): CoordinationSessionConfig
 +standard(): CoordinationSessionConfig
++==(): bool
++«get»hashCode(): int
 }
 CoordinationSessionConfig ..|> IConfig
+class CoordinationSessionConfigFactory {
+---
++defaultConfig(): CoordinationSessionConfig
++fromMap(): CoordinationSessionConfig
+}
+CoordinationSessionConfigFactory ..|> IConfigFactory
 abstract class CoordinationSession {
 +config: CoordinationSessionConfig
++coordinationConfig: CoordinationConfig
 -created: bool
 -initialized: bool
 -joined: bool
 -disposed: bool
 -paused: bool
+-thisNode: Node
 ---
++«get»transport(): ITransport
 +«get»name(): String
 +«get»id(): String
 +«get»created(): bool
@@ -155,15 +1007,19 @@ abstract class CoordinationSession {
 +«get»joined(): bool
 +«get»disposed(): bool
 +«get»paused(): bool
-+create(): void
-+dispose(): void
-+initialize(): void
-+join(): void
-+leave(): void
-+pause(): void
-+resume(): void
++«get»thisNode(): Node
++create(): FutureOr<void
++dispose(): FutureOr<void
++initialize(): FutureOr<void
++join(): FutureOr<void
++leave(): FutureOr<void
++pause(): FutureOr<void
++resume(): FutureOr<void
++updateThisNode(): void
 }
 CoordinationSession ..> CoordinationSessionConfig
+CoordinationSession ..> CoordinationConfig
+CoordinationSession ..> Node
 CoordinationSession ..|> IResourceManager
 CoordinationSession ..|> IInitializable
 CoordinationSession ..|> ILifecycle
@@ -193,76 +1049,311 @@ class PromotionStrategyRandom {
 +toString(): String
 }
 PromotionStrategy <|-- PromotionStrategyRandom
-class CoordinationConfig {
-+name: String
-+sessionConfig: CoordinationSessionConfig
-+streamConfig: CoordinationStreamConfig
-+initialStreamConfigs: StreamConfig[0..*]?
-+topologyConfig: NetworkTopologyConfig
-+transportConfig: TransportConfig
+abstract class TransportStreamConfig {
 ---
-+validate(): bool
-+toMap(): Map<String, dynamic
-+copyWith(): CoordinationConfig
-+toString(): String
 }
-CoordinationConfig ..> CoordinationSessionConfig
-CoordinationConfig ..> CoordinationStreamConfig
-CoordinationConfig ..> NetworkTopologyConfig
-CoordinationConfig ..> TransportConfig
-CoordinationConfig ..|> IConfig
-class StreamConfig {
+TransportStreamConfig ..|> IConfig
+abstract class TransportCoordinationStreamConfig {
+---
+}
+TransportStreamConfig <|-- TransportCoordinationStreamConfig
+abstract class NetworkStreamConfig {
 +name: String
-+channelCount: int
++channels: int
 +sampleRate: double
 +dataType: StreamDataType
+-transportConfig: TransportStreamConfig?
 ---
++«get»transportConfig(): TransportStreamConfig?
 +validate(): bool
 +toMap(): Map<String, dynamic
 +toString(): String
-+copyWith(): StreamConfig
++copyWith(): NetworkStreamConfig
 }
-StreamConfig ..> StreamDataType
-StreamConfig ..|> IConfig
-class CoordinationStreamConfig {
+NetworkStreamConfig ..> StreamDataType
+NetworkStreamConfig ..> TransportStreamConfig
+NetworkStreamConfig ..|> IConfig
+class DataStreamConfig {
+-transportConfig: TransportStreamConfig?
++participationMode: StreamParticipationMode
 ---
++«get»id(): String
++«get»description(): String?
++«get»transportConfig(): TransportStreamConfig?
 +toMap(): Map<String, dynamic
-+standard(): CoordinationStreamConfig
 +toString(): String
++==(): void
++«get»hashCode(): int
 }
-StreamConfig <|-- CoordinationStreamConfig
-abstract class Stream {
+NetworkStreamConfig <|-- DataStreamConfig
+DataStreamConfig ..> TransportStreamConfig
+DataStreamConfig ..> StreamParticipationMode
+class DataStreamConfigFactory {
+---
++defaultConfig(): DataStreamConfig
++fromMap(): DataStreamConfig
+}
+DataStreamConfigFactory ..|> IConfigFactory
+class CoordinationStreamConfig {
+-transportConfig: TransportCoordinationStreamConfig?
+---
++«get»id(): String
++«get»description(): String?
++«get»transportConfig(): TransportCoordinationStreamConfig?
++toMap(): Map<String, dynamic
++toString(): String
++==(): void
++«get»hashCode(): int
+}
+NetworkStreamConfig <|-- CoordinationStreamConfig
+CoordinationStreamConfig ..> TransportCoordinationStreamConfig
+class CoordinationStreamConfigFactory {
+---
++defaultConfig(): CoordinationStreamConfig
++fromMap(): CoordinationStreamConfig
+}
+CoordinationStreamConfigFactory ..|> IConfigFactory
+abstract class NetworkStream {
 +config: T
+-paused: bool
 -nodes: Map<String, Node
 -producers: String[0..*]
 -consumers: String[0..*]
 ---
 +«get»id(): String
 +«get»name(): String
++«get»paused(): bool
 +«get»channelCount(): int
 +«get»sampleRate(): double
 +«get»dataType(): StreamDataType
 +«get»hasProducers(): bool
 +«get»hasConsumers(): bool
++«get»messageClass(): Type
 +«get»producers(): String[0..*]
 +«get»consumers(): String[0..*]
 +isProducer(): bool
 +isConsumer(): bool
 +addProducer(): void
++pause(): FutureOr<void
++resume(): FutureOr<void
 +addConsumer(): void
++sendMessage(): FutureOr<void
++«get»outbox(): StreamSink<M
++«get»inbox(): Stream<M
 }
-Stream ..> T
-Stream ..|> IConfigurable
-Stream ..|> IUniqueIdentity
-Stream ..|> IResource
+NetworkStream ..> T
+NetworkStream ..|> IConfigurable
+NetworkStream ..|> IUniqueIdentity
+NetworkStream ..|> IResource
+NetworkStream ..|> IPausable
 abstract class CoordinationStream {
 ---
++sendMessage(): FutureOr<void
 }
-Stream <|-- CoordinationStream
+NetworkStream <|-- CoordinationStream
 abstract class DataStream {
 ---
++sendMessage(): FutureOr<void
 }
-Stream <|-- DataStream
+NetworkStream <|-- DataStream
+abstract class NetworkStreamFactory {
+---
++createDataStream(): FutureOr<DataStream
++createCoordinationStream(): FutureOr<CoordinationStream
+}
+abstract class MessageTypeMapping {
+---
++«get»type(): StreamDataType
++«get»channels(): int
++«get»description(): String
++toMap(): Map<String, dynamic
++toString(): String
+}
+MessageTypeMapping ..|> IMessageType
+abstract class IntMessageTypeMapping {
+---
++«get»minValue(): int
++«get»maxValue(): int
+}
+MessageTypeMapping <|-- IntMessageTypeMapping
+class StringMapping {
++type: StreamDataType
++channels: int
+---
++«get»id(): String
++«get»name(): String
++«get»description(): String
+}
+MessageTypeMapping <|-- StringMapping
+StringMapping ..> StreamDataType
+class Int8Mapping {
++type: StreamDataType
++channels: int
++minValue: int
++maxValue: int
+---
++«get»id(): String
++«get»name(): String
++«get»description(): String
+}
+IntMessageTypeMapping <|-- Int8Mapping
+Int8Mapping ..> StreamDataType
+class Int16Mapping {
++type: StreamDataType
++channels: int
++minValue: int
++maxValue: int
+---
++«get»id(): String
++«get»name(): String
++«get»description(): String
+}
+IntMessageTypeMapping <|-- Int16Mapping
+Int16Mapping ..> StreamDataType
+class Int32Mapping {
++type: StreamDataType
++channels: int
++minValue: int
++maxValue: int
+---
++«get»id(): String
++«get»name(): String
++«get»description(): String
+}
+IntMessageTypeMapping <|-- Int32Mapping
+Int32Mapping ..> StreamDataType
+class Int64Mapping {
++type: StreamDataType
++channels: int
++minValue: int
++maxValue: int
+---
++«get»id(): String
++«get»name(): String
++«get»description(): String
+}
+IntMessageTypeMapping <|-- Int64Mapping
+Int64Mapping ..> StreamDataType
+class Float32Mapping {
++type: StreamDataType
++channels: int
+---
++«get»id(): String
++«get»name(): String
++«get»description(): String
+}
+MessageTypeMapping <|-- Float32Mapping
+Float32Mapping ..> StreamDataType
+class Double64Mapping {
++type: StreamDataType
++channels: int
+---
++«get»id(): String
++«get»name(): String
++«get»description(): String
+}
+MessageTypeMapping <|-- Double64Mapping
+Double64Mapping ..> StreamDataType
+class MessageType {
+-mapping: M
+---
++«get»type(): StreamDataType
++«get»channels(): int
++«get»id(): String
++«get»name(): String
++«get»description(): String
++toMap(): Map<String, dynamic
+}
+MessageType ..> M
+MessageType ..|> IMessageType
+class Message {
++messageType: T
++data: D[0..*]
++uId: String
++timestamp: DateTime
+-metadata: Map<String, String
+-mapping: M
+---
++«get»metadata(): Map<String, dynamic
++«get»id(): String
++«get»name(): String
++«get»description(): String
++validate(): void
++getMetadata(): dynamic
++setMetadata(): void
++toMap(): Map<String, dynamic
+}
+Message ..> T
+Message ..> DateTime
+Message ..> M
+Message ..|> IMessage
+class MessageFactory {
+---
++stringMessage(): StringMessage
++int8Message(): Int8Message
++int16Message(): Int16Message
++int32Message(): Int32Message
++int64Message(): Int64Message
++float32Message(): Float32Message
++double64Message(): Double64Message
+}
+class Event {
++id: String
++name: String
++timestamp: DateTime
++description: String
+-metadata: Map<String, dynamic
++eventType: EventType
+---
++«get»metadata(): Map<String, dynamic
++getMetadata(): dynamic
++toMap(): Map<String, dynamic
+}
+Event ..> DateTime
+Event ..> EventType
+Event ..|> IHasMetadata
+Event ..|> ITimestamped
+Event ..|> ISerializable
+class SystemEvent {
+---
+}
+Event <|-- SystemEvent
+class DataEvent {
+---
+}
+Event <|-- DataEvent
+class CoordinationEvent {
+---
+}
+Event <|-- CoordinationEvent
+class UserEvent {
+---
+}
+Event <|-- UserEvent
+class EventFactory {
+---
++fromMap(): Event
+}
+interface IMessageType {
+---
++«get»type(): StreamDataType
++«get»channels(): int
+}
+IMessageType ..|> IIdentity
+IMessageType ..|> ISerializable
+interface IMessage {
+---
++«get»messageType(): T
++«get»data(): dynamic[0..*]
+}
+IMessage ..|> IUniqueIdentity
+IMessage ..|> ITimestamped
+IMessage ..|> ISerializable
+IMessage ..|> IHasMetadata
+interface ISerializable {
+---
++toMap(): Map<String, dynamic
+}
 interface IIdentity {
 ---
 +«get»id(): String
@@ -270,14 +1361,33 @@ interface IIdentity {
 +«get»description(): String?
 }
 interface IUniqueIdentity {
-+uId: String
+---
++«get»uId(): String
+}
+IUniqueIdentity ..|> IIdentity
+interface ITimestamped {
+---
++«get»timestamp(): DateTime
+}
+interface ITransportConfig {
 ---
 }
-IIdentity <|-- IUniqueIdentity
+ITransportConfig ..|> IConfig
+interface ITransport {
+---
++createStream(): FutureOr<NetworkStream
+}
+ITransport ..|> IConfigurable
+ITransport ..|> IInitializable
+ITransport ..|> IIdentity
+ITransport ..|> ILifecycle
 interface IResource {
 ---
++«get»manager(): IResourceManager?
++updateManager(): FutureOr<void
 }
 IResource ..|> IUniqueIdentity
+IResource ..|> ILifecycle
 interface ILifecycle {
 ---
 +«get»created(): bool
@@ -312,9 +1422,16 @@ interface IJoinable {
 interface IConfig {
 ---
 +validate(): bool
-+toMap(): Map<String, dynamic
 +copyWith(): IConfig
-+standard(): IConfig
++==(): bool
++«get»hashCode(): int
+}
+IConfig ..|> ISerializable
+IConfig ..|> IIdentity
+interface IConfigFactory {
+---
++defaultConfig(): T
++fromMap(): T
 }
 interface IConfigurable {
 ---
@@ -322,12 +1439,13 @@ interface IConfigurable {
 }
 interface IHasMetadata {
 ---
-+«get»metadata(): Map<String, String
-+getMetadata(): String?
++«get»metadata(): Map<String, dynamic
++getMetadata(): dynamic
 }
 interface IResourceManager {
 ---
 +manageResource(): FutureOr<void
 +releaseResource(): FutureOr<R
 }
+IResourceManager ..|> IUniqueIdentity
 @enduml

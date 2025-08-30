@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:liblsl/lsl.dart';
 import 'package:liblsl_coordinator/framework.dart';
 import 'package:liblsl_coordinator/transports/lsl.dart';
 
@@ -77,8 +76,28 @@ class LSLStreamInfoHelper {
     };
   }
 
+  /// Creates a stream info for use in an inlet, based on the expected
+  /// configuration based on the node and session.
+  static Future<LSLStreamInfo> generateInletStreamInfo({
+    required NetworkStreamConfig config,
+    required CoordinationSessionConfig sessionConfig,
+    required Node node,
+  }) async {
+    final streamName = generateStreamName(config, node: node);
+    final sourceId = generateSourceID(config, node: node);
+    final LSLStreamInfo info = await LSL.createStreamInfo(
+      streamName: streamName,
+      streamType: LSLContentType.markers,
+      channelCount: config.channels,
+      channelFormat: config.dataType.toLSLChannelFormat(),
+      sampleRate: config.sampleRate,
+      sourceId: sourceId, // Use unique source ID
+    );
+    return info;
+  }
+
   /// Create a stream info (for use in an outlet) from the given parameters.
-  static Future<LSLStreamInfo> createStreamInfo({
+  static Future<LSLStreamInfoWithMetadata> createStreamInfo({
     required NetworkStreamConfig config,
     required CoordinationSessionConfig sessionConfig,
     required Node node,
@@ -122,6 +141,8 @@ class LSLStreamInfoHelper {
     }
 
     rootElement.addChildValue(nodeUIdKey, node.uId);
+
+    logger.info("Created streamInfo from for node: $node");
 
     return info;
   }
@@ -303,8 +324,7 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
   final List<LSLStreamInfo> _inletStreamInfos = <LSLStreamInfo>[];
 
   // Message handling
-  final StreamController<M> _incomingController =
-      StreamController<M>.broadcast();
+  final StreamController<M> _incomingController = StreamController<M>();
   final StreamController<M> _outgoingController = StreamController<M>();
 
   // State
@@ -412,8 +432,15 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
     }
   }
 
+  void updateNode(Node newNode);
+
   Future<void> addInlet(LSLStreamInfo streamInfo) async {
     if (_disposed) return;
+
+    if (hasInletForSource(streamInfo.sourceId)) {
+      logger.warning('Inlet for source ${streamInfo.sourceId} already exists');
+      return;
+    }
 
     if (useIsolates) {
       _inletStreamInfos.add(streamInfo);
@@ -456,14 +483,93 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
       _inletResources.add(inletResource);
     }
 
+    // we don't want to auto start
     // Start if not already started
-    if (!_started) {
-      await start();
+    // if (!_started) {
+    //   await start();
+    // }
+  }
+
+  Future<void> createResolvedInletsForStream(
+    Iterable<Node> nodes, {
+    Duration resolveTimeout = const Duration(seconds: 5),
+  }) async {
+    final streamInfos = await LslDiscovery.discoverOnceByPredicate(
+      LSLStreamInfoHelper.generatePredicate(
+        streamNamePrefix: config.name,
+        sessionName: streamSessionConfig.name,
+      ),
+      minStreams: nodes.length,
+      maxStreams: nodes.length,
+      timeout: resolveTimeout,
+    );
+    for (final node in nodes) {
+      final matchingInfo = streamInfos.firstWhere(
+        (info) {
+          final parsedSource = LSLStreamInfoHelper.parseSourceId(info.sourceId);
+          return parsedSource[LSLStreamInfoHelper.nodeUIdKey] == node.uId;
+        },
+        orElse:
+            () =>
+                throw StateError(
+                  'No matching stream info found for node ${node.id} (${node.uId})',
+                ),
+      );
+      await addInlet(matchingInfo);
+      logger.severe('Created resolved inlet for node ${node.id} (${node.uId})');
     }
+  }
+
+  /// Generates a streamInfo and creates an inlet based on the expected node
+  /// and session
+  Future<void> createInletForNode(
+    Node node, {
+    bool resolveInfo = false,
+    Duration resolveTimeout = const Duration(seconds: 5),
+  }) async {
+    if (_disposed) return;
+    if (hasInletForSource(node.uId)) {
+      logger.fine('Inlet for node ${node.id} (${node.uId}) already exists');
+      return;
+    }
+
+    LSLStreamInfo streamInfo;
+    if (!resolveInfo) {
+      streamInfo = await LSLStreamInfoHelper.generateInletStreamInfo(
+        config: config,
+        sessionConfig: streamSessionConfig,
+        node: node,
+      );
+    } else {
+      final streamInfos = await LslDiscovery.discoverOnceByPredicate(
+        LSLStreamInfoHelper.generatePredicate(
+          streamNamePrefix: config.name,
+          sessionName: streamSessionConfig.name,
+          nodeUId: node.uId,
+        ),
+        minStreams: 1,
+        maxStreams: 1,
+        timeout: resolveTimeout,
+      );
+      if (streamInfos.isEmpty) {
+        throw StateError(
+          'Failed to resolve stream info for node ${node.id} (${node.uId})',
+        );
+      }
+      streamInfo = streamInfos.first;
+    }
+
+    logger.info(
+      'INLET: ${config.name} - targeting sourceId: ${LSLStreamInfoHelper.generateSourceID(config, node: node)}, dataType: ${config.dataType}, channels: ${config.channels}, sampleRate: ${config.sampleRate}',
+    );
+
+    await addInlet(streamInfo);
+    logger.severe('Created inlet for node ${node.id} (${node.uId})');
   }
 
   Future<void> start() async {
     if (_started) return;
+    logger.info('Starting LSL stream ${config.name}');
     _started = true;
 
     if (useIsolates) {
@@ -660,6 +766,10 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
       node: streamNode,
     );
 
+    logger.info(
+      'OUTLET: ${config.name} - sourceId: ${streamInfo.sourceId}, dataType: ${config.dataType}, channels: ${config.channels}, sampleRate: ${config.sampleRate}',
+    );
+
     if (useIsolates) {
       // Create outlet isolate
       logger.info(
@@ -714,7 +824,8 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
 class LSLDataStream extends DataStream<DataStreamConfig, IMessage>
     with RuntimeTypeUID, LSLStreamMixin<DataStreamConfig, IMessage> {
   @override
-  final Node streamNode;
+  Node get streamNode => _streamNode;
+  Node _streamNode;
   @override
   final CoordinationSessionConfig streamSessionConfig;
   @override
@@ -727,16 +838,17 @@ class LSLDataStream extends DataStream<DataStreamConfig, IMessage>
 
   // Typed data stream based on config
   final StreamController<List<dynamic>> _typedDataController =
-      StreamController<List<dynamic>>.broadcast();
+      StreamController<List<dynamic>>();
 
   Stream<List<dynamic>> get dataStream => _typedDataController.stream;
 
   LSLDataStream({
     required DataStreamConfig config,
-    required this.streamNode,
+    required Node streamNode,
     required this.streamSessionConfig,
     required this.lslTransport,
-  }) : super(config);
+  }) : _streamNode = streamNode,
+       super(config);
 
   @override
   String get name => 'LSL Data Stream ${config.name}';
@@ -763,6 +875,14 @@ class LSLDataStream extends DataStream<DataStreamConfig, IMessage>
     } else if (_outletResource != null) {
       _outletResource!.outlet.pushSample(data);
     }
+  }
+
+  @override
+  void updateNode(Node newNode) {
+    if (newNode.uId != streamNode.uId) {
+      throw ArgumentError("newNode must have the same uId");
+    }
+    _streamNode = newNode;
   }
 
   void sendDataTyped<T>(List<T> data) {
@@ -932,7 +1052,9 @@ class LSLCoordinationStream
         RuntimeTypeUID,
         LSLStreamMixin<CoordinationStreamConfig, StringMessage> {
   @override
-  final Node streamNode;
+  Node get streamNode => _streamNode;
+  Node _streamNode;
+
   @override
   final CoordinationSessionConfig streamSessionConfig;
   @override
@@ -945,10 +1067,11 @@ class LSLCoordinationStream
 
   LSLCoordinationStream({
     required CoordinationStreamConfig config,
-    required this.streamNode,
+    required Node streamNode,
     required this.streamSessionConfig,
     required this.lslTransport,
-  }) : super(config);
+  }) : _streamNode = streamNode,
+       super(config);
 
   @override
   String get description => 'Coordination stream for ${config.name}';
@@ -963,6 +1086,14 @@ class LSLCoordinationStream
       );
     }
     return null;
+  }
+
+  @override
+  void updateNode(Node newNode) {
+    if (streamNode.uId != newNode.uId) {
+      throw ArgumentError("newNode must have the same uID");
+    }
+    _streamNode = newNode;
   }
 
   @override

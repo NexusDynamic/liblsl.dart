@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:liblsl/lsl.dart';
 import 'package:liblsl_coordinator/liblsl_coordinator.dart';
 import 'package:liblsl_coordinator/transports/lsl.dart';
 import 'package:synchronized/synchronized.dart';
@@ -147,7 +146,7 @@ class LslDiscovery extends LSLResource implements IPausable, IResourceManager {
 
   // Event-driven discovery
   final StreamController<DiscoveryEvent> _eventController =
-      StreamController<DiscoveryEvent>.broadcast();
+      StreamController<DiscoveryEvent>();
   Stream<DiscoveryEvent> get events => _eventController.stream;
 
   // Mutable predicate for destroy/recreate pattern
@@ -390,15 +389,23 @@ class LslDiscovery extends LSLResource implements IPausable, IResourceManager {
   /// Performs a one-time discovery and returns the matching streams.
   /// IMPORTANT: The caller is responsible for destroying the returned StreamInfos.
   /// this can be done with [LSLStreamInfo.destroy] or [List<LSLStreamInfo>.destroy]
+  ///
+  /// This method now runs in an isolate to avoid blocking the main thread.
   static Future<List<LSLStreamInfo>> discoverOnceByPredicate(
     String predicate, {
     Duration timeout = const Duration(seconds: 2),
+    int minStreams = 0,
     int maxStreams = 10,
   }) async {
-    final streams = await LSL.resolveStreamsByPredicate(
+    // Use isolate to avoid blocking main thread
+    final streams = await IsolateStreamManager.discoverOnceIsolated(
       predicate: predicate,
-      waitTime: timeout.inMilliseconds / 1000.0,
+      timeout: timeout,
+      minStreams: minStreams,
       maxStreams: maxStreams,
+    );
+    logger.fine(
+      'One-time discovery found ${streams.length} stream(s) for predicate: $predicate',
     );
     return streams;
   }

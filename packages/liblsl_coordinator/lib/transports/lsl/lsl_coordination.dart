@@ -7,9 +7,9 @@ import 'lsl_coordination_controller.dart';
 /// Simplified coordination session using the controller pattern
 class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
   @override
-  String get id => 'lsl-coordination-session-v2';
+  String get id => 'lsl-coordination-session';
   @override
-  String get name => 'LSL Coordination Session V2';
+  String get name => 'LSL Coordination Session';
   @override
   String get description =>
       'Simplified LSL coordination session using controller pattern';
@@ -20,10 +20,17 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
 
   // Public streams - forward from controller
   Stream<CoordinationPhase> get phaseChanges => _controller.phaseChanges;
+  Stream<CreateStreamMessage> get streamCreateCommands =>
+      _controller.streamCreateCommands;
   Stream<StartStreamMessage> get streamStartCommands =>
       _controller.streamStartCommands;
+
+  Stream<StreamReadyMessage> get streamReadyNotifications =>
+      _controller.streamReadyNotifications;
+
   Stream<StopStreamMessage> get streamStopCommands =>
       _controller.streamStopCommands;
+
   Stream<UserCoordinationMessage> get userMessages => _controller.userMessages;
   Stream<ConfigUpdateMessage> get configUpdates => _controller.configUpdates;
   Stream<Node> get nodeJoined => _controller.nodeJoined;
@@ -63,21 +70,34 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
   }
 
   void _setupStreamCommandHandlers() {
-    // Auto-handle stream commands if not overridden by application
+    // Handle createStream commands - prepare stream but don't start
+    streamCreateCommands.listen((command) async {
+      logger.info('Received create stream command: ${command.streamName}');
+
+      // Create the stream but don't start it yet
+      if (!_dataStreams.containsKey(command.streamName)) {
+        await createDataStream(command.streamConfig);
+      }
+
+      // Notify coordinator we're ready
+      await _controller.markStreamReady(command.streamName);
+      logger.info('Stream prepared and marked ready: ${command.streamName}');
+    });
+
+    // Handle startStream commands - actually start the stream
     streamStartCommands.listen((command) async {
       logger.info('Received start stream command: ${command.streamName}');
 
-      // Check if we should auto-create the stream
-      if (!_dataStreams.containsKey(command.streamName)) {
-        logger.info('Auto-creating stream: ${command.streamName}');
-        await _createDataStream(command.streamConfig);
-      }
-
-      // Start the stream
       final stream = _dataStreams[command.streamName];
-      if (stream != null && !stream.started) {
-        await stream.start();
-        logger.info('Started stream: ${command.streamName}');
+      if (stream != null) {
+        if (!stream.started) {
+          await stream.start();
+          logger.info('Started stream: ${command.streamName}');
+        } else {
+          logger.info('Stream ${command.streamName} already started, skipping');
+        }
+      } else {
+        logger.warning('Stream ${command.streamName} not found');
       }
     });
 
@@ -116,19 +136,23 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
   Future<void> join() async {
     await super.join();
 
-    // Start coordination process
+    logger.info('Starting coordination process...');
     await _controller.start();
 
     // Wait for coordination to be established
-    // TODO: not hardcoded, but configurable
-    await _waitForPhase(
-      CoordinationPhase.established,
-      timeout: Duration(seconds: 30),
-    );
-
-    logger.info(
-      'Joined coordination session as ${isCoordinator ? "coordinator" : "participant"}',
-    );
+    try {
+      // TODO: make timeout configurable
+      await _waitForPhase({
+        CoordinationPhase.accepting,
+        CoordinationPhase.ready,
+      }, timeout: Duration(seconds: config.discoveryInterval.inSeconds * 10));
+      logger.info(
+        '✅ Joined coordination session as ${_controller.isCoordinator ? 'COORDINATOR' : 'PARTICIPANT'}',
+      );
+    } catch (e) {
+      logger.severe('❌ COORDINATION FAILED: $e');
+      throw StateError('Failed to establish coordination: $e');
+    }
   }
 
   /// not yet implementd
@@ -151,17 +175,19 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
 
   /// Wait for a specific coordination phase
   Future<void> _waitForPhase(
-    CoordinationPhase targetPhase, {
+    Set<CoordinationPhase> targetPhase, {
     Duration? timeout,
   }) async {
-    if (currentPhase == targetPhase) return;
+    if (targetPhase.contains(currentPhase)) {
+      return;
+    }
 
     final completer = Completer<void>();
     late StreamSubscription subscription;
     Timer? timeoutTimer;
 
     subscription = phaseChanges.listen((phase) {
-      if (phase == targetPhase) {
+      if (targetPhase.contains(phase)) {
         timeoutTimer?.cancel();
         subscription.cancel();
         if (!completer.isCompleted) {
@@ -172,6 +198,9 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
 
     if (timeout != null) {
       timeoutTimer = Timer(timeout, () {
+        logger.warning(
+          'Timeout waiting for phase $targetPhase after ${timeout.inSeconds}s (current: $currentPhase)',
+        );
         subscription.cancel();
         if (!completer.isCompleted) {
           completer.completeError(
@@ -190,12 +219,48 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
 
     final stream = await _createDataStream(config);
 
-    // If we're the coordinator, we can start it immediately
-    // If we're a participant, we wait for coordinator command
+    // Create outlets and inlets but don't start yet (new flow)
     if (isCoordinator) {
-      logger.info('Coordinator auto-starting stream: ${config.name}');
-      await stream.start();
+      // Coordinator broadcasts createStream to all participants
+      // This happens before inlet creation to ensure that the first step
+      // of any data stream is the outlet, and then inlets are created after,
+      // as the streams will be available.
+      await _controller.createStream(config.name, config);
+
+      if (config.participationMode !=
+          StreamParticipationMode.sendAllReceiveCoordinator) {
+        await stream.createOutlet();
+      }
+
+      /// now we can create inlets from each expected sender
+      if (config.participationMode != StreamParticipationMode.coordinatorOnly) {
+        // Create inlets for all existing producers
+        // @TODO: we need to save more information about nodes than the uId
+        final producers = await getProducersForStream(config.name);
+        await stream.createResolvedInletsForStream(producers);
+      }
+
+      // Coordinator marks itself as ready
+      await _controller.markStreamReady(config.name);
+      logger.info(
+        'Coordinator created stream and broadcasted to participants: ${config.name}',
+      );
     } else {
+      if (config.participationMode != StreamParticipationMode.coordinatorOnly) {
+        logger.warning(
+          'Participant creating outlet for stream: ${config.name}, ${config.participationMode}',
+        );
+        await stream.createOutlet();
+      }
+
+      /// now we can create inlets from each expected sender
+      if (config.participationMode !=
+          StreamParticipationMode.sendAllReceiveCoordinator) {
+        // Create inlets for all existing nodes
+        final producers = await getProducersForStream(config.name);
+        await stream.createResolvedInletsForStream(producers);
+      }
+      await _controller.markStreamReady(config.name);
       logger.info(
         'Participant created stream, waiting for coordinator command: ${config.name}',
       );
@@ -205,6 +270,10 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
   }
 
   Future<LSLDataStream> _createDataStream(DataStreamConfig config) async {
+    if (_dataStreams.containsKey(config.name)) {
+      logger.warning('Stream already exists, not recreating: ${config.name}');
+      return _dataStreams[config.name]!;
+    }
     final factory = LSLNetworkStreamFactory();
     final stream = await factory.createDataStream(config, this);
 
@@ -213,6 +282,13 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
 
     logger.info('Created data stream: ${config.name}');
     return stream;
+  }
+
+  Future<LSLDataStream> getDataStream(String name) async {
+    if (!_dataStreams.containsKey(name)) {
+      throw ArgumentError('Stream not found: $name');
+    }
+    return _dataStreams[name]!;
   }
 
   // Coordinator methods - only work if this node is the coordinator
@@ -231,8 +307,69 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
     if (stream == null) {
       throw ArgumentError('Stream not found: $streamName');
     }
+    // Start the stream ourselves
+    await stream.start();
 
+    /// Send start command to all participants
     await _controller.startStream(streamName, stream.config, startAt: startAt);
+  }
+
+  Future<Set<Node>> getProducersForStream(String streamName) async {
+    final stream = _dataStreams[streamName];
+    if (stream == null) {
+      throw ArgumentError('Stream not found: $streamName');
+    }
+    if (stream.config.participationMode ==
+        StreamParticipationMode.coordinatorOnly) {
+      return connectedNodes
+          .where(
+            (streamNode) =>
+                streamNode.role == NodeCapability.coordinator.toString(),
+          )
+          .toSet();
+    } else if (stream.config.participationMode ==
+        StreamParticipationMode.sendAllReceiveCoordinator) {
+      return connectedNodes
+          .where(
+            (streamNode) =>
+                streamNode.role != NodeCapability.coordinator.toString(),
+          )
+          .toSet();
+    } else if (stream.config.participationMode ==
+        StreamParticipationMode.allNodes) {
+      return connectedNodes.toSet();
+    } else {
+      return {thisNode};
+    }
+  }
+
+  Future<Set<Node>> getConsumersForStream(String streamName) async {
+    final stream = _dataStreams[streamName];
+    if (stream == null) {
+      throw ArgumentError('Stream not found: $streamName');
+    }
+    if (stream.config.participationMode ==
+        StreamParticipationMode.coordinatorOnly) {
+      return connectedNodes
+          .where(
+            (streamNode) =>
+                streamNode.role != NodeCapability.coordinator.toString(),
+          )
+          .toSet();
+    } else if (stream.config.participationMode ==
+        StreamParticipationMode.sendAllReceiveCoordinator) {
+      return connectedNodes
+          .where(
+            (streamNode) =>
+                streamNode.role == NodeCapability.coordinator.toString(),
+          )
+          .toSet();
+    } else if (stream.config.participationMode ==
+        StreamParticipationMode.allNodes) {
+      return connectedNodes.toSet();
+    } else {
+      return {};
+    }
   }
 
   Future<void> stopStream(String streamName) async {

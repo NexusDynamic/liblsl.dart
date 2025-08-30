@@ -4,11 +4,16 @@ import 'package:liblsl_coordinator/framework.dart';
 /// Base coordination message types
 enum CoordinationMessageType {
   heartbeat,
+  connectionTest,
+  connectionTestResponse,
+  joinOffer,
   joinRequest,
   joinAccept,
   joinReject,
   topologyUpdate,
+  createStream,
   startStream,
+  streamReady,
   stopStream,
   userMessage,
   configUpdate,
@@ -42,6 +47,10 @@ abstract class CoordinationMessage {
     switch (type) {
       case CoordinationMessageType.heartbeat:
         return HeartbeatMessage.fromMap(map);
+      case CoordinationMessageType.connectionTest:
+        return ConnectionTestMessage.fromMap(map);
+      case CoordinationMessageType.connectionTestResponse:
+        return ConnectionTestResponseMessage.fromMap(map);
       case CoordinationMessageType.joinRequest:
         return JoinRequestMessage.fromMap(map);
       case CoordinationMessageType.joinAccept:
@@ -50,8 +59,12 @@ abstract class CoordinationMessage {
         return JoinRejectMessage.fromMap(map);
       case CoordinationMessageType.topologyUpdate:
         return TopologyUpdateMessage.fromMap(map);
+      case CoordinationMessageType.createStream:
+        return CreateStreamMessage.fromMap(map);
       case CoordinationMessageType.startStream:
         return StartStreamMessage.fromMap(map);
+      case CoordinationMessageType.streamReady:
+        return StreamReadyMessage.fromMap(map);
       case CoordinationMessageType.stopStream:
         return StopStreamMessage.fromMap(map);
       case CoordinationMessageType.userMessage:
@@ -60,10 +73,72 @@ abstract class CoordinationMessage {
         return ConfigUpdateMessage.fromMap(map);
       case CoordinationMessageType.nodeLeaving:
         return NodeLeavingMessage.fromMap(map);
+      case CoordinationMessageType.joinOffer:
+        return JoinOfferMessage.fromMap(map);
     }
   }
 
   String toJson() => jsonEncode(toMap());
+}
+
+class ConnectionTestMessage extends CoordinationMessage {
+  final String testId;
+
+  ConnectionTestMessage({
+    required super.fromNodeUId,
+    required this.testId,
+    super.timestamp,
+    super.metadata,
+  }) : super(type: CoordinationMessageType.connectionTest);
+
+  @override
+  Map<String, dynamic> toMap() => {
+    'type': type.name,
+    'fromNodeUId': fromNodeUId,
+    'timestamp': timestamp.toIso8601String(),
+    'testId': testId,
+    'metadata': metadata,
+  };
+
+  factory ConnectionTestMessage.fromMap(Map<String, dynamic> map) =>
+      ConnectionTestMessage(
+        fromNodeUId: map['fromNodeUId'],
+        testId: map['testId'],
+        timestamp: DateTime.parse(map['timestamp']),
+        metadata: Map<String, dynamic>.from(map['metadata'] ?? {}),
+      );
+}
+
+class ConnectionTestResponseMessage extends CoordinationMessage {
+  final String testId;
+  final bool confirmed;
+
+  ConnectionTestResponseMessage({
+    required super.fromNodeUId,
+    required this.testId,
+    required this.confirmed,
+    super.timestamp,
+    super.metadata,
+  }) : super(type: CoordinationMessageType.connectionTestResponse);
+
+  @override
+  Map<String, dynamic> toMap() => {
+    'type': type.name,
+    'fromNodeUId': fromNodeUId,
+    'timestamp': timestamp.toIso8601String(),
+    'testId': testId,
+    'confirmed': confirmed,
+    'metadata': metadata,
+  };
+
+  factory ConnectionTestResponseMessage.fromMap(Map<String, dynamic> map) =>
+      ConnectionTestResponseMessage(
+        fromNodeUId: map['fromNodeUId'],
+        testId: map['testId'],
+        confirmed: map['confirmed'] ?? false,
+        timestamp: DateTime.parse(map['timestamp']),
+        metadata: Map<String, dynamic>.from(map['metadata'] ?? {}),
+      );
 }
 
 class HeartbeatMessage extends CoordinationMessage {
@@ -98,6 +173,40 @@ class HeartbeatMessage extends CoordinationMessage {
       );
 }
 
+class JoinOfferMessage extends CoordinationMessage {
+  final String sessionId;
+  final Node targetNode;
+
+  JoinOfferMessage({
+    required super.fromNodeUId,
+    required this.sessionId,
+    required this.targetNode,
+    super.timestamp,
+    super.metadata,
+  }) : super(type: CoordinationMessageType.joinOffer);
+
+  @override
+  Map<String, dynamic> toMap() => {
+    'type': type.name,
+    'fromNodeUId': fromNodeUId,
+    'timestamp': timestamp.toIso8601String(),
+    'sessionId': sessionId,
+    'targetNode': targetNode.config.toMap(),
+    'metadata': metadata,
+  };
+
+  factory JoinOfferMessage.fromMap(Map<String, dynamic> map) =>
+      JoinOfferMessage(
+        fromNodeUId: map['fromNodeUId'],
+        sessionId: map['sessionId'],
+        targetNode: NodeFactory.createNodeFromConfig(
+          NodeConfigFactory().fromMap(map['targetNode']),
+        ),
+        timestamp: DateTime.parse(map['timestamp']),
+        metadata: Map<String, dynamic>.from(map['metadata'] ?? {}),
+      );
+}
+
 class JoinRequestMessage extends CoordinationMessage {
   final Node requestingNode;
   final String sessionId;
@@ -123,7 +232,7 @@ class JoinRequestMessage extends CoordinationMessage {
   factory JoinRequestMessage.fromMap(Map<String, dynamic> map) =>
       JoinRequestMessage(
         fromNodeUId: map['fromNodeUId'],
-        requestingNode: Node(
+        requestingNode: NodeFactory.createNodeFromConfig(
           NodeConfigFactory().fromMap(map['requestingNode']),
         ),
         sessionId: map['sessionId'],
@@ -160,7 +269,11 @@ class JoinAcceptMessage extends CoordinationMessage {
         acceptedNodeUId: map['acceptedNodeUId'],
         currentTopology:
             (map['currentTopology'] as List)
-                .map((n) => Node(NodeConfigFactory().fromMap(n)))
+                .map(
+                  (n) => NodeFactory.createNodeFromConfig(
+                    NodeConfigFactory().fromMap(n),
+                  ),
+                )
                 .toList(),
         timestamp: DateTime.parse(map['timestamp']),
         metadata: Map<String, dynamic>.from(map['metadata'] ?? {}),
@@ -199,6 +312,38 @@ class JoinRejectMessage extends CoordinationMessage {
       );
 }
 
+class CreateStreamMessage extends CoordinationMessage {
+  final String streamName;
+  final DataStreamConfig streamConfig;
+
+  CreateStreamMessage({
+    required super.fromNodeUId,
+    required this.streamName,
+    required this.streamConfig,
+    super.timestamp,
+    super.metadata,
+  }) : super(type: CoordinationMessageType.createStream);
+
+  @override
+  Map<String, dynamic> toMap() => {
+    'type': type.name,
+    'fromNodeUId': fromNodeUId,
+    'timestamp': timestamp.toIso8601String(),
+    'streamName': streamName,
+    'streamConfig': streamConfig.toMap(),
+    'metadata': metadata,
+  };
+
+  factory CreateStreamMessage.fromMap(Map<String, dynamic> map) =>
+      CreateStreamMessage(
+        fromNodeUId: map['fromNodeUId'],
+        streamName: map['streamName'],
+        streamConfig: DataStreamConfigFactory().fromMap(map['streamConfig']),
+        timestamp: DateTime.parse(map['timestamp']),
+        metadata: Map<String, dynamic>.from(map['metadata'] ?? {}),
+      );
+}
+
 class StartStreamMessage extends CoordinationMessage {
   final String streamName;
   final DataStreamConfig streamConfig;
@@ -230,6 +375,34 @@ class StartStreamMessage extends CoordinationMessage {
         streamName: map['streamName'],
         streamConfig: DataStreamConfigFactory().fromMap(map['streamConfig']),
         startAt: map['startAt'] != null ? DateTime.parse(map['startAt']) : null,
+        timestamp: DateTime.parse(map['timestamp']),
+        metadata: Map<String, dynamic>.from(map['metadata'] ?? {}),
+      );
+}
+
+class StreamReadyMessage extends CoordinationMessage {
+  final String streamName;
+
+  StreamReadyMessage({
+    required super.fromNodeUId,
+    required this.streamName,
+    super.timestamp,
+    super.metadata,
+  }) : super(type: CoordinationMessageType.streamReady);
+
+  @override
+  Map<String, dynamic> toMap() => {
+    'type': type.name,
+    'fromNodeUId': fromNodeUId,
+    'timestamp': timestamp.toIso8601String(),
+    'streamName': streamName,
+    'metadata': metadata,
+  };
+
+  factory StreamReadyMessage.fromMap(Map<String, dynamic> map) =>
+      StreamReadyMessage(
+        fromNodeUId: map['fromNodeUId'],
+        streamName: map['streamName'],
         timestamp: DateTime.parse(map['timestamp']),
         metadata: Map<String, dynamic>.from(map['metadata'] ?? {}),
       );
@@ -351,7 +524,11 @@ class TopologyUpdateMessage extends CoordinationMessage {
         fromNodeUId: map['fromNodeUId'],
         topology:
             (map['topology'] as List)
-                .map((n) => Node(NodeConfigFactory().fromMap(n)))
+                .map(
+                  (n) => NodeFactory.createNodeFromConfig(
+                    NodeConfigFactory().fromMap(n),
+                  ),
+                )
                 .toList(),
         timestamp: DateTime.parse(map['timestamp']),
         metadata: Map<String, dynamic>.from(map['metadata'] ?? {}),

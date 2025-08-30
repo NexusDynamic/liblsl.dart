@@ -183,7 +183,7 @@ abstract class StreamIsolate {
 
   // Data stream for incoming messages
   final StreamController<IsolateDataMessage> _incomingDataController =
-      StreamController<IsolateDataMessage>.broadcast();
+      StreamController<IsolateDataMessage>();
 
   Stream<IsolateDataMessage> get incomingData => _incomingDataController.stream;
 
@@ -263,7 +263,7 @@ abstract class StreamIsolate {
   IsolateWorkerConfig _createConfig();
 
   /// Get worker function - implemented by subclasses
-  void Function(IsolateWorkerConfig) _getWorkerFunction();
+  Future<void> Function(IsolateWorkerConfig) _getWorkerFunction();
 }
 
 /// Inlet isolate for receiving data from multiple sources
@@ -311,11 +311,12 @@ class StreamInletIsolate extends StreamIsolate {
   }
 
   @override
-  void Function(IsolateWorkerConfig) _getWorkerFunction() => _inletWorker;
+  Future<void> Function(IsolateWorkerConfig) _getWorkerFunction() =>
+      _inletWorker;
 
   // Static worker function for inlet isolates
-  static void _inletWorker(IsolateWorkerConfig config) {
-    InletWorker(config).start();
+  static Future<void> _inletWorker(IsolateWorkerConfig config) async {
+    await InletWorker(config).start();
   }
 }
 
@@ -363,11 +364,12 @@ class StreamOutletIsolate extends StreamIsolate {
   }
 
   @override
-  void Function(IsolateWorkerConfig) _getWorkerFunction() => _outletWorker;
+  Future<void> Function(IsolateWorkerConfig) _getWorkerFunction() =>
+      _outletWorker;
 
   // Static worker function for outlet isolates
-  static void _outletWorker(IsolateWorkerConfig config) {
-    OutletWorker(config).start();
+  static Future<void> _outletWorker(IsolateWorkerConfig config) async {
+    await OutletWorker(config).start();
   }
 }
 
@@ -415,45 +417,77 @@ class IsolateStreamManager {
     );
   }
 
+  /// Performs one-time stream discovery in an isolate to avoid blocking main thread
+  static Future<List<LSLStreamInfo>> discoverOnceIsolated({
+    required String predicate,
+    Duration timeout = const Duration(seconds: 2),
+    int minStreams = 0,
+    int maxStreams = 10,
+  }) async {
+    final List<int> streamAddrs = await Isolate.run(() async {
+      try {
+        final streams = await LSL.resolveStreamsByPredicate(
+          predicate: predicate,
+          waitTime: timeout.inMilliseconds / 1000.0,
+          minStreamCount: minStreams,
+          maxStreams: maxStreams,
+        );
+
+        return streams.map((s) => s.streamInfo.address).toList();
+      } catch (e) {
+        // Return empty list on error
+        return <int>[];
+      }
+    });
+    return streamAddrs
+        .map((addr) => LSLStreamInfo.fromStreamInfoAddr(addr))
+        .toList();
+  }
+
   // Static helper methods for creating LSL resources
   static LSLOutlet _createOutlet(IsolateWorkerConfig config) {
     final streamInfo = LSLStreamInfoWithMetadata.fromStreamInfoAddr(
       config.outletAddress!,
     );
-    return LSLOutlet(streamInfo, useIsolates: false)..create();
+    return LSLOutlet(streamInfo, useIsolates: false, chunkSize: 1)..create();
   }
 
-  static List<LSLInlet> _createInlets(IsolateWorkerConfig config) {
-    return config.inletAddresses!.map((addr) {
-      return _createInletFromAddr(addr, config.dataType);
-    }).toList();
+  static Future<List<LSLInlet>> _createInlets(
+    IsolateWorkerConfig config,
+  ) async {
+    final inletFutures =
+        config.inletAddresses!.map((addr) async {
+          return _createInletFromAddr(addr, config.dataType);
+        }).toList();
+
+    return await Future.wait(inletFutures);
   }
 
-  static LSLInlet _createInletFromAddr(
+  static Future<LSLInlet> _createInletFromAddr(
     int streamInfoAddr,
     StreamDataType dataType,
-  ) {
+  ) async {
     final streamInfo = LSLStreamInfo.fromStreamInfoAddr(streamInfoAddr);
-    final inlet = _createTypedInlet(streamInfo, dataType);
-    inlet.create();
+    final inlet = await _createTypedInlet(streamInfo, dataType);
+    await inlet.create();
     return inlet;
   }
 
-  static LSLInlet _createTypedInlet(
+  static Future<LSLInlet> _createTypedInlet(
     LSLStreamInfo streamInfo,
     StreamDataType dataType,
-  ) {
+  ) async {
     switch (dataType) {
       case StreamDataType.float32:
       case StreamDataType.double64:
-        return LSLInlet<double>(streamInfo, useIsolates: false);
+        return LSLInlet<double>(streamInfo, chunkSize: 1, useIsolates: false);
       case StreamDataType.int8:
       case StreamDataType.int16:
       case StreamDataType.int32:
       case StreamDataType.int64:
-        return LSLInlet<int>(streamInfo, useIsolates: false);
+        return LSLInlet<int>(streamInfo, chunkSize: 1, useIsolates: false);
       case StreamDataType.string:
-        return LSLInlet<String>(streamInfo, useIsolates: false);
+        return LSLInlet<String>(streamInfo, chunkSize: 1, useIsolates: false);
     }
   }
 }
@@ -465,7 +499,7 @@ abstract class IsolateWorker {
 
   IsolateWorker(this.config);
 
-  void start() {
+  Future<void> start() async {
     receivePort = ReceivePort();
     config.mainSendPort.send(receivePort.sendPort);
     Log.sendPort = config.mainSendPort;
@@ -473,12 +507,12 @@ abstract class IsolateWorker {
     logger.info('${_getWorkerName()} for stream ${config.streamId} started');
 
     receivePort.listen(handleMessage);
-    initialize();
+    await initialize();
   }
 
   String _getWorkerName();
-  void initialize();
-  void handleMessage(dynamic message);
+  Future<void> initialize();
+  FutureOr<void> handleMessage(dynamic message);
 }
 
 /// Worker class for handling inlet operations in isolate
@@ -503,8 +537,8 @@ class InletWorker extends IsolateWorker {
   String _getWorkerName() => 'Inlet isolate';
 
   @override
-  void initialize() {
-    inlets = IsolateStreamManager._createInlets(config);
+  Future<void> initialize() async {
+    inlets = await IsolateStreamManager._createInlets(config);
     timeCorrections = List<double>.filled(inlets.length, 0.0, growable: true);
     inletsLock = Lock();
     timeCorrectionsLock = Lock();
@@ -514,7 +548,7 @@ class InletWorker extends IsolateWorker {
     lastTimeCorrectionUpdate = Stopwatch();
 
     lastTimeCorrectionUpdate.start();
-    _updateTimeCorrections(0).then((_) {
+    await _updateTimeCorrections(0).then((_) {
       logger.info(
         'Initial time corrections updated for stream ${config.streamId}',
       );
@@ -522,7 +556,7 @@ class InletWorker extends IsolateWorker {
   }
 
   @override
-  void handleMessage(dynamic message) {
+  Future<void> handleMessage(dynamic message) async {
     if (message is IsolateMessage) {
       switch (message.type) {
         case IsolateMessageType.start:
@@ -532,7 +566,7 @@ class InletWorker extends IsolateWorker {
           _handleStop();
           break;
         case IsolateMessageType.addInlet:
-          _handleAddInlet(message as AddInletMessage);
+          await _handleAddInlet(message as AddInletMessage);
           break;
         case IsolateMessageType.removeInlet:
           _handleRemoveInlet(message as RemoveInletMessage);
@@ -552,8 +586,14 @@ class InletWorker extends IsolateWorker {
     }
 
     if (config.useBusyWaitInlets) {
+      logger.fine(
+        'Starting busy-wait inlet worker for stream ${config.streamId}',
+      );
       _startBusyWaitInletsWorker();
     } else {
+      logger.fine(
+        'Starting timer-based inlet worker for stream ${config.streamId}',
+      );
       timer = Timer.periodic(config.pollingInterval, (_) async {
         if (!running) {
           timer?.cancel();
@@ -575,6 +615,7 @@ class InletWorker extends IsolateWorker {
   }
 
   void _handleStop() {
+    logger.fine('Stopping inlet worker for stream ${config.streamId}');
     running = false;
     timer?.cancel();
     if (completer != null && !completer!.isCompleted) {
@@ -589,8 +630,8 @@ class InletWorker extends IsolateWorker {
     });
   }
 
-  void _handleAddInlet(AddInletMessage message) {
-    final newInlet = IsolateStreamManager._createInletFromAddr(
+  Future<void> _handleAddInlet(AddInletMessage message) async {
+    final newInlet = await IsolateStreamManager._createInletFromAddr(
       message.address,
       config.dataType,
     );
@@ -710,7 +751,7 @@ class OutletWorker extends IsolateWorker {
   String _getWorkerName() => 'Outlet isolate';
 
   @override
-  void initialize() {
+  Future<void> initialize() async {
     outlet = IsolateStreamManager._createOutlet(config);
   }
 

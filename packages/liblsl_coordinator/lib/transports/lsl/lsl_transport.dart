@@ -1,6 +1,5 @@
 import 'package:liblsl_coordinator/liblsl_coordinator.dart';
 import 'package:liblsl_coordinator/transports/lsl.dart';
-import 'package:liblsl/lsl.dart';
 
 /// Transport configuration for LSL-based coordination.
 class LSLTransportConfig implements ITransportConfig {

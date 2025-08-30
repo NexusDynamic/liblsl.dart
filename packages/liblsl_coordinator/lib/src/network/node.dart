@@ -302,16 +302,31 @@ class Node implements IConfigurable<NodeConfig>, IUniqueIdentity, IHasMetadata {
     if (!config.validate()) {
       throw ArgumentError('Invalid node configuration: ${config.toMap()}');
     }
+    // TODO: Fix metadata, this is a mess
+    // Some metadata just needs to be set on creation
+    // Some needs to be updated on promotion
     _lastSeen = DateTime.now();
     setMetadata('type', config.capabilities.join(','));
-    setMetadata('randomRoll', Random().nextDouble().toString());
+    if (!config.metadata.containsKey('randomRoll')) {
+      setMetadata('randomRoll', Random().nextDouble().toString());
+    }
     setMetadata('role', NodeCapability.none.shortString);
-    setMetadata('createdAt', _createdAt.toIso8601String());
-    setMetadata('id', id);
-    setMetadata('uId', uId);
-    setMetadata('name', name);
-    setMetadata('version', '1.0.0');
-    setMetadata('nodeStartedAt', _nodeStartedAt?.toIso8601String() ?? '');
+    if (!config.metadata.containsKey('createdAt')) {
+      setMetadata('createdAt', _createdAt.toIso8601String());
+    }
+    if (config.metadata.containsKey('nodeStartedAt')) {
+      try {
+        _nodeStartedAt = DateTime.parse(
+          config.metadata['nodeStartedAt'] as String,
+        );
+      } catch (_) {
+        _nodeStartedAt = DateTime.now();
+        setMetadata('nodeStartedAt', _nodeStartedAt!.toIso8601String());
+      }
+    } else {
+      _nodeStartedAt = DateTime.now();
+      setMetadata('nodeStartedAt', _nodeStartedAt!.toIso8601String());
+    }
   }
 
   @protected
@@ -397,6 +412,12 @@ class Node implements IConfigurable<NodeConfig>, IUniqueIdentity, IHasMetadata {
     logger.finest('Node $name promoted to Coordinator');
     return NodeFactory.coordinatorNodeFromNode(this);
   }
+
+  @override
+  String toString() {
+    return "$runtimeType node $name [$id]($uId) with capabilities: "
+        "$capabilities, and metadata: $metadata";
+  }
 }
 
 /// A node that does not participate in the network at all.
@@ -468,23 +489,33 @@ class NodeFactory {
   /// Creates a node from a configuration.
   /// The type of node created depends on the capabilities
   /// specified in the configuration.
-  Node createNode(NodeConfig config) {
+  static Node createNodeFromConfig(NodeConfig config) {
     if (!config.validate(throwOnError: true)) {
       throw ArgumentError('Invalid node configuration: ${config.toMap()}');
     }
-    if (config.capabilities.contains(NodeCapability.coordinator)) {
-      return CoordinatorNode(config);
-    } else if (config.capabilities.contains(NodeCapability.transformer)) {
-      return TransformerNode(config);
-    } else if (config.capabilities.contains(NodeCapability.relay)) {
-      return RelayNode(config);
-    } else if (config.capabilities.contains(NodeCapability.participant)) {
-      return ParticipantNode(config);
-    } else if (config.capabilities.contains(NodeCapability.observer)) {
-      return ObserverNode(config);
-    } else {
-      return NullNode();
+    final role = config.getMetadata('role', defaultValue: null);
+    if (role != null) {
+      try {
+        final capability = NodeCapabilityStringExtension.fromString(role);
+        switch (capability) {
+          case NodeCapability.none:
+            return NullNode();
+          case NodeCapability.observer:
+            return ObserverNode(config);
+          case NodeCapability.participant:
+            return ParticipantNode(config);
+          case NodeCapability.relay:
+            return RelayNode(config);
+          case NodeCapability.transformer:
+            return TransformerNode(config);
+          case NodeCapability.coordinator:
+            return CoordinatorNode(config);
+        }
+      } catch (_) {
+        // ignore and fallback to capabilities
+      }
     }
+    return Node(config);
   }
 
   static NullNode nullNodeFromNode(Node node) {

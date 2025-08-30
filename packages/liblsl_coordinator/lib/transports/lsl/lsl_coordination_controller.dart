@@ -6,7 +6,8 @@ import 'package:liblsl_coordinator/transports/lsl.dart';
 class CoordinationController {
   final CoordinationConfig coordinationConfig;
   final LSLTransport transport;
-  final Node thisNode;
+  Node get thisNode => _thisNode;
+  Node _thisNode;
   final CoordinationSession session;
 
   late final CoordinationState _state;
@@ -21,12 +22,17 @@ class CoordinationController {
   Timer? _nodeTimeoutTimer;
   StreamSubscription? _coordinationSubscription;
   StreamSubscription? _handlerSubscription;
+  StreamSubscription? _discoverySubscription;
 
   // Public streams for application logic
   final StreamController<CoordinationPhase> _phaseController =
       StreamController<CoordinationPhase>.broadcast();
+  final StreamController<CreateStreamMessage> _streamCreateController =
+      StreamController<CreateStreamMessage>.broadcast();
   final StreamController<StartStreamMessage> _streamStartController =
       StreamController<StartStreamMessage>.broadcast();
+  final StreamController<StreamReadyMessage> _streamReadyController =
+      StreamController<StreamReadyMessage>.broadcast();
   final StreamController<StopStreamMessage> _streamStopController =
       StreamController<StopStreamMessage>.broadcast();
   final StreamController<UserCoordinationMessage> _userMessageController =
@@ -40,8 +46,12 @@ class CoordinationController {
 
   // Public API
   Stream<CoordinationPhase> get phaseChanges => _phaseController.stream;
+  Stream<CreateStreamMessage> get streamCreateCommands =>
+      _streamCreateController.stream;
   Stream<StartStreamMessage> get streamStartCommands =>
       _streamStartController.stream;
+  Stream<StreamReadyMessage> get streamReadyNotifications =>
+      _streamReadyController.stream;
   Stream<StopStreamMessage> get streamStopCommands =>
       _streamStopController.stream;
   Stream<UserCoordinationMessage> get userMessages =>
@@ -59,9 +69,9 @@ class CoordinationController {
   CoordinationController({
     required this.coordinationConfig,
     required this.transport,
-    required this.thisNode,
+    required Node thisNode,
     required this.session,
-  }) {
+  }) : _thisNode = thisNode {
     _state = CoordinationState();
     _setupStateListeners();
   }
@@ -137,18 +147,29 @@ class CoordinationController {
       myStartTime: myStartTime,
     );
 
+    logger.info('Election predicate: $electionPredicate');
+
     try {
       final streamInfos = await LslDiscovery.discoverOnceByPredicate(
         electionPredicate,
-        timeout: coordinationConfig.sessionConfig.discoveryInterval * 3,
+        timeout:
+            coordinationConfig.sessionConfig.discoveryInterval *
+            2, // Shorter timeout
+        minStreams: 1,
         maxStreams: 1,
       );
 
       if (streamInfos.isNotEmpty) {
         // Found better candidate or coordinator - become participant
+        logger.info(
+          'Election: Found existing coordinator or better candidate, becoming participant',
+        );
         await _becomeParticipant(streamInfos.first);
       } else {
         // No better candidates - become coordinator
+        logger.info(
+          'Election: No existing coordinator or better candidate found, becoming coordinator',
+        );
         await _becomeCoordinator();
       }
     } catch (e) {
@@ -162,23 +183,26 @@ class CoordinationController {
     logger.info('Becoming coordinator');
 
     // Update node role and recreate outlet
-    thisNode.asCoordinator;
+    final coordinatorNode = thisNode.asCoordinator;
+    _thisNode = coordinatorNode;
+    _coordinationStream.updateNode(coordinatorNode);
     await _coordinationStream.recreateOutlet();
-
+    // add self to state
+    _state.addNode(_thisNode);
     // Update state
     _state.becomeCoordinator(thisNode.uId);
 
     // Create coordinator handler
     _coordinatorHandler = CoordinatorMessageHandler(
       state: _state,
-      thisNode: thisNode,
+      thisNode: coordinatorNode,
       sessionConfig: coordinationConfig.sessionConfig,
     );
 
     // Start coordinator services
     await _startCoordinatorServices();
 
-    // Transition to accepting new nodes
+    // Transition to accepting phase immediately
     _state.transitionTo(CoordinationPhase.accepting);
 
     logger.info('Coordinator ready, accepting nodes');
@@ -189,27 +213,29 @@ class CoordinationController {
     logger.info('Becoming participant');
 
     // Update node role and recreate outlet
-    thisNode.asParticipant;
+    final participantNode = thisNode.asParticipant;
+    _thisNode = participantNode;
+    _coordinationStream.updateNode(participantNode);
     await _coordinationStream.recreateOutlet();
 
     // Extract coordinator info
-    final sourceInfo = LSLStreamInfoHelper.parseSourceId(
-      coordinatorStream.sourceId,
-    );
-    final coordinatorUId = sourceInfo[LSLStreamInfoHelper.nodeUIdKey]!;
+    // final sourceInfo = LSLStreamInfoHelper.parseSourceId(
+    //   coordinatorStream.sourceId,
+    // );
+    // final coordinatorUId = sourceInfo[LSLStreamInfoHelper.nodeUIdKey]!;
 
     // Update state
-    _state.becomeParticipant(coordinatorUId);
+    _state.becomeParticipant();
 
     // Create participant handler
     _participantHandler = ParticipantMessageHandler(
       state: _state,
-      thisNode: thisNode,
+      thisNode: participantNode,
       sessionConfig: coordinationConfig.sessionConfig,
     );
 
     // Connect to coordinator
-    await _connectToCoordinator(coordinatorUId);
+    await _connectToCoordinator();
 
     // Start participant services
     await _startParticipantServices();
@@ -218,32 +244,59 @@ class CoordinationController {
   }
 
   /// Connect to coordinator stream
-  Future<void> _connectToCoordinator(String coordinatorUId) async {
+  Future<void> _connectToCoordinator([String? coordinatorUId]) async {
+    logger.info(
+      '[CONTROLLER-${thisNode.uId}] Connecting to coordinator: (maybe:? $coordinatorUId)',
+    );
     final predicate = LSLStreamInfoHelper.generatePredicate(
+      streamNamePrefix: coordinationConfig.streamConfig.name,
       sessionName: coordinationConfig.sessionConfig.name,
-      nodeUId: coordinatorUId,
+      nodeUId:
+          coordinatorUId, // if null, will match any coordinator - usually OK
       nodeRole: NodeCapability.coordinator.shortString,
     );
 
+    logger.info(
+      'attempting to find the coordinator stream using predicat: $predicate',
+    );
+    // TODO: Timeouts all round...
     final streamInfos = await LslDiscovery.discoverOnceByPredicate(
       predicate,
-      timeout: coordinationConfig.sessionConfig.discoveryInterval * 3,
+      timeout: coordinationConfig.sessionConfig.discoveryInterval * 10,
+      minStreams: 1,
       maxStreams: 1,
     );
 
     if (streamInfos.isEmpty) {
+      logger.severe(
+        '[CONTROLLER-${thisNode.uId}] Failed to find coordinator stream for!!!!!!!',
+      );
       throw StateError('Failed to find coordinator stream');
     }
 
+    logger.info(
+      '[CONTROLLER-${thisNode.uId}] Found coordinator stream, adding inlet...',
+    );
+    // parse streaminfo
+    final info = LSLStreamInfoHelper.parseSourceId(streamInfos.first.sourceId);
+    final nodeUId = info[LSLStreamInfoHelper.nodeUIdKey]!;
+    // set coordinator UId in state
+    _state.becomeParticipant(nodeUId);
     await _coordinationStream.addInlet(streamInfos.first);
-    logger.info('Connected to coordinator stream');
+    logger.info(
+      '[CONTROLLER-${thisNode.uId}] Connected to coordinator stream successfully',
+    );
   }
 
   /// Start coordinator-specific services
   Future<void> _startCoordinatorServices() async {
     // Listen to coordination messages
     _coordinationSubscription = _coordinationStream.inbox.listen(
-      _handleIncomingMessage,
+      (message) async => await _handleIncomingMessage(message),
+      onError:
+          (error) => logger.severe(
+            '[CONTROLLER-${thisNode.uId}] Error in coordination message stream: $error',
+          ),
     );
 
     // Listen to outgoing messages from handler
@@ -265,45 +318,86 @@ class CoordinationController {
   Future<void> _startParticipantServices() async {
     // Listen to coordination messages
     _coordinationSubscription = _coordinationStream.inbox.listen(
-      _handleIncomingMessage,
+      (message) async => await _handleIncomingMessage(message),
+      onError:
+          (error) => logger.severe(
+            '[CONTROLLER-${thisNode.uId}] Error in coordination message stream: $error',
+          ),
     );
 
     // Listen to outgoing messages from handler
     _handlerSubscription = _participantHandler!.outgoingMessages.listen(
       _sendMessage,
     );
-
+    // TODO: save the subscriptions to cancell!!!!
     // Forward handler events to public streams
+    _participantHandler!.streamCreateCommands.listen(
+      _streamCreateController.add,
+    );
     _participantHandler!.streamStartCommands.listen(_streamStartController.add);
+    _participantHandler!.streamReadyNotifications.listen(
+      _streamReadyController.add,
+    );
     _participantHandler!.streamStopCommands.listen(_streamStopController.add);
     _participantHandler!.userMessages.listen(_userMessageController.add);
     _participantHandler!.configUpdates.listen(_configUpdateController.add);
 
     // Send join request
+    logger.info('Sending join request to coordinator');
     await _participantHandler!.sendJoinRequest();
 
     // Start heartbeat
     _startHeartbeat();
   }
 
-  void _handleIncomingMessage(StringMessage message) {
+  Future<void> _handleIncomingMessage(StringMessage message) async {
     try {
       final coordMessage = CoordinationMessage.fromJson(message.data.first);
 
+      // Use INFO level for critical coordination messages to ensure visibility
+      if (coordMessage.type == CoordinationMessageType.joinRequest ||
+          coordMessage.type == CoordinationMessageType.joinAccept ||
+          coordMessage.type == CoordinationMessageType.joinReject) {
+        logger.info(
+          '[CONTROLLER-${thisNode.uId}] Received ${coordMessage.type} from ${coordMessage.fromNodeUId}',
+        );
+      } else {
+        logger.finest(
+          '[CONTROLLER-${thisNode.uId}] Received ${coordMessage.type} from ${coordMessage.fromNodeUId}',
+        );
+      }
+
       // Route to appropriate handler
       if (_coordinatorHandler?.canHandle(coordMessage.type) == true) {
-        _coordinatorHandler!.handleMessage(coordMessage);
+        try {
+          await _coordinatorHandler!.handleMessage(coordMessage);
+        } catch (e) {
+          logger.severe(
+            '[CONTROLLER-${thisNode.uId}] Error in coordinator handler for ${coordMessage.type}: $e',
+          );
+        }
       } else if (_participantHandler?.canHandle(coordMessage.type) == true) {
-        _participantHandler!.handleMessage(coordMessage);
+        try {
+          await _participantHandler!.handleMessage(coordMessage);
+        } catch (e) {
+          logger.severe(
+            '[CONTROLLER-${thisNode.uId}] Error in participant handler for ${coordMessage.type}: $e',
+          );
+        }
       } else {
-        logger.warning('No handler for message type: ${coordMessage.type}');
+        logger.warning(
+          '[CONTROLLER-${thisNode.uId}] No handler for message type: ${coordMessage.type}',
+        );
       }
     } catch (e) {
-      logger.warning('Failed to parse coordination message: $e');
+      logger.severe(
+        '[CONTROLLER-${thisNode.uId}] Failed to parse coordination message: $e\nRaw message data: ${message.data}',
+      );
     }
   }
 
   Future<void> _sendMessage(CoordinationMessage message) async {
+    logger.finest('[CONTROLLER-${thisNode.uId}] Sending ${message.type}');
     final stringMessage = MessageFactory.stringMessage(
       data: [message.toJson()],
       channels: 1,
@@ -316,6 +410,7 @@ class CoordinationController {
     _heartbeatTimer = Timer.periodic(
       coordinationConfig.sessionConfig.heartbeatInterval,
       (_) async {
+        logger.finest('[${thisNode.uId}] Sending heartbeat');
         if (_state.isCoordinator) {
           // Coordinator sends heartbeat through normal message flow
           final heartbeat = HeartbeatMessage(
@@ -336,6 +431,59 @@ class CoordinationController {
     if (!_state.isCoordinator) return;
 
     _discoveryTimer?.cancel();
+    _discoverySubscription?.cancel();
+    _discoverySubscription = _discovery.events.listen((discoveryEvent) {
+      if (discoveryEvent is StreamDiscoveredEvent) {
+        for (StreamInfoResource infoResource in discoveryEvent.streams) {
+          final info = LSLStreamInfoHelper.parseSourceId(
+            infoResource.streamInfo.sourceId,
+          );
+          final nodeUId = info[LSLStreamInfoHelper.nodeUIdKey]!;
+          final nodeId = info[LSLStreamInfoHelper.nodeIdKey]!;
+          final nodeRole = info[LSLStreamInfoHelper.nodeRoleKey]!;
+          if (nodeUId == thisNode.uId) {
+            // Ignore our own stream
+            continue;
+          }
+          if (_state.connectedNodes.any((n) => n.uId == nodeUId)) {
+            // Already connected
+            continue;
+          }
+
+          logger.info(
+            'Discovered new node: $nodeId ($nodeUId), role: $nodeRole',
+          );
+
+          final nodeConfig = NodeConfig(
+            id: nodeId,
+            name: 'participant-$nodeId',
+            uId: nodeUId,
+            capabilities: {NodeCapability.participant},
+            metadata: {'discoveredAt': DateTime.now().toIso8601String()},
+          );
+          final newNode = ParticipantNode(nodeConfig);
+
+          // Don't add node to state yet - wait for successful join request
+          // TODO: reimplement management.
+          infoResource.updateManager(null);
+          _coordinationStream.addInlet(infoResource.streamInfo).then((_) {
+            logger.info(
+              'Added inlet for discovered node $nodeId ($nodeUId), sending join offer',
+            );
+            // TODO: ensure state is correct and we can accept nodes
+            if (!_state.canAcceptNodes) {
+              logger.warning(
+                'Not accepting new nodes, skipping join offer to $nodeId ($nodeUId)',
+              );
+              return;
+            }
+            _coordinatorHandler!.sendJoinOffer(newNode);
+          });
+        }
+      } else if (discoveryEvent is DiscoveryTimeoutEvent) {
+        logger.severe('Unexpected discovery timeout event received');
+      }
+    });
     _discoveryTimer = Timer.periodic(
       coordinationConfig.sessionConfig.discoveryInterval,
       (_) async {
@@ -343,13 +491,10 @@ class CoordinationController {
         final predicate = LSLStreamInfoHelper.generatePredicate(
           streamNamePrefix: coordinationConfig.streamConfig.name,
           sessionName: coordinationConfig.sessionConfig.name,
-          nodeRole: 'participant',
+          nodeRole: NodeCapability.participant.shortString,
         );
 
-        _discovery.startDiscovery(
-          predicate: predicate,
-          timeout: Duration(seconds: 1),
-        );
+        _discovery.startDiscovery(predicate: predicate);
       },
     );
   }
@@ -367,6 +512,7 @@ class CoordinationController {
           coordinationConfig.sessionConfig.nodeTimeout,
         );
         for (final nodeUId in staleNodes) {
+          if (nodeUId == thisNode.uId) continue;
           logger.warning('Node $nodeUId timed out');
           _state.removeNode(nodeUId);
           // Broadcast topology update will happen automatically via state listener
@@ -393,6 +539,13 @@ class CoordinationController {
 
   bool get isAcceptingNodes => _coordinatorHandler?.isAcceptingNodes ?? false;
 
+  Future<void> createStream(String streamName, DataStreamConfig config) async {
+    if (!_state.isCoordinator) {
+      throw StateError('Only coordinator can create streams');
+    }
+    await _coordinatorHandler!.broadcastCreateStream(streamName, config);
+  }
+
   Future<void> startStream(
     String streamName,
     DataStreamConfig config, {
@@ -406,6 +559,14 @@ class CoordinationController {
       config,
       startAt: startAt,
     );
+  }
+
+  Future<void> markStreamReady(String streamName) async {
+    if (_state.isCoordinator) {
+      await _coordinatorHandler!.broadcastStreamReady(streamName);
+    } else {
+      await _participantHandler!.broadcastStreamReady(streamName);
+    }
   }
 
   Future<void> stopStream(String streamName) async {
@@ -440,6 +601,7 @@ class CoordinationController {
   /// Dispose and cleanup
   Future<void> dispose() async {
     _heartbeatTimer?.cancel();
+    _discoverySubscription?.cancel();
     _discoveryTimer?.cancel();
     _nodeTimeoutTimer?.cancel();
 
@@ -448,7 +610,11 @@ class CoordinationController {
 
     // Send leaving message if we're a participant
     if (!_state.isCoordinator && _participantHandler != null) {
-      await _participantHandler!.announceLeaving();
+      try {
+        await _participantHandler!.announceLeaving();
+      } catch (e) {
+        logger.warning('Failed to announce leaving: $e');
+      }
     }
 
     _coordinatorHandler?.dispose();
@@ -460,7 +626,9 @@ class CoordinationController {
     _state.dispose();
 
     await _phaseController.close();
+    await _streamCreateController.close();
     await _streamStartController.close();
+    await _streamReadyController.close();
     await _streamStopController.close();
     await _userMessageController.close();
     await _configUpdateController.close();
