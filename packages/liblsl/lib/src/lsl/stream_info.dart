@@ -418,7 +418,13 @@ class LSLStreamInfo extends LSLObj {
     }
   }
 
+  /// Creates a new LSLStreamInfo object from an existing stream info address.
+  ////
+  /// When constructing inlets, this creates the [LSLStreamInfo] object based
+  /// on an existing stream info address, which can be retrieved from a
+  /// stream resolver.
   factory LSLStreamInfo.fromStreamInfoAddr(int address) {
+    /// @TODO: Validate memory management - what happens to THIS pointer?
     final streamInfo = lsl_streaminfo.fromAddress(address);
     if (streamInfo.isNullPointer) {
       throw LSLException('Invalid stream info address');
@@ -625,6 +631,14 @@ class LSLStreamInfoWithMetadata extends LSLStreamInfo {
       sourceId: sourceId.toDartString(),
       streamInfo: streamInfo,
     );
+  }
+
+  factory LSLStreamInfoWithMetadata.fromStreamInfoAddr(int address) {
+    final streamInfo = lsl_streaminfo.fromAddress(address);
+    if (streamInfo.isNullPointer) {
+      throw LSLException('Invalid stream info address');
+    }
+    return LSLStreamInfoWithMetadata.fromStreamInfo(streamInfo);
   }
 
   /// Access to the stream's metadata/description
