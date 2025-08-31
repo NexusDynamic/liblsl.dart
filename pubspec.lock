@@ -340,10 +340,10 @@ packages:
     dependency: transitive
     description:
       name: flutter_plugin_android_lifecycle
-      sha256: "6382ce712ff69b0f719640ce957559dde459e55ecd433c767e06d139ddf16cab"
+      sha256: b0694b7fb1689b0e6cc193b3f1fcac6423c4f93c74fb20b806c6b6f196db0c31
       url: "https://pub.dev"
     source: hosted
-    version: "2.0.29"
+    version: "2.0.30"
   flutter_refresh_rate_control:
     dependency: transitive
     description:
@@ -552,18 +552,18 @@ packages:
     dependency: "direct dev"
     description:
       name: melos
-      sha256: "44b2cff0bf2f8bcd88750433220f1b7420403175e016b3fcb05b0359164f9725"
+      sha256: "51e7902a164d7563cf1b1de04272eb4348a551c1e7885875353e82e8928c90e0"
       url: "https://pub.dev"
     source: hosted
-    version: "7.1.0"
+    version: "7.0.0-dev.9"
   meta:
     dependency: transitive
     description:
       name: meta
-      sha256: "23f08335362185a5ea2ad3a4e597f1375e78bce8a040df5c600c8d3552ef2394"
+      sha256: e3641ec5d63ebf0d9b41bd43201a66e3fc79a65db5f61fc181f04cd27aab950c
       url: "https://pub.dev"
     source: hosted
-    version: "1.17.0"
+    version: "1.16.0"
   mime:
     dependency: transitive
     description:
@@ -664,10 +664,10 @@ packages:
     dependency: transitive
     description:
       name: path_provider_android
-      sha256: d0d310befe2c8ab9e7f393288ccbb11b60c019c6b5afc21973eeee4dda2b35e9
+      sha256: "993381400e94d18469750e5b9dcb8206f15bc09f9da86b9e44a9b0092a0066db"
       url: "https://pub.dev"
     source: hosted
-    version: "2.2.17"
+    version: "2.2.18"
   path_provider_foundation:
     dependency: transitive
     description:
@@ -904,10 +904,10 @@ packages:
     dependency: transitive
     description:
       name: shared_preferences_android
-      sha256: "5bcf0772a761b04f8c6bf814721713de6f3e5d9d89caf8d3fe031b02a342379e"
+      sha256: a2608114b1ffdcbc9c120eb71a0e207c71da56202852d4aab8a5e30a82269e74
       url: "https://pub.dev"
     source: hosted
-    version: "2.4.11"
+    version: "2.4.12"
   shared_preferences_foundation:
     dependency: transitive
     description:
@@ -1069,26 +1069,26 @@ packages:
     dependency: transitive
     description:
       name: test
-      sha256: "75906bf273541b676716d1ca7627a17e4c4070a3a16272b7a3dc7da3b9f3f6b7"
+      sha256: "65e29d831719be0591f7b3b1a32a3cda258ec98c58c7b25f7b84241bc31215bb"
       url: "https://pub.dev"
     source: hosted
-    version: "1.26.3"
+    version: "1.26.2"
   test_api:
     dependency: transitive
     description:
       name: test_api
-      sha256: ab2726c1a94d3176a45960b6234466ec367179b87dd74f1611adb1f3b5fb9d55
+      sha256: "522f00f556e73044315fa4585ec3270f1808a4b186c936e612cab0b565ff1e00"
       url: "https://pub.dev"
     source: hosted
-    version: "0.7.7"
+    version: "0.7.6"
   test_core:
     dependency: transitive
     description:
       name: test_core
-      sha256: "0cc24b5ff94b38d2ae73e1eb43cc302b77964fbf67abad1e296025b78deb53d0"
+      sha256: "80bf5a02b60af04b09e14f6fe68b921aad119493e26e490deaca5993fef1b05a"
       url: "https://pub.dev"
     source: hosted
-    version: "0.6.12"
+    version: "0.6.11"
   typed_data:
     dependency: transitive
     description:
@@ -1097,14 +1097,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.4.0"
-  uid:
-    dependency: transitive
-    description:
-      name: uid
-      sha256: "712d52a000e489c3344490abe8f3defc250c73191b652f9188c7e2e17fc96b09"
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.1.1"
   url_launcher_linux:
     dependency: transitive
     description:
@@ -1181,10 +1173,10 @@ packages:
     dependency: transitive
     description:
       name: watcher
-      sha256: "0b7fd4a0bbc4b92641dbf20adfd7e3fd1398fe17102d94b674234563e110088a"
+      sha256: "5bf046f41320ac97a469d506261797f35254fa61c641741ef32dacda98b7d39c"
       url: "https://pub.dev"
     source: hosted
-    version: "1.1.2"
+    version: "1.1.3"
   web:
     dependency: transitive
     description:
@@ -1274,5 +1266,5 @@ packages:
     source: hosted
     version: "2.2.2"
 sdks:
-  dart: ">=3.9.0 <4.0.0"
+  dart: ">=3.9.0-138.0.dev <4.0.0"
   flutter: ">=3.29.0"

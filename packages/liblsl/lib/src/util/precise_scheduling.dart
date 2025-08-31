@@ -72,7 +72,7 @@ Future<void> runPreciseIntervalAsync<T>(
 
     state = callback(state);
     if (completer.isCompleted) {
-      break;
+      return;
     }
   }
 }
