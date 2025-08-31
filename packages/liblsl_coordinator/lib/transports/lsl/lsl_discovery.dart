@@ -260,6 +260,7 @@ class LslDiscovery extends LSLResource implements IPausable, IResourceManager {
   }
 
   void stopDiscovery() {
+    logger.fine('Stopping discovery');
     _discoveryInterval?.cancel();
     _discoveryInterval = null;
     _timeoutTimer?.cancel();
@@ -404,7 +405,7 @@ class LslDiscovery extends LSLResource implements IPausable, IResourceManager {
       minStreams: minStreams,
       maxStreams: maxStreams,
     );
-    logger.fine(
+    logger.finer(
       'One-time discovery found ${streams.length} stream(s) for predicate: $predicate',
     );
     return streams;
@@ -413,6 +414,7 @@ class LslDiscovery extends LSLResource implements IPausable, IResourceManager {
   @override
   Future<void> dispose() async {
     // Clean up LSL discovery
+    logger.fine('Disposing LSL discovery');
     stopDiscovery();
     if (disposed) return;
     await _discoveryLock.synchronized(() async {
@@ -420,11 +422,20 @@ class LslDiscovery extends LSLResource implements IPausable, IResourceManager {
       await super.dispose();
 
       // Close event controller
-      await _eventController.close();
+      logger.finest('Closing discovery event controller');
+      // TODO: investigate every stream close with timeout
+      // it's happening too often indicating that there are listeners not being
+      // properly disposed
+      await _eventController.close().timeout(
+        const Duration(seconds: 2),
+        onTimeout: () {
+          logger.warning('Timeout while closing discovery event controller');
+        },
+      );
 
       // Ensure no discovery is in progress so we can safely clear the stream
       // infos
-
+      logger.finest('Destroying discovered streams');
       _discoveredStreams.destroy();
       _discoveredStreams.clear();
     });

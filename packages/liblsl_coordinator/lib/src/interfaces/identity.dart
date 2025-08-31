@@ -1,4 +1,6 @@
 import 'package:meta/meta.dart';
+import 'package:uuid/data.dart';
+import 'package:uuid/rng.dart';
 import 'package:uuid/uuid.dart';
 export 'package:uuid/uuid.dart';
 
@@ -6,7 +8,7 @@ export 'package:uuid/uuid.dart';
 /// Uses the [Uuid] package to generate a version 4 UUID.
 /// This is a convenience function and [Uuid] is re-exported for direct use
 /// if needed.
-String generateUid() => Uuid().v4();
+String generateUid() => Uuid(goptions: GlobalOptions(MathRNG())).v4();
 
 /// Basic identity interface
 abstract interface class IIdentity {
@@ -40,7 +42,7 @@ mixin RuntimeTypeUID on IUniqueIdentity {
   static final Map<Type, String> _idCache = {};
 
   @override
-  String get uId => _idCache.putIfAbsent(runtimeType, () => Uuid().v4());
+  String get uId => _idCache.putIfAbsent(runtimeType, () => generateUid());
 }
 
 /// Mixin for per-instance unique IDs

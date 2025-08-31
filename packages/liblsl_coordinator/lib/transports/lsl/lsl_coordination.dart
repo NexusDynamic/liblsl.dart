@@ -72,8 +72,6 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
   void _setupStreamCommandHandlers() {
     // Handle createStream commands - prepare stream but don't start
     streamCreateCommands.listen((command) async {
-      logger.info('Received create stream command: ${command.streamName}');
-
       // Create the stream but don't start it yet
       if (!_dataStreams.containsKey(command.streamName)) {
         await createDataStream(command.streamConfig);
@@ -81,12 +79,12 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
 
       // Notify coordinator we're ready
       await _controller.markStreamReady(command.streamName);
-      logger.info('Stream prepared and marked ready: ${command.streamName}');
+      logger.finest('Stream prepared and marked ready: ${command.streamName}');
     });
 
     // Handle startStream commands - actually start the stream
     streamStartCommands.listen((command) async {
-      logger.info('Received start stream command: ${command.streamName}');
+      logger.finest('Received start stream command: ${command.streamName}');
 
       final stream = _dataStreams[command.streamName];
       if (stream != null) {
@@ -94,7 +92,9 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
           await stream.start();
           logger.info('Started stream: ${command.streamName}');
         } else {
-          logger.info('Stream ${command.streamName} already started, skipping');
+          logger.warning(
+            'Stream ${command.streamName} already started, skipping',
+          );
         }
       } else {
         logger.warning('Stream ${command.streamName} not found');
@@ -102,8 +102,6 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
     });
 
     streamStopCommands.listen((command) async {
-      logger.info('Received stop stream command: ${command.streamName}');
-
       final stream = _dataStreams[command.streamName];
       if (stream != null && stream.started) {
         await stream.stop();
@@ -115,7 +113,7 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
   @override
   Future<void> create() async {
     await super.create();
-    logger.info('LSL Coordination Session V2 created');
+    logger.fine('LSL Coordination Session created');
   }
 
   @override
@@ -129,14 +127,14 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
     // Initialize controller
     await _controller.initialize();
 
-    logger.info('LSL Coordination Session V2 initialized');
+    logger.fine('LSL Coordination Session initialized');
   }
 
   @override
   Future<void> join() async {
     await super.join();
 
-    logger.info('Starting coordination process...');
+    logger.info('Joining coordination session...');
     await _controller.start();
 
     // Wait for coordination to be established
@@ -247,7 +245,7 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
       );
     } else {
       if (config.participationMode != StreamParticipationMode.coordinatorOnly) {
-        logger.warning(
+        logger.finest(
           'Participant creating outlet for stream: ${config.name}, ${config.participationMode}',
         );
         await stream.createOutlet();
@@ -457,14 +455,16 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
   Future<void> leave() async {
     await super.leave();
 
-    // Dispose controller (handles cleanup and leaving messages)
-    await _controller.dispose();
-
     // Dispose streams
+    logger.finest('Disposing ${_dataStreams.length} data streams...');
     for (final stream in _dataStreams.values) {
       await stream.dispose();
     }
     _dataStreams.clear();
+
+    // Dispose controller (handles cleanup and leaving messages)
+    logger.finest('Leaving coordination session...');
+    await _controller.dispose();
 
     logger.info('Left coordination session');
   }
@@ -478,7 +478,7 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
     await _transport.dispose();
     await super.dispose();
 
-    logger.info('Disposed LSL Coordination Session V2');
+    logger.finest('Disposed LSL Coordination Session');
   }
 
   // Resource manager methods - delegate to transport

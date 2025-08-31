@@ -2,6 +2,26 @@
 
 A performance-focused Dart library for multi-layer LSL-based device coordination. This library provides a robust foundation for coordinating multiple devices in real-time applications using Lab Streaming Layer (LSL) with support for different communication layers.
 
+## Important note
+
+If you see an error message like: 
+```text
+2025-08-31 16:16:06.339 (  30.482s) [R_TestData      ]      data_receiver.cpp:344    ERR| Stream transmission broke off (kqueue: Too many open files); re-connecting...
+2025-08-31 16:16:06.339 (  30.482s) [R_TestData      ]      resolver_impl.cpp:209    ERR| Could not start a multicast resolve attempt for any of the allowed protocol stacks: open: Too many open files
+````
+
+This can happen (only on OSX?) due to the file descriptor limit being low by default. You can check your limit with:
+
+```bash
+ulimit -n
+```
+
+To increase it, you can run (e.g. to increase to 4096):
+
+```bash
+ulimit -n 4096
+```
+
 ## Features
 
 - **Multi-layer Architecture**: Support for coordination, gaming, high-frequency, and custom stream layers

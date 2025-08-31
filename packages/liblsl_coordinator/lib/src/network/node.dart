@@ -128,7 +128,7 @@ class NodeConfig implements IConfig, IUniqueIdentity, IHasMetadata {
     this.capabilities = const {NodeCapability.participant},
     Map<String, dynamic>? metadata,
   }) : suppliedId = id,
-       uId = uId ?? Uuid().v4(),
+       uId = uId ?? generateUid(),
        _metadata = metadata ?? {} {
     validate(throwOnError: true);
   }

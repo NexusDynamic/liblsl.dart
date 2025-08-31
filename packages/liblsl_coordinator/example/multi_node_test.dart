@@ -111,6 +111,7 @@ Future<void> _runNode({
         // these wont go over the network
         lslApiConfig: LSLApiConfig(
           ipv6: IPv6Mode.disable,
+          portRange: 128,
           logLevel: -2, // -2 Error only -> 9 is the most verbose
           resolveScope: ResolveScope.link,
           listenAddress: '127.0.0.1', // Use loopback for testing
@@ -263,14 +264,16 @@ Future<void> _runCoordinatorTestLogic(
     {'delay': 3, 'action': 'pause_accepting'},
     {'delay': 2, 'action': 'send_config'},
     {'delay': 3, 'action': 'create_streams'},
-    {'delay': 2, 'action': 'start_test_phase_1'},
-    {'delay': testDuration, 'action': 'start_data_collection'},
-    {'delay': 8, 'action': 'start_test_phase_2'},
+    {'delay': 2, 'action': 'start_data_collection'},
+    {'delay': testDuration, 'action': 'start_test_phase_1'},
+    {'delay': testDuration, 'action': 'start_test_phase_2'},
     {'delay': 8, 'action': 'stop_data_collection'},
     {'delay': 2, 'action': 'end_test'},
   ];
 
   var elapsedTime = 0;
+  int messageCount = 0;
+  StreamSubscription? inboxSubscription;
 
   for (final step in testSteps) {
     final delay = step['delay'] as int;
@@ -320,13 +323,16 @@ Future<void> _runCoordinatorTestLogic(
           logger.info('📊 $nodeId: Creating test data stream...');
 
           final dataStream = await session.createDataStream(streamConfig);
-          dataStream.inbox.listen((data) {
-            logger.info('📥 $nodeId: Received data: $data');
+
+          inboxSubscription = dataStream.inbox.listen((data) {
+            // logger.info('📥 $nodeId: Received data: $data');
+            messageCount++;
           });
           break;
 
         case 'start_test_phase_1':
           logger.info('🎯 $nodeId: Starting test phase 1...');
+          logger.info('   $nodeId: Current message count: $messageCount');
           await session.sendUserMessage(
             'start_test_phase',
             'Starting coordinated test - Phase 1',
@@ -341,11 +347,13 @@ Future<void> _runCoordinatorTestLogic(
 
         case 'start_data_collection':
           logger.info('📈 $nodeId: Starting data collection...');
+          logger.info('   $nodeId: Current message count: $messageCount');
           await session.startStream('TestData');
           break;
 
         case 'start_test_phase_2':
           logger.info('🎯 $nodeId: Starting test phase 2...');
+          logger.info('   $nodeId: Current message count: $messageCount');
           await session.sendUserMessage(
             'start_test_phase',
             'Starting coordinated test - Phase 2',
@@ -360,6 +368,7 @@ Future<void> _runCoordinatorTestLogic(
 
         case 'stop_data_collection':
           logger.info('📉 $nodeId: Stopping data collection...');
+          logger.info('   $nodeId: Current message count: $messageCount');
           await session.stopStream('TestData');
           break;
 
@@ -369,6 +378,8 @@ Future<void> _runCoordinatorTestLogic(
             'total_duration': elapsedTime,
             'final_node_count': session.connectedNodes.length,
           });
+          logger.info('   $nodeId: FINAL message count: $messageCount');
+          inboxSubscription?.cancel();
           break;
       }
     } catch (e, stack) {
@@ -393,6 +404,8 @@ Future<void> _runParticipantTestLogic(
   String intensity = 'low';
   Timer? dataTimer;
   final nodeIdHash = nodeId.hashCode.abs() % 1000; // Unique ID for this node
+  int messageReceivedCount = 0;
+  StreamSubscription? inboxSubscription;
 
   // Listen for test commands
   session.userMessages.listen((message) async {
@@ -422,11 +435,16 @@ Future<void> _runParticipantTestLogic(
         }
 
         logger.info('▶️ $nodeId: Phase $phase ($intensity) started!');
+
+        /// show current message count
+        logger.info('   $nodeId: Current message count: $messageReceivedCount');
         break;
 
       case 'end_test':
         logger.info('🏁 $nodeId: Test ended by coordinator');
+        logger.info('   $nodeId: FINAL message count: $messageReceivedCount');
         dataTimer?.cancel();
+        inboxSubscription?.cancel();
         final duration = message.payload['total_duration'];
         logger.info('   Total test duration: ${duration}s');
         break;
@@ -435,11 +453,16 @@ Future<void> _runParticipantTestLogic(
 
   // Listen for stream commands and generate data accordingly
   session.streamStartCommands.listen((command) async {
+    final testStream = await session.getDataStream(command.streamName);
+    inboxSubscription = testStream.inbox.listen((data) {
+      // logger.info('📥 $nodeId: Received data: $data');
+      messageReceivedCount++;
+    });
     logger.info('📊 $nodeId: Data stream started: ${command.streamName}');
     dataTimer = _startDataGeneration(
       nodeId,
       nodeIdHash,
-      await session.getDataStream(command.streamName),
+      testStream,
       () => currentPhase,
       () => intensity,
     );

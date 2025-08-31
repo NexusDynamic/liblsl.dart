@@ -343,6 +343,7 @@ class LSLTransport<T extends LSLTransportConfig> extends LSLResource
         disposeFutures.add(dispose);
       }
     }
+    logger.fine('Disposing ${disposeFutures.length} managed resources');
     await Future.wait(disposeFutures);
     _resources.clear();
 

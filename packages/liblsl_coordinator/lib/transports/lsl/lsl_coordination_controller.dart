@@ -18,7 +18,6 @@ class CoordinationController {
   ParticipantMessageHandler? _participantHandler;
 
   Timer? _heartbeatTimer;
-  Timer? _discoveryTimer;
   Timer? _nodeTimeoutTimer;
   StreamSubscription? _coordinationSubscription;
   StreamSubscription? _handlerSubscription;
@@ -114,7 +113,7 @@ class CoordinationController {
       throw StateError('Coordination already started');
     }
 
-    logger.info('Starting coordination process');
+    logger.info('Starting coordination process...');
     _state.transitionTo(CoordinationPhase.discovering);
 
     await _startElection();
@@ -147,7 +146,7 @@ class CoordinationController {
       myStartTime: myStartTime,
     );
 
-    logger.info('Election predicate: $electionPredicate');
+    logger.finest('Election predicate: $electionPredicate');
 
     try {
       final streamInfos = await LslDiscovery.discoverOnceByPredicate(
@@ -180,7 +179,7 @@ class CoordinationController {
 
   /// Become the coordinator
   Future<void> _becomeCoordinator() async {
-    logger.info('Becoming coordinator');
+    logger.finer('Becoming coordinator');
 
     // Update node role and recreate outlet
     final coordinatorNode = thisNode.asCoordinator;
@@ -205,12 +204,12 @@ class CoordinationController {
     // Transition to accepting phase immediately
     _state.transitionTo(CoordinationPhase.accepting);
 
-    logger.info('Coordinator ready, accepting nodes');
+    logger.fine('Coordinator ready, accepting nodes');
   }
 
   /// Become a participant
   Future<void> _becomeParticipant(LSLStreamInfo coordinatorStream) async {
-    logger.info('Becoming participant');
+    logger.finer('Becoming participant');
 
     // Update node role and recreate outlet
     final participantNode = thisNode.asParticipant;
@@ -240,12 +239,12 @@ class CoordinationController {
     // Start participant services
     await _startParticipantServices();
 
-    logger.info('Participant connected to coordinator');
+    logger.fine('Participant connected to coordinator');
   }
 
   /// Connect to coordinator stream
   Future<void> _connectToCoordinator([String? coordinatorUId]) async {
-    logger.info(
+    logger.finest(
       '[CONTROLLER-${thisNode.uId}] Connecting to coordinator: (maybe:? $coordinatorUId)',
     );
     final predicate = LSLStreamInfoHelper.generatePredicate(
@@ -256,8 +255,8 @@ class CoordinationController {
       nodeRole: NodeCapability.coordinator.shortString,
     );
 
-    logger.info(
-      'attempting to find the coordinator stream using predicat: $predicate',
+    logger.finest(
+      'attempting to find the coordinator stream using predicate: $predicate',
     );
     // TODO: Timeouts all round...
     final streamInfos = await LslDiscovery.discoverOnceByPredicate(
@@ -269,12 +268,12 @@ class CoordinationController {
 
     if (streamInfos.isEmpty) {
       logger.severe(
-        '[CONTROLLER-${thisNode.uId}] Failed to find coordinator stream for!!!!!!!',
+        '[CONTROLLER-${thisNode.uId}] Failed to find coordinator stream',
       );
       throw StateError('Failed to find coordinator stream');
     }
 
-    logger.info(
+    logger.finer(
       '[CONTROLLER-${thisNode.uId}] Found coordinator stream, adding inlet...',
     );
     // parse streaminfo
@@ -354,19 +353,6 @@ class CoordinationController {
     try {
       final coordMessage = CoordinationMessage.fromJson(message.data.first);
 
-      // Use INFO level for critical coordination messages to ensure visibility
-      if (coordMessage.type == CoordinationMessageType.joinRequest ||
-          coordMessage.type == CoordinationMessageType.joinAccept ||
-          coordMessage.type == CoordinationMessageType.joinReject) {
-        logger.info(
-          '[CONTROLLER-${thisNode.uId}] Received ${coordMessage.type} from ${coordMessage.fromNodeUId}',
-        );
-      } else {
-        logger.finest(
-          '[CONTROLLER-${thisNode.uId}] Received ${coordMessage.type} from ${coordMessage.fromNodeUId}',
-        );
-      }
-
       // Route to appropriate handler
       if (_coordinatorHandler?.canHandle(coordMessage.type) == true) {
         try {
@@ -427,11 +413,10 @@ class CoordinationController {
     );
   }
 
-  void _startNodeDiscovery() {
+  Future<void> _startNodeDiscovery() async {
     if (!_state.isCoordinator) return;
 
-    _discoveryTimer?.cancel();
-    _discoverySubscription?.cancel();
+    await _discoverySubscription?.cancel();
     _discoverySubscription = _discovery.events.listen((discoveryEvent) {
       if (discoveryEvent is StreamDiscoveredEvent) {
         for (StreamInfoResource infoResource in discoveryEvent.streams) {
@@ -467,7 +452,7 @@ class CoordinationController {
           // TODO: reimplement management.
           infoResource.updateManager(null);
           _coordinationStream.addInlet(infoResource.streamInfo).then((_) {
-            logger.info(
+            logger.finest(
               'Added inlet for discovered node $nodeId ($nodeUId), sending join offer',
             );
             // TODO: ensure state is correct and we can accept nodes
@@ -484,19 +469,13 @@ class CoordinationController {
         logger.severe('Unexpected discovery timeout event received');
       }
     });
-    _discoveryTimer = Timer.periodic(
-      coordinationConfig.sessionConfig.discoveryInterval,
-      (_) async {
-        // Discover participant nodes
-        final predicate = LSLStreamInfoHelper.generatePredicate(
-          streamNamePrefix: coordinationConfig.streamConfig.name,
-          sessionName: coordinationConfig.sessionConfig.name,
-          nodeRole: NodeCapability.participant.shortString,
-        );
-
-        _discovery.startDiscovery(predicate: predicate);
-      },
+    final predicate = LSLStreamInfoHelper.generatePredicate(
+      streamNamePrefix: coordinationConfig.streamConfig.name,
+      sessionName: coordinationConfig.sessionConfig.name,
+      nodeRole: NodeCapability.participant.shortString,
     );
+
+    _discovery.startDiscovery(predicate: predicate);
   }
 
   void _startNodeTimeoutCheck() {
@@ -600,17 +579,20 @@ class CoordinationController {
 
   /// Dispose and cleanup
   Future<void> dispose() async {
+    logger.info('Disposing coordination controller');
     _heartbeatTimer?.cancel();
     _discoverySubscription?.cancel();
-    _discoveryTimer?.cancel();
-    _nodeTimeoutTimer?.cancel();
+    _discovery.stopDiscovery();
 
+    await _discovery.dispose();
+    _nodeTimeoutTimer?.cancel();
     await _coordinationSubscription?.cancel();
     await _handlerSubscription?.cancel();
 
     // Send leaving message if we're a participant
     if (!_state.isCoordinator && _participantHandler != null) {
       try {
+        logger.info('Announcing leaving to coordinator');
         await _participantHandler!.announceLeaving();
       } catch (e) {
         logger.warning('Failed to announce leaving: $e');
@@ -621,10 +603,8 @@ class CoordinationController {
     _participantHandler?.dispose();
 
     await _coordinationStream.dispose();
-    await _discovery.dispose();
 
     _state.dispose();
-
     await _phaseController.close();
     await _streamCreateController.close();
     await _streamStartController.close();
@@ -634,5 +614,6 @@ class CoordinationController {
     await _configUpdateController.close();
     await _nodeJoinedController.close();
     await _nodeLeftController.close();
+    logger.info('Coordination controller disposed');
   }
 }

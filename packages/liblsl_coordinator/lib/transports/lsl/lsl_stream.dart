@@ -142,7 +142,7 @@ class LSLStreamInfoHelper {
 
     rootElement.addChildValue(nodeUIdKey, node.uId);
 
-    logger.info("Created streamInfo from for node: $node");
+    logger.finer("Created streamInfo from for node: $node");
 
     return info;
   }
@@ -327,6 +327,9 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
   final StreamController<M> _incomingController = StreamController<M>();
   final StreamController<M> _outgoingController = StreamController<M>();
 
+  StreamSubscription? _outgoingSubscription;
+  StreamSubscription? _incomingSubscription;
+
   // State
   bool _created = true;
   bool _disposed = false;
@@ -438,7 +441,7 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
     if (_disposed) return;
 
     if (hasInletForSource(streamInfo.sourceId)) {
-      logger.warning('Inlet for source ${streamInfo.sourceId} already exists');
+      logger.finer('Inlet for source ${streamInfo.sourceId} already exists');
       return;
     }
 
@@ -447,6 +450,10 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
 
       // Create inlet isolate if it doesn't exist
       if (_inletIsolate == null) {
+        final mySourceId = LSLStreamInfoHelper.generateSourceID(
+          config,
+          node: streamNode,
+        );
         _inletIsolate = IsolateStreamManager.createInletIsolate(
           streamId: id,
           dataType: config.dataType,
@@ -455,11 +462,14 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
           pollingInterval: _getPollingInterval(),
           initialInletAddresses:
               _inletStreamInfos.map((info) => info.streamInfo.address).toList(),
+          isolateDebugName: 'inlet:$mySourceId',
         );
         await _inletIsolate!.create();
 
         // Listen to incoming data from inlet isolate
-        _inletIsolate!.incomingData.listen((dataMessage) {
+        _incomingSubscription = _inletIsolate!.incomingData.listen((
+          dataMessage,
+        ) {
           final message = _createMessageFromIsolateData(dataMessage);
           if (message != null) {
             _incomingController.add(message);
@@ -516,7 +526,7 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
                 ),
       );
       await addInlet(matchingInfo);
-      logger.severe('Created resolved inlet for node ${node.id} (${node.uId})');
+      logger.finest('Created resolved inlet for node ${node.id} (${node.uId})');
     }
   }
 
@@ -529,7 +539,7 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
   }) async {
     if (_disposed) return;
     if (hasInletForSource(node.uId)) {
-      logger.fine('Inlet for node ${node.id} (${node.uId}) already exists');
+      logger.finer('Inlet for node ${node.id} (${node.uId}) already exists');
       return;
     }
 
@@ -559,12 +569,11 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
       streamInfo = streamInfos.first;
     }
 
-    logger.info(
+    logger.fine(
       'INLET: ${config.name} - targeting sourceId: ${LSLStreamInfoHelper.generateSourceID(config, node: node)}, dataType: ${config.dataType}, channels: ${config.channels}, sampleRate: ${config.sampleRate}',
     );
 
     await addInlet(streamInfo);
-    logger.severe('Created inlet for node ${node.id} (${node.uId})');
   }
 
   Future<void> start() async {
@@ -588,6 +597,7 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
   Future<void> stop() async {
     if (!_started) return;
     _started = false;
+    logger.info('Stopping LSL stream ${config.name}');
 
     if (_outletIsolate != null) {
       await _outletIsolate!.stop();
@@ -619,7 +629,7 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
   }
 
   void _startOutboxProcessing() {
-    _outgoingController.stream.listen((message) async {
+    _outgoingSubscription = _outgoingController.stream.listen((message) async {
       if (!_started || paused) return;
 
       final sampleData = _createSampleFromMessage(message);
@@ -682,17 +692,54 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
   @override
   Future<void> dispose() async {
     if (_disposed) return;
+    logger.info('Disposing LSL stream ${config.name}');
 
+    logger.finest('Disposing message controllers for stream ${config.name}');
+    await _outgoingSubscription?.cancel();
+    await _incomingSubscription?.cancel();
+    await _incomingController.close().timeout(
+      Duration(seconds: 2),
+      onTimeout: () {
+        logger.warning(
+          'Timeout closing incoming controller for ${config.name}, forcing close',
+        );
+      },
+    );
+    await _outgoingController.close().timeout(
+      Duration(seconds: 2),
+      onTimeout: () {
+        logger.warning(
+          'Timeout closing outgoing controller for ${config.name}, forcing close',
+        );
+      },
+    );
+
+    logger.finer('Stopping stream ${config.name} before disposal');
     await stop();
 
     // Dispose isolate instances
     if (_outletIsolate != null) {
-      await _outletIsolate!.dispose();
+      logger.finest('Disposing outlet isolate for stream ${config.name}');
+      await _outletIsolate!.dispose().timeout(
+        Duration(seconds: 5),
+        onTimeout: () {
+          logger.warning(
+            'Timeout disposing outlet isolate for ${config.name}, forcing dispose',
+          );
+        },
+      );
     }
     if (_inletIsolate != null) {
-      await _inletIsolate!.dispose();
+      logger.finest('Disposing inlet isolate for stream ${config.name}');
+      await _inletIsolate!.dispose().timeout(
+        Duration(seconds: 5),
+        onTimeout: () {
+          logger.warning(
+            'Timeout disposing inlet isolate for ${config.name}, forcing dispose',
+          );
+        },
+      );
     }
-
     // Dispose LSL resources
     _outletResource?.dispose();
     for (final inletResource in _inletResources) {
@@ -705,9 +752,6 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
       streamInfo.destroy();
     }
     _inletStreamInfos.clear();
-
-    await _incomingController.close();
-    await _outgoingController.close();
 
     _disposed = true;
   }
@@ -731,8 +775,8 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
       node: streamNode,
     );
 
-    logger.info(
-      'Recreating outlet for stream ${config.name} with streminfo: $streamInfo',
+    logger.fine(
+      'Recreating outlet for stream ${config.name} with streamInfo: $streamInfo',
     );
 
     if (useIsolates && _outletIsolate != null) {
@@ -766,14 +810,18 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
       node: streamNode,
     );
 
-    logger.info(
+    logger.finer(
       'OUTLET: ${config.name} - sourceId: ${streamInfo.sourceId}, dataType: ${config.dataType}, channels: ${config.channels}, sampleRate: ${config.sampleRate}',
     );
 
     if (useIsolates) {
       // Create outlet isolate
-      logger.info(
+      logger.finest(
         '[${streamNode.id}] Creating outlet isolate for stream ${config.name} ',
+      );
+      final mySourceId = LSLStreamInfoHelper.generateSourceID(
+        config,
+        node: streamNode,
       );
       _outletIsolate = StreamOutletIsolate(
         streamId: id,
@@ -784,26 +832,28 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
         sampleRate: config.sampleRate,
         useBusyWaitInlets: useBusyWaitInlets,
         useBusyWaitOutlets: useBusyWaitOutlets,
+        isolateDebugName: 'outlet:$mySourceId',
       );
-      logger.info('[${streamNode.id}] running create()');
       await _outletIsolate!.create();
-      logger.info('[${streamNode.id}] create() completed, listening');
       // Connect outgoing messages to isolate
-      _outgoingController.stream.listen((message) async {
+      _outgoingSubscription = _outgoingController.stream.listen((
+        message,
+      ) async {
         if (!_disposed && _outletIsolate != null) {
           final sampleData = _createSampleFromMessage(message);
           await _outletIsolate!.sendData(sampleData);
         }
       });
-      logger.info('[${streamNode.id}] starting isolate');
       await _outletIsolate!.start();
-      logger.info('Outlet isolate for stream ${config.hashCode} started');
+      logger.finest('Outlet isolate for stream ${config.hashCode} started');
     } else {
       // Create outlet resource directly
       _outletResource = await lslTransport.createOutlet(streamInfo: streamInfo);
 
       // Connect outgoing messages to outlet
-      _outgoingController.stream.listen((message) async {
+      _outgoingSubscription = _outgoingController.stream.listen((
+        message,
+      ) async {
         if (!_disposed && _outletResource != null) {
           final sampleData = _createSampleFromMessage(message);
           try {
@@ -814,7 +864,7 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
         }
       });
 
-      logger.info('Created outlet for stream ${config.name}');
+      logger.finer('Created outlet for stream ${config.name}');
     }
   }
 }
@@ -999,7 +1049,16 @@ class LSLDataStream extends DataStream<DataStreamConfig, IMessage>
 
   @override
   Future<void> dispose() async {
-    await _typedDataController.close();
+    logger.info('Disposing typed data controller for stream ${config.name}');
+    await _typedDataController.close().timeout(
+      Duration(seconds: 2),
+      onTimeout: () {
+        logger.warning(
+          'Timeout closing typed data controller for ${config.name}, did you forget to cancel the inbox/outbox subscriptions?',
+        );
+      },
+    );
+    logger.info('Disposing LSL data stream ${config.name}');
     await super.dispose();
   }
 }
