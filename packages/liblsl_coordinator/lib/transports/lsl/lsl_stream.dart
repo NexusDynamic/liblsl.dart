@@ -502,7 +502,7 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
 
   Future<void> createResolvedInletsForStream(
     Iterable<Node> nodes, {
-    Duration resolveTimeout = const Duration(seconds: 5),
+    Duration resolveTimeout = const Duration(seconds: 10),
   }) async {
     final streamInfos = await LslDiscovery.discoverOnceByPredicate(
       LSLStreamInfoHelper.generatePredicate(

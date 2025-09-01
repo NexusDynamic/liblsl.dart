@@ -22,6 +22,7 @@ class CoordinationController {
   StreamSubscription? _coordinationSubscription;
   StreamSubscription? _handlerSubscription;
   StreamSubscription? _discoverySubscription;
+  StreamSubscription? _streamReadySubscription;
 
   // Public streams for application logic
   final StreamController<CoordinationPhase> _phaseController =
@@ -302,7 +303,8 @@ class CoordinationController {
     _handlerSubscription = _coordinatorHandler!.outgoingMessages.listen(
       _sendMessage,
     );
-
+    _streamReadySubscription = _coordinatorHandler!.streamReadyNotifications
+        .listen(_streamReadyController.add);
     // Start heartbeat
     _startHeartbeat();
 
@@ -334,9 +336,8 @@ class CoordinationController {
       _streamCreateController.add,
     );
     _participantHandler!.streamStartCommands.listen(_streamStartController.add);
-    _participantHandler!.streamReadyNotifications.listen(
-      _streamReadyController.add,
-    );
+    _streamReadySubscription = _participantHandler!.streamReadyNotifications
+        .listen(_streamReadyController.add);
     _participantHandler!.streamStopCommands.listen(_streamStopController.add);
     _participantHandler!.userMessages.listen(_userMessageController.add);
     _participantHandler!.configUpdates.listen(_configUpdateController.add);
@@ -588,6 +589,7 @@ class CoordinationController {
     _nodeTimeoutTimer?.cancel();
     await _coordinationSubscription?.cancel();
     await _handlerSubscription?.cancel();
+    await _streamReadySubscription?.cancel();
 
     // Send leaving message if we're a participant
     if (!_state.isCoordinator && _participantHandler != null) {

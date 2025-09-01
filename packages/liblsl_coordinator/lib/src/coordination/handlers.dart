@@ -31,6 +31,11 @@ class CoordinatorMessageHandler extends CoordinationMessageHandler {
   Stream<CoordinationMessage> get outgoingMessages =>
       _outgoingController.stream;
 
+  final StreamController<StreamReadyMessage> _streamReadyController =
+      StreamController<StreamReadyMessage>.broadcast();
+  Stream<StreamReadyMessage> get streamReadyNotifications =>
+      _streamReadyController.stream;
+
   // Control flags
   bool _acceptingNewNodes = true;
 
@@ -104,7 +109,7 @@ class CoordinatorMessageHandler extends CoordinationMessageHandler {
     logger.info(
       'Node ${message.fromNodeUId} is ready for stream ${message.streamName}',
     );
-    // TODO: track readiness state of nodes.
+    _streamReadyController.add(message);
   }
 
   Future<void> _handleJoinRequest(JoinRequestMessage message) async {
@@ -284,6 +289,7 @@ class CoordinatorMessageHandler extends CoordinationMessageHandler {
 
   void dispose() {
     _outgoingController.close();
+    _streamReadyController.close();
   }
 }
 
