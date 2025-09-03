@@ -504,6 +504,7 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
     Iterable<Node> nodes, {
     Duration resolveTimeout = const Duration(seconds: 10),
   }) async {
+    if (nodes.isEmpty) return;
     final streamInfos = await LslDiscovery.discoverOnceByPredicate(
       LSLStreamInfoHelper.generatePredicate(
         streamNamePrefix: config.name,
@@ -513,6 +514,7 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
       maxStreams: nodes.length,
       timeout: resolveTimeout,
     );
+
     for (final node in nodes) {
       final matchingInfo = streamInfos.firstWhere(
         (info) {

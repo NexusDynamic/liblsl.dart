@@ -14,6 +14,9 @@ enum StreamParticipationMode {
   allNodes,
 
   /// All nodes send data, only coordinator receives (default)
+  sendParticipantsReceiveCoordinator,
+
+  /// All nodes (including coordinator) send data, only coordinator receives
   sendAllReceiveCoordinator,
 
   /// Custom participation based on node configuration
@@ -220,7 +223,8 @@ class DataStreamConfigFactory implements IConfigFactory<DataStreamConfig> {
       ),
       participationMode: StreamParticipationMode.values.firstWhere(
         (e) => e.toString() == map['participationMode'],
-        orElse: () => StreamParticipationMode.sendAllReceiveCoordinator,
+        orElse:
+            () => StreamParticipationMode.sendParticipantsReceiveCoordinator,
       ),
       transportConfig: null, // Needs proper handling
     );

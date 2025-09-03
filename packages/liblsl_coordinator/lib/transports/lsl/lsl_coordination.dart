@@ -45,7 +45,7 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
   @override
   LSLTransport get transport => _transport;
 
-  LSLCoordinationSession(super.config) {
+  LSLCoordinationSession(super.config, {super.thisNodeConfig}) {
     _transport =
         (coordinationConfig.transportConfig is LSLTransportConfig)
             ? LSLTransport(
@@ -226,7 +226,7 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
       await _controller.createStream(config.name, config);
 
       if (config.participationMode !=
-          StreamParticipationMode.sendAllReceiveCoordinator) {
+          StreamParticipationMode.sendParticipantsReceiveCoordinator) {
         await stream.createOutlet();
       }
 
@@ -235,6 +235,9 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
         // Create inlets for all existing producers
         // @TODO: we need to save more information about nodes than the uId
         final producers = await getProducersForStream(config.name);
+        logger.info(
+          'Coordinator creating inlets for producers: ${producers.map((e) => "${e.uId} ${e.role}").join(', ')}',
+        );
         await stream.createResolvedInletsForStream(producers);
       }
 
@@ -253,7 +256,7 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
 
       /// now we can create inlets from each expected sender
       if (config.participationMode !=
-          StreamParticipationMode.sendAllReceiveCoordinator) {
+          StreamParticipationMode.sendParticipantsReceiveCoordinator) {
         // Create inlets for all existing nodes
         final producers = await getProducersForStream(config.name);
         await stream.createResolvedInletsForStream(producers);
@@ -322,22 +325,24 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
       return connectedNodes
           .where(
             (streamNode) =>
-                streamNode.role == NodeCapability.coordinator.toString(),
+                streamNode.role == NodeCapability.coordinator.shortString,
           )
           .toSet();
     } else if (stream.config.participationMode ==
-        StreamParticipationMode.sendAllReceiveCoordinator) {
+        StreamParticipationMode.sendParticipantsReceiveCoordinator) {
       return connectedNodes
           .where(
             (streamNode) =>
-                streamNode.role != NodeCapability.coordinator.toString(),
+                streamNode.role != NodeCapability.coordinator.shortString,
           )
           .toSet();
     } else if (stream.config.participationMode ==
-        StreamParticipationMode.allNodes) {
+            StreamParticipationMode.allNodes ||
+        stream.config.participationMode ==
+            StreamParticipationMode.sendAllReceiveCoordinator) {
       return connectedNodes.toSet();
     } else {
-      return {thisNode};
+      return {};
     }
   }
 
@@ -351,15 +356,17 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
       return connectedNodes
           .where(
             (streamNode) =>
-                streamNode.role != NodeCapability.coordinator.toString(),
+                streamNode.role != NodeCapability.coordinator.shortString,
           )
           .toSet();
     } else if (stream.config.participationMode ==
-        StreamParticipationMode.sendAllReceiveCoordinator) {
+            StreamParticipationMode.sendParticipantsReceiveCoordinator ||
+        stream.config.participationMode ==
+            StreamParticipationMode.sendAllReceiveCoordinator) {
       return connectedNodes
           .where(
             (streamNode) =>
-                streamNode.role == NodeCapability.coordinator.toString(),
+                streamNode.role == NodeCapability.coordinator.shortString,
           )
           .toSet();
     } else if (stream.config.participationMode ==

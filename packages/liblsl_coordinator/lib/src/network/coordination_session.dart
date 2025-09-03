@@ -244,10 +244,12 @@ abstract class CoordinationSession
   Node get thisNode => _thisNode;
 
   /// Unique identifier for the session.
-  CoordinationSession(this.coordinationConfig) {
+  CoordinationSession(this.coordinationConfig, {NodeConfig? thisNodeConfig}) {
     config = coordinationConfig.sessionConfig;
     config.validate(throwOnError: true);
-    _thisNode = Node(coordinationConfig.topologyConfig.defaultNodeConfig);
+    _thisNode = Node(
+      thisNodeConfig ?? coordinationConfig.topologyConfig.defaultNodeConfig,
+    );
   }
 
   @override

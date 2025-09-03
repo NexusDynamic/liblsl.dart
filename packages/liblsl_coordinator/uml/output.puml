@@ -2,6 +2,7 @@
 !theme sandstone
 abstract class IsolateMessage {
 +type: IsolateMessageType
++requestID: String?
 ---
 }
 IsolateMessage ..> IsolateMessageType
@@ -33,6 +34,14 @@ class RecreateOutletMessage {
 ---
 }
 IsolateMessage <|-- RecreateOutletMessage
+class InitializedMessage {
+---
+}
+IsolateMessage <|-- InitializedMessage
+class ResponseMessage {
+---
+}
+IsolateMessage <|-- ResponseMessage
 class IsolateWorkerConfig {
 +streamId: String
 +dataType: StreamDataType
@@ -42,6 +51,7 @@ class IsolateWorkerConfig {
 +useBusyWaitOutlets: bool
 +pollingInterval: Duration
 +mainSendPort: SendPort
++debugName: String?
 +outletAddress: int?
 +inletAddresses: int[0..*]?
 ---
@@ -67,15 +77,19 @@ abstract class StreamIsolate {
 +useBusyWaitInlets: bool
 +useBusyWaitOutlets: bool
 +pollingInterval: Duration
++isolateDebugName: String
 -sendPort: SendPort?
 -receivePort: ReceivePort?
 -isolate: Isolate?
 -ready: Completer<void
+-initialized: Completer<void
+-responseCompleters: Map<String, Completer<void
 -incomingDataController: StreamController<IsolateDataMessage
 ---
 +«get»incomingData(): Stream<IsolateDataMessage
 +create(): void
 +sendMessage(): void
+-_generateRequestID(): (String, Completer<void)
 +start(): void
 +stop(): void
 +dispose(): void
@@ -469,11 +483,11 @@ class CoordinationController {
 -coordinatorHandler: CoordinatorMessageHandler?
 -participantHandler: ParticipantMessageHandler?
 -heartbeatTimer: Timer?
--discoveryTimer: Timer?
 -nodeTimeoutTimer: Timer?
 -coordinationSubscription: StreamSubscription?
 -handlerSubscription: StreamSubscription?
 -discoverySubscription: StreamSubscription?
+-streamReadySubscription: StreamSubscription?
 -phaseController: StreamController<CoordinationPhase
 -streamCreateController: StreamController<CreateStreamMessage
 -streamStartController: StreamController<StartStreamMessage
@@ -617,9 +631,11 @@ CoordinationMessageHandler ..> Node
 CoordinationMessageHandler ..> CoordinationSessionConfig
 class CoordinatorMessageHandler {
 -outgoingController: StreamController<CoordinationMessage
+-streamReadyController: StreamController<StreamReadyMessage
 -acceptingNewNodes: bool
 ---
 +«get»outgoingMessages(): Stream<CoordinationMessage
++«get»streamReadyNotifications(): Stream<StreamReadyMessage
 +canHandle(): bool
 +handleMessage(): void
 +sendMessage(): void
