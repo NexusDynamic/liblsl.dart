@@ -133,7 +133,7 @@ class LSLSerializer {
   }
 
   /// Serialize LSLSamplePointer`<`T`>` (T extends NativeType).
-  static Map<String, dynamic> serializeSamplePointer<T extends NativeType>(
+  static String serializeSamplePointer<T extends NativeType>(
     LSLSamplePointer<T> sample,
   ) {
     return {
@@ -145,7 +145,7 @@ class LSLSerializer {
 
   /// Deserialize LSLSamplePointer`<`T`>` (T extends NativeType).
   static LSLSamplePointer<T> deserializeSamplePointer<T extends NativeType>(
-    Map<String, dynamic> map,
+    String map,
   ) {
     return LSLSamplePointer<T>(
       map['timestamp'] as double,
