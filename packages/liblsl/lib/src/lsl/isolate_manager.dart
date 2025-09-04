@@ -26,7 +26,8 @@ enum LSLMessageType {
 }
 
 /// A message payload for communication between isolates
-class LSLMessage {
+// @pragma('vm:deeply-immutable')
+final class LSLMessage {
   final String id;
   final LSLMessageType type;
   final Map<String, dynamic> data;
@@ -52,25 +53,31 @@ class LSLMessage {
 }
 
 /// A response message from an isolate
-class LSLResponse {
+@pragma('vm:deeply-immutable')
+final class LSLResponse {
   final String messageId;
   final bool success;
-  final dynamic result;
+  final String result;
   final String? error;
 
   LSLResponse({
     required this.messageId,
     required this.success,
-    this.result,
+    required this.result,
     this.error,
   });
 
-  factory LSLResponse.success(String messageId, dynamic result) {
+  factory LSLResponse.success(String messageId, String result) {
     return LSLResponse(messageId: messageId, success: true, result: result);
   }
 
   factory LSLResponse.error(String messageId, String message) {
-    return LSLResponse(messageId: messageId, success: false, error: message);
+    return LSLResponse(
+      messageId: messageId,
+      success: false,
+      error: message,
+      result: 'error',
+    );
   }
 
   Map<String, dynamic> toMap() {
@@ -170,12 +177,11 @@ abstract class LSLIsolateManagerBase {
         if (!_initialization.isCompleted) {
           _initialization.complete();
         }
-      } else if (message is Map<String, dynamic>) {
+      } else if (message is LSLResponse) {
         // Response from isolate
-        final response = LSLResponse.fromMap(message);
-        final completer = _pendingRequests.remove(response.messageId);
+        final completer = _pendingRequests.remove(message.messageId);
         if (completer != null && !completer.isCompleted) {
-          completer.complete(response);
+          completer.complete(message);
         }
       }
     });
@@ -283,26 +289,24 @@ abstract class LSLIsolateWorkerBase {
 
   void _listen() {
     receivePort.listen((message) {
-      if (message is Map<String, dynamic>) {
+      if (message is LSLMessage) {
         _handleMessage(message);
       }
     });
   }
 
-  void _handleMessage(Map<String, dynamic> messageMap) async {
+  void _handleMessage(LSLMessage message) async {
     try {
-      final message = LSLMessage.fromMap(messageMap);
       final result = await handleMessage(message);
 
-      sendPort.send(LSLResponse.success(message.id, result).toMap());
+      sendPort.send(LSLResponse.success(message.id, result));
     } catch (e) {
-      final messageId = messageMap['id'] as String? ?? '';
-      sendPort.send(LSLResponse.error(messageId, e.toString()).toMap());
+      sendPort.send(LSLResponse.error(message.id, e.toString()));
     }
   }
 
   /// Handle a message - to be implemented by subclasses
-  Future<dynamic> handleMessage(LSLMessage message);
+  Future<String> handleMessage(LSLMessage message);
 
   /// Send cleanup signal and close receive port
   void cleanup() {

@@ -23,20 +23,20 @@ class LSLOutletIsolate extends LSLIsolateWorkerBase {
   LSLOutletIsolate(super.sendPort) : super();
 
   @override
-  Future<dynamic> handleMessage(LSLMessage message) async {
+  Future<String> handleMessage(LSLMessage message) async {
     final type = message.type;
     final data = message.data;
 
     switch (type) {
       case LSLMessageType.createOutlet:
-        return await _createOutlet(data);
+        return await _createOutlet(data) ? 'true' : 'false';
       case LSLMessageType.waitForConsumer:
-        return await _waitForConsumer(data);
+        return await _waitForConsumer(data) ? 'true' : 'false';
       case LSLMessageType.pushSample:
-        return await _pushSample(data);
+        return (await _pushSample(data)).toString();
       case LSLMessageType.destroy:
         _destroy();
-        return null;
+        return '';
       default:
         throw LSLException('Unsupported message type: $type');
     }

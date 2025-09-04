@@ -19,8 +19,8 @@ class LSLInletIsolate extends LSLIsolateWorkerBase {
   late final LslPullSample _pullFn;
   late final bool _isStreamInfoOwner;
 
-  final Map<LSLMessageType, FutureOr Function(Map<String, dynamic>)> _handlers =
-      {};
+  final Map<LSLMessageType, FutureOr<String> Function(Map<String, dynamic>)>
+  _handlers = {};
 
   /// Creates a new instance of [LSLInletIsolate].
   /// The [sendPort] is used for communication with the main isolate.
@@ -58,7 +58,7 @@ class LSLInletIsolate extends LSLIsolateWorkerBase {
   /// Handles incoming messages from the main isolate.
   /// This method processes the message based on its type and returns the result.
   /// If the message type is not supported, it throws an [LSLException].
-  Future<dynamic> handleMessage(LSLMessage message) async {
+  Future<String> handleMessage(LSLMessage message) async {
     final type = message.type;
     final data = message.data;
 
@@ -138,7 +138,7 @@ class LSLInletIsolate extends LSLIsolateWorkerBase {
   }
 
   /// Pulls a sample from the inlet.
-  Future<Map<String, dynamic>> _pullSample(Map<String, dynamic> data) async {
+  Future<String> _pullSample(Map<String, dynamic> data) async {
     if (_inlet == null || _streamInfo == null) {
       throw LSLException('Inlet not created');
     }
@@ -156,7 +156,7 @@ class LSLInletIsolate extends LSLIsolateWorkerBase {
     );
 
     // Return the serialized sample
-    return LSLSerializer.serializeSamplePointer(sample);
+    return sample.serialize();
   }
 
   /// Flushes the inlet, clearing any buffered samples.

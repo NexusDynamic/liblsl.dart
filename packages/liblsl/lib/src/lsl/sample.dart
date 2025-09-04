@@ -4,12 +4,13 @@ import 'dart:ffi' show Pointer, NativeType;
 ///
 /// This class represents both samples pulled from an inlet, and in future
 /// versions, samples pushed to an outlet.
-class LSLSample<T> {
+// @pragma('vm:deeply-immutable')
+final class LSLSample<T> {
   final List<T> data;
   final double timestamp;
   final int errorCode;
 
-  LSLSample(this.data, this.timestamp, this.errorCode);
+  const LSLSample(this.data, this.timestamp, this.errorCode);
 
   T operator [](int index) {
     return data[index];
@@ -38,9 +39,25 @@ class LSLSamplePointer<T extends NativeType> {
   final int errorCode;
   final int pointerAddress;
 
-  LSLSamplePointer(this.timestamp, this.errorCode, this.pointerAddress);
+  const LSLSamplePointer(this.timestamp, this.errorCode, this.pointerAddress);
   Pointer<T> get pointer {
     return Pointer<T>.fromAddress(pointerAddress);
+  }
+
+  String serialize() {
+    return '$timestamp:$errorCode:$pointerAddress';
+  }
+
+  factory LSLSamplePointer.deserialize(String serialized) {
+    final parts = serialized.split(':');
+    if (parts.length != 3) {
+      throw FormatException('Invalid serialized LSLSamplePointer: $serialized');
+    }
+    return LSLSamplePointer<T>(
+      double.parse(parts[0]),
+      int.parse(parts[1]),
+      int.parse(parts[2]),
+    );
   }
 
   @override
