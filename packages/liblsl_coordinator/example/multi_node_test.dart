@@ -10,7 +10,7 @@ import 'package:logging/logging.dart';
 /// Multi-node coordination test to verify election, joining, messaging, and stream management
 Future<void> main(List<String> args) async {
   // Configure logging
-  Logger.root.level = Level.FINE;
+  Logger.root.level = Level.ALL;
   Logger.root.onRecord.listen(Log.defaultPrinter);
 
   // Parse command line arguments
@@ -191,6 +191,7 @@ Future<void> _runNode({
     // Cleanup
     if (joinSuccessful) {
       logger.info('🧹 $nodeId: Cleaning up...');
+      await session.leave();
       await session.dispose();
     }
 
@@ -274,6 +275,7 @@ Future<void> _runCoordinatorTestLogic(
   var elapsedTime = 0;
   int messageCount = 0;
   StreamSubscription? inboxSubscription;
+  LSLDataStream? dataStream;
 
   for (final step in testSteps) {
     final delay = step['delay'] as int;
@@ -322,7 +324,7 @@ Future<void> _runCoordinatorTestLogic(
         case 'create_streams':
           logger.info('📊 $nodeId: Creating test data stream...');
 
-          final dataStream = await session.createDataStream(streamConfig);
+          dataStream = await session.createDataStream(streamConfig);
 
           inboxSubscription = dataStream.inbox.listen((data) {
             // logger.info('📥 $nodeId: Received data: $data');

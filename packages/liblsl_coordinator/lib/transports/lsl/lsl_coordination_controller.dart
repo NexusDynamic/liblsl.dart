@@ -14,6 +14,8 @@ class CoordinationController {
   late final LSLCoordinationStream _coordinationStream;
   late final LslDiscovery _discovery;
 
+  bool _stopping = false;
+
   CoordinatorMessageHandler? _coordinatorHandler;
   ParticipantMessageHandler? _participantHandler;
 
@@ -352,7 +354,15 @@ class CoordinationController {
 
   Future<void> _handleIncomingMessage(StringMessage message) async {
     try {
-      final coordMessage = CoordinationMessage.fromJson(message.data.first);
+      final CoordinationMessage coordMessage;
+      try {
+        coordMessage = CoordinationMessage.fromJson(message.data.first);
+      } catch (e) {
+        logger.severe(
+          '[CONTROLLER-${thisNode.uId}] Invalid coordination message JSON: $e\nRaw message data: ${message.data}',
+        );
+        return;
+      }
 
       // Route to appropriate handler
       if (_coordinatorHandler?.canHandle(coordMessage.type) == true) {
@@ -397,6 +407,8 @@ class CoordinationController {
     _heartbeatTimer = Timer.periodic(
       coordinationConfig.sessionConfig.heartbeatInterval,
       (_) async {
+        if (_stopping) return;
+
         logger.finest('[${thisNode.uId}] Sending heartbeat');
         if (_state.isCoordinator) {
           // Coordinator sends heartbeat through normal message flow
@@ -419,6 +431,7 @@ class CoordinationController {
 
     await _discoverySubscription?.cancel();
     _discoverySubscription = _discovery.events.listen((discoveryEvent) {
+      if (_stopping) return;
       if (discoveryEvent is StreamDiscoveredEvent) {
         for (StreamInfoResource infoResource in discoveryEvent.streams) {
           final info = LSLStreamInfoHelper.parseSourceId(
@@ -580,18 +593,13 @@ class CoordinationController {
 
   /// Dispose and cleanup
   Future<void> dispose() async {
+    _state.transitionTo(CoordinationPhase.disposing);
+    _stopping = true;
     logger.info('Disposing coordination controller');
     _heartbeatTimer?.cancel();
-    _discoverySubscription?.cancel();
-    _discovery.stopDiscovery();
-
-    await _discovery.dispose();
     _nodeTimeoutTimer?.cancel();
-    await _coordinationSubscription?.cancel();
-    await _handlerSubscription?.cancel();
-    await _streamReadySubscription?.cancel();
-
-    // Send leaving message if we're a participant
+    _discovery.stopDiscovery();
+    _discoverySubscription?.cancel();
     if (!_state.isCoordinator && _participantHandler != null) {
       try {
         logger.info('Announcing leaving to coordinator');
@@ -600,11 +608,17 @@ class CoordinationController {
         logger.warning('Failed to announce leaving: $e');
       }
     }
-
+    await _coordinationStream.dispose();
     _coordinatorHandler?.dispose();
     _participantHandler?.dispose();
 
-    await _coordinationStream.dispose();
+    await _discovery.dispose();
+
+    await _coordinationSubscription?.cancel();
+    await _handlerSubscription?.cancel();
+    await _streamReadySubscription?.cancel();
+
+    // Send leaving message if we're a participant
 
     _state.dispose();
     await _phaseController.close();

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:liblsl_coordinator/framework.dart';
 import 'package:liblsl_coordinator/transports/lsl.dart';
+import 'package:meta/meta.dart';
 
 extension LSLType on StreamDataType {
   /// Converts a [StreamDataType] to the corresponding LSL channel format.
@@ -470,9 +471,11 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
         _incomingSubscription = _inletIsolate!.incomingData.listen((
           dataMessage,
         ) {
-          final message = _createMessageFromIsolateData(dataMessage);
-          if (message != null) {
-            _incomingController.add(message);
+          for (final data in dataMessage.messages) {
+            final message = _createMessageFromIsolateData(data);
+            if (message != null) {
+              _incomingController.add(message);
+            }
           }
         });
 
@@ -597,15 +600,23 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
   }
 
   Future<void> stop() async {
-    if (!_started) return;
+    if (!_started || disposed) return;
     _started = false;
     logger.info('Stopping LSL stream ${config.name}');
 
-    if (_outletIsolate != null) {
-      await _outletIsolate!.stop();
-    }
     if (_inletIsolate != null) {
+      await _incomingSubscription?.cancel();
+      _incomingSubscription = null;
       await _inletIsolate!.stop();
+      await _inletIsolate!.dispose();
+      _inletIsolate = null;
+    }
+    if (_outletIsolate != null) {
+      await _outgoingSubscription?.cancel();
+      _outgoingSubscription = null;
+      await _outletIsolate!.stop();
+      await _outletIsolate!.dispose();
+      _outletIsolate = null;
     }
   }
 
@@ -670,13 +681,14 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
   @override
   Future<void> pause() async {
     if (paused) return;
-    if (_outletIsolate != null) {
-      await _outletIsolate!.stop();
-    }
-    if (_inletIsolate != null) {
-      await _inletIsolate!.stop();
-    }
-    super.pause();
+    throw StateError('Not implemented yet');
+    // if (_outletIsolate != null) {
+    //   await _outletIsolate!.stop();
+    // }
+    // if (_inletIsolate != null) {
+    //   await _inletIsolate!.stop();
+    // }
+    // super.pause();
   }
 
   @override
@@ -696,28 +708,28 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
     if (_disposed) return;
     logger.info('Disposing LSL stream ${config.name}');
 
+    logger.finer('Stopping stream ${config.name} before disposal');
+    await stop();
+
     logger.finest('Disposing message controllers for stream ${config.name}');
     await _outgoingSubscription?.cancel();
     await _incomingSubscription?.cancel();
-    await _incomingController.close().timeout(
-      Duration(seconds: 2),
-      onTimeout: () {
-        logger.warning(
-          'Timeout closing incoming controller for ${config.name}, forcing close',
-        );
-      },
-    );
-    await _outgoingController.close().timeout(
-      Duration(seconds: 2),
-      onTimeout: () {
-        logger.warning(
-          'Timeout closing outgoing controller for ${config.name}, forcing close',
-        );
-      },
-    );
-
-    logger.finer('Stopping stream ${config.name} before disposal');
-    await stop();
+    // await _incomingController.close().timeout(
+    //   Duration(seconds: 2),
+    //   onTimeout: () {
+    //     logger.warning(
+    //       'Timeout closing incoming controller for ${config.name}, forcing close',
+    //     );
+    //   },
+    // );
+    // await _outgoingController.close().timeout(
+    //   Duration(seconds: 2),
+    //   onTimeout: () {
+    //     logger.warning(
+    //       'Timeout closing outgoing controller for ${config.name}, forcing close',
+    //     );
+    //   },
+    // );
 
     // Dispose isolate instances
     if (_outletIsolate != null) {
@@ -888,12 +900,6 @@ class LSLDataStream extends DataStream<DataStreamConfig, IMessage>
   @override
   bool get useBusyWaitOutlets => false; // Event-driven outlets for data streams
 
-  // Typed data stream based on config
-  final StreamController<List<dynamic>> _typedDataController =
-      StreamController<List<dynamic>>();
-
-  Stream<List<dynamic>> get dataStream => _typedDataController.stream;
-
   LSLDataStream({
     required DataStreamConfig config,
     required Node streamNode,
@@ -989,9 +995,6 @@ class LSLDataStream extends DataStream<DataStreamConfig, IMessage>
 
   @override
   IMessage? _createMessageFromIsolateData(IsolateDataMessage data) {
-    // Emit typed data
-    _typedDataController.add(data.data);
-
     // Create appropriate message based on data type
     switch (config.dataType) {
       case StreamDataType.float32:
@@ -1005,11 +1008,35 @@ class LSLDataStream extends DataStream<DataStreamConfig, IMessage>
         }
         break;
       case StreamDataType.int8:
+        if (data.data.every((v) => v is int)) {
+          return MessageFactory.int8Message(
+            data: data.data.cast<int>(),
+            channels: config.channels,
+            timestamp: data.timestamp,
+          );
+        }
+        break;
       case StreamDataType.int16:
+        if (data.data.every((v) => v is int)) {
+          return MessageFactory.int16Message(
+            data: data.data.cast<int>(),
+            channels: config.channels,
+            timestamp: data.timestamp,
+          );
+        }
+        break;
       case StreamDataType.int32:
-      case StreamDataType.int64:
         if (data.data.every((v) => v is int)) {
           return MessageFactory.int32Message(
+            data: data.data.cast<int>(),
+            channels: config.channels,
+            timestamp: data.timestamp,
+          );
+        }
+        break;
+      case StreamDataType.int64:
+        if (data.data.every((v) => v is int)) {
+          return MessageFactory.int64Message(
             data: data.data.cast<int>(),
             channels: config.channels,
             timestamp: data.timestamp,
@@ -1032,7 +1059,6 @@ class LSLDataStream extends DataStream<DataStreamConfig, IMessage>
   @override
   IMessage? _createMessageFromSample(LSLSample sample) {
     // Emit raw data
-    _typedDataController.add(sample.data);
     return _createMessageFromIsolateData(
       IsolateDataMessage(
         streamId: id,
@@ -1051,15 +1077,7 @@ class LSLDataStream extends DataStream<DataStreamConfig, IMessage>
 
   @override
   Future<void> dispose() async {
-    logger.info('Disposing typed data controller for stream ${config.name}');
-    await _typedDataController.close().timeout(
-      Duration(seconds: 2),
-      onTimeout: () {
-        logger.warning(
-          'Timeout closing typed data controller for ${config.name}, did you forget to cancel the inbox/outbox subscriptions?',
-        );
-      },
-    );
+    if (_disposed) return;
     logger.info('Disposing LSL data stream ${config.name}');
     await super.dispose();
   }

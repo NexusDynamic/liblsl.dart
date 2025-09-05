@@ -105,6 +105,9 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
       final stream = _dataStreams[command.streamName];
       if (stream != null && stream.started) {
         await stream.stop();
+        await stream.dispose();
+        // @TODO: should not dispose here, just stop...later
+        _dataStreams.remove(command.streamName);
         logger.info('Stopped stream: ${command.streamName}');
       }
     });
@@ -379,6 +382,14 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
 
   Future<void> stopStream(String streamName) async {
     await _controller.stopStream(streamName);
+    if (isCoordinator) {
+      final stream = _dataStreams[streamName];
+      if (stream != null && stream.started) {
+        await stream.stop();
+        _dataStreams.remove(streamName);
+        logger.info('COORDINATOR Stopped stream: $streamName');
+      }
+    }
   }
 
   Future<void> sendUserMessage(
@@ -460,6 +471,10 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
 
   @override
   Future<void> leave() async {
+    if (!joined) {
+      logger.warning('Not joined, cannot leave coordination session');
+      return;
+    }
     await super.leave();
 
     // Dispose streams
@@ -471,18 +486,18 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
 
     // Dispose controller (handles cleanup and leaving messages)
     logger.finest('Leaving coordination session...');
+    await _transport.dispose();
     await _controller.dispose();
 
     logger.info('Left coordination session');
   }
 
   @override
+  // @TODO: not mix dispose and leave
   Future<void> dispose() async {
     if (joined) {
       await leave();
     }
-
-    await _transport.dispose();
     await super.dispose();
 
     logger.finest('Disposed LSL Coordination Session');

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:liblsl_coordinator/liblsl_coordinator.dart';
 import 'package:liblsl_coordinator/transports/lsl.dart';
+import 'package:synchronized/extension.dart';
 import 'package:synchronized/synchronized.dart';
 
 /// Discovery events for stream resolution
@@ -228,6 +229,7 @@ class LslDiscovery extends LSLResource implements IPausable, IResourceManager {
     if (timeout != null) {
       _timeoutTimer?.cancel();
       _timeoutTimer = Timer(timeout, () {
+        if (disposed || !created) return;
         _eventController.add(
           DiscoveryTimeoutEvent(timeoutDuration: timeout, predicate: predicate),
         );
@@ -252,7 +254,7 @@ class LslDiscovery extends LSLResource implements IPausable, IResourceManager {
     _discoveryInterval = Timer.periodic(
       coordinationConfig.sessionConfig.discoveryInterval,
       (timer) async {
-        if (_paused) return;
+        if (_paused || disposed) return;
         await _performContinuousDiscovery();
       },
     );
@@ -271,7 +273,12 @@ class LslDiscovery extends LSLResource implements IPausable, IResourceManager {
 
   /// Performs continuous discovery and emits events when streams are found
   Future<void> _performContinuousDiscovery() async {
-    if (_resolver == null || _currentPredicate == null) return;
+    if (_resolver == null ||
+        _currentPredicate == null ||
+        disposed ||
+        !created) {
+      return;
+    }
 
     return _discoveryLock.synchronized(() async {
       if (disposed || !created) return;
@@ -413,10 +420,10 @@ class LslDiscovery extends LSLResource implements IPausable, IResourceManager {
 
   @override
   Future<void> dispose() async {
+    if (disposed) return;
     // Clean up LSL discovery
     logger.fine('Disposing LSL discovery');
     stopDiscovery();
-    if (disposed) return;
     await _discoveryLock.synchronized(() async {
       if (disposed) return;
       await super.dispose();
@@ -426,12 +433,16 @@ class LslDiscovery extends LSLResource implements IPausable, IResourceManager {
       // TODO: investigate every stream close with timeout
       // it's happening too often indicating that there are listeners not being
       // properly disposed
-      await _eventController.close().timeout(
-        const Duration(seconds: 2),
-        onTimeout: () {
-          logger.warning('Timeout while closing discovery event controller');
-        },
-      );
+
+      // if (!_eventController.isClosed) {
+      //   // await events.drain();
+      //   // await _eventController.close().timeout(
+      //   //   const Duration(seconds: 2),
+      //   //   onTimeout: () {
+      //   //     logger.warning('Timeout while closing discovery event controller');
+      //   //   },
+      //   // );
+      // }
 
       // Ensure no discovery is in progress so we can safely clear the stream
       // infos

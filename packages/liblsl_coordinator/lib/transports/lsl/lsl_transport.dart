@@ -338,6 +338,7 @@ class LSLTransport<T extends LSLTransportConfig> extends LSLResource
     // Dispose all managed resources
     final disposeFutures = <Future>[];
     for (final resource in _resources.values) {
+      if (resource.disposed) continue;
       final dispose = resource.dispose();
       if (dispose is Future) {
         disposeFutures.add(dispose);

@@ -11,78 +11,94 @@ import 'package:synchronized/synchronized.dart';
 
 /// Enum defining all possible isolate message types
 enum IsolateMessageType {
-  start,
-  initialized,
-  requestResponse,
-  stop,
-  addInlet,
-  removeInlet,
-  data,
-  recreateOutlet,
+  start, // 0
+  initialized, // 1
+  requestResponse, // 2
+  stop, // 3
+  addInlet, // 4
+  removeInlet, // 5
+  data, // 6
+  recreateOutlet, // 7
+}
+
+extension IsolateMessageTypeInt on IsolateMessageType {
+  static IsolateMessageType fromInt(int value) {
+    return IsolateMessageType.values[value];
+  }
 }
 
 /// Base class for all isolate messages - immutable for efficient message passing
-abstract class IsolateMessage {
-  final IsolateMessageType type;
+@pragma('vm:deeply-immutable')
+sealed class IsolateMessage {
+  final int type;
   final String? requestID;
 
   const IsolateMessage(this.type, {this.requestID});
 }
 
-/// Message to start isolate processing - immutable
-class StartMessage extends IsolateMessage {
-  const StartMessage({super.requestID}) : super(IsolateMessageType.start);
-}
+sealed class MutableIsolateMessage {
+  final int type;
+  final String? requestID;
 
-/// Message to stop isolate processing - immutable
-class StopMessage extends IsolateMessage {
-  const StopMessage({super.requestID}) : super(IsolateMessageType.stop);
-}
-
-/// Message to add an inlet to running isolate - immutable
-class AddInletMessage extends IsolateMessage {
-  final int address;
-
-  const AddInletMessage(this.address, {super.requestID})
-    : super(IsolateMessageType.addInlet);
-}
-
-/// Message to remove an inlet from running isolate - immutable
-class RemoveInletMessage extends IsolateMessage {
-  final int address;
-
-  const RemoveInletMessage(this.address, {super.requestID})
-    : super(IsolateMessageType.removeInlet);
+  const MutableIsolateMessage(this.type, {this.requestID});
 }
 
 /// Message to send data through outlet - immutable
-class DataMessage extends IsolateMessage {
+final class DataMessage extends MutableIsolateMessage {
   final List<dynamic> payload;
 
-  const DataMessage(this.payload, {super.requestID})
-    : super(IsolateMessageType.data);
+  const DataMessage(this.payload, {super.requestID}) : super(6);
+}
+
+/// Message to start isolate processing - immutable
+@pragma('vm:deeply-immutable')
+final class StartMessage extends IsolateMessage {
+  const StartMessage({super.requestID}) : super(0);
+}
+
+/// Message to stop isolate processing - immutable
+@pragma('vm:deeply-immutable')
+final class StopMessage extends IsolateMessage {
+  const StopMessage({super.requestID}) : super(3);
+}
+
+/// Message to add an inlet to running isolate - immutable
+@pragma('vm:deeply-immutable')
+final class AddInletMessage extends IsolateMessage {
+  final int address;
+
+  const AddInletMessage(this.address, {super.requestID}) : super(4);
+}
+
+/// Message to remove an inlet from running isolate - immutable
+@pragma('vm:deeply-immutable')
+final class RemoveInletMessage extends IsolateMessage {
+  final int address;
+
+  const RemoveInletMessage(this.address, {super.requestID}) : super(5);
 }
 
 /// Message to recreate outlet - immutable
-class RecreateOutletMessage extends IsolateMessage {
+@pragma('vm:deeply-immutable')
+final class RecreateOutletMessage extends IsolateMessage {
   final int address; // stream info address
-  const RecreateOutletMessage(this.address, {super.requestID})
-    : super(IsolateMessageType.recreateOutlet);
+  const RecreateOutletMessage(this.address, {super.requestID}) : super(7);
 }
 
 /// Message to notify main thread that the isolate is initialized
-class InitializedMessage extends IsolateMessage {
-  const InitializedMessage({super.requestID})
-    : super(IsolateMessageType.initialized);
+@pragma('vm:deeply-immutable')
+final class InitializedMessage extends IsolateMessage {
+  const InitializedMessage({super.requestID}) : super(1);
 }
 
-class ResponseMessage extends IsolateMessage {
-  const ResponseMessage({required super.requestID})
-    : super(IsolateMessageType.requestResponse);
+/// Message to notify main thread of request response
+@pragma('vm:deeply-immutable')
+final class ResponseMessage extends IsolateMessage {
+  const ResponseMessage({required super.requestID}) : super(2);
 }
 
 /// Configuration for isolate workers
-class IsolateWorkerConfig {
+final class IsolateWorkerConfig {
   final String streamId;
   final StreamDataType dataType;
   final int channelCount;
@@ -99,7 +115,7 @@ class IsolateWorkerConfig {
   // For inlets
   final List<int>? inletAddresses;
 
-  IsolateWorkerConfig({
+  const IsolateWorkerConfig({
     required this.streamId,
     required this.dataType,
     required this.channelCount,
@@ -143,16 +159,17 @@ class IsolateWorkerConfig {
 }
 
 /// Message sent from isolate to main
-class IsolateDataMessage {
+final class IsolateDataMessage {
   final String streamId;
   final String messageId;
   final DateTime timestamp;
+  // Should be an immutable list (e.g. List.unmodifiable, and contain only immutable types)
   final List<dynamic> data;
   final String? sourceId;
   final double? lslTimestamp;
   final double? lslTimeCorrection;
 
-  IsolateDataMessage({
+  const IsolateDataMessage({
     required this.streamId,
     required this.messageId,
     required this.timestamp,
@@ -177,7 +194,7 @@ class IsolateDataMessage {
       streamId: map['streamId'] as String,
       messageId: map['messageId'] as String,
       timestamp: DateTime.parse(map['timestamp'] as String),
-      data: map['data'] as List<dynamic>,
+      data: List.unmodifiable(map['data']),
       sourceId: map['sourceId'] as String?,
       lslTimestamp: map['lslTimestamp'] as double?,
       lslTimeCorrection: map['lslTimeCorrection'] as double?,
@@ -185,8 +202,30 @@ class IsolateDataMessage {
   }
 }
 
+final class IsolateDataMessageList {
+  final List<IsolateDataMessage> messages;
+
+  const IsolateDataMessageList(this.messages);
+
+  Map<String, dynamic> toMap() => {
+    'messages': messages.map((m) => m.toMap()).toList(),
+  };
+
+  factory IsolateDataMessageList.fromMap(Map<String, dynamic> map) {
+    return IsolateDataMessageList(
+      (map['messages'] as List)
+          .map((m) => IsolateDataMessage.fromMap(m as Map<String, dynamic>))
+          .toList(),
+    );
+  }
+
+  factory IsolateDataMessageList.from(Iterable<IsolateDataMessage> messages) {
+    return IsolateDataMessageList(messages.toList(growable: false));
+  }
+}
+
 /// Base class for stream isolates with shared functionality
-abstract class StreamIsolate {
+sealed class StreamIsolate {
   final String streamId;
   final StreamDataType dataType;
   final bool useBusyWaitInlets;
@@ -203,12 +242,14 @@ abstract class StreamIsolate {
   final Completer<void> _ready = Completer<void>();
   final Completer<void> _initialized = Completer<void>();
   final Map<String, Completer<void>> _responseCompleters = {};
+  bool stopped = false;
 
   // Data stream for incoming messages
-  final StreamController<IsolateDataMessage> _incomingDataController =
-      StreamController<IsolateDataMessage>();
+  final StreamController<IsolateDataMessageList> _incomingDataController =
+      StreamController<IsolateDataMessageList>();
 
-  Stream<IsolateDataMessage> get incomingData => _incomingDataController.stream;
+  Stream<IsolateDataMessageList> get incomingData =>
+      _incomingDataController.stream;
 
   StreamIsolate({
     required this.streamId,
@@ -241,6 +282,12 @@ abstract class StreamIsolate {
     _sendPort?.send(message); // Direct object sending - no serialization!
   }
 
+  /// Send a mutable message to the isolate - will be copied :(
+  Future<void> sendDataMessage(MutableIsolateMessage message) async {
+    await _initialized.future;
+    _sendPort?.send(message);
+  }
+
   /// Generate a requestID and completer.
   (String, Completer<void>) _generateRequestID() {
     final requestID = generateUid();
@@ -251,6 +298,7 @@ abstract class StreamIsolate {
 
   /// Start isolate processing
   Future<void> start() async {
+    stopped = false;
     final requestRecord = _generateRequestID();
     logger.finest(
       '[$isolateDebugName] Starting isolate for stream $streamId with request ID ${requestRecord.$1}',
@@ -261,25 +309,42 @@ abstract class StreamIsolate {
 
   /// Stop isolate processing
   Future<void> stop() async {
+    stopped = true;
     final requestRecord = _generateRequestID();
     logger.finest(
       '[$isolateDebugName] Stopping isolate for stream $streamId with request ID ${requestRecord.$1}',
     );
     await sendMessage(StopMessage(requestID: requestRecord.$1));
-    await requestRecord.$2.future;
+    await requestRecord.$2.future.timeout(
+      const Duration(seconds: 5),
+      onTimeout: () {
+        logger.warning(
+          'Timeout waiting for isolate to stop for stream $streamId',
+        );
+      },
+    );
+    _receivePort?.close();
+    _receivePort = null;
+    _sendPort = null;
+
+    _isolate?.kill(priority: Isolate.immediate);
+    // await incomingData.drain();
+    // await _incomingDataController.close().timeout(
+    //   const Duration(seconds: 2),
+    //   onTimeout: () {
+    //     logger.warning(
+    //       'Timeout waiting for incoming data controller to close for stream $streamId',
+    //     );
+    //   },
+    // );
   }
 
   /// Clean up resources
   Future<void> dispose() async {
-    stop();
-
-    // Give isolate time to process stop message
-    await Future.delayed(Duration(seconds: 1));
-
-    _isolate?.kill(priority: Isolate.immediate);
-    _receivePort?.close();
-
-    await _incomingDataController.close();
+    /// @TODO: Instead of killing isolate in stop, do it here
+    if (!stopped) {
+      await stop();
+    }
   }
 
   /// Handle incoming messages from isolate
@@ -291,14 +356,9 @@ abstract class StreamIsolate {
       }
     } else if (message is LogRecord) {
       Log.logIsolateMessage(message);
-    } else if (message is List) {
+    } else if (message is IsolateDataMessageList) {
       // Handle batch of data samples
-      for (final item in message) {
-        if (item is Map<String, dynamic>) {
-          final dataMessage = IsolateDataMessage.fromMap(item);
-          _incomingDataController.add(dataMessage);
-        }
-      }
+      _incomingDataController.add(message);
     } else if (message is InitializedMessage) {
       if (!_initialized.isCompleted) {
         logger.finer('Isolate for stream $streamId initialized');
@@ -321,7 +381,7 @@ abstract class StreamIsolate {
 }
 
 /// Inlet isolate for receiving data from multiple sources
-class StreamInletIsolate extends StreamIsolate {
+final class StreamInletIsolate extends StreamIsolate {
   final List<int> _inletAddresses = [];
 
   StreamInletIsolate({
@@ -367,7 +427,7 @@ class StreamInletIsolate extends StreamIsolate {
       useBusyWaitOutlets: useBusyWaitOutlets,
       pollingInterval: pollingInterval,
       mainSendPort: _receivePort!.sendPort,
-      inletAddresses: List.from(_inletAddresses),
+      inletAddresses: List.unmodifiable(_inletAddresses),
       debugName: isolateDebugName,
     );
   }
@@ -383,7 +443,7 @@ class StreamInletIsolate extends StreamIsolate {
 }
 
 /// Outlet isolate for sending data
-class StreamOutletIsolate extends StreamIsolate {
+final class StreamOutletIsolate extends StreamIsolate {
   final int _outletAddress;
   final int _channelCount;
   final double _sampleRate;
@@ -407,7 +467,7 @@ class StreamOutletIsolate extends StreamIsolate {
 
   /// Send data through outlet
   Future<void> sendData(List<dynamic> data) async {
-    await sendMessage(DataMessage(data));
+    await sendDataMessage(DataMessage(data));
   }
 
   Future<void> recreateOutlet(int address) async {
@@ -445,7 +505,7 @@ class StreamOutletIsolate extends StreamIsolate {
 }
 
 /// Factory for creating LSL stream isolates
-class IsolateStreamManager {
+final class IsolateStreamManager {
   /// Creates an inlet isolate instance
   static StreamInletIsolate createInletIsolate({
     required String streamId,
@@ -569,7 +629,7 @@ class IsolateStreamManager {
 }
 
 /// Base class for isolate workers with shared functionality
-abstract class IsolateWorker {
+sealed class IsolateWorker {
   IsolateWorkerConfig config;
   late final ReceivePort receivePort;
 
@@ -593,7 +653,7 @@ abstract class IsolateWorker {
 }
 
 /// Worker class for handling inlet operations in isolate
-class InletWorker extends IsolateWorker {
+final class InletWorker extends IsolateWorker {
   // Member variables to replace excessive parameters
   late final List<LSLInlet> inlets;
   late final List<double> timeCorrections;
@@ -601,7 +661,7 @@ class InletWorker extends IsolateWorker {
   late final Lock timeCorrectionsLock;
   late final MultiLock inletAddRemoveLock;
   late final Lock bufferLock;
-  late final ListQueue<Map<String, dynamic>> buffer;
+  late final ListQueue<IsolateDataMessage> buffer;
   late final Stopwatch lastTimeCorrectionUpdate;
 
   bool running = false;
@@ -624,7 +684,7 @@ class InletWorker extends IsolateWorker {
     timeCorrectionsLock = Lock();
     inletAddRemoveLock = MultiLock(locks: [inletsLock, timeCorrectionsLock]);
     bufferLock = Lock();
-    buffer = ListQueue<Map<String, dynamic>>();
+    buffer = ListQueue<IsolateDataMessage>();
     lastTimeCorrectionUpdate = Stopwatch();
 
     lastTimeCorrectionUpdate.start();
@@ -637,14 +697,22 @@ class InletWorker extends IsolateWorker {
 
   @override
   Future<void> handleMessage(dynamic message) async {
-    if (message is IsolateMessage) {
-      switch (message.type) {
+    if (message is IsolateMessage || message is MutableIsolateMessage) {
+      final IsolateMessageType messageType =
+          IsolateMessageType.values[message.type];
+      switch (messageType) {
         case IsolateMessageType.start:
           _handleStart();
           break;
         case IsolateMessageType.stop:
-          _handleStop();
-          break;
+          logger.info(
+            'Stopping inlet worker for stream ${config.streamId} on stop request',
+          );
+          await _handleStop();
+        // Isolate.exit(
+        //   config.mainSendPort,
+        //   ResponseMessage(requestID: message.requestID),
+        // );
         case IsolateMessageType.addInlet:
           await _handleAddInlet(message as AddInletMessage);
           break;
@@ -700,7 +768,7 @@ class InletWorker extends IsolateWorker {
         if (buffer.isNotEmpty) {
           await bufferLock.synchronized(() {
             if (buffer.isNotEmpty) {
-              config.mainSendPort.send(List.from(buffer));
+              config.mainSendPort.send(IsolateDataMessageList.from(buffer));
               buffer.clear();
             }
           });
@@ -709,7 +777,7 @@ class InletWorker extends IsolateWorker {
     }
   }
 
-  void _handleStop() {
+  Future<void> _handleStop() async {
     if (!running) {
       logger.fine(
         'Inlet worker for stream ${config.streamId} is not running, ignoring stop request',
@@ -723,12 +791,26 @@ class InletWorker extends IsolateWorker {
       completer?.complete();
     }
     lastTimeCorrectionUpdate.stop();
-    bufferLock.synchronized(() {
-      if (buffer.isNotEmpty) {
-        config.mainSendPort.send(List.from(buffer));
-        buffer.clear();
-      }
-    });
+    try {
+      await inletAddRemoveLock.synchronized(() async {
+        for (final inlet in inlets) {
+          await inlet.destroy();
+        }
+        logger.info('Destroyed all inlets for stream ${config.streamId}');
+        inlets.clear();
+        timeCorrections.clear();
+      });
+      await bufferLock.synchronized(() {
+        if (buffer.isNotEmpty) {
+          config.mainSendPort.send(IsolateDataMessageList.from(buffer));
+          buffer.clear();
+        }
+        logger.fine('Cleared FINAL buffer for stream ${config.streamId}');
+      });
+    } catch (e) {
+      logger.severe('Error destroying inlets: $e');
+    }
+    // receivePort.close();
   }
 
   Future<void> _handleAddInlet(AddInletMessage message) async {
@@ -809,7 +891,7 @@ class InletWorker extends IsolateWorker {
           );
 
           await bufferLock.synchronized(() {
-            buffer.add(message.toMap());
+            buffer.add(message);
           });
         }
       } catch (e) {
@@ -828,7 +910,7 @@ class InletWorker extends IsolateWorker {
 
         bufferLock.synchronized(() {
           if (buffer.isNotEmpty) {
-            config.mainSendPort.send(List.from(buffer));
+            config.mainSendPort.send(List.unmodifiable(buffer));
             buffer.clear();
           }
         });
@@ -846,7 +928,7 @@ class InletWorker extends IsolateWorker {
 }
 
 /// Worker class for handling outlet operations in isolate
-class OutletWorker extends IsolateWorker {
+final class OutletWorker extends IsolateWorker {
   // Member variables instead of excessive parameters
   late LSLOutlet outlet;
   bool running = false;
@@ -864,15 +946,23 @@ class OutletWorker extends IsolateWorker {
   }
 
   @override
-  void handleMessage(dynamic message) {
-    if (message is IsolateMessage) {
-      switch (message.type) {
+  Future<void> handleMessage(dynamic message) async {
+    if (message is IsolateMessage || message is MutableIsolateMessage) {
+      final IsolateMessageType messageType =
+          IsolateMessageType.values[message.type];
+      switch (messageType) {
         case IsolateMessageType.start:
           _handleStart();
           break;
         case IsolateMessageType.stop:
-          _handleStop();
-          break;
+          logger.info(
+            'Stopping outlet worker for stream ${config.streamId} on stop request',
+          );
+          await _handleStop();
+        // Isolate.exit(
+        //   config.mainSendPort,
+        //   ResponseMessage(requestID: message.requestID),
+        // );
         case IsolateMessageType.data:
           _handleData(message as DataMessage);
           break;
@@ -915,7 +1005,7 @@ class OutletWorker extends IsolateWorker {
     // No automatic sample generation needed
   }
 
-  void _handleStop() {
+  Future<void> _handleStop() async {
     if (!running) {
       logger.fine(
         'Outlet worker for stream ${config.streamId} is not running, ignoring stop request',
@@ -928,6 +1018,9 @@ class OutletWorker extends IsolateWorker {
     if (completer != null && !completer!.isCompleted) {
       completer?.complete();
     }
+    await outlet.destroy();
+    // receivePort.close();
+    logger.info('Destroyed outlet for stream ${config.streamId}');
   }
 
   void _handleData(DataMessage message) {
