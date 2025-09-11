@@ -69,8 +69,8 @@ Future<void> runPreciseIntervalAsync<T>(
     }
 
     while (sw.elapsed < nextAwake) {}
-
-    state = callback(state);
+    // Await to allow the implementer to pause the loop if needed
+    state = await callback(state);
     if (completer.isCompleted) {
       return;
     }
