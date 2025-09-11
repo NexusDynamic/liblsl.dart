@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:collection/collection.dart';
 import 'package:liblsl_coordinator/data.dart';
 import 'package:liblsl_coordinator/interfaces.dart';
 
@@ -205,9 +206,9 @@ class Message<D, M extends MessageTypeMapping<D>, T extends MessageType<D, M>>
   @override
   final DateTime timestamp;
   @override
-  Map<String, dynamic> get metadata => _metadata;
+  Map<String, dynamic> get metadata => UnmodifiableMapView(_metadata);
 
-  final Map<String, String> _metadata = {};
+  final Map<String, dynamic> _metadata = {};
 
   /// The internal mapping used for validation and metadata.
   final M _mapping;
@@ -256,7 +257,7 @@ class Message<D, M extends MessageTypeMapping<D>, T extends MessageType<D, M>>
   dynamic getMetadata(String key, {dynamic defaultValue}) =>
       _metadata[key] ?? defaultValue;
 
-  void setMetadata(String key, String value) {
+  void setMetadata(String key, dynamic value) {
     _metadata[key] = value;
   }
 

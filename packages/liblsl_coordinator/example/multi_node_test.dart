@@ -267,8 +267,12 @@ Future<void> _runCoordinatorTestLogic(
     {'delay': 3, 'action': 'create_streams'},
     {'delay': 2, 'action': 'start_data_collection'},
     {'delay': testDuration, 'action': 'start_test_phase_1'},
+    {'delay': 2, 'action': 'pause_between_phases'},
+    {'delay': 1, 'action': 'resume_for_phase_2'},
     {'delay': testDuration, 'action': 'start_test_phase_2'},
-    {'delay': 8, 'action': 'stop_data_collection'},
+    {'delay': 2, 'action': 'pause_before_stop'},
+    {'delay': 1, 'action': 'flush_and_resume'},
+    {'delay': 3, 'action': 'stop_data_collection'},
     {'delay': 2, 'action': 'end_test'},
   ];
 
@@ -353,6 +357,21 @@ Future<void> _runCoordinatorTestLogic(
           await session.startStream('TestData');
           break;
 
+        case 'pause_between_phases':
+          logger.info('⏸️  $nodeId: Pausing data streams between phases...');
+          logger.info('   $nodeId: Current message count: $messageCount');
+          await session.pauseStream('TestData');
+          logger.info(
+            '   $nodeId: All nodes have paused busy-wait polling - system resources freed',
+          );
+          break;
+
+        case 'resume_for_phase_2':
+          logger.info('▶️  $nodeId: Resuming data streams for Phase 2...');
+          await session.resumeStream('TestData', flushBeforeResume: true);
+          logger.info('   $nodeId: All nodes resumed with fresh buffers');
+          break;
+
         case 'start_test_phase_2':
           logger.info('🎯 $nodeId: Starting test phase 2...');
           logger.info('   $nodeId: Current message count: $messageCount');
@@ -365,6 +384,23 @@ Future<void> _runCoordinatorTestLogic(
               'start_at':
                   DateTime.now().add(Duration(seconds: 1)).toIso8601String(),
             },
+          );
+          break;
+
+        case 'pause_before_stop':
+          logger.info('⏸️  $nodeId: Pausing before final data collection...');
+          logger.info('   $nodeId: Current message count: $messageCount');
+          await session.pauseStream('TestData');
+          break;
+
+        case 'flush_and_resume':
+          logger.info(
+            '🚿 $nodeId: Flushing and resuming for final collection...',
+          );
+          await session.flushStream('TestData');
+          await session.resumeStream('TestData', flushBeforeResume: false);
+          logger.info(
+            '   $nodeId: Streams flushed manually and resumed without auto-flush',
           );
           break;
 
@@ -479,6 +515,40 @@ Future<void> _runParticipantTestLogic(
   session.streamStopCommands.listen((command) {
     logger.info('📊 $nodeId: Data stream stopped: ${command.streamName}');
     dataTimer?.cancel();
+  });
+
+  // Listen for pause/resume commands to show coordination working
+  session.streamPauseCommands.listen((command) {
+    logger.info(
+      '⏸️  $nodeId: PARTICIPANT received pause command for ${command.streamName}',
+    );
+    logger.info(
+      '   $nodeId: Busy-wait polling paused - freeing system resources',
+    );
+  });
+
+  session.streamResumeCommands.listen((command) {
+    logger.info(
+      '▶️  $nodeId: PARTICIPANT received resume command for ${command.streamName}',
+    );
+    logger.info(
+      '   $nodeId: Flush before resume: ${command.flushBeforeResume}',
+    );
+    logger.info('   $nodeId: Busy-wait polling resumed');
+  });
+
+  session.streamFlushCommands.listen((command) {
+    logger.info(
+      '🚿 $nodeId: PARTICIPANT received flush command for ${command.streamName}',
+    );
+    logger.info('   $nodeId: Stream buffers cleared');
+  });
+
+  session.streamDestroyCommands.listen((command) {
+    logger.info(
+      '💥 $nodeId: PARTICIPANT received destroy command for ${command.streamName}',
+    );
+    logger.info('   $nodeId: Stream resources completely destroyed');
   });
 
   logger.info(

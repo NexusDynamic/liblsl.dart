@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:liblsl_coordinator/framework.dart';
 import 'package:liblsl_coordinator/transports/lsl.dart';
-import 'package:meta/meta.dart';
+// import 'package:meta/meta.dart';
 
 extension LSLType on StreamDataType {
   /// Converts a [StreamDataType] to the corresponding LSL channel format.
@@ -471,11 +471,9 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
         _incomingSubscription = _inletIsolate!.incomingData.listen((
           dataMessage,
         ) {
-          for (final data in dataMessage.messages) {
-            final message = _createMessageFromIsolateData(data);
-            if (message != null) {
-              _incomingController.add(message);
-            }
+          final message = _createMessageFromIsolateData(dataMessage);
+          if (message != null) {
+            _incomingController.add(message);
           }
         });
 
@@ -599,10 +597,46 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
     }
   }
 
+  /// Pause the stream (stop polling but keep isolates alive)
+  Future<void> pauseStream() async {
+    if (!_started || paused) return;
+    await pause();
+  }
+
+  /// Resume the stream with optional flushing
+  Future<void> resumeStream({bool flushBeforeResume = true}) async {
+    if (!_started || !paused) return;
+    await resume(flushBeforeResume: flushBeforeResume);
+  }
+
+  /// Flush inlet streams to clear pending messages
+  Future<void> flushStreams() async {
+    if (!_started) return;
+    logger.info('Flushing LSL stream ${config.name}');
+    if (_inletIsolate != null) {
+      await _inletIsolate!.flush();
+    }
+  }
+
   Future<void> stop() async {
     if (!_started || disposed) return;
     _started = false;
     logger.info('Stopping LSL stream ${config.name}');
+
+    // Pause first to stop polling cleanly
+    if (!paused) {
+      await pause();
+    }
+  }
+
+  /// Dispose the stream (destroy isolates and resources) - replaces old stop functionality
+  Future<void> destroyStream() async {
+    if (disposed) return;
+
+    logger.info('Destroying LSL stream ${config.name}');
+
+    // Stop the stream first
+    await stop();
 
     if (_inletIsolate != null) {
       await _incomingSubscription?.cancel();
@@ -681,24 +715,29 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
   @override
   Future<void> pause() async {
     if (paused) return;
-    throw StateError('Not implemented yet');
-    // if (_outletIsolate != null) {
-    //   await _outletIsolate!.stop();
-    // }
-    // if (_inletIsolate != null) {
-    //   await _inletIsolate!.stop();
-    // }
-    // super.pause();
+    super.pause();
+
+    logger.info('Pausing LSL stream ${config.name}');
+    if (_outletIsolate != null) {
+      await _outletIsolate!.pause();
+    }
+    if (_inletIsolate != null) {
+      await _inletIsolate!.pause();
+    }
   }
 
   @override
-  Future<void> resume() async {
+  Future<void> resume({bool flushBeforeResume = true}) async {
     if (!paused) return;
+
+    logger.info(
+      'Resuming LSL stream ${config.name}, flush: $flushBeforeResume',
+    );
     if (_outletIsolate != null) {
-      await _outletIsolate!.start();
+      await _outletIsolate!.resume(flushBeforeResume: flushBeforeResume);
     }
     if (_inletIsolate != null) {
-      await _inletIsolate!.start();
+      await _inletIsolate!.resume(flushBeforeResume: flushBeforeResume);
     }
     super.resume();
   }
@@ -708,8 +747,8 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
     if (_disposed) return;
     logger.info('Disposing LSL stream ${config.name}');
 
-    logger.finer('Stopping stream ${config.name} before disposal');
-    await stop();
+    // Use the new destroyStream method
+    await destroyStream();
 
     logger.finest('Disposing message controllers for stream ${config.name}');
     await _outgoingSubscription?.cancel();
@@ -731,29 +770,6 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
     //   },
     // );
 
-    // Dispose isolate instances
-    if (_outletIsolate != null) {
-      logger.finest('Disposing outlet isolate for stream ${config.name}');
-      await _outletIsolate!.dispose().timeout(
-        Duration(seconds: 5),
-        onTimeout: () {
-          logger.warning(
-            'Timeout disposing outlet isolate for ${config.name}, forcing dispose',
-          );
-        },
-      );
-    }
-    if (_inletIsolate != null) {
-      logger.finest('Disposing inlet isolate for stream ${config.name}');
-      await _inletIsolate!.dispose().timeout(
-        Duration(seconds: 5),
-        onTimeout: () {
-          logger.warning(
-            'Timeout disposing inlet isolate for ${config.name}, forcing dispose',
-          );
-        },
-      );
-    }
     // Dispose LSL resources
     _outletResource?.dispose();
     for (final inletResource in _inletResources) {
@@ -929,6 +945,7 @@ class LSLDataStream extends DataStream<DataStreamConfig, IMessage>
 
     // Send directly through outlet or isolate
     if (useIsolates && _outletIsolate != null) {
+      // logger.severe("Sending data through isolate: $data");
       _outletIsolate!.sendData(data);
     } else if (_outletResource != null) {
       _outletResource!.outlet.pushSample(data);
@@ -996,63 +1013,85 @@ class LSLDataStream extends DataStream<DataStreamConfig, IMessage>
   @override
   IMessage? _createMessageFromIsolateData(IsolateDataMessage data) {
     // Create appropriate message based on data type
+    //logger.severe("Creating message from isolate data: $data");
     switch (config.dataType) {
       case StreamDataType.float32:
       case StreamDataType.double64:
         if (data.data.every((v) => v is num)) {
           return MessageFactory.double64Message(
-            data: data.data.map((v) => (v as num).toDouble()).toList(),
-            channels: config.channels,
-            timestamp: data.timestamp,
-          );
+              data: data.data.map((v) => (v as num).toDouble()).toList(),
+              channels: config.channels,
+              timestamp: data.timestamp,
+            )
+            ..setMetadata('lsl_timestamp', data.lslTimestamp)
+            ..setMetadata('lsl_time_correction', data.lslTimeCorrection)
+            ..setMetadata('received_at', DateTime.now());
         }
         break;
       case StreamDataType.int8:
         if (data.data.every((v) => v is int)) {
           return MessageFactory.int8Message(
-            data: data.data.cast<int>(),
-            channels: config.channels,
-            timestamp: data.timestamp,
-          );
+              data: data.data.cast<int>(),
+              channels: config.channels,
+              timestamp: data.timestamp,
+            )
+            ..setMetadata('lsl_timestamp', data.lslTimestamp)
+            ..setMetadata('lsl_time_correction', data.lslTimeCorrection)
+            ..setMetadata('received_at', DateTime.now());
         }
         break;
       case StreamDataType.int16:
         if (data.data.every((v) => v is int)) {
           return MessageFactory.int16Message(
-            data: data.data.cast<int>(),
-            channels: config.channels,
-            timestamp: data.timestamp,
-          );
+              data: data.data.cast<int>(),
+              channels: config.channels,
+              timestamp: data.timestamp,
+            )
+            ..setMetadata('lsl_timestamp', data.lslTimestamp)
+            ..setMetadata('lsl_time_correction', data.lslTimeCorrection)
+            ..setMetadata('received_at', DateTime.now());
         }
         break;
       case StreamDataType.int32:
         if (data.data.every((v) => v is int)) {
           return MessageFactory.int32Message(
-            data: data.data.cast<int>(),
-            channels: config.channels,
-            timestamp: data.timestamp,
-          );
+              data: data.data.cast<int>(),
+              channels: config.channels,
+              timestamp: data.timestamp,
+            )
+            ..setMetadata('lsl_timestamp', data.lslTimestamp)
+            ..setMetadata('lsl_time_correction', data.lslTimeCorrection)
+            ..setMetadata('received_at', DateTime.now());
         }
         break;
       case StreamDataType.int64:
         if (data.data.every((v) => v is int)) {
           return MessageFactory.int64Message(
-            data: data.data.cast<int>(),
-            channels: config.channels,
-            timestamp: data.timestamp,
-          );
+              data: data.data.cast<int>(),
+              channels: config.channels,
+              timestamp: data.timestamp,
+            )
+            ..setMetadata('lsl_timestamp', data.lslTimestamp)
+            ..setMetadata('lsl_time_correction', data.lslTimeCorrection)
+            ..setMetadata('received_at', DateTime.now());
         }
         break;
       case StreamDataType.string:
         if (data.data.every((v) => v is String)) {
           return MessageFactory.stringMessage(
-            data: data.data.cast<String>(),
-            channels: config.channels,
-            timestamp: data.timestamp,
-          );
+              data: data.data.cast<String>(),
+              channels: config.channels,
+              timestamp: data.timestamp,
+            )
+            ..setMetadata('lsl_timestamp', data.lslTimestamp)
+            ..setMetadata('lsl_time_correction', data.lslTimeCorrection)
+            ..setMetadata('received_at', DateTime.now());
         }
         break;
     }
+    logger.severe(
+      'Failed to create message from isolate data: incompatible types in ${data.data}',
+    );
     return null;
   }
 
@@ -1074,6 +1113,20 @@ class LSLDataStream extends DataStream<DataStreamConfig, IMessage>
   List<dynamic> _createSampleFromMessage(IMessage message) {
     return message.data;
   }
+
+  /// Pause data stream polling but keep streams alive
+  Future<void> pauseDataStream() async => await pauseStream();
+
+  /// Resume data stream polling with optional flushing
+  Future<void> resumeDataStream({bool flushBeforeResume = true}) async {
+    await resumeStream(flushBeforeResume: flushBeforeResume);
+  }
+
+  /// Flush data stream to clear pending messages
+  Future<void> flushDataStream() async => await flushStreams();
+
+  /// Destroy the data stream and all its resources
+  Future<void> destroyDataStream() async => await destroyStream();
 
   @override
   Future<void> dispose() async {
@@ -1191,4 +1244,18 @@ class LSLCoordinationStream
   List<dynamic> _createSampleFromMessage(StringMessage message) {
     return message.data;
   }
+
+  /// Pause coordination stream polling but keep streams alive
+  Future<void> pauseCoordinationStream() async => await pauseStream();
+
+  /// Resume coordination stream polling with optional flushing
+  Future<void> resumeCoordinationStream({bool flushBeforeResume = true}) async {
+    await resumeStream(flushBeforeResume: flushBeforeResume);
+  }
+
+  /// Flush coordination stream to clear pending messages
+  Future<void> flushCoordinationStream() async => await flushStreams();
+
+  /// Destroy the coordination stream and all its resources
+  Future<void> destroyCoordinationStream() async => await destroyStream();
 }

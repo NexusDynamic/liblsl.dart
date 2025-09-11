@@ -265,6 +265,42 @@ class CoordinatorMessageHandler extends CoordinationMessageHandler {
     await sendMessage(message);
   }
 
+  Future<void> broadcastPauseStream(String streamName) async {
+    final message = PauseStreamMessage(
+      fromNodeUId: thisNode.uId,
+      streamName: streamName,
+    );
+    await sendMessage(message);
+  }
+
+  Future<void> broadcastResumeStream(
+    String streamName, {
+    bool flushBeforeResume = true,
+  }) async {
+    final message = ResumeStreamMessage(
+      fromNodeUId: thisNode.uId,
+      streamName: streamName,
+      flushBeforeResume: flushBeforeResume,
+    );
+    await sendMessage(message);
+  }
+
+  Future<void> broadcastFlushStream(String streamName) async {
+    final message = FlushStreamMessage(
+      fromNodeUId: thisNode.uId,
+      streamName: streamName,
+    );
+    await sendMessage(message);
+  }
+
+  Future<void> broadcastDestroyStream(String streamName) async {
+    final message = DestroyStreamMessage(
+      fromNodeUId: thisNode.uId,
+      streamName: streamName,
+    );
+    await sendMessage(message);
+  }
+
   Future<void> broadcastUserMessage(
     String messageId,
     String description,
@@ -305,6 +341,14 @@ class ParticipantMessageHandler extends CoordinationMessageHandler {
       StreamController<StreamReadyMessage>.broadcast();
   final StreamController<StopStreamMessage> _streamStopController =
       StreamController<StopStreamMessage>.broadcast();
+  final StreamController<PauseStreamMessage> _streamPauseController =
+      StreamController<PauseStreamMessage>.broadcast();
+  final StreamController<ResumeStreamMessage> _streamResumeController =
+      StreamController<ResumeStreamMessage>.broadcast();
+  final StreamController<FlushStreamMessage> _streamFlushController =
+      StreamController<FlushStreamMessage>.broadcast();
+  final StreamController<DestroyStreamMessage> _streamDestroyController =
+      StreamController<DestroyStreamMessage>.broadcast();
   final StreamController<UserCoordinationMessage> _userMessageController =
       StreamController<UserCoordinationMessage>.broadcast();
   final StreamController<ConfigUpdateMessage> _configUpdateController =
@@ -324,6 +368,14 @@ class ParticipantMessageHandler extends CoordinationMessageHandler {
       _streamReadyController.stream;
   Stream<StopStreamMessage> get streamStopCommands =>
       _streamStopController.stream;
+  Stream<PauseStreamMessage> get streamPauseCommands =>
+      _streamPauseController.stream;
+  Stream<ResumeStreamMessage> get streamResumeCommands =>
+      _streamResumeController.stream;
+  Stream<FlushStreamMessage> get streamFlushCommands =>
+      _streamFlushController.stream;
+  Stream<DestroyStreamMessage> get streamDestroyCommands =>
+      _streamDestroyController.stream;
   Stream<UserCoordinationMessage> get userMessages =>
       _userMessageController.stream;
   Stream<ConfigUpdateMessage> get configUpdates =>
@@ -395,6 +447,18 @@ class ParticipantMessageHandler extends CoordinationMessageHandler {
         break;
       case CoordinationMessageType.stopStream:
         await _handleStopStream(message as StopStreamMessage);
+        break;
+      case CoordinationMessageType.pauseStream:
+        await _handlePauseStream(message as PauseStreamMessage);
+        break;
+      case CoordinationMessageType.resumeStream:
+        await _handleResumeStream(message as ResumeStreamMessage);
+        break;
+      case CoordinationMessageType.flushStream:
+        await _handleFlushStream(message as FlushStreamMessage);
+        break;
+      case CoordinationMessageType.destroyStream:
+        await _handleDestroyStream(message as DestroyStreamMessage);
         break;
       case CoordinationMessageType.userMessage:
         await _handleUserMessage(message as UserCoordinationMessage);
@@ -644,6 +708,26 @@ class ParticipantMessageHandler extends CoordinationMessageHandler {
     await sendJoinRequest();
   }
 
+  /// Handle pause stream message by forwarding to stream
+  Future<void> _handlePauseStream(PauseStreamMessage message) async {
+    _streamPauseController.add(message);
+  }
+
+  /// Handle resume stream message by forwarding to stream
+  Future<void> _handleResumeStream(ResumeStreamMessage message) async {
+    _streamResumeController.add(message);
+  }
+
+  /// Handle flush stream message by forwarding to stream
+  Future<void> _handleFlushStream(FlushStreamMessage message) async {
+    _streamFlushController.add(message);
+  }
+
+  /// Handle destroy stream message by forwarding to stream
+  Future<void> _handleDestroyStream(DestroyStreamMessage message) async {
+    _streamDestroyController.add(message);
+  }
+
   void dispose() {
     _connectionTestTimer?.cancel();
     for (final completer in _pendingConnectionTests.values) {
@@ -658,6 +742,10 @@ class ParticipantMessageHandler extends CoordinationMessageHandler {
     _streamStartController.close();
     _streamReadyController.close();
     _streamStopController.close();
+    _streamPauseController.close();
+    _streamResumeController.close();
+    _streamFlushController.close();
+    _streamDestroyController.close();
     _userMessageController.close();
     _configUpdateController.close();
   }

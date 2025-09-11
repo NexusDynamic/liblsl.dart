@@ -31,6 +31,18 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
   Stream<StopStreamMessage> get streamStopCommands =>
       _controller.streamStopCommands;
 
+  Stream<PauseStreamMessage> get streamPauseCommands =>
+      _controller.streamPauseCommands;
+
+  Stream<ResumeStreamMessage> get streamResumeCommands =>
+      _controller.streamResumeCommands;
+
+  Stream<FlushStreamMessage> get streamFlushCommands =>
+      _controller.streamFlushCommands;
+
+  Stream<DestroyStreamMessage> get streamDestroyCommands =>
+      _controller.streamDestroyCommands;
+
   Stream<UserCoordinationMessage> get userMessages => _controller.userMessages;
   Stream<ConfigUpdateMessage> get configUpdates => _controller.configUpdates;
   Stream<Node> get nodeJoined => _controller.nodeJoined;
@@ -104,11 +116,47 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
     streamStopCommands.listen((command) async {
       final stream = _dataStreams[command.streamName];
       if (stream != null && stream.started) {
-        await stream.stop();
-        await stream.dispose();
-        // @TODO: should not dispose here, just stop...later
+        await stream.stop(); // Now just pauses polling, doesn't dispose
+        logger.info('PARTICIPANT Stopped stream: ${command.streamName}');
+      }
+    });
+
+    // Handle pauseStream commands
+    streamPauseCommands.listen((command) async {
+      final stream = _dataStreams[command.streamName];
+      if (stream != null && stream.started && !stream.paused) {
+        await stream.pauseStream();
+        logger.info('PARTICIPANT Paused stream: ${command.streamName}');
+      }
+    });
+
+    // Handle resumeStream commands
+    streamResumeCommands.listen((command) async {
+      final stream = _dataStreams[command.streamName];
+      if (stream != null && stream.started && stream.paused) {
+        await stream.resumeStream(flushBeforeResume: command.flushBeforeResume);
+        logger.info(
+          'PARTICIPANT Resumed stream: ${command.streamName}, flush: ${command.flushBeforeResume}',
+        );
+      }
+    });
+
+    // Handle flushStream commands
+    streamFlushCommands.listen((command) async {
+      final stream = _dataStreams[command.streamName];
+      if (stream != null && stream.started) {
+        await stream.flushStreams();
+        logger.info('PARTICIPANT Flushed stream: ${command.streamName}');
+      }
+    });
+
+    // Handle destroyStream commands
+    streamDestroyCommands.listen((command) async {
+      final stream = _dataStreams[command.streamName];
+      if (stream != null) {
+        await stream.destroyStream();
         _dataStreams.remove(command.streamName);
-        logger.info('Stopped stream: ${command.streamName}');
+        logger.info('PARTICIPANT Destroyed stream: ${command.streamName}');
       }
     });
   }
@@ -380,14 +428,76 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
     }
   }
 
-  Future<void> stopStream(String streamName) async {
-    await _controller.stopStream(streamName);
+  /// Pause a stream (stop polling but keep resources alive) - coordinator broadcasts to all nodes
+  Future<void> pauseStream(String streamName) async {
+    await _controller.pauseStream(streamName);
+    // If coordinator, also handle local stream
+    if (isCoordinator) {
+      final stream = _dataStreams[streamName];
+      if (stream != null && stream.started && !stream.paused) {
+        await stream.pauseStream();
+        logger.info('COORDINATOR Paused stream: $streamName');
+      }
+    }
+  }
+
+  /// Resume a stream with optional flushing - coordinator broadcasts to all nodes
+  Future<void> resumeStream(
+    String streamName, {
+    bool flushBeforeResume = true,
+  }) async {
+    await _controller.resumeStream(
+      streamName,
+      flushBeforeResume: flushBeforeResume,
+    );
+    // If coordinator, also handle local stream
+    if (isCoordinator) {
+      final stream = _dataStreams[streamName];
+      if (stream != null && stream.started && stream.paused) {
+        await stream.resumeStream(flushBeforeResume: flushBeforeResume);
+        logger.info(
+          'COORDINATOR Resumed stream: $streamName, flush: $flushBeforeResume',
+        );
+      }
+    }
+  }
+
+  /// Flush a stream to clear pending messages - coordinator broadcasts to all nodes
+  Future<void> flushStream(String streamName) async {
+    await _controller.flushStream(streamName);
+    // If coordinator, also handle local stream
     if (isCoordinator) {
       final stream = _dataStreams[streamName];
       if (stream != null && stream.started) {
-        await stream.stop();
-        _dataStreams.remove(streamName);
+        await stream.flushStreams();
+        logger.info('COORDINATOR Flushed stream: $streamName');
+      }
+    }
+  }
+
+  /// Stop a stream (pause polling, keep stream in registry for potential resumption)
+  Future<void> stopStream(String streamName) async {
+    await _controller.stopStream(streamName);
+    // If coordinator, also handle local stream
+    if (isCoordinator) {
+      final stream = _dataStreams[streamName];
+      if (stream != null && stream.started) {
+        await stream.stop(); // This now just pauses polling
         logger.info('COORDINATOR Stopped stream: $streamName');
+      }
+    }
+  }
+
+  /// Destroy a stream completely (remove from registry and dispose all resources)
+  Future<void> destroyStream(String streamName) async {
+    await _controller.destroyStream(streamName);
+    // If coordinator, also handle local stream
+    if (isCoordinator) {
+      final stream = _dataStreams[streamName];
+      if (stream != null) {
+        await stream.destroyStream();
+        _dataStreams.remove(streamName);
+        logger.info('COORDINATOR Destroyed stream: $streamName');
       }
     }
   }

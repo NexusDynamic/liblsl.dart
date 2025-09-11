@@ -15,6 +15,10 @@ enum CoordinationMessageType {
   startStream,
   streamReady,
   stopStream,
+  pauseStream,
+  resumeStream,
+  flushStream,
+  destroyStream,
   userMessage,
   configUpdate,
   nodeLeaving,
@@ -67,6 +71,14 @@ abstract class CoordinationMessage {
         return StreamReadyMessage.fromMap(map);
       case CoordinationMessageType.stopStream:
         return StopStreamMessage.fromMap(map);
+      case CoordinationMessageType.pauseStream:
+        return PauseStreamMessage.fromMap(map);
+      case CoordinationMessageType.resumeStream:
+        return ResumeStreamMessage.fromMap(map);
+      case CoordinationMessageType.flushStream:
+        return FlushStreamMessage.fromMap(map);
+      case CoordinationMessageType.destroyStream:
+        return DestroyStreamMessage.fromMap(map);
       case CoordinationMessageType.userMessage:
         return UserCoordinationMessage.fromMap(map);
       case CoordinationMessageType.configUpdate:
@@ -429,6 +441,122 @@ class StopStreamMessage extends CoordinationMessage {
 
   factory StopStreamMessage.fromMap(Map<String, dynamic> map) =>
       StopStreamMessage(
+        fromNodeUId: map['fromNodeUId'],
+        streamName: map['streamName'],
+        timestamp: DateTime.parse(map['timestamp']),
+        metadata: Map<String, dynamic>.from(map['metadata'] ?? {}),
+      );
+}
+
+class PauseStreamMessage extends CoordinationMessage {
+  final String streamName;
+
+  PauseStreamMessage({
+    required super.fromNodeUId,
+    required this.streamName,
+    super.timestamp,
+    super.metadata,
+  }) : super(type: CoordinationMessageType.pauseStream);
+
+  @override
+  Map<String, dynamic> toMap() => {
+    'type': type.name,
+    'fromNodeUId': fromNodeUId,
+    'timestamp': timestamp.toIso8601String(),
+    'streamName': streamName,
+    'metadata': metadata,
+  };
+
+  factory PauseStreamMessage.fromMap(Map<String, dynamic> map) =>
+      PauseStreamMessage(
+        fromNodeUId: map['fromNodeUId'],
+        streamName: map['streamName'],
+        timestamp: DateTime.parse(map['timestamp']),
+        metadata: Map<String, dynamic>.from(map['metadata'] ?? {}),
+      );
+}
+
+class ResumeStreamMessage extends CoordinationMessage {
+  final String streamName;
+  final bool flushBeforeResume;
+
+  ResumeStreamMessage({
+    required super.fromNodeUId,
+    required this.streamName,
+    this.flushBeforeResume = true,
+    super.timestamp,
+    super.metadata,
+  }) : super(type: CoordinationMessageType.resumeStream);
+
+  @override
+  Map<String, dynamic> toMap() => {
+    'type': type.name,
+    'fromNodeUId': fromNodeUId,
+    'timestamp': timestamp.toIso8601String(),
+    'streamName': streamName,
+    'flushBeforeResume': flushBeforeResume,
+    'metadata': metadata,
+  };
+
+  factory ResumeStreamMessage.fromMap(Map<String, dynamic> map) =>
+      ResumeStreamMessage(
+        fromNodeUId: map['fromNodeUId'],
+        streamName: map['streamName'],
+        flushBeforeResume: map['flushBeforeResume'] ?? true,
+        timestamp: DateTime.parse(map['timestamp']),
+        metadata: Map<String, dynamic>.from(map['metadata'] ?? {}),
+      );
+}
+
+class FlushStreamMessage extends CoordinationMessage {
+  final String streamName;
+
+  FlushStreamMessage({
+    required super.fromNodeUId,
+    required this.streamName,
+    super.timestamp,
+    super.metadata,
+  }) : super(type: CoordinationMessageType.flushStream);
+
+  @override
+  Map<String, dynamic> toMap() => {
+    'type': type.name,
+    'fromNodeUId': fromNodeUId,
+    'timestamp': timestamp.toIso8601String(),
+    'streamName': streamName,
+    'metadata': metadata,
+  };
+
+  factory FlushStreamMessage.fromMap(Map<String, dynamic> map) =>
+      FlushStreamMessage(
+        fromNodeUId: map['fromNodeUId'],
+        streamName: map['streamName'],
+        timestamp: DateTime.parse(map['timestamp']),
+        metadata: Map<String, dynamic>.from(map['metadata'] ?? {}),
+      );
+}
+
+class DestroyStreamMessage extends CoordinationMessage {
+  final String streamName;
+
+  DestroyStreamMessage({
+    required super.fromNodeUId,
+    required this.streamName,
+    super.timestamp,
+    super.metadata,
+  }) : super(type: CoordinationMessageType.destroyStream);
+
+  @override
+  Map<String, dynamic> toMap() => {
+    'type': type.name,
+    'fromNodeUId': fromNodeUId,
+    'timestamp': timestamp.toIso8601String(),
+    'streamName': streamName,
+    'metadata': metadata,
+  };
+
+  factory DestroyStreamMessage.fromMap(Map<String, dynamic> map) =>
+      DestroyStreamMessage(
         fromNodeUId: map['fromNodeUId'],
         streamName: map['streamName'],
         timestamp: DateTime.parse(map['timestamp']),

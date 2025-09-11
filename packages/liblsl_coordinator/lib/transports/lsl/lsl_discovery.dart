@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:liblsl_coordinator/liblsl_coordinator.dart';
 import 'package:liblsl_coordinator/transports/lsl.dart';
-import 'package:synchronized/extension.dart';
+// import 'package:synchronized/extension.dart';
 import 'package:synchronized/synchronized.dart';
 
 /// Discovery events for stream resolution

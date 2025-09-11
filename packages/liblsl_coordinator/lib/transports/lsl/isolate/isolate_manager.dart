@@ -7,6 +7,7 @@ import 'package:collection/collection.dart';
 import 'package:liblsl/lsl.dart';
 
 import 'package:liblsl_coordinator/framework.dart';
+import 'package:meta/meta.dart';
 import 'package:synchronized/synchronized.dart';
 
 /// Enum defining all possible isolate message types
@@ -19,32 +20,60 @@ enum IsolateMessageType {
   removeInlet, // 5
   data, // 6
   recreateOutlet, // 7
+  pause, // 8
+  resume, // 9
+  flush, // 10
 }
 
+/// This is dumb, but despite Enum being immutable, it doesn't work
+/// with 'vm:deeply-immutable' pragma, so this just wraps the conversion
+/// from int to enum value. The enum is only used in this file anyway.
 extension IsolateMessageTypeInt on IsolateMessageType {
+  /// Convert int [value] to IsolateMessageType
   static IsolateMessageType fromInt(int value) {
     return IsolateMessageType.values[value];
   }
 }
 
+/// Interface for all isolate messages
+abstract interface class IIMessage {
+  /// The enum index, Enum breaks deeply immutable, despite being immutable
+  int get type;
+
+  /// An optional [requestID] for matching requests and responses
+  /// If set, the isolate will respond with a [ResponseMessage] with the same ID
+  /// allowing the sender to await completion
+  String? get requestID;
+}
+
 /// Base class for all isolate messages - immutable for efficient message passing
 @pragma('vm:deeply-immutable')
-sealed class IsolateMessage {
+sealed class IsolateMessage implements IIMessage {
+  @override
   final int type;
+
+  @override
   final String? requestID;
 
   const IsolateMessage(this.type, {this.requestID});
 }
 
-sealed class MutableIsolateMessage {
+/// Base class for mutable isolate messages - will be copied when sent
+/// (probably?)
+/// This is probably more accurately `NonImmutableIsolateMessage`
+sealed class MutableIsolateMessage implements IIMessage {
+  @override
   final int type;
+
+  @override
   final String? requestID;
 
   const MutableIsolateMessage(this.type, {this.requestID});
 }
 
-/// Message to send data through outlet - immutable
+/// Message to send data through outlet - non-immutable thanks to List
 final class DataMessage extends MutableIsolateMessage {
+  /// This is always List of ImmutableType, but dart doesnt care
   final List<dynamic> payload;
 
   const DataMessage(this.payload, {super.requestID}) : super(6);
@@ -83,6 +112,26 @@ final class RemoveInletMessage extends IsolateMessage {
 final class RecreateOutletMessage extends IsolateMessage {
   final int address; // stream info address
   const RecreateOutletMessage(this.address, {super.requestID}) : super(7);
+}
+
+/// Message to pause isolate processing - immutable
+@pragma('vm:deeply-immutable')
+final class PauseMessage extends IsolateMessage {
+  const PauseMessage({super.requestID}) : super(8);
+}
+
+/// Message to resume isolate processing - immutable
+@pragma('vm:deeply-immutable')
+final class ResumeMessage extends IsolateMessage {
+  final bool flushBeforeResume;
+  const ResumeMessage({this.flushBeforeResume = true, super.requestID})
+    : super(9);
+}
+
+/// Message to flush inlet streams - immutable
+@pragma('vm:deeply-immutable')
+final class FlushMessage extends IsolateMessage {
+  const FlushMessage({super.requestID}) : super(10);
 }
 
 /// Message to notify main thread that the isolate is initialized
@@ -243,13 +292,13 @@ sealed class StreamIsolate {
   final Completer<void> _initialized = Completer<void>();
   final Map<String, Completer<void>> _responseCompleters = {};
   bool stopped = false;
+  bool paused = false;
 
   // Data stream for incoming messages
-  final StreamController<IsolateDataMessageList> _incomingDataController =
-      StreamController<IsolateDataMessageList>();
+  final StreamController<IsolateDataMessage> _incomingDataController =
+      StreamController<IsolateDataMessage>();
 
-  Stream<IsolateDataMessageList> get incomingData =>
-      _incomingDataController.stream;
+  Stream<IsolateDataMessage> get incomingData => _incomingDataController.stream;
 
   StreamIsolate({
     required this.streamId,
@@ -299,6 +348,7 @@ sealed class StreamIsolate {
   /// Start isolate processing
   Future<void> start() async {
     stopped = false;
+    paused = false;
     final requestRecord = _generateRequestID();
     logger.finest(
       '[$isolateDebugName] Starting isolate for stream $streamId with request ID ${requestRecord.$1}',
@@ -307,9 +357,50 @@ sealed class StreamIsolate {
     await requestRecord.$2.future;
   }
 
+  /// Pause isolate processing (keeps streams alive but stops polling)
+  Future<void> pause() async {
+    if (paused || stopped) return;
+    paused = true;
+    final requestRecord = _generateRequestID();
+    logger.finest(
+      '[$isolateDebugName] Pausing isolate for stream $streamId with request ID ${requestRecord.$1}',
+    );
+    await sendMessage(PauseMessage(requestID: requestRecord.$1));
+    await requestRecord.$2.future;
+  }
+
+  /// Resume isolate processing
+  Future<void> resume({bool flushBeforeResume = true}) async {
+    if (!paused || stopped) return;
+    paused = false;
+    final requestRecord = _generateRequestID();
+    logger.finest(
+      '[$isolateDebugName] Resuming isolate for stream $streamId with request ID ${requestRecord.$1}, flush: $flushBeforeResume',
+    );
+    await sendMessage(
+      ResumeMessage(
+        flushBeforeResume: flushBeforeResume,
+        requestID: requestRecord.$1,
+      ),
+    );
+    await requestRecord.$2.future;
+  }
+
+  /// Flush inlet streams to clear pending messages
+  Future<void> flush() async {
+    if (stopped) return;
+    final requestRecord = _generateRequestID();
+    logger.finest(
+      '[$isolateDebugName] Flushing streams for stream $streamId with request ID ${requestRecord.$1}',
+    );
+    await sendMessage(FlushMessage(requestID: requestRecord.$1));
+    await requestRecord.$2.future;
+  }
+
   /// Stop isolate processing
   Future<void> stop() async {
     stopped = true;
+    paused = false;
     final requestRecord = _generateRequestID();
     logger.finest(
       '[$isolateDebugName] Stopping isolate for stream $streamId with request ID ${requestRecord.$1}',
@@ -341,7 +432,8 @@ sealed class StreamIsolate {
 
   /// Clean up resources
   Future<void> dispose() async {
-    /// @TODO: Instead of killing isolate in stop, do it here
+    /// @TODO: Instead of killing isolate in stop, do it here,
+    /// needs to be changed in the isolate worker as well
     if (!stopped) {
       await stop();
     }
@@ -356,9 +448,15 @@ sealed class StreamIsolate {
       }
     } else if (message is LogRecord) {
       Log.logIsolateMessage(message);
+    }
+    if (message is IsolateDataMessage) {
+      // Handle single data sample
+      _incomingDataController.add(message);
     } else if (message is IsolateDataMessageList) {
       // Handle batch of data samples
-      _incomingDataController.add(message);
+      for (final msg in message.messages) {
+        _incomingDataController.add(msg);
+      }
     } else if (message is InitializedMessage) {
       if (!_initialized.isCompleted) {
         logger.finer('Isolate for stream $streamId initialized');
@@ -504,7 +602,7 @@ final class StreamOutletIsolate extends StreamIsolate {
   }
 }
 
-/// Factory for creating LSL stream isolates
+/// Factory container for creating LSL stream isolates
 final class IsolateStreamManager {
   /// Creates an inlet isolate instance
   static StreamInletIsolate createInletIsolate({
@@ -630,11 +728,15 @@ final class IsolateStreamManager {
 
 /// Base class for isolate workers with shared functionality
 sealed class IsolateWorker {
+  /// Configuration for the worker
   IsolateWorkerConfig config;
+
+  /// The isolate's receive port
   late final ReceivePort receivePort;
 
   IsolateWorker(this.config);
 
+  /// Start the worker
   Future<void> start() async {
     receivePort = ReceivePort();
     config.mainSendPort.send(receivePort.sendPort);
@@ -647,27 +749,65 @@ sealed class IsolateWorker {
     config.mainSendPort.send(const InitializedMessage());
   }
 
+  /// Get the worker name for logging
+  @mustBeOverridden
   String _getWorkerName();
+
+  /// Initialize the worker - to be implemented by subclasses
+  @mustBeOverridden
   Future<void> initialize();
+
+  /// Handle incoming messages - to be implemented by subclasses
+  @mustBeOverridden
   FutureOr<void> handleMessage(dynamic message);
 }
 
 /// Worker class for handling inlet operations in isolate
 final class InletWorker extends IsolateWorker {
-  // Member variables to replace excessive parameters
+  /// List of active inlets
   late final List<LSLInlet> inlets;
+
+  /// List of time corrections for each inlet (fragile, needs to be exactly
+  /// the same length as inlets)
   late final List<double> timeCorrections;
+
+  /// Lock for inlet operations
   late final Lock inletsLock;
+
+  /// Lock for time correction operations
   late final Lock timeCorrectionsLock;
+
+  /// Combined lock for adding/removing inlets and updating time corrections
   late final MultiLock inletAddRemoveLock;
+
+  /// Lock for buffer operations
   late final Lock bufferLock;
+
+  /// Buffer for incoming data messages
   late final ListQueue<IsolateDataMessage> buffer;
+
+  /// Stopwatch for tracking time since last time correction update
   late final Stopwatch lastTimeCorrectionUpdate;
 
+  /// Whether the worker is currently running, technically public but isn't used
+  /// outside this class/subclasses anyway
+  @protected
   bool running = false;
+
+  /// Whether the worker is currently paused (running but not polling)
+  @protected
+  bool paused = false;
+
+  /// Timer for periodic polling (if not using busy-wait)
   Timer? timer;
+
+  /// Completer for polling loops
   Completer<void>? completer;
 
+  /// Completer for resuming from pause
+  Completer<void>? resumeCompleter;
+
+  /// Constructor
   InletWorker(super.config);
 
   @override
@@ -697,7 +837,7 @@ final class InletWorker extends IsolateWorker {
 
   @override
   Future<void> handleMessage(dynamic message) async {
-    if (message is IsolateMessage || message is MutableIsolateMessage) {
+    if (message is IIMessage) {
       final IsolateMessageType messageType =
           IsolateMessageType.values[message.type];
       switch (messageType) {
@@ -713,6 +853,15 @@ final class InletWorker extends IsolateWorker {
         //   config.mainSendPort,
         //   ResponseMessage(requestID: message.requestID),
         // );
+        case IsolateMessageType.pause:
+          await _handlePause();
+          break;
+        case IsolateMessageType.resume:
+          await _handleResume(message as ResumeMessage);
+          break;
+        case IsolateMessageType.flush:
+          await _handleFlush();
+          break;
         case IsolateMessageType.addInlet:
           await _handleAddInlet(message as AddInletMessage);
           break;
@@ -743,6 +892,7 @@ final class InletWorker extends IsolateWorker {
       return;
     }
     running = true;
+    paused = false;
 
     if (completer == null || completer!.isCompleted) {
       completer = Completer<void>();
@@ -758,8 +908,12 @@ final class InletWorker extends IsolateWorker {
         'Starting timer-based inlet worker for stream ${config.streamId}',
       );
       timer = Timer.periodic(config.pollingInterval, (_) async {
-        if (!running) {
-          timer?.cancel();
+        if (!running || paused) {
+          if (!running) timer?.cancel();
+          if (paused && resumeCompleter != null) {
+            await resumeCompleter!.future;
+            resumeCompleter = null;
+          }
           return;
         }
         await inletsLock.synchronized(() async {
@@ -777,6 +931,70 @@ final class InletWorker extends IsolateWorker {
     }
   }
 
+  Future<void> _handlePause() async {
+    if (!running || paused) {
+      logger.fine(
+        'Inlet worker for stream ${config.streamId} is not running or already paused, ignoring pause request',
+      );
+      return;
+    }
+    logger.info('Pausing inlet worker for stream ${config.streamId}');
+    paused = true;
+    resumeCompleter = Completer<void>();
+    // Note: we don't cancel timer or complete completer - just set paused flag
+    // Timer-based polling will check paused flag, busy-wait will be handled in the loop
+  }
+
+  Future<void> _handleResume(ResumeMessage message) async {
+    if (!running || !paused) {
+      logger.fine(
+        'Inlet worker for stream ${config.streamId} is not running or not paused, ignoring resume request',
+      );
+      return;
+    }
+    logger.info(
+      'Resuming inlet worker for stream ${config.streamId}, flush: ${message.flushBeforeResume}',
+    );
+
+    if (message.flushBeforeResume) {
+      await _flushInlets();
+    }
+    resumeCompleter?.complete();
+    paused = false;
+    // Polling will automatically resume as paused flag is now false
+  }
+
+  Future<void> _handleFlush() async {
+    if (!running) {
+      logger.fine(
+        'Inlet worker for stream ${config.streamId} is not running, ignoring flush request',
+      );
+      return;
+    }
+    logger.info('Flushing inlet streams for stream ${config.streamId}');
+    await _flushInlets();
+  }
+
+  /// Flush all inlet streams to clear pending messages
+  Future<void> _flushInlets() async {
+    await inletsLock.synchronized(() async {
+      for (final inlet in inlets) {
+        try {
+          await inlet.flush();
+        } catch (e) {
+          logger.warning('Error flushing inlet: $e');
+        }
+      }
+    });
+
+    // Clear internal buffer as well
+    await bufferLock.synchronized(() {
+      buffer.clear();
+    });
+
+    logger.finest('Flushed all inlet streams for ${config.streamId}');
+  }
+
   Future<void> _handleStop() async {
     if (!running) {
       logger.fine(
@@ -786,6 +1004,8 @@ final class InletWorker extends IsolateWorker {
     }
     logger.info('Stopping inlet worker for stream ${config.streamId}');
     running = false;
+    resumeCompleter?.complete();
+    paused = false;
     timer?.cancel();
     if (completer != null && !completer!.isCompleted) {
       completer?.complete();
@@ -904,13 +1124,22 @@ final class InletWorker extends IsolateWorker {
     runPreciseIntervalAsync(
       config.pollingInterval,
       (state) async {
+        if (!running || paused) {
+          if (paused && resumeCompleter != null) {
+            // hang out here until we resume
+            await resumeCompleter!.future;
+            resumeCompleter = null;
+          }
+          return state; // Skip polling if not running
+        }
+
         inletsLock.synchronized(() async {
           await _pollInletsWorker();
         });
 
         bufferLock.synchronized(() {
           if (buffer.isNotEmpty) {
-            config.mainSendPort.send(List.unmodifiable(buffer));
+            config.mainSendPort.send(IsolateDataMessageList.from(buffer));
             buffer.clear();
           }
         });
@@ -929,12 +1158,25 @@ final class InletWorker extends IsolateWorker {
 
 /// Worker class for handling outlet operations in isolate
 final class OutletWorker extends IsolateWorker {
-  // Member variables instead of excessive parameters
+  /// The outlet instance
   late LSLOutlet outlet;
+
+  /// Whether the worker is currently running, technically public but isn't used
+  /// outside this class/subclasses anyway
+  @protected
   bool running = false;
+
+  /// Whether the worker is currently paused (running but not sending data)
+  @protected
+  bool paused = false;
+
+  /// Timer for periodic tasks (if needed)
   Timer? timer;
+
+  /// Completer for polling loops
   Completer<void>? completer;
 
+  /// Constructor
   OutletWorker(super.config);
 
   @override
@@ -947,7 +1189,7 @@ final class OutletWorker extends IsolateWorker {
 
   @override
   Future<void> handleMessage(dynamic message) async {
-    if (message is IsolateMessage || message is MutableIsolateMessage) {
+    if (message is IIMessage) {
       final IsolateMessageType messageType =
           IsolateMessageType.values[message.type];
       switch (messageType) {
@@ -963,6 +1205,15 @@ final class OutletWorker extends IsolateWorker {
         //   config.mainSendPort,
         //   ResponseMessage(requestID: message.requestID),
         // );
+        case IsolateMessageType.pause:
+          await _handlePause();
+          break;
+        case IsolateMessageType.resume:
+          await _handleResume(message as ResumeMessage);
+          break;
+        case IsolateMessageType.flush:
+          // Outlets don't need flushing - they don't buffer input
+          break;
         case IsolateMessageType.data:
           _handleData(message as DataMessage);
           break;
@@ -1001,8 +1252,33 @@ final class OutletWorker extends IsolateWorker {
       return;
     }
     running = true;
+    paused = false;
     // For coordination streams and on-demand data streams, just wait for data messages
     // No automatic sample generation needed
+  }
+
+  Future<void> _handlePause() async {
+    if (!running || paused) {
+      logger.fine(
+        'Outlet worker for stream ${config.streamId} is not running or already paused, ignoring pause request',
+      );
+      return;
+    }
+    logger.info('Pausing outlet worker for stream ${config.streamId}');
+    paused = true;
+    // Outlet just sets paused flag - data messages will be ignored
+  }
+
+  Future<void> _handleResume(ResumeMessage message) async {
+    if (!running || !paused) {
+      logger.fine(
+        'Outlet worker for stream ${config.streamId} is not running or not paused, ignoring resume request',
+      );
+      return;
+    }
+    logger.info('Resuming outlet worker for stream ${config.streamId}');
+    paused = false;
+    // flushBeforeResume doesn't apply to outlets - they don't buffer data
   }
 
   Future<void> _handleStop() async {
@@ -1014,6 +1290,7 @@ final class OutletWorker extends IsolateWorker {
     }
     logger.info('Stopping outlet worker for stream ${config.streamId}');
     running = false;
+    paused = false;
     timer?.cancel();
     if (completer != null && !completer!.isCompleted) {
       completer?.complete();
@@ -1024,7 +1301,7 @@ final class OutletWorker extends IsolateWorker {
   }
 
   void _handleData(DataMessage message) {
-    if (running) {
+    if (running && !paused) {
       outlet.pushSampleSync(message.payload);
     }
   }

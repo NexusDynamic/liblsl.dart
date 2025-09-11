@@ -37,6 +37,14 @@ class CoordinationController {
       StreamController<StreamReadyMessage>.broadcast();
   final StreamController<StopStreamMessage> _streamStopController =
       StreamController<StopStreamMessage>.broadcast();
+  final StreamController<PauseStreamMessage> _streamPauseController =
+      StreamController<PauseStreamMessage>.broadcast();
+  final StreamController<ResumeStreamMessage> _streamResumeController =
+      StreamController<ResumeStreamMessage>.broadcast();
+  final StreamController<FlushStreamMessage> _streamFlushController =
+      StreamController<FlushStreamMessage>.broadcast();
+  final StreamController<DestroyStreamMessage> _streamDestroyController =
+      StreamController<DestroyStreamMessage>.broadcast();
   final StreamController<UserCoordinationMessage> _userMessageController =
       StreamController<UserCoordinationMessage>.broadcast();
   final StreamController<ConfigUpdateMessage> _configUpdateController =
@@ -56,6 +64,14 @@ class CoordinationController {
       _streamReadyController.stream;
   Stream<StopStreamMessage> get streamStopCommands =>
       _streamStopController.stream;
+  Stream<PauseStreamMessage> get streamPauseCommands =>
+      _streamPauseController.stream;
+  Stream<ResumeStreamMessage> get streamResumeCommands =>
+      _streamResumeController.stream;
+  Stream<FlushStreamMessage> get streamFlushCommands =>
+      _streamFlushController.stream;
+  Stream<DestroyStreamMessage> get streamDestroyCommands =>
+      _streamDestroyController.stream;
   Stream<UserCoordinationMessage> get userMessages =>
       _userMessageController.stream;
   Stream<ConfigUpdateMessage> get configUpdates =>
@@ -341,6 +357,14 @@ class CoordinationController {
     _streamReadySubscription = _participantHandler!.streamReadyNotifications
         .listen(_streamReadyController.add);
     _participantHandler!.streamStopCommands.listen(_streamStopController.add);
+    _participantHandler!.streamPauseCommands.listen(_streamPauseController.add);
+    _participantHandler!.streamResumeCommands.listen(
+      _streamResumeController.add,
+    );
+    _participantHandler!.streamFlushCommands.listen(_streamFlushController.add);
+    _participantHandler!.streamDestroyCommands.listen(
+      _streamDestroyController.add,
+    );
     _participantHandler!.userMessages.listen(_userMessageController.add);
     _participantHandler!.configUpdates.listen(_configUpdateController.add);
 
@@ -567,6 +591,40 @@ class CoordinationController {
       throw StateError('Only coordinator can stop streams');
     }
     await _coordinatorHandler!.broadcastStopStream(streamName);
+  }
+
+  Future<void> pauseStream(String streamName) async {
+    if (!_state.isCoordinator) {
+      throw StateError('Only coordinator can pause streams');
+    }
+    await _coordinatorHandler!.broadcastPauseStream(streamName);
+  }
+
+  Future<void> resumeStream(
+    String streamName, {
+    bool flushBeforeResume = true,
+  }) async {
+    if (!_state.isCoordinator) {
+      throw StateError('Only coordinator can resume streams');
+    }
+    await _coordinatorHandler!.broadcastResumeStream(
+      streamName,
+      flushBeforeResume: flushBeforeResume,
+    );
+  }
+
+  Future<void> flushStream(String streamName) async {
+    if (!_state.isCoordinator) {
+      throw StateError('Only coordinator can flush streams');
+    }
+    await _coordinatorHandler!.broadcastFlushStream(streamName);
+  }
+
+  Future<void> destroyStream(String streamName) async {
+    if (!_state.isCoordinator) {
+      throw StateError('Only coordinator can destroy streams');
+    }
+    await _coordinatorHandler!.broadcastDestroyStream(streamName);
   }
 
   Future<void> sendUserMessage(
