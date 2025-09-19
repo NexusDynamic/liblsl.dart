@@ -1212,10 +1212,13 @@ class LSLCoordinationStream
   StringMessage? _createMessageFromIsolateData(IsolateDataMessage data) {
     if (data.data.isNotEmpty && data.data[0] is String) {
       return MessageFactory.stringMessage(
-        data: [data.data[0] as String],
-        timestamp: data.timestamp,
-        channels: 1,
-      );
+          data: [data.data[0] as String],
+          timestamp: data.timestamp,
+          channels: 1,
+        )
+        ..setMetadata('lsl_timestamp', data.lslTimestamp)
+        ..setMetadata('lsl_time_correction', data.lslTimeCorrection)
+        ..setMetadata('received_at', DateTime.now());
     }
     return null;
   }
