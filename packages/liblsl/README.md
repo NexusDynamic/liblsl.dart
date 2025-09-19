@@ -4,7 +4,6 @@
 
 This package provides a Dart wrapper for liblsl, using the dart native-assets build system and ffi.
 
-It's currently considered experimental.
 
 ## Targets
 
@@ -56,9 +55,26 @@ By design, this library uses Dart [isolates](https://dart.dev/language/isolates)
 
 LSL uses multicast UDP packets to discover communicate between devices and applications. Multicast packets may be blocked on various managed switches and routers, or by your network or machine firewall. If you are having issues with LSL, check your network settings and firewall settings to ensure that multicast packets are allowed, the method to do this varies by platform and network infrastructure.
 
-### No multicast? No problem! (maybe)
+### No multicast? No problem!
 
-It is possible to use LSL without multicast, this requires understanding your network infrastructure and the IP addresses of the devices you communicate with. The library provides a way to configure the LSL API, which can be done before invoking any other LSL functions. More documentation will be added here once the version of hooks and native_assets has a stable release, currently some of these changes are in a branch. For now, you can see details of the API configuration, and how you can use it on the [LSL configuration files](https://labstreaminglayer.readthedocs.io/info/lslapicfg.html) page of the LSL documentation.
+It is possible to use LSL without multicast, this requires understanding your network infrastructure and the IP addresses of the devices you communicate with. The library provides a way to configure the LSL API, which *must* be called before invoking any other LSL functions. For further information, refer to the [LSL configuration files](https://labstreaminglayer.readthedocs.io/info/lslapicfg.html) page of the LSL documentation.
+
+```dart
+import 'package:liblsl/liblsl.dart';
+/// Configure LSL to run in an enviroment that does not support
+/// multicast. Devices that participat in the LSL network must have
+/// their IP addresses manually specified, and this configuration
+/// needs to be applied on all devices.
+final apiConfig = LSLApiConfig(
+    knownPeers: [
+        '10.0.0.100',
+        '10.0.0.100',
+    ],
+);
+LSL.setConfigContent(apiConfig);
+
+// Now you can continue as normal
+```
 
 ### Android
 
@@ -100,7 +116,7 @@ You will also need the following configured in your `Info.plist` file:
 
 ## API Usage
 
-More documentation will come, but see [liblsl_example.dart](./example/liblsl_example.dart), [liblsl_test.dart](./test/liblsl_test.dart) also see the [liblsl_test](../liblsl_test) package for a working example with flutter for all supported target devices.
+More documentation will come, but see [liblsl_example.dart](./example/liblsl_example.dart), [liblsl_test.dart](./test/liblsl_test.dart) also see the [liblsl_test](https://github.com/NexusDynamic/liblsl.dart/tree/main/packages/liblsl_test) package for a working example with flutter for all supported target devices.
 
 ```dart
 import 'package:liblsl/liblsl.dart';
@@ -205,7 +221,7 @@ stringArray.free();
 
 ## Testing
 
-Currently (March 2025), the native assets are branch blocked so you will need to use flutter / dart "main" channel to work with this lib for development purposes.
+Currently (September 2025), the native assets are branch blocked so you will need to use flutter / dart "main" or beta channel to work with this lib for development purposes.
 
 ```bash
 dart --enable-experiment=native-assets test
@@ -221,11 +237,9 @@ dart --enable-experiment=native-assets test
 
 ### Development Guidelines
 
-- Maintain microsecond-precision timing throughout
-- Add comprehensive event logging for new features
-- Test on multiple platforms and network configurations
-- Update documentation for any API changes
-- Follow Dart/Flutter style guidelines
+- Follow Dart's [effective dart](https://dart.dev/guides/language/effective-dart) style guide.
+- Write tests for new features and bug fixes.
+- Ensure all tests pass before submitting a pull request.
 
 # License
 
@@ -234,4 +248,4 @@ This project is licensed under the MIT License - see the [LICENSE](./LICENSE) fi
 # Acknowledgments
 
 - [Christian A. Kothe: liblsl](https://github.com/sccn/liblsl) for the LSL library
-- Dart/Flutter framework by Google
+- The [Dart programming language](https://dart.dev/) by Google
