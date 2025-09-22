@@ -126,7 +126,7 @@ class LSL {
   /// Important: If you do not use isolates, you must ensure that you deal with
   /// the consequences of blocking operations which will block the main dart
   /// isolate.
-  static Future<LSLInlet> createInlet<T>({
+  static Future<LSLInlet<T>> createInlet<T>({
     required LSLStreamInfo streamInfo,
     int maxBuffer = 360,
     int chunkSize = 0,
@@ -201,7 +201,7 @@ class LSL {
       await inlet.getFullInfo(timeout: createTimeout);
     }
 
-    return inlet;
+    return inlet as LSLInlet<T>;
   }
 
   /// Discovers all available LSL streams on the network.

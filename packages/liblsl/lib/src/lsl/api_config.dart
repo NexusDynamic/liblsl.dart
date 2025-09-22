@@ -88,7 +88,7 @@ class LSLApiConfig {
   String sessionId;
 
   // TUNING SECTION
-  /// The interval in seconds to check for dead peers.
+  /// The interval at which the watchdog checks if connections are still fine.
   double watchdogCheckInterval;
 
   /// The time threshold in seconds to consider a peer dead.
@@ -109,13 +109,15 @@ class LSLApiConfig {
   /// The interval in seconds to resolve multicast addresses.
   double continuousResolveInterval;
 
-  /// The timer resolution in seconds. This is used to determine the
+  /// Desired timer resolution in ms (0 means no change).
+  /// Currently only affects Windows operating systems, where values other
+  /// than 1 can increase LSL transmission latency
   double timerResolution;
 
-  /// maximum time to wait for a response from a peer.
+  /// The maximum number of most-recently-used queries that is cached.
   int maxCachedQueries;
 
-  /// The interval in seconds to update the time.
+  /// Interval between background time correction updates.
   double timeUpdateInterval;
 
   /// The minimum number of probes to use for time updates.
@@ -130,28 +132,28 @@ class LSLApiConfig {
   /// The maximum round-trip time (RTT) in seconds for time probes.
   double timeProbeMaxRTT;
 
-  /// The amount of time in milliseconds to reserve for the outlet buffer.
+  /// The amount of time in milliseconds to reserve for the outlet buffer (regular streams).
   int outletBufferReserveMs;
 
-  /// The number of samples to reserve for the outlet buffer.
+  /// The number of samples to reserve for the outlet buffer (irregular streams).
   int outletBufferReserveSamples;
 
-  /// The size of the socket buffer to use for sending data.
+  /// The size of the socket buffer in bytes to use for sending data.
   int sendSocketBufferSize;
 
-  /// The amount of time in milliseconds to reserve for the inlet buffer.
+  /// The amount of time in milliseconds to reserve for the inlet buffer (regular streams).
   int inletBufferReserveMs;
 
-  /// The number of samples to reserve for the inlet buffer.
+  /// The number of samples to reserve for the inlet buffer (irregular streams).
   int inletBufferReserveSamples;
 
-  /// The size of the socket buffer to use for receiving data.
+  /// The size of the socket buffer in bytes to use for receiving data.
   int receiveSocketBufferSize;
 
   /// The smoothing half-time in seconds for the time post-processor.
   double smoothingHalftime;
 
-  /// Whether to force the use of default timestamps for all streams.
+  /// Override timestamps with lsl clock if true
   bool forceDefaultTimestamps;
 
   // LOG SECTION
