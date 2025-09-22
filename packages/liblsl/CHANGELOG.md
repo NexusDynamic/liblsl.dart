@@ -1,3 +1,15 @@
+# 0.9.1
+
+- Updated `hooks` from `^0.20.0` to `^0.20.1`.
+- Updated `code_assets` from `^0.19.0` to `^0.19.7`.
+- Updated LSL Api config documentation
+- Updated readme
+- Improved tests and added a performance test
+- Added an async version of `runPreciseInterval` (`runPreciseIntervalAsync`) that works with async callbacks
+- Added continous stream resolvers by property and predicate (`LSLStreamResolverContinuousByProperty` and `LSLStreamResolverContinuousByPredicate`)
+- `LSL.createInlet` now returns the typed version of the inlet rather than dynamice (e.g. `LSLInlet<double>` rather than `LSLInlet<dynamic>`)
+- Added draft JOSS paper
+
 # 0.9.0
 
 This is a major update that includes breaking changes. It introduces a new `LSLStreamInfoWithMetadata` class that allows for operations aligned with the C/C++ API that support reading and manipulation of the metadata associated with a stream. By default, when resolving streams, the metadata is not included and can only be retrieved after creating an inlet with the new method `LSLInlet.getFullInfo`, or, during inlet creation, you may pass `includeMetadata: true` to the constructor to include the metadata in the inlet.
