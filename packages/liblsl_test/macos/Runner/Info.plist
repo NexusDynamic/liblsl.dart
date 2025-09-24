@@ -28,7 +28,7 @@
 	<string>MainMenu</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
-	<key>FLTEnableImpeller</key>
-  	<true />
+	<key> NSLocalNetworkUsageDescription</key>
+	<string>You will be allowing liblsl_test to access local network services</string>
 </dict>
 </plist>
