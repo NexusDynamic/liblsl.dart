@@ -332,7 +332,7 @@ class BackgroundProcessor {
         .map(
           (e) => e != null ? ((e is String) ? double.parse(e) : e) : double.nan,
         )
-        .reduce((a, b) => min(a, b));
+        .reduce((a, b) => min<double>(a, b));
 
     final Map<String, double> deviceAdjustments = {};
 
@@ -351,9 +351,8 @@ class BackgroundProcessor {
 
       // Adjust timestamps for this source
       final sourceIndices = csvData['reportingDeviceName'].isEqual(source);
-      final adjustedTimestamps = csvData['lsl_clock']
-          .indices(sourceIndices.data)
-          .data;
+      final adjustedTimestamps =
+          csvData['lsl_clock'].indices(sourceIndices.data).data;
 
       int j = 0;
       for (final (i, pick) in sourceIndices.data.indexed) {

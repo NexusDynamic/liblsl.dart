@@ -162,7 +162,7 @@ class UltraFastEnhancedTimingAnalysisService {
 
     // Quick sample check - only check first 100 rows for speed
     final corrections = data['lslTimeCorrection'].data;
-    final sampleSize = min(100, corrections.length);
+    final sampleSize = min<int>(100, corrections.length);
 
     for (int i = 0; i < sampleSize; i++) {
       final correction = corrections[i];
@@ -193,9 +193,8 @@ class UltraFastEnhancedTimingAnalysisService {
     final sourceIdData = data['sourceId'].data;
     final lslClockData = data['lsl_clock'].data;
     final counterData = data['counter'].data;
-    final timeCorrectionData = includeTimeCorrections
-        ? data['lslTimeCorrection'].data
-        : null;
+    final timeCorrectionData =
+        includeTimeCorrections ? data['lslTimeCorrection'].data : null;
     final rowCount = eventTypeData.length;
 
     if (kDebugMode) {
@@ -547,7 +546,7 @@ class _SourceEventGroup {
   final String senderDevice;
   final Map<int, _Event> sentEvents; // counter -> event
   final Map<String, Map<int, _Event>>
-  receivedEvents; // deviceId -> (counter -> event)
+      receivedEvents; // deviceId -> (counter -> event)
 
   _SourceEventGroup({
     required this.sourceId,
