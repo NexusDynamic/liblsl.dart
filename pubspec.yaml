@@ -49,7 +49,7 @@ melos:
       description: Run `dart format` checks for all packages.
 
     test:select:
-      run: melos exec -c 1 -- flutter test
+      run: melos exec -c 1 -- flutter test -j 1
       packageFilters:
         dirExists: test
       description: Run `flutter test` for selected packages.

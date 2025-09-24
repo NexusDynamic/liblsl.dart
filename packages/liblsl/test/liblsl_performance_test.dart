@@ -31,7 +31,7 @@ void main() {
       final performanceTester = LSLPerformanceTester();
       await performanceTester.runPerformanceMatrix();
     });
-  });
+  }, timeout: Timeout(Duration(minutes: 10)));
 }
 
 class LSLPerformanceTester {
