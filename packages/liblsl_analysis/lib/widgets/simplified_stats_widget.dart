@@ -28,15 +28,15 @@ class _SimplifiedStatsWidgetState extends State<SimplifiedStatsWidget> {
     try {
       final result =
           await BackgroundAnalysisService.performAnalysisInBackground(
-            data: widget.csvData,
-            onProgress: (progress) {
-              if (mounted) {
-                setState(() {
-                  _currentProgress = progress;
-                });
-              }
-            },
-          );
+        data: widget.csvData,
+        onProgress: (progress) {
+          if (mounted) {
+            setState(() {
+              _currentProgress = progress;
+            });
+          }
+        },
+      );
 
       if (mounted) {
         setState(() {
@@ -364,8 +364,8 @@ class _AnalysisProgressIndicator extends StatelessWidget {
             Text(
               progress.details!,
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Theme.of(context).textTheme.bodySmall?.color,
-              ),
+                    color: Theme.of(context).textTheme.bodySmall?.color,
+                  ),
               textAlign: TextAlign.center,
             ),
           const SizedBox(height: 24),

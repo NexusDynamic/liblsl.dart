@@ -91,14 +91,12 @@ class LSLTransportConfigFactory implements IConfigFactory<LSLTransportConfig> {
   @override
   LSLTransportConfig fromMap(Map<String, dynamic> map) {
     return LSLTransportConfig(
-      lslApiConfig:
-          map.containsKey('lslApiConfig')
-              ? LSLApiConfig.fromString(map['lslApiConfig'] as String)
-              : null,
-      coordinationFrequency:
-          map.containsKey('coordinationFrequency')
-              ? (map['coordinationFrequency'] as num).toDouble()
-              : 100.0,
+      lslApiConfig: map.containsKey('lslApiConfig')
+          ? LSLApiConfig.fromString(map['lslApiConfig'] as String)
+          : null,
+      coordinationFrequency: map.containsKey('coordinationFrequency')
+          ? (map['coordinationFrequency'] as num).toDouble()
+          : 100.0,
     );
   }
 }
@@ -193,8 +191,8 @@ class LSLTransport<T extends LSLTransportConfig> extends LSLResource
   /// Creates a new [LSLTransport] with the given [config].
   /// If no configuration is provided, a default configuration is used.
   LSLTransport({T? config})
-    : config = config ?? LSLTransportConfigFactory().defaultConfig() as T,
-      super(id: 'lsl_transport') {
+      : config = config ?? LSLTransportConfigFactory().defaultConfig() as T,
+        super(id: 'lsl_transport') {
     this.config.validate(throwOnError: true);
   }
 

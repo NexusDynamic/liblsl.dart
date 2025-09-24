@@ -210,18 +210,16 @@ class HierarchicalTopologyConfigFactory
       autoPromotion: map['autoPromotion'] ?? true,
       promotionStrategy:
           map['promotionStrategy'] ?? const PromotionStrategyFirst(),
-      defaultNodeConfig:
-          map['defaultNodeConfig'] != null
-              ? NodeConfigFactory().fromMap(
-                map['defaultNodeConfig'] as Map<String, dynamic>,
-              )
-              : null,
-      defaultCoordinatorConfig:
-          map['defaultCoordinatorConfig'] != null
-              ? NodeConfigFactory().fromMap(
-                map['defaultCoordinatorConfig'] as Map<String, dynamic>,
-              )
-              : null,
+      defaultNodeConfig: map['defaultNodeConfig'] != null
+          ? NodeConfigFactory().fromMap(
+              map['defaultNodeConfig'] as Map<String, dynamic>,
+            )
+          : null,
+      defaultCoordinatorConfig: map['defaultCoordinatorConfig'] != null
+          ? NodeConfigFactory().fromMap(
+              map['defaultCoordinatorConfig'] as Map<String, dynamic>,
+            )
+          : null,
     );
   }
 }

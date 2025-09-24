@@ -358,9 +358,8 @@ class LSLStreamInfo extends LSLObj {
     if (created) {
       throw LSLException('StreamInfo already created');
     }
-    final streamNamePtr = streamName
-        .toNativeUtf8(allocator: allocate)
-        .cast<Char>();
+    final streamNamePtr =
+        streamName.toNativeUtf8(allocator: allocate).cast<Char>();
     final sourceIdPtr = sourceId.toNativeUtf8(allocator: allocate).cast<Char>();
     final streamTypePtr = streamType.charPtr;
 
@@ -481,9 +480,8 @@ class LSLStreamInfo extends LSLObj {
   }
 
   LSLStreamInfoWithMetadata fromXml(String xml) {
-    final Pointer<Char> xmlPtr = xml
-        .toNativeUtf8(allocator: allocate)
-        .cast<Char>();
+    final Pointer<Char> xmlPtr =
+        xml.toNativeUtf8(allocator: allocate).cast<Char>();
     final lsl_streaminfo streamInfo = lsl_streaminfo_from_xml(xmlPtr);
     if (streamInfo.isNullPointer) {
       throw LSLException('Failed to create stream info from XML');

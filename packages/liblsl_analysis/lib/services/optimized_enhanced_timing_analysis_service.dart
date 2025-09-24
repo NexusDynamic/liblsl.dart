@@ -115,10 +115,8 @@ class OptimizedEnhancedTimingAnalysisService {
       final sentIndices = data['event_type'].getIndicesWhere(
         (val) => val == eventTypeSampleSent,
       );
-      final sentBySourceIndices = sourceIndices
-          .toSet()
-          .intersection(sentIndices.toSet())
-          .toList();
+      final sentBySourceIndices =
+          sourceIndices.toSet().intersection(sentIndices.toSet()).toList();
       if (sentBySourceIndices.isEmpty) continue;
 
       // Extract sent data efficiently
@@ -129,10 +127,8 @@ class OptimizedEnhancedTimingAnalysisService {
       final receivedIndices = data['event_type'].getIndicesWhere(
         (val) => val == eventTypeSampleReceived,
       );
-      final receivedBySourceIndices = sourceIndices
-          .toSet()
-          .intersection(receivedIndices.toSet())
-          .toList();
+      final receivedBySourceIndices =
+          sourceIndices.toSet().intersection(receivedIndices.toSet()).toList();
       if (receivedBySourceIndices.isEmpty) continue;
 
       // Extract received data efficiently
@@ -299,7 +295,7 @@ class OptimizedEnhancedTimingAnalysisService {
 
     final variance =
         values.map((x) => pow(x - mean, 2)).reduce((a, b) => a + b) /
-        values.length;
+            values.length;
     final standardDeviation = sqrt(variance);
 
     return {

@@ -75,10 +75,8 @@ class EfficientTimingAnalysisService {
       );
 
       // Find intersection of device samples that were sent
-      final sentByDeviceIndices = deviceIndices
-          .toSet()
-          .intersection(sentIndices.toSet())
-          .toList();
+      final sentByDeviceIndices =
+          deviceIndices.toSet().intersection(sentIndices.toSet()).toList();
       if (sentByDeviceIndices.length < 2) {
         continue; // Need at least 2 samples for intervals
       }
@@ -91,8 +89,7 @@ class EfficientTimingAnalysisService {
 
       final intervals = <double>[];
       for (int i = 1; i < timestamps.data.length; i++) {
-        final interval =
-            ((timestamps.data[i] as double) -
+        final interval = ((timestamps.data[i] as double) -
                 (timestamps.data[i - 1] as double)) *
             1000;
         intervals.add(interval);
@@ -124,10 +121,8 @@ class EfficientTimingAnalysisService {
       final sentIndices = data['event_type'].getIndicesWhere(
         (val) => val == eventTypeSampleSent,
       );
-      final sentBySourceIndices = sourceIndices
-          .toSet()
-          .intersection(sentIndices.toSet())
-          .toList();
+      final sentBySourceIndices =
+          sourceIndices.toSet().intersection(sentIndices.toSet()).toList();
 
       if (sentBySourceIndices.isEmpty) continue;
 
@@ -145,9 +140,8 @@ class EfficientTimingAnalysisService {
         if (receivingDeviceId == null || receivingDeviceId.isEmpty) continue;
 
         // Get the actual sender device for this source
-        final senderDevice = sentDevices.data.isNotEmpty
-            ? sentDevices.data.first as String
-            : '';
+        final senderDevice =
+            sentDevices.data.isNotEmpty ? sentDevices.data.first as String : '';
         if (senderDevice.isEmpty) continue;
 
         // Get received samples for this source by this device
@@ -181,11 +175,9 @@ class EfficientTimingAnalysisService {
           final sentTime = sentTimestamps.data[sentIdx] as double;
 
           // Find matching received sample
-          for (
-            int recIdx = 0;
-            recIdx < receivedCounters.data.length;
-            recIdx++
-          ) {
+          for (int recIdx = 0;
+              recIdx < receivedCounters.data.length;
+              recIdx++) {
             final receivedCounter = receivedCounters.data[recIdx] as int;
             if (receivedCounter == sentCounter) {
               final receivedTime = receivedTimestamps.data[recIdx] as double;
@@ -285,7 +277,7 @@ class EfficientTimingAnalysisService {
 
     final variance =
         values.map((x) => pow(x - mean, 2)).reduce((a, b) => a + b) /
-        values.length;
+            values.length;
     final standardDeviation = sqrt(variance);
 
     return {

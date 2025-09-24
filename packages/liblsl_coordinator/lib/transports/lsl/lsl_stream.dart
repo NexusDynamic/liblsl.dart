@@ -522,11 +522,9 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
           final parsedSource = LSLStreamInfoHelper.parseSourceId(info.sourceId);
           return parsedSource[LSLStreamInfoHelper.nodeUIdKey] == node.uId;
         },
-        orElse:
-            () =>
-                throw StateError(
-                  'No matching stream info found for node ${node.id} (${node.uId})',
-                ),
+        orElse: () => throw StateError(
+          'No matching stream info found for node ${node.id} (${node.uId})',
+        ),
       );
       await addInlet(matchingInfo);
       logger.finest('Created resolved inlet for node ${node.id} (${node.uId})');
@@ -921,8 +919,8 @@ class LSLDataStream extends DataStream<DataStreamConfig, IMessage>
     required Node streamNode,
     required this.streamSessionConfig,
     required this.lslTransport,
-  }) : _streamNode = streamNode,
-       super(config);
+  })  : _streamNode = streamNode,
+        super(config);
 
   @override
   String get name => 'LSL Data Stream ${config.name}';
@@ -1019,10 +1017,10 @@ class LSLDataStream extends DataStream<DataStreamConfig, IMessage>
       case StreamDataType.double64:
         if (data.data.every((v) => v is num)) {
           return MessageFactory.double64Message(
-              data: data.data.map((v) => (v as num).toDouble()).toList(),
-              channels: config.channels,
-              timestamp: data.timestamp,
-            )
+            data: data.data.map((v) => (v as num).toDouble()).toList(),
+            channels: config.channels,
+            timestamp: data.timestamp,
+          )
             ..setMetadata('lsl_timestamp', data.lslTimestamp)
             ..setMetadata('lsl_time_correction', data.lslTimeCorrection)
             ..setMetadata('received_at', DateTime.now());
@@ -1031,10 +1029,10 @@ class LSLDataStream extends DataStream<DataStreamConfig, IMessage>
       case StreamDataType.int8:
         if (data.data.every((v) => v is int)) {
           return MessageFactory.int8Message(
-              data: data.data.cast<int>(),
-              channels: config.channels,
-              timestamp: data.timestamp,
-            )
+            data: data.data.cast<int>(),
+            channels: config.channels,
+            timestamp: data.timestamp,
+          )
             ..setMetadata('lsl_timestamp', data.lslTimestamp)
             ..setMetadata('lsl_time_correction', data.lslTimeCorrection)
             ..setMetadata('received_at', DateTime.now());
@@ -1043,10 +1041,10 @@ class LSLDataStream extends DataStream<DataStreamConfig, IMessage>
       case StreamDataType.int16:
         if (data.data.every((v) => v is int)) {
           return MessageFactory.int16Message(
-              data: data.data.cast<int>(),
-              channels: config.channels,
-              timestamp: data.timestamp,
-            )
+            data: data.data.cast<int>(),
+            channels: config.channels,
+            timestamp: data.timestamp,
+          )
             ..setMetadata('lsl_timestamp', data.lslTimestamp)
             ..setMetadata('lsl_time_correction', data.lslTimeCorrection)
             ..setMetadata('received_at', DateTime.now());
@@ -1055,10 +1053,10 @@ class LSLDataStream extends DataStream<DataStreamConfig, IMessage>
       case StreamDataType.int32:
         if (data.data.every((v) => v is int)) {
           return MessageFactory.int32Message(
-              data: data.data.cast<int>(),
-              channels: config.channels,
-              timestamp: data.timestamp,
-            )
+            data: data.data.cast<int>(),
+            channels: config.channels,
+            timestamp: data.timestamp,
+          )
             ..setMetadata('lsl_timestamp', data.lslTimestamp)
             ..setMetadata('lsl_time_correction', data.lslTimeCorrection)
             ..setMetadata('received_at', DateTime.now());
@@ -1067,10 +1065,10 @@ class LSLDataStream extends DataStream<DataStreamConfig, IMessage>
       case StreamDataType.int64:
         if (data.data.every((v) => v is int)) {
           return MessageFactory.int64Message(
-              data: data.data.cast<int>(),
-              channels: config.channels,
-              timestamp: data.timestamp,
-            )
+            data: data.data.cast<int>(),
+            channels: config.channels,
+            timestamp: data.timestamp,
+          )
             ..setMetadata('lsl_timestamp', data.lslTimestamp)
             ..setMetadata('lsl_time_correction', data.lslTimeCorrection)
             ..setMetadata('received_at', DateTime.now());
@@ -1079,10 +1077,10 @@ class LSLDataStream extends DataStream<DataStreamConfig, IMessage>
       case StreamDataType.string:
         if (data.data.every((v) => v is String)) {
           return MessageFactory.stringMessage(
-              data: data.data.cast<String>(),
-              channels: config.channels,
-              timestamp: data.timestamp,
-            )
+            data: data.data.cast<String>(),
+            channels: config.channels,
+            timestamp: data.timestamp,
+          )
             ..setMetadata('lsl_timestamp', data.lslTimestamp)
             ..setMetadata('lsl_time_correction', data.lslTimeCorrection)
             ..setMetadata('received_at', DateTime.now());
@@ -1202,8 +1200,8 @@ class LSLCoordinationStream
     required Node streamNode,
     required this.streamSessionConfig,
     required this.lslTransport,
-  }) : _streamNode = streamNode,
-       super(config);
+  })  : _streamNode = streamNode,
+        super(config);
 
   @override
   String get description => 'Coordination stream for ${config.name}';
@@ -1212,10 +1210,10 @@ class LSLCoordinationStream
   StringMessage? _createMessageFromIsolateData(IsolateDataMessage data) {
     if (data.data.isNotEmpty && data.data[0] is String) {
       return MessageFactory.stringMessage(
-          data: [data.data[0] as String],
-          timestamp: data.timestamp,
-          channels: 1,
-        )
+        data: [data.data[0] as String],
+        timestamp: data.timestamp,
+        channels: 1,
+      )
         ..setMetadata('lsl_timestamp', data.lslTimestamp)
         ..setMetadata('lsl_time_correction', data.lslTimeCorrection)
         ..setMetadata('received_at', DateTime.now());

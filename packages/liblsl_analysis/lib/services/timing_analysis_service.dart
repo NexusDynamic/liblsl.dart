@@ -158,7 +158,7 @@ class TimingAnalysisService {
       for (int i = 1; i < deviceEvents.length; i++) {
         final interval =
             (deviceEvents[i].lslClock - deviceEvents[i - 1].lslClock) *
-            1000; // Convert to ms
+                1000; // Convert to ms
         intervals.add(interval);
       }
 
@@ -315,7 +315,7 @@ class TimingAnalysisService {
 
     final variance =
         values.map((x) => pow(x - mean, 2)).reduce((a, b) => a + b) /
-        values.length;
+            values.length;
     final standardDeviation = sqrt(variance);
 
     return {

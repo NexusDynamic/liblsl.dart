@@ -48,7 +48,7 @@ Pointer<Void> _freeImpl(Pointer<Void> ptr) {
 ///
 /// This corresponds to `void(*)(void*)` arguments found in sqlite.
 final Pointer<NativeFunction<Pointer<Void> Function(Pointer<Void>)>>
-freeFunctionPtr = Pointer.fromFunction(_freeImpl);
+    freeFunctionPtr = Pointer.fromFunction(_freeImpl);
 
 extension FreePointerExtension on Pointer {
   void free() => allocate.free(this);

@@ -46,9 +46,7 @@ class SynchronizationTest extends BaseTest {
       await _outletManager!.prepareOutletProducer(
         _syncStreamInfo!,
         2,
-
         '$_srcPrefix${config.deviceId}_',
-
         onSampleSent: (List<IsolateSampleMessage> samples) async {
           // Record the send time
           for (final sample in samples) {

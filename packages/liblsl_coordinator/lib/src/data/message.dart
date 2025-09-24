@@ -233,9 +233,9 @@ class Message<D, M extends MessageTypeMapping<D>, T extends MessageType<D, M>>
     required this.data,
     required M mapping,
     DateTime? timestamp,
-  }) : _mapping = mapping,
-       uId = uId ??= generateUid(),
-       timestamp = timestamp ?? DateTime.now() {
+  })  : _mapping = mapping,
+        uId = uId ??= generateUid(),
+        timestamp = timestamp ?? DateTime.now() {
     if (data.length != mapping.channels) {
       validate();
     }
@@ -278,31 +278,31 @@ class Message<D, M extends MessageTypeMapping<D>, T extends MessageType<D, M>>
 
 // Convienince type aliases for common message types
 /// String [Message] type alias, with [StringMapping] and String [MessageType].
-typedef StringMessage =
-    Message<String, StringMapping, MessageType<String, StringMapping>>;
+typedef StringMessage
+    = Message<String, StringMapping, MessageType<String, StringMapping>>;
 
 /// Int8 [Message] type alias with [Int8Mapping] and Int [MessageType].
 typedef Int8Message = Message<int, Int8Mapping, MessageType<int, Int8Mapping>>;
 
 /// Int16 [Message] type alias with [Int16Mapping] and Int [MessageType].
-typedef Int16Message =
-    Message<int, Int16Mapping, MessageType<int, Int16Mapping>>;
+typedef Int16Message
+    = Message<int, Int16Mapping, MessageType<int, Int16Mapping>>;
 
 /// Int32 [Message] type alias with [Int32Mapping] and Int [MessageType].
-typedef Int32Message =
-    Message<int, Int32Mapping, MessageType<int, Int32Mapping>>;
+typedef Int32Message
+    = Message<int, Int32Mapping, MessageType<int, Int32Mapping>>;
 
 /// Int64 [Message] type alias with [Int64Mapping] and Int [MessageType].
-typedef Int64Message =
-    Message<int, Int64Mapping, MessageType<int, Int64Mapping>>;
+typedef Int64Message
+    = Message<int, Int64Mapping, MessageType<int, Int64Mapping>>;
 
 /// Float32 [Message] type alias with [Float32Mapping] and Double [MessageType].
-typedef Float32Message =
-    Message<double, Float32Mapping, MessageType<double, Float32Mapping>>;
+typedef Float32Message
+    = Message<double, Float32Mapping, MessageType<double, Float32Mapping>>;
 
 /// Double64 [Message] type alias with [Double64Mapping] and Double [MessageType].
-typedef Double64Message =
-    Message<double, Double64Mapping, MessageType<double, Double64Mapping>>;
+typedef Double64Message
+    = Message<double, Double64Mapping, MessageType<double, Double64Mapping>>;
 
 // @TODO: Implement validators if it ends up being useful.
 // extension IntValidator<M extends MessageTypeMapping<int>>

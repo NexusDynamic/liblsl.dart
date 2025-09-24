@@ -29,7 +29,7 @@ class LSLResource with InstanceUID implements IResource {
 
   /// Creates a new LSL resource with the given ID and optional manager.
   LSLResource({required this.id, IResourceManager? manager})
-    : _manager = manager;
+      : _manager = manager;
 
   @override
   @mustCallSuper

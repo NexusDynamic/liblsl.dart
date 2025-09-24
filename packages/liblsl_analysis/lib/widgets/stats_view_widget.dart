@@ -51,9 +51,8 @@ class StatsViewWidget extends StatelessWidget {
       // intersect the two indices to get the samples sent by this device
       final pickIndices = [myDeviceIndices.data, sampleSentIndices.data]
           .fold<Set>(myDeviceIndices.data.toSet(), (a, b) {
-            return a.intersection(b.toSet());
-          })
-          .toList();
+        return a.intersection(b.toSet());
+      }).toList();
       final timestampColumn = csvData['lsl_clock'].indices(pickIndices);
       final sentCounter = csvData['counter'].indices(pickIndices);
 
@@ -64,8 +63,7 @@ class StatsViewWidget extends StatelessWidget {
         //     (double.parse(timestampColumn[i]) -
         //         double.parse(timestampColumn[i - 1])) *
         //     1000;
-        final interval =
-            ((timestampColumn[i] as double) -
+        final interval = ((timestampColumn[i] as double) -
                 (timestampColumn[i - 1] as double)) *
             1000;
         interSampleInterval.add(interval);
@@ -86,13 +84,12 @@ class StatsViewWidget extends StatelessWidget {
         interSampleInterval.removeWhere((element) => element.isNaN);
       }
       // calculate the stats
-      final mean =
-          interSampleInterval.reduce((a, b) => a + b) /
+      final mean = interSampleInterval.reduce((a, b) => a + b) /
           interSampleInterval.length;
       final median = interSampleInterval.length % 2 == 0
           ? (interSampleInterval[interSampleInterval.length ~/ 2 - 1] +
-                    interSampleInterval[interSampleInterval.length ~/ 2]) /
-                2
+                  interSampleInterval[interSampleInterval.length ~/ 2]) /
+              2
           : interSampleInterval[interSampleInterval.length ~/ 2];
       final intervalMin = interSampleInterval.reduce(min);
       final intervalMax = interSampleInterval.reduce(max);
@@ -156,8 +153,7 @@ class StatsViewWidget extends StatelessWidget {
           if (reportingDeviceId.data[i] != myDeviceId) {
             continue;
           }
-          final cIndex =
-              recievedCounter.data[i] -
+          final cIndex = recievedCounter.data[i] -
               1; // -1 because we are using 0 based index
           if (cIndex >= latency.length) {
             if (kDebugMode) {
@@ -215,8 +211,8 @@ class StatsViewWidget extends StatelessWidget {
         final latencyMean = latency.reduce((a, b) => a + b) / latency.length;
         final latencyMedian = latency.length % 2 == 0
             ? (latency[latency.length ~/ 2 - 1] +
-                      latency[latency.length ~/ 2]) /
-                  2
+                    latency[latency.length ~/ 2]) /
+                2
             : latency[latency.length ~/ 2];
         final latencyMin = latency.reduce(min);
         final latencyMax = latency.reduce(max);
@@ -229,8 +225,8 @@ class StatsViewWidget extends StatelessWidget {
         for (final interval in latency) {
           latencyHistogram[double.parse(interval.toStringAsFixed(1))] =
               (latencyHistogram[double.parse(interval.toStringAsFixed(1))] ??
-                  0) +
-              1; // floor it to get the
+                      0) +
+                  1; // floor it to get the
           // histogram
         }
         // sort the histogram by key

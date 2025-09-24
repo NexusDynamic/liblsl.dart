@@ -42,16 +42,13 @@ class _LSLTestPageState extends State<LSLTestPage> {
     super.initState();
     _startButtonController.update(WidgetState.disabled, true);
     // get multicast lock
-    multicastLock
-        .acquireMulticastLock()
-        .then((_) {
-          // ignore: avoid_print
-          print('acquireMulticastLock: success');
-        })
-        .catchError((e) {
-          // ignore: avoid_print
-          print('acquireMulticastLock: error: $e');
-        });
+    multicastLock.acquireMulticastLock().then((_) {
+      // ignore: avoid_print
+      print('acquireMulticastLock: success');
+    }).catchError((e) {
+      // ignore: avoid_print
+      print('acquireMulticastLock: error: $e');
+    });
 
     _setupLSL();
   }
@@ -78,7 +75,6 @@ class _LSLTestPageState extends State<LSLTestPage> {
             }
           },
         ),
-
         ElevatedButton(
           key: const Key('start_streaming'),
           statesController: _startButtonController,
@@ -88,7 +84,6 @@ class _LSLTestPageState extends State<LSLTestPage> {
           },
           child: const Text('Start Stream (5Hz, 5 seconds)'),
         ),
-
         ValueListenableBuilder<double>(
           valueListenable: _elapsedTime,
           builder: (context, sample, _) {

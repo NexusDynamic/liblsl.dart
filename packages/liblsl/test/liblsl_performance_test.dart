@@ -308,8 +308,7 @@ class LSLPerformanceTester {
               // Calculate latency using first channel timestamp
               final sentTimestamp = sample.data[0];
               final receivedTimestamp = LSL.localClock();
-              final latency =
-                  (receivedTimestamp - sentTimestamp) *
+              final latency = (receivedTimestamp - sentTimestamp) *
                   1_000; // Convert to milliseconds
 
               statistics.addLatency(latency);
@@ -425,7 +424,7 @@ class TestStatistics {
   bool get isFull => index >= expectedSamples;
 
   TestStatistics(this.expectedSamples)
-    : _latencies = List<double>.filled(expectedSamples, 0.0, growable: false);
+      : _latencies = List<double>.filled(expectedSamples, 0.0, growable: false);
 
   void addLatency(double latency) {
     if (isFull) {

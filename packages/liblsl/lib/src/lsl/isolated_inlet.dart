@@ -55,6 +55,7 @@ class LSLInletIsolate extends LSLIsolateWorkerBase {
   }
 
   @override
+
   /// Handles incoming messages from the main isolate.
   /// This method processes the message based on its type and returns the result.
   /// If the message type is not supported, it throws an [LSLException].
@@ -70,6 +71,7 @@ class LSLInletIsolate extends LSLIsolateWorkerBase {
   }
 
   @protected
+
   /// Not yet implemented.
   external Future<dynamic> pullChunk(Map<String, dynamic> data);
 
@@ -178,6 +180,7 @@ class LSLInletIsolate extends LSLIsolateWorkerBase {
   }
 
   @Todo('zeyus', 'handle timeout code')
+
   /// Time correction
   Future<double> _timeCorrection(Map<String, dynamic> data) async {
     final timeout = data['timeout'] as double;

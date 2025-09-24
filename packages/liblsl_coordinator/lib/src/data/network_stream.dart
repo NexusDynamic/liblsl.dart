@@ -185,13 +185,13 @@ class DataStreamConfig extends NetworkStreamConfig {
 
   @override
   int get hashCode => Object.hash(
-    name,
-    channels,
-    sampleRate,
-    dataType,
-    participationMode,
-    transportConfig,
-  );
+        name,
+        channels,
+        sampleRate,
+        dataType,
+        participationMode,
+        transportConfig,
+      );
 }
 
 class DataStreamConfigFactory implements IConfigFactory<DataStreamConfig> {
@@ -204,11 +204,11 @@ class DataStreamConfigFactory implements IConfigFactory<DataStreamConfig> {
   /// - dataType: StreamDataType.float32
   @override
   DataStreamConfig defaultConfig() => DataStreamConfig(
-    name: 'Default Data Stream',
-    channels: 8,
-    sampleRate: 256.0,
-    dataType: StreamDataType.float32,
-  );
+        name: 'Default Data Stream',
+        channels: 8,
+        sampleRate: 256.0,
+        dataType: StreamDataType.float32,
+      );
 
   /// Creates a data stream configuration from a map.
   @override
@@ -223,8 +223,8 @@ class DataStreamConfigFactory implements IConfigFactory<DataStreamConfig> {
       ),
       participationMode: StreamParticipationMode.values.firstWhere(
         (e) => e.toString() == map['participationMode'],
-        orElse:
-            () => StreamParticipationMode.sendParticipantsReceiveCoordinator,
+        orElse: () =>
+            StreamParticipationMode.sendParticipantsReceiveCoordinator,
       ),
       transportConfig: null, // Needs proper handling
     );
@@ -255,11 +255,11 @@ class CoordinationStreamConfig extends NetworkStreamConfig {
     required super.name,
     super.sampleRate = 50.0,
     TransportCoordinationStreamConfig? transportConfig,
-  }) : _transportConfig = transportConfig,
-       super(
-         channels: 1, // Default to 1 channel for coordination streams
-         dataType: StreamDataType.string, // Default data type
-       );
+  })  : _transportConfig = transportConfig,
+        super(
+          channels: 1, // Default to 1 channel for coordination streams
+          dataType: StreamDataType.string, // Default data type
+        );
 
   @override
   Map<String, dynamic> toMap() {
@@ -301,9 +301,9 @@ class CoordinationStreamConfigFactory
   /// - dataType: StreamDataType.string
   @override
   CoordinationStreamConfig defaultConfig() => CoordinationStreamConfig(
-    name: 'Default Coordination Stream',
-    sampleRate: 50.0,
-  );
+        name: 'Default Coordination Stream',
+        sampleRate: 50.0,
+      );
 
   /// Creates a coordination stream configuration from a map.
   @override
@@ -445,11 +445,8 @@ abstract class NetworkStream<T extends NetworkStreamConfig, M extends IMessage>
 }
 
 /// A coordination stream used for network coordination tasks.
-abstract class CoordinationStream<
-  T extends CoordinationStreamConfig,
-  M extends StringMessage
->
-    extends NetworkStream<T, M> {
+abstract class CoordinationStream<T extends CoordinationStreamConfig,
+    M extends StringMessage> extends NetworkStream<T, M> {
   /// Creates a coordination stream with the given [CoordinationStreamConfig].
   CoordinationStream(super.config);
 

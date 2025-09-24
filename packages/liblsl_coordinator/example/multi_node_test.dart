@@ -17,10 +17,9 @@ Future<void> main(List<String> args) async {
   final nodeCount = args.isNotEmpty ? int.tryParse(args[0]) ?? 3 : 3;
 
   /// Maxnodes includes the coordinator
-  final maxNodes =
-      args.length > 1
-          ? int.tryParse(args[1]) ?? 2
-          : 3; // Set low to test rejection
+  final maxNodes = args.length > 1
+      ? int.tryParse(args[1]) ?? 2
+      : 3; // Set low to test rejection
   final testDuration =
       args.length > 2 ? int.tryParse(args[2]) ?? 10 : 10; // seconds
 
@@ -105,7 +104,6 @@ Future<void> _runNode({
         name: 'coordination',
         sampleRate: 50.0,
       ),
-
       transportConfig: LSLTransportConfig(
         // This LSL API config specifically restricts to IPv4 and local machine
         // these wont go over the network

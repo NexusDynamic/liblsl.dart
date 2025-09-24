@@ -58,12 +58,11 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
   LSLTransport get transport => _transport;
 
   LSLCoordinationSession(super.config, {super.thisNodeConfig}) {
-    _transport =
-        (coordinationConfig.transportConfig is LSLTransportConfig)
-            ? LSLTransport(
-              config: coordinationConfig.transportConfig as LSLTransportConfig,
-            )
-            : LSLTransport();
+    _transport = (coordinationConfig.transportConfig is LSLTransportConfig)
+        ? LSLTransport(
+            config: coordinationConfig.transportConfig as LSLTransportConfig,
+          )
+        : LSLTransport();
 
     // Add metadata to node
     thisNode.setMetadata('sessionId', config.name);

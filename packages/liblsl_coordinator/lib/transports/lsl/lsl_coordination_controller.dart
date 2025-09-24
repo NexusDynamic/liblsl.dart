@@ -149,10 +149,9 @@ class CoordinationController {
     final isRandomStrategy = strategy is PromotionStrategyRandom;
 
     // Build election predicate
-    final myRandomRoll =
-        isRandomStrategy
-            ? double.parse(thisNode.metadata['randomRoll'] ?? '1.0')
-            : null;
+    final myRandomRoll = isRandomStrategy
+        ? double.parse(thisNode.metadata['randomRoll'] ?? '1.0')
+        : null;
     final myStartTime =
         !isRandomStrategy ? thisNode.metadata['nodeStartedAt'] : null;
 
@@ -170,8 +169,7 @@ class CoordinationController {
     try {
       final streamInfos = await LslDiscovery.discoverOnceByPredicate(
         electionPredicate,
-        timeout:
-            coordinationConfig.sessionConfig.discoveryInterval *
+        timeout: coordinationConfig.sessionConfig.discoveryInterval *
             2, // Shorter timeout
         minStreams: 1,
         maxStreams: 1,
@@ -311,10 +309,9 @@ class CoordinationController {
     // Listen to coordination messages
     _coordinationSubscription = _coordinationStream.inbox.listen(
       (message) async => await _handleIncomingMessage(message),
-      onError:
-          (error) => logger.severe(
-            '[CONTROLLER-${thisNode.uId}] Error in coordination message stream: $error',
-          ),
+      onError: (error) => logger.severe(
+        '[CONTROLLER-${thisNode.uId}] Error in coordination message stream: $error',
+      ),
     );
 
     // Listen to outgoing messages from handler
@@ -338,10 +335,9 @@ class CoordinationController {
     // Listen to coordination messages
     _coordinationSubscription = _coordinationStream.inbox.listen(
       (message) async => await _handleIncomingMessage(message),
-      onError:
-          (error) => logger.severe(
-            '[CONTROLLER-${thisNode.uId}] Error in coordination message stream: $error',
-          ),
+      onError: (error) => logger.severe(
+        '[CONTROLLER-${thisNode.uId}] Error in coordination message stream: $error',
+      ),
     );
 
     // Listen to outgoing messages from handler

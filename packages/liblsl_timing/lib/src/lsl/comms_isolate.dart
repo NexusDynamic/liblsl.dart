@@ -49,8 +49,8 @@ class IsolateSampleMessage {
     this.sampleId,
     this.sourceId, {
     this.lslTimeCorrection,
-  }) : lslNow = LSL.localClock(),
-       dartNow = DateTime.now().microsecondsSinceEpoch;
+  })  : lslNow = LSL.localClock(),
+        dartNow = DateTime.now().microsecondsSinceEpoch;
 }
 
 /// Handle polling of multiple LSL inlets in a separate isolate for precise
@@ -239,8 +239,7 @@ class InletManager {
                 ? inletTimeCorrections[inletIndex]
                 : null,
           );
-          final index =
-              ((sampleCounters[inletIndex] - 1) % inletBufferSize) +
+          final index = ((sampleCounters[inletIndex] - 1) % inletBufferSize) +
               inletIndex * inletBufferSize;
           isolateMessageBuffer[index] = sampleMessage;
           if (index == bufferSize - 1) {
@@ -253,8 +252,7 @@ class InletManager {
     }
 
     // Send remaining messages if any
-    final index =
-        ((sampleCounters[inlets.length - 1] - 1) % inletBufferSize) +
+    final index = ((sampleCounters[inlets.length - 1] - 1) % inletBufferSize) +
         (inlets.length - 1) * inletBufferSize;
     if (index != bufferSize - 1) {
       mainSendPort.send(isolateMessageBuffer.sublist(0, index));

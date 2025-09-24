@@ -42,49 +42,49 @@ class LSLReusableBufferFloat extends LSLReusableBuffer<Float> {
   /// Creates a reusable Float buffer of the given capacity.
   /// see [LSLReusableBuffer]
   LSLReusableBufferFloat(int capacity)
-    : super(capacity, allocate<Float>(capacity));
+      : super(capacity, allocate<Float>(capacity));
 }
 
 class LSLReusableBufferDouble extends LSLReusableBuffer<Double> {
   /// Creates a reusable Double buffer of the given capacity.
   /// see [LSLReusableBuffer]
   LSLReusableBufferDouble(int capacity)
-    : super(capacity, allocate<Double>(capacity));
+      : super(capacity, allocate<Double>(capacity));
 }
 
 class LSLReusableBufferInt8 extends LSLReusableBuffer<Char> {
   /// Creates a reusable Int8 buffer of the given capacity.
   /// see [LSLReusableBuffer]
   LSLReusableBufferInt8(int capacity)
-    : super(capacity, allocate<Char>(capacity));
+      : super(capacity, allocate<Char>(capacity));
 }
 
 class LSLReusableBufferInt16 extends LSLReusableBuffer<Int16> {
   /// Creates a reusable Int16 buffer of the given capacity.
   /// see [LSLReusableBuffer]
   LSLReusableBufferInt16(int capacity)
-    : super(capacity, allocate<Int16>(capacity));
+      : super(capacity, allocate<Int16>(capacity));
 }
 
 class LSLReusableBufferInt32 extends LSLReusableBuffer<Int32> {
   /// Creates a reusable Int32 buffer of the given capacity.
   /// see [LSLReusableBuffer]
   LSLReusableBufferInt32(int capacity)
-    : super(capacity, allocate<Int32>(capacity));
+      : super(capacity, allocate<Int32>(capacity));
 }
 
 class LSLReusableBufferInt64 extends LSLReusableBuffer<Int64> {
   /// Creates a reusable Int64 buffer of the given capacity.
   /// see [LSLReusableBuffer]
   LSLReusableBufferInt64(int capacity)
-    : super(capacity, allocate<Int64>(capacity));
+      : super(capacity, allocate<Int64>(capacity));
 }
 
 class LSLReusableBufferString extends LSLReusableBuffer<Pointer<Char>> {
   /// Creates a reusable String buffer of the given capacity.
   /// see [LSLReusableBuffer]
   LSLReusableBufferString(int capacity)
-    : super(capacity, allocate<Pointer<Char>>(capacity));
+      : super(capacity, allocate<Pointer<Char>>(capacity));
 }
 
 class LSLReusableBufferVoid extends LSLReusableBuffer<Void> {

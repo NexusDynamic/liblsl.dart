@@ -73,9 +73,9 @@ sealed class Event
     this.eventType = EventType.user,
     required this.description,
     String? uId,
-  }) : timestamp = timestamp ?? DateTime.now(),
-       name = name ?? 'event-$id',
-       _metadata = metadata ?? {} {
+  })  : timestamp = timestamp ?? DateTime.now(),
+        name = name ?? 'event-$id',
+        _metadata = metadata ?? {} {
     shadowUId = uId;
   }
 
@@ -134,9 +134,9 @@ class CoordinationEvent extends Event {
     super.metadata,
     super.uId,
   }) : super(
-         name: name ?? 'coordination-event-$id',
-         eventType: EventType.coordination,
-       );
+          name: name ?? 'coordination-event-$id',
+          eventType: EventType.coordination,
+        );
 }
 
 /// User-defined events.
@@ -165,14 +165,12 @@ class EventFactory {
           id: map['id'],
           name: map['name'],
           description: map['description'] ?? '',
-          timestamp:
-              map['timestamp'] != null
-                  ? DateTime.parse(map['timestamp'])
-                  : null,
-          metadata:
-              map['metadata'] != null
-                  ? Map<String, dynamic>.from(map['metadata'])
-                  : null,
+          timestamp: map['timestamp'] != null
+              ? DateTime.parse(map['timestamp'])
+              : null,
+          metadata: map['metadata'] != null
+              ? Map<String, dynamic>.from(map['metadata'])
+              : null,
           uId: map['uId'],
         );
       case EventType.data:
@@ -180,14 +178,12 @@ class EventFactory {
           id: map['id'],
           name: map['name'],
           description: map['description'] ?? '',
-          timestamp:
-              map['timestamp'] != null
-                  ? DateTime.parse(map['timestamp'])
-                  : null,
-          metadata:
-              map['metadata'] != null
-                  ? Map<String, dynamic>.from(map['metadata'])
-                  : null,
+          timestamp: map['timestamp'] != null
+              ? DateTime.parse(map['timestamp'])
+              : null,
+          metadata: map['metadata'] != null
+              ? Map<String, dynamic>.from(map['metadata'])
+              : null,
           uId: map['uId'],
         );
       case EventType.coordination:
@@ -195,14 +191,12 @@ class EventFactory {
           id: map['id'],
           name: map['name'],
           description: map['description'] ?? '',
-          timestamp:
-              map['timestamp'] != null
-                  ? DateTime.parse(map['timestamp'])
-                  : null,
-          metadata:
-              map['metadata'] != null
-                  ? Map<String, dynamic>.from(map['metadata'])
-                  : null,
+          timestamp: map['timestamp'] != null
+              ? DateTime.parse(map['timestamp'])
+              : null,
+          metadata: map['metadata'] != null
+              ? Map<String, dynamic>.from(map['metadata'])
+              : null,
           uId: map['uId'],
         );
       case EventType.user:
@@ -210,14 +204,12 @@ class EventFactory {
           id: map['id'],
           name: map['name'],
           description: map['description'] ?? '',
-          timestamp:
-              map['timestamp'] != null
-                  ? DateTime.parse(map['timestamp'])
-                  : null,
-          metadata:
-              map['metadata'] != null
-                  ? Map<String, dynamic>.from(map['metadata'])
-                  : null,
+          timestamp: map['timestamp'] != null
+              ? DateTime.parse(map['timestamp'])
+              : null,
+          metadata: map['metadata'] != null
+              ? Map<String, dynamic>.from(map['metadata'])
+              : null,
           uId: map['uId'],
         );
     }
