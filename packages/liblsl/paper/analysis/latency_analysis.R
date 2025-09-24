@@ -212,20 +212,25 @@ calc_summary <- function(data, metric_name) {
     dart_stats
 }
 
-
 # Within-device latency violin plot
 same_device_dart <- same_device_latency %>%
     select(device = reportingDeviceName, dart_latency) %>%
     dplyr::filter(!is.na(dart_latency))
 
 p1 <- ggplot(same_device_dart, aes(x = "iPad 1 | iPad 2", y = dart_latency, fill = device)) +
-    geom_split_violin(alpha = 0.7, draw_quantiles = c(0.25,0.50,0.75)) +
-    labs(title = "Send-Receieve Latency",
+    geom_split_violin(alpha = 0.7, draw_quantiles = c(0.25,0.50,0.75), linewidth=0.2) +
+    labs(title = "A) Send-Receieve Latency",
          x = NULL, y = "Latency (ms)") +
-     theme_prism(base_size = 16) +
-    ylim(0, 2) +
+    theme_prism(base_size = 14) +
+    scale_y_continuous(
+        limits = c(0, 2),
+        breaks = seq(0, 2, by = 0.5),
+        minor_breaks = seq(0, 2, by = 0.1),
+        guide = "prism_offset_minor"
+    ) +
     scale_fill_brewer(type = "qual", palette = "Set1") +
-    theme(legend.position = "none")
+    theme(legend.position = "none",
+          plot.title = element_text(size = 14))
 
 # ISI production violin plot
 production_dart <- production_isi %>%
@@ -234,17 +239,24 @@ production_dart <- production_isi %>%
     dplyr::filter(!is.na(dart_isi))
 
 p2 <- ggplot(production_dart, aes(x = "iPad 1 | iPad 2", y = dart_isi, fill = device)) +
-    geom_split_violin(alpha = 0.7, draw_quantiles = c(0.25,0.50,0.75)) +
-    labs(title = "Sample production ISI",
+    geom_split_violin(alpha = 0.7, draw_quantiles = c(0.25,0.50,0.75), linewidth=0.2) +
+    labs(title = "B) Sample production ISI",
          x = NULL, y = "Inter-Sample Interval (ms)") +
-     theme_prism(base_size = 16) +
-    ylim(0, 2) +
+     theme_prism(base_size = 14) +
+    scale_y_continuous(
+        limits = c(0, 2),
+        breaks = seq(0, 2, by = 0.5),
+        minor_breaks = seq(0, 2, by = 0.1),
+        guide = "prism_offset_minor"
+    ) +
     scale_fill_brewer(type = "qual", palette = "Set1") +
-    theme(legend.position = "none")
+    theme(legend.position = "none",
+          plot.title = element_text(size = 14))
 
 
 
-grid.arrange(p1, p2, nrow = 1, widths = c(1, 1))
+plot.out <- grid.arrange(p1, p2, nrow = 1, widths = c(1, 1))
+ggsave("plot_latency_isi.png", plot.out, width = 7, height = 5, dpi = 300)
 
 
 ipad1_latency_summary <- calc_summary(same_device_dart[same_device_dart$device == "ipad1",], "latency")
@@ -254,31 +266,23 @@ ipad1_isi_summary <- calc_summary(production_dart[production_dart$device == "ipa
 ipad2_isi_summary <- calc_summary(production_dart[production_dart$device == "ipad2",], "isi")
 # micro symbol: µ 
 figcaption <- paste0(
-    "Distribution plots showing latency and inter-sample interval (ISI) for iPad 1 and iPad 2 using Dart timestamps.",
-    " iPad 1 Latency (µs): n =",
-    ipad1_latency_summary$count,
-    " Mean = ",
-    round(ipad1_latency_summary$mean, 0),
-    ", SD = ",
-    round(ipad1_latency_summary$sd, 0),
-    " | iPad 2 Latency (µs): n = ",
-    ipad2_latency_summary$count,
-    ", Mean = ",
-    round(ipad2_latency_summary$mean, 0),
-    "SD =",
-    round(ipad2_latency_summary$sd, 0),
-    "; ",
-    "iPad 1 ISI (ms): n =",
-    ipad1_isi_summary$count,
-    ", Mean =",
-    round(ipad1_isi_summary$mean, 0),
-    "SD =",
-    round(ipad1_isi_summary$sd, 0),
-    "| iPad 2 ISI (ms): n = ",
-    ipad2_isi_summary$count,
-    "Mean =",
-    round(ipad2_isi_summary$mean, 0),
-    "SD =",
-    round(ipad2_isi_summary$sd, 0)
+    "Figure 1. Distribution plots showing latency (Panel A) and inter-sample interval (ISI, Panel B) ",
+    "for two iPads, both producing one, and consuming two (one stream from itself, ",
+    "one stream from the other device) data streams with 16 channels each at a ",
+    "frequency of 1000Hz over a 1Gbps wired ethernet connection. ",
+    "iPad 1 Latency: n = ", ipad1_latency_summary$count,
+    ", Mean = ", round(ipad1_latency_summary$mean, 0),
+    "µs, SD = ", round(ipad1_latency_summary$sd, 0),
+    "µs | iPad 2 Latency: n = ", ipad2_latency_summary$count,
+    ", Mean = ", round(ipad2_latency_summary$mean, 0),
+    "µs, SD = ", round(ipad2_latency_summary$sd, 0),
+    "µs; ",
+    "iPad 1 ISI: n = ", ipad1_isi_summary$count,
+    ", Mean = ", round(ipad1_isi_summary$mean, 0),
+    "µs, SD = ", round(ipad1_isi_summary$sd, 0),
+    "µs | iPad 2 ISI: n = ", ipad2_isi_summary$count,
+    ", Mean = ", round(ipad2_isi_summary$mean, 0),
+    "µs, SD = ", round(ipad2_isi_summary$sd, 0),
+    "µs."
 )
 cat(figcaption)
