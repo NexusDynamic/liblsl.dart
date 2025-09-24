@@ -1,3 +1,3 @@
 [submodule "packages/liblsl/src/liblsl-1.16.2"]
-	path = packages/liblsl/src/liblsl-bea40e2c
+	path = packages/liblsl/src/liblsl-d6c43724
 	url = https://github.com/zeyus/liblsl.git

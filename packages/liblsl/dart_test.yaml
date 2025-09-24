@@ -1,0 +1,3 @@
+concurrency: 1
+tags:
+  performance: {timeout: 10m}

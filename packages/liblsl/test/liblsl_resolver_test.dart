@@ -2,7 +2,7 @@ import 'package:liblsl/lsl.dart';
 import 'package:test/test.dart';
 
 void main() {
-  setUp(() {
+  setUpAll(() {
     // Set up basic API config
     final apiConfig = LSLApiConfig(
       ipv6: IPv6Mode.disable,
@@ -87,6 +87,7 @@ void main() {
         final resolvedStreams = await LSL.resolveStreams(waitTime: 0.5);
         // Should return empty list or existing streams, but not crash
         expect(resolvedStreams, isA<List<LSLStreamInfo>>());
+        resolvedStreams.destroy();
       });
     });
 
@@ -140,9 +141,7 @@ void main() {
         );
         expect(testStream.streamType, equals(LSLContentType.nirs));
 
-        for (final stream in resolvedStreams) {
-          stream.destroy();
-        }
+        resolvedStreams.destroy();
       });
 
       test('should resolve by channel count', () async {
@@ -158,9 +157,7 @@ void main() {
         );
         expect(testStream.channelCount, equals(16));
 
-        for (final stream in resolvedStreams) {
-          stream.destroy();
-        }
+        resolvedStreams.destroy();
       });
 
       test('should resolve by channel format', () async {
@@ -176,9 +173,7 @@ void main() {
         );
         expect(testStream.channelFormat, equals(LSLChannelFormat.float32));
 
-        for (final stream in resolvedStreams) {
-          stream.destroy();
-        }
+        resolvedStreams.destroy();
       });
 
       test('should resolve by source ID', () async {
@@ -210,9 +205,7 @@ void main() {
         );
         expect(testStream.sampleRate, equals(500.0));
 
-        for (final stream in resolvedStreams) {
-          stream.destroy();
-        }
+        resolvedStreams.destroy();
       });
 
       test('should handle non-matching property values', () async {
@@ -223,6 +216,7 @@ void main() {
         );
 
         expect(resolvedStreams.length, equals(0));
+        resolvedStreams.destroy();
       });
     });
 
@@ -443,6 +437,7 @@ void main() {
         );
 
         expect(resolvedStreams.length, equals(0));
+        resolvedStreams.destroy();
       });
     });
 
@@ -579,6 +574,7 @@ void main() {
         // Test very short timeout
         final resolvedStreams = await LSL.resolveStreams(waitTime: 0.001);
         expect(resolvedStreams, isA<List<LSLStreamInfo>>());
+        resolvedStreams.destroy();
       });
 
       test('should handle property resolution with invalid property', () async {
@@ -600,6 +596,7 @@ void main() {
           minStreamCount: 0, // Should work with 0
         );
         expect(resolvedStreams, isA<List<LSLStreamInfo>>());
+        resolvedStreams.destroy();
       });
 
       test('should handle max streams limitation', () async {
@@ -608,6 +605,7 @@ void main() {
           maxStreams: 1, // Limit to 1 stream
         );
         expect(resolvedStreams.length, lessThanOrEqualTo(1));
+        resolvedStreams.destroy();
       });
     });
   });

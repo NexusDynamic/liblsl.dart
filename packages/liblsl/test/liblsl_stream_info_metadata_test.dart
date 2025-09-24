@@ -3,7 +3,7 @@ import 'package:liblsl/src/ffi/mem.dart';
 import 'package:test/test.dart';
 
 void main() {
-  setUp(() {
+  setUpAll(() {
     // set up basic API config
     final apiConfig = LSLApiConfig(
       ipv6: IPv6Mode.disable,
@@ -43,7 +43,8 @@ void main() {
             streamName: 'ResolveTestStream',
             streamType: LSLContentType.eeg,
           );
-          final outlet = await LSL.createOutlet(streamInfo: streamInfo);
+          final outlet = await LSL.createOutlet(
+              streamInfo: streamInfo, useIsolates: false);
 
           await Future.delayed(Duration(milliseconds: 200));
 
@@ -71,7 +72,8 @@ void main() {
             streamName: 'ConvertTestStream',
             streamType: LSLContentType.eeg,
           );
-          final outlet = await LSL.createOutlet(streamInfo: streamInfo);
+          final outlet = await LSL.createOutlet(
+              streamInfo: streamInfo, useIsolates: false);
 
           await Future.delayed(Duration(milliseconds: 200));
 
@@ -124,7 +126,8 @@ void main() {
         expect(() => streamInfo.description, returnsNormally);
 
         // Create outlet and resolve to get stream that can get full info
-        final outlet = await LSL.createOutlet(streamInfo: streamInfo);
+        final outlet =
+            await LSL.createOutlet(streamInfo: streamInfo, useIsolates: false);
         await Future.delayed(Duration(milliseconds: 100));
 
         final resolvedStreams = await LSL.resolveStreamsByProperty(
@@ -153,7 +156,7 @@ void main() {
           );
 
           await inlet.destroy();
-          basicStreamInfo.destroy();
+          resolvedStreams.destroy();
         }
 
         await outlet.destroy();
@@ -236,7 +239,7 @@ void main() {
           await inlet.destroy();
           await outlet.destroy();
           streamInfo.destroy();
-          basicStream.destroy();
+          resolvedStreams.destroy();
         },
         timeout: Timeout(Duration(seconds: 10)),
       );
@@ -277,7 +280,7 @@ void main() {
           await inlet.destroy();
           await outlet.destroy();
           streamInfo.destroy();
-          basicStream.destroy();
+          resolvedStreams.destroy();
         },
       );
 
@@ -319,7 +322,7 @@ void main() {
           await inlet.destroy();
           await outlet.destroy();
           streamInfo.destroy();
-          basicStream.destroy();
+          resolvedStreams.destroy();
         },
         timeout: Timeout(Duration(seconds: 10)),
       );
@@ -528,7 +531,8 @@ void main() {
         capElement.addChildValue('labelscheme', '10-20');
 
         // Step 5: Create outlet (like lsl_create_outlet)
-        final outlet = await LSL.createOutlet(streamInfo: streamInfo);
+        final outlet =
+            await LSL.createOutlet(streamInfo: streamInfo, useIsolates: false);
         await Future.delayed(Duration(milliseconds: 300));
 
         // Step 6: Resolve the stream (like lsl_resolve_byprop)
@@ -601,7 +605,7 @@ void main() {
         await inlet.destroy();
         await outlet.destroy();
         streamInfo.destroy();
-        basicStreamInfo.destroy();
+        resolvedStreams.destroy();
       });
     });
 
@@ -659,8 +663,10 @@ void main() {
         final streamInfo2 = await LSL.createStreamInfo(
           streamName: 'MultipleCallsTest2',
         );
-        final outlet = await LSL.createOutlet(streamInfo: streamInfo);
-        final outlet2 = await LSL.createOutlet(streamInfo: streamInfo2);
+        final outlet =
+            await LSL.createOutlet(streamInfo: streamInfo, useIsolates: false);
+        final outlet2 =
+            await LSL.createOutlet(streamInfo: streamInfo2, useIsolates: false);
 
         await Future.delayed(Duration(milliseconds: 200));
 
@@ -698,8 +704,7 @@ void main() {
         await outlet2.destroy();
         streamInfo.destroy();
         streamInfo2.destroy();
-        basicStream.destroy();
-        basicStream2.destroy();
+        resolvedStreams.destroy();
       });
     });
   });

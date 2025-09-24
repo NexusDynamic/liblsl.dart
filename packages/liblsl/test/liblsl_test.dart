@@ -8,7 +8,7 @@ import 'dart:ffi';
 import 'package:ffi/ffi.dart' show StringUtf8Pointer, malloc;
 
 void main() {
-  setUp(() {
+  setUpAll(() {
     // set up basic API config
     final apiConfig = LSLApiConfig(
       ipv6: IPv6Mode.disable,
@@ -16,6 +16,16 @@ void main() {
       listenAddress: '127.0.0.1', // Use loopback for testing
       addressesOverride: ['224.0.0.183'],
       knownPeers: ['127.0.0.1'],
+      sessionId: 'LSLTestSession',
+      unicastMinRTT: 0.1,
+      multicastMinRTT: 0.1,
+      portRange: 64,
+      // don't bother checking during the test
+      watchdogCheckInterval: 600.0,
+      sendSocketBufferSize: 1024,
+      receiveSocketBufferSize: 1024,
+      outletBufferReserveMs: 2000,
+      inletBufferReserveMs: 2000,
     );
     LSL.setConfigContent(apiConfig);
   });

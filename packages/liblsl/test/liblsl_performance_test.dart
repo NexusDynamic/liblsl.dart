@@ -1,3 +1,6 @@
+// ignore: library_annotations
+@Tags(['performance'])
+
 import 'dart:async';
 import 'dart:math';
 
@@ -5,14 +8,14 @@ import 'package:liblsl/lsl.dart';
 import 'package:test/test.dart';
 
 void main() {
-  setUp(() {
+  setUpAll(() {
     final apiConfig = LSLApiConfig(
       ipv6: IPv6Mode.disable,
       resolveScope: ResolveScope.link,
       listenAddress: '127.0.0.1',
       addressesOverride: ['224.0.0.183'],
       knownPeers: ['127.0.0.1'],
-      sessionId: 'LSLPerformanceTestSession',
+      sessionId: 'LSLTestSession',
       unicastMinRTT: 0.1,
       multicastMinRTT: 0.1,
       portRange: 64,
@@ -232,8 +235,11 @@ class LSLPerformanceTester {
         await inlet.destroy();
       }
       for (final outlet in outlets) {
+        outlet.streamInfo.destroy();
         await outlet.destroy();
       }
+      // Give some time for cleanup
+      await Future.delayed(Duration(seconds: 2));
     }
   }
 
