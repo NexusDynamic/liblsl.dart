@@ -20,8 +20,8 @@ jobs:
       with:
         channel: beta
         cache: true
-        cache-key: "flutter-:os:-:channel:-:version:-:arch:-{{ github.head_ref || github.ref_name }}"
-        pub-cache-key: "flutter-pub-:os:-:channel:-:version:-:arch:-{{ github.head_ref || github.ref_name }}"
+        cache-key: "flutter-:os:-:channel:-:version:-:arch:-main"
+        pub-cache-key: "flutter-pub-:os:-:channel:-:version:-:arch:-main"
 
     - name: Install melos
       run: dart pub global activate melos
