@@ -18,7 +18,7 @@ jobs:
     - name: Setup Flutter
       uses: subosito/flutter-action@v2
       with:
-        channel: main
+        channel: beta
         cache: true
 
     - name: Install melos
