@@ -579,8 +579,8 @@ class _EnhancedAnalysisProgressIndicator extends StatelessWidget {
             Text(
               progress.details!,
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Theme.of(context).textTheme.bodySmall?.color,
-                  ),
+                color: Theme.of(context).textTheme.bodySmall?.color,
+              ),
               textAlign: TextAlign.center,
             ),
           const SizedBox(height: 24),

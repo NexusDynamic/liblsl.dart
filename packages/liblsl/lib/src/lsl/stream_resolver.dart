@@ -37,7 +37,6 @@ class LSLStreamResolver extends LSLObj {
   }
 
   @override
-
   /// Creates the resolver and allocates the stream info buffer.
   LSLStreamResolver create() {
     if (created) {
@@ -75,7 +74,6 @@ class LSLStreamResolver extends LSLObj {
   }
 
   @override
-
   /// Destroys the resolver and frees the stream info buffer.
   /// If the resolver is already destroyed, this method does nothing.
   void destroy() {
@@ -197,7 +195,6 @@ class LSLStreamResolverContinuous extends LSLStreamResolver {
   LSLStreamResolverContinuous({this.forgetAfter = 5.0, super.maxStreams = 5});
 
   @override
-
   /// Creates the resolver and allocates the stream info buffer.
   /// This method initializes the resolver with the specified [forgetAfter]
   /// time, which is the duration after which streams that are not seen will be

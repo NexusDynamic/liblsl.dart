@@ -32,7 +32,7 @@ class LSLMessage {
   final Map<String, dynamic> data;
 
   LSLMessage(this.type, this.data, {String? id})
-      : id = id ?? _generateMessageId();
+    : id = id ?? _generateMessageId();
 
   static String _generateMessageId() {
     return '${DateTime.now().millisecondsSinceEpoch}_${Random().nextInt(1000000)}';

@@ -193,8 +193,9 @@ class UltraFastEnhancedTimingAnalysisService {
     final sourceIdData = data['sourceId'].data;
     final lslClockData = data['lsl_clock'].data;
     final counterData = data['counter'].data;
-    final timeCorrectionData =
-        includeTimeCorrections ? data['lslTimeCorrection'].data : null;
+    final timeCorrectionData = includeTimeCorrections
+        ? data['lslTimeCorrection'].data
+        : null;
     final rowCount = eventTypeData.length;
 
     if (kDebugMode) {
@@ -546,7 +547,7 @@ class _SourceEventGroup {
   final String senderDevice;
   final Map<int, _Event> sentEvents; // counter -> event
   final Map<String, Map<int, _Event>>
-      receivedEvents; // deviceId -> (counter -> event)
+  receivedEvents; // deviceId -> (counter -> event)
 
   _SourceEventGroup({
     required this.sourceId,

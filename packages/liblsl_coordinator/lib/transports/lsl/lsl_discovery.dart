@@ -40,7 +40,7 @@ class StreamInfoResource extends LSLResource {
   final LSLStreamInfo streamInfo;
 
   StreamInfoResource({required this.streamInfo, super.manager})
-      : super(id: 'stream-info') {
+    : super(id: 'stream-info') {
     create();
   }
 
@@ -67,11 +67,13 @@ class StreamInfoResource extends LSLResource {
     List<LSLStreamInfo> streamInfos, {
     IResourceManager? manager,
   }) {
-    return streamInfos.map((info) {
-      final r = StreamInfoResource(streamInfo: info, manager: manager);
-      manager?.manageResource<StreamInfoResource>(r);
-      return r;
-    }).toList(growable: false);
+    return streamInfos
+        .map((info) {
+          final r = StreamInfoResource(streamInfo: info, manager: manager);
+          manager?.manageResource<StreamInfoResource>(r);
+          return r;
+        })
+        .toList(growable: false);
   }
 }
 
@@ -102,11 +104,11 @@ class StreamDiscoveredEvent extends LSLDiscoveryEvent {
     super.timestamp,
     super.metadata,
   }) : super(
-          id: 'stream_discovered_${DateTime.now().millisecondsSinceEpoch}',
-          description:
-              'Discovered ${streams.length} stream(s) matching predicate',
-          name: name ?? 'stream-discovered',
-        );
+         id: 'stream_discovered_${DateTime.now().millisecondsSinceEpoch}',
+         description:
+             'Discovered ${streams.length} stream(s) matching predicate',
+         name: name ?? 'stream-discovered',
+       );
 }
 
 /// Event fired when discovery times out without finding streams
@@ -120,11 +122,11 @@ class DiscoveryTimeoutEvent extends LSLDiscoveryEvent {
     super.timestamp,
     super.metadata,
   }) : super(
-          id: 'discovery_timeout_${DateTime.now().millisecondsSinceEpoch}',
-          description:
-              'Discovery timed out after ${timeoutDuration.inSeconds}s for predicate',
-          name: name ?? 'discovery-timeout',
-        );
+         id: 'discovery_timeout_${DateTime.now().millisecondsSinceEpoch}',
+         description:
+             'Discovery timed out after ${timeoutDuration.inSeconds}s for predicate',
+         name: name ?? 'discovery-timeout',
+       );
 }
 
 /// LSL-based discovery mechanism for network nodes with event-driven pattern
@@ -218,7 +220,7 @@ class LslDiscovery extends LSLResource implements IPausable, IResourceManager {
         maxStreams: maxStreams ?? coordinationConfig.topologyConfig.maxNodes,
         forgetAfter:
             coordinationConfig.sessionConfig.nodeTimeout.inMilliseconds /
-                1000.0,
+            1000.0,
       );
       _resolver!.create();
     }
@@ -355,9 +357,11 @@ class LslDiscovery extends LSLResource implements IPausable, IResourceManager {
     // convert to list to avoid concurrent modification issues
     for (var entry in _discoveredStreams.entries.toList(growable: false)) {
       final streamInfo = entry.value.streamInfo;
-      final matchesName = streamNameFilter == null ||
+      final matchesName =
+          streamNameFilter == null ||
           _matchesFilter(streamInfo.streamName, streamNameFilter);
-      final matchesSourceId = sourceIdFilter == null ||
+      final matchesSourceId =
+          sourceIdFilter == null ||
           _matchesFilter(streamInfo.sourceId, sourceIdFilter);
 
       if (matchesName && matchesSourceId) {

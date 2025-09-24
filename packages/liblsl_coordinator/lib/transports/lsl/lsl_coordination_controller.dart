@@ -152,8 +152,9 @@ class CoordinationController {
     final myRandomRoll = isRandomStrategy
         ? double.parse(thisNode.metadata['randomRoll'] ?? '1.0')
         : null;
-    final myStartTime =
-        !isRandomStrategy ? thisNode.metadata['nodeStartedAt'] : null;
+    final myStartTime = !isRandomStrategy
+        ? thisNode.metadata['nodeStartedAt']
+        : null;
 
     final electionPredicate = LSLStreamInfoHelper.generateElectionPredicate(
       streamName: coordinationConfig.streamConfig.name,
@@ -169,7 +170,8 @@ class CoordinationController {
     try {
       final streamInfos = await LslDiscovery.discoverOnceByPredicate(
         electionPredicate,
-        timeout: coordinationConfig.sessionConfig.discoveryInterval *
+        timeout:
+            coordinationConfig.sessionConfig.discoveryInterval *
             2, // Shorter timeout
         minStreams: 1,
         maxStreams: 1,

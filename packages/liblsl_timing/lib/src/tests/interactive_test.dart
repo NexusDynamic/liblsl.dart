@@ -410,6 +410,6 @@ class InteractiveSampleMessage {
     this.markerId,
     this.sourceId, {
     this.lslTimeCorrection,
-  })  : lslNow = LSL.localClock(),
-        dartNow = DateTime.now().microsecondsSinceEpoch;
+  }) : lslNow = LSL.localClock(),
+       dartNow = DateTime.now().microsecondsSinceEpoch;
 }

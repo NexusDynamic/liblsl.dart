@@ -102,10 +102,9 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// **See also:** [getFullInfoSync] for zero-overhead direct calls
   Future<LSLStreamInfoWithMetadata> getFullInfo({
     required double timeout,
-  }) async =>
-      _useIsolates
-          ? await _getFullInfoIsolated(timeout)
-          : _getFullInfoDirect(timeout);
+  }) async => _useIsolates
+      ? await _getFullInfoIsolated(timeout)
+      : _getFullInfoDirect(timeout);
 
   /// Synchronously gets the full stream info with metadata from this inlet.
   /// **Direct mode only** - throws [LSLException] if `useIsolates: true`.
@@ -545,8 +544,9 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
       return LSLSample<T>([], 0, errorCode);
     }
 
-    final sampleData = _pullFn.bufferToList(
-        _buffer.buffer, streamInfo.channelCount) as List<T>;
+    final sampleData =
+        _pullFn.bufferToList(_buffer.buffer, streamInfo.channelCount)
+            as List<T>;
     return LSLSample<T>(sampleData, timestamp, errorCode);
   }
 }

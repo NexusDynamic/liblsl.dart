@@ -17,8 +17,9 @@ void main() {
   });
 
   // Test streaming and UI verification
-  testWidgets('Start LSL stream and verify UI updates',
-      (WidgetTester tester) async {
+  testWidgets('Start LSL stream and verify UI updates', (
+    WidgetTester tester,
+  ) async {
     // Build our app and trigger a frame.
     await tester.pumpWidget(const LSLTestApp());
 

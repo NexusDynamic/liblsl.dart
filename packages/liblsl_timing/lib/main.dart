@@ -76,15 +76,18 @@ void main() async {
 
   // Ensure multicast lock is acquired
   final multicastLock = FlutterMulticastLock();
-  await multicastLock.acquireMulticastLock().then((_) {
-    if (kDebugMode) {
-      print('Multicast lock acquired successfully.');
-    }
-  }).catchError((e) {
-    if (kDebugMode) {
-      print('Failed to acquire multicast lock: $e');
-    }
-  });
+  await multicastLock
+      .acquireMulticastLock()
+      .then((_) {
+        if (kDebugMode) {
+          print('Multicast lock acquired successfully.');
+        }
+      })
+      .catchError((e) {
+        if (kDebugMode) {
+          print('Failed to acquire multicast lock: $e');
+        }
+      });
   // Load configuration
   final config = await AppConfig.load();
 

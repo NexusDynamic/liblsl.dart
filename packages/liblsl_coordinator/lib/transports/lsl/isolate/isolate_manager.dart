@@ -125,7 +125,7 @@ final class PauseMessage extends IsolateMessage {
 final class ResumeMessage extends IsolateMessage {
   final bool flushBeforeResume;
   const ResumeMessage({this.flushBeforeResume = true, super.requestID})
-      : super(9);
+    : super(9);
 }
 
 /// Message to flush inlet streams - immutable
@@ -229,14 +229,14 @@ final class IsolateDataMessage {
   });
 
   Map<String, dynamic> toMap() => {
-        'streamId': streamId,
-        'messageId': messageId,
-        'timestamp': timestamp.toIso8601String(),
-        'data': data,
-        'sourceId': sourceId,
-        'lslTimestamp': lslTimestamp,
-        'lslTimeCorrection': lslTimeCorrection,
-      };
+    'streamId': streamId,
+    'messageId': messageId,
+    'timestamp': timestamp.toIso8601String(),
+    'data': data,
+    'sourceId': sourceId,
+    'lslTimestamp': lslTimestamp,
+    'lslTimeCorrection': lslTimeCorrection,
+  };
 
   factory IsolateDataMessage.fromMap(Map<String, dynamic> map) {
     return IsolateDataMessage(
@@ -257,8 +257,8 @@ final class IsolateDataMessageList {
   const IsolateDataMessageList(this.messages);
 
   Map<String, dynamic> toMap() => {
-        'messages': messages.map((m) => m.toMap()).toList(),
-      };
+    'messages': messages.map((m) => m.toMap()).toList(),
+  };
 
   factory IsolateDataMessageList.fromMap(Map<String, dynamic> map) {
     return IsolateDataMessageList(
@@ -491,8 +491,8 @@ final class StreamInletIsolate extends StreamIsolate {
     List<int>? initialInletAddresses,
     String? isolateDebugName,
   }) : super(
-          isolateDebugName: isolateDebugName ?? 'StreamInletIsolate-$streamId',
-        ) {
+         isolateDebugName: isolateDebugName ?? 'StreamInletIsolate-$streamId',
+       ) {
     if (initialInletAddresses != null) {
       _inletAddresses.addAll(initialInletAddresses);
     }
@@ -556,12 +556,12 @@ final class StreamOutletIsolate extends StreamIsolate {
     required int channelCount,
     required double sampleRate,
     String? isolateDebugName,
-  })  : _outletAddress = outletAddress,
-        _channelCount = channelCount,
-        _sampleRate = sampleRate,
-        super(
-          isolateDebugName: isolateDebugName ?? 'StreamOutletIsolate-$streamId',
-        );
+  }) : _outletAddress = outletAddress,
+       _channelCount = channelCount,
+       _sampleRate = sampleRate,
+       super(
+         isolateDebugName: isolateDebugName ?? 'StreamOutletIsolate-$streamId',
+       );
 
   /// Send data through outlet
   Future<void> sendData(List<dynamic> data) async {

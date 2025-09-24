@@ -49,8 +49,8 @@ class AppConfig {
     return AppConfig(
       deviceName:
           overrides[ConfigKeys.deviceName] != null && !excludeDeviceSpecific
-              ? overrides[ConfigKeys.deviceName]
-              : deviceName,
+          ? overrides[ConfigKeys.deviceName]
+          : deviceName,
       streamName: overrides[ConfigKeys.streamName] ?? streamName,
       streamType: overrides[ConfigKeys.streamType] != null
           ? _getStreamType(overrides[ConfigKeys.streamType])
@@ -62,12 +62,12 @@ class AppConfig {
           : channelFormat,
       isProducer:
           overrides[ConfigKeys.isProducer] != null && !excludeDeviceSpecific
-              ? overrides[ConfigKeys.isProducer]
-              : isProducer,
+          ? overrides[ConfigKeys.isProducer]
+          : isProducer,
       isConsumer:
           overrides[ConfigKeys.isConsumer] != null && !excludeDeviceSpecific
-              ? overrides[ConfigKeys.isConsumer]
-              : isConsumer,
+          ? overrides[ConfigKeys.isConsumer]
+          : isConsumer,
       deviceId: overrides[ConfigKeys.deviceId] != null && !excludeDeviceSpecific
           ? overrides[ConfigKeys.deviceId]
           : deviceId,
@@ -75,7 +75,7 @@ class AppConfig {
           overrides[ConfigKeys.testDurationSeconds] ?? testDurationSeconds,
       streamMaxWaitTimeSeconds:
           overrides[ConfigKeys.streamMaxWaitTimeSeconds] ??
-              streamMaxWaitTimeSeconds,
+          streamMaxWaitTimeSeconds,
       streamMaxStreams:
           overrides[ConfigKeys.streamMaxStreams] ?? streamMaxStreams,
     );
@@ -86,7 +86,8 @@ class AppConfig {
     final prefs = await SharedPreferences.getInstance();
 
     final config = AppConfig(
-      deviceName: prefs.getString(ConfigKeys.deviceName) ??
+      deviceName:
+          prefs.getString(ConfigKeys.deviceName) ??
           'Device_${math.Random().nextInt(100)}',
       streamName:
           prefs.getString(ConfigKeys.streamName) ?? StreamDefaults.streamName,
@@ -98,7 +99,8 @@ class AppConfig {
       channelFormat: _getChannelFormat(
         prefs.getString(ConfigKeys.channelFormat),
       ),
-      deviceId: prefs.getString(ConfigKeys.deviceId) ??
+      deviceId:
+          prefs.getString(ConfigKeys.deviceId) ??
           '${math.Random().nextInt(1000)}_DID',
       isProducer: prefs.getBool(ConfigKeys.isProducer) ?? true,
       isConsumer: prefs.getBool(ConfigKeys.isConsumer) ?? true,

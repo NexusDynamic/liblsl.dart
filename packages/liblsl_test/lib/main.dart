@@ -38,9 +38,7 @@ class _LSLTestPageState extends State<LSLTestPage> {
   });
 
   final WidgetStatesController _checkStreamsButtonController =
-      WidgetStatesController({
-    WidgetState.disabled,
-  });
+      WidgetStatesController({WidgetState.disabled});
 
   final ValueNotifier<List<String>> _resolvedStreams = ValueNotifier([]);
   final ValueNotifier<String?> _sampleData = ValueNotifier(null);
@@ -52,13 +50,16 @@ class _LSLTestPageState extends State<LSLTestPage> {
     _startButtonController.update(WidgetState.disabled, true);
     _checkStreamsButtonController.update(WidgetState.disabled, true);
     // get multicast lock
-    multicastLock.acquireMulticastLock().then((_) {
-      // ignore: avoid_print
-      print('acquireMulticastLock: success');
-    }).catchError((e) {
-      // ignore: avoid_print
-      print('acquireMulticastLock: error: $e');
-    });
+    multicastLock
+        .acquireMulticastLock()
+        .then((_) {
+          // ignore: avoid_print
+          print('acquireMulticastLock: success');
+        })
+        .catchError((e) {
+          // ignore: avoid_print
+          print('acquireMulticastLock: error: $e');
+        });
 
     _setupLSL();
   }
@@ -132,12 +133,14 @@ class _LSLTestPageState extends State<LSLTestPage> {
             }
             return Column(
               children: streams
-                  .map((stream) => Text(
-                        stream,
-                        key: const Key('resolved_streams'),
-                        overflow: TextOverflow.visible,
-                        textScaler: TextScaler.linear(0.4),
-                      ))
+                  .map(
+                    (stream) => Text(
+                      stream,
+                      key: const Key('resolved_streams'),
+                      overflow: TextOverflow.visible,
+                      textScaler: TextScaler.linear(0.4),
+                    ),
+                  )
                   .toList(),
             );
           },
@@ -261,18 +264,23 @@ class _LSLTestPageState extends State<LSLTestPage> {
       _sampleData.value = null;
 
       // Resolve available streams
-      final List<int> streamAddrs = await Isolate.run(() async {
-        final streams = await LSL.resolveStreamsByProperty(
-            property: LSLStreamProperty.sourceId,
-            value: 'FlutterAppDevice',
-            waitTime: 2.0,
-            maxStreams: 1);
-        debugPrint('Resolved ${streams.length} stream(s)');
-        return streams.map((s) => s.streamInfo.address).toList();
-      }).timeout(const Duration(seconds: 5), onTimeout: () {
-        debugPrint('Timeout while resolving streams');
-        return <int>[];
-      });
+      final List<int> streamAddrs =
+          await Isolate.run(() async {
+            final streams = await LSL.resolveStreamsByProperty(
+              property: LSLStreamProperty.sourceId,
+              value: 'FlutterAppDevice',
+              waitTime: 2.0,
+              maxStreams: 1,
+            );
+            debugPrint('Resolved ${streams.length} stream(s)');
+            return streams.map((s) => s.streamInfo.address).toList();
+          }).timeout(
+            const Duration(seconds: 5),
+            onTimeout: () {
+              debugPrint('Timeout while resolving streams');
+              return <int>[];
+            },
+          );
 
       if (streamAddrs.isEmpty) {
         _streamStatus.value = "No streams found";
@@ -287,8 +295,10 @@ class _LSLTestPageState extends State<LSLTestPage> {
       }
 
       _resolvedStreams.value = streams
-          .map((s) =>
-              "Stream: ${s.streamName}, Channels: ${s.channelCount}, Format: ${s.channelFormat}")
+          .map(
+            (s) =>
+                "Stream: ${s.streamName}, Channels: ${s.channelCount}, Format: ${s.channelFormat}",
+          )
           .toList();
 
       _streamStatus.value = "Found ${streams.length} stream(s)";

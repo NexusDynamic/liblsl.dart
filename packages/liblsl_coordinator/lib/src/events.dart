@@ -73,9 +73,9 @@ sealed class Event
     this.eventType = EventType.user,
     required this.description,
     String? uId,
-  })  : timestamp = timestamp ?? DateTime.now(),
-        name = name ?? 'event-$id',
-        _metadata = metadata ?? {} {
+  }) : timestamp = timestamp ?? DateTime.now(),
+       name = name ?? 'event-$id',
+       _metadata = metadata ?? {} {
     shadowUId = uId;
   }
 
@@ -134,9 +134,9 @@ class CoordinationEvent extends Event {
     super.metadata,
     super.uId,
   }) : super(
-          name: name ?? 'coordination-event-$id',
-          eventType: EventType.coordination,
-        );
+         name: name ?? 'coordination-event-$id',
+         eventType: EventType.coordination,
+       );
 }
 
 /// User-defined events.

@@ -113,7 +113,9 @@ class EnhancedTimingAnalysisService {
           lslTimeCorrection != null &&
           !lslTimeCorrection.isNaN) {
         final key = '$deviceId-$sourceId';
-        correctionSamples.putIfAbsent(key, () => []).add(
+        correctionSamples
+            .putIfAbsent(key, () => [])
+            .add(
               TimeCorrectionSample(
                 timestamp: lslClock,
                 correction: lslTimeCorrection,
@@ -256,7 +258,7 @@ class EnhancedTimingAnalysisService {
       for (int i = 1; i < deviceEvents.length; i++) {
         final interval =
             (deviceEvents[i].lslClock - deviceEvents[i - 1].lslClock) *
-                1000; // Convert to ms
+            1000; // Convert to ms
         intervals.add(interval);
       }
 
@@ -440,7 +442,7 @@ class EnhancedTimingAnalysisService {
 
     final variance =
         values.map((x) => pow(x - mean, 2)).reduce((a, b) => a + b) /
-            values.length;
+        values.length;
     final standardDeviation = sqrt(variance);
 
     return {

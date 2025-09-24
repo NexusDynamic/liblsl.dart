@@ -388,7 +388,7 @@ class PromotionStrategyRandom extends PromotionStrategy {
     final candidate = filteredCandidates.reduce((a, b) {
       final aRoll =
           double.tryParse(a.getMetadata('randomRoll', defaultValue: '1.0')!) ??
-              1.0;
+          1.0;
       final bRoll =
           double.tryParse(b.getMetadata('randomRoll') ?? '1.0') ?? 1.0;
       return aRoll <= bRoll ? a : b;

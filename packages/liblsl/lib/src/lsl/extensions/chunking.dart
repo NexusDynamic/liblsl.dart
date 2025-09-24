@@ -6,8 +6,9 @@ import 'package:liblsl/src/lsl/isolate_manager.dart';
 extension LSLChunkSerializer on LSLSerializer {
   static Map<String, dynamic> serializeChunk<T>(List<LSLSample<T>> chunk) {
     return {
-      'chunk':
-          chunk.map((sample) => LSLSerializer.serializeSample(sample)).toList(),
+      'chunk': chunk
+          .map((sample) => LSLSerializer.serializeSample(sample))
+          .toList(),
     };
   }
 

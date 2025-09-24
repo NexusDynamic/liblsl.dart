@@ -27,47 +27,47 @@ class _FreeScrollViewState extends State<FreeScrollView> {
     super.initState();
     _gestureRecognizers[PanGestureRecognizer] =
         GestureRecognizerFactoryWithHandlers<PanGestureRecognizer>(
-      () => PanGestureRecognizer(),
-      (instance) => instance
-        ..onDown = _handleDragDown
-        ..onStart = _handleDragStart
-        ..onUpdate = _handleDragUpdate
-        ..onEnd = _handleDragEnd
-        ..onCancel = _handleDragCancel
-        ..minFlingDistance = widget.physics.minFlingDistance
-        ..minFlingVelocity = widget.physics.minFlingVelocity
-        ..maxFlingVelocity = widget.physics.maxFlingVelocity
-        ..velocityTrackerBuilder = ScrollConfiguration.of(
-          context,
-        ).velocityTrackerBuilder(context)
-        ..dragStartBehavior = DragStartBehavior.start,
-    );
+          () => PanGestureRecognizer(),
+          (instance) => instance
+            ..onDown = _handleDragDown
+            ..onStart = _handleDragStart
+            ..onUpdate = _handleDragUpdate
+            ..onEnd = _handleDragEnd
+            ..onCancel = _handleDragCancel
+            ..minFlingDistance = widget.physics.minFlingDistance
+            ..minFlingVelocity = widget.physics.minFlingVelocity
+            ..maxFlingVelocity = widget.physics.maxFlingVelocity
+            ..velocityTrackerBuilder = ScrollConfiguration.of(
+              context,
+            ).velocityTrackerBuilder(context)
+            ..dragStartBehavior = DragStartBehavior.start,
+        );
   }
 
   @override
   Widget build(BuildContext context) => Stack(
-        children: [
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            controller: _horizontalController,
-            physics: widget.physics,
-            child: SingleChildScrollView(
-              scrollDirection:
-                  Axis.vertical, // ignore: avoid_redundant_argument_values
-              controller: _verticalController,
-              physics: widget.physics,
-              child: widget.child,
-            ),
-          ),
-          Positioned.fill(
-            child: RawGestureDetector(
-              gestures: _gestureRecognizers,
-              behavior: HitTestBehavior.opaque,
-              excludeFromSemantics: true,
-            ),
-          ),
-        ],
-      );
+    children: [
+      SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        controller: _horizontalController,
+        physics: widget.physics,
+        child: SingleChildScrollView(
+          scrollDirection:
+              Axis.vertical, // ignore: avoid_redundant_argument_values
+          controller: _verticalController,
+          physics: widget.physics,
+          child: widget.child,
+        ),
+      ),
+      Positioned.fill(
+        child: RawGestureDetector(
+          gestures: _gestureRecognizers,
+          behavior: HitTestBehavior.opaque,
+          excludeFromSemantics: true,
+        ),
+      ),
+    ],
+  );
   Drag? _horizontalDrag;
   Drag? _verticalDrag;
   ScrollHoldController? _horizontalHold;

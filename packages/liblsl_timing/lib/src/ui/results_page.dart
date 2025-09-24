@@ -58,8 +58,9 @@ class _ResultsPageState extends State<ResultsPage> {
 
   Widget _buildRecentEvents() {
     final events = widget.timingManager.events;
-    final displayedEvents =
-        events.length > 100 ? events.sublist(events.length - 100) : events;
+    final displayedEvents = events.length > 100
+        ? events.sublist(events.length - 100)
+        : events;
 
     return SizedBox(
       height: 200,

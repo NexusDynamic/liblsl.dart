@@ -191,8 +191,8 @@ class LSLTransport<T extends LSLTransportConfig> extends LSLResource
   /// Creates a new [LSLTransport] with the given [config].
   /// If no configuration is provided, a default configuration is used.
   LSLTransport({T? config})
-      : config = config ?? LSLTransportConfigFactory().defaultConfig() as T,
-        super(id: 'lsl_transport') {
+    : config = config ?? LSLTransportConfigFactory().defaultConfig() as T,
+      super(id: 'lsl_transport') {
     this.config.validate(throwOnError: true);
   }
 

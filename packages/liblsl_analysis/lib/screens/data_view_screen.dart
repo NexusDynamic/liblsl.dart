@@ -67,8 +67,8 @@ class _DataViewScreenState extends State<DataViewScreen>
         final value = row[_filterColumn];
         if (value == null) return false;
         return value.toString().toLowerCase().contains(
-              _filterValue.toLowerCase(),
-            );
+          _filterValue.toLowerCase(),
+        );
       });
     });
   }

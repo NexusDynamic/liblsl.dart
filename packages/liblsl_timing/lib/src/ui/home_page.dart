@@ -151,11 +151,11 @@ class _HomePageState extends State<HomePage> {
           : _buildBody(),
       floatingActionButton:
           _coordinator.isCoordinator && !_testController.isTestRunning
-              ? FloatingActionButton(
-                  onPressed: _showTestSelection,
-                  child: const Icon(Icons.play_arrow),
-                )
-              : null,
+          ? FloatingActionButton(
+              onPressed: _showTestSelection,
+              child: const Icon(Icons.play_arrow),
+            )
+          : null,
     );
   }
 
@@ -177,7 +177,8 @@ class _HomePageState extends State<HomePage> {
                 spacing: 8,
                 children: _connectedDevices.mapIndexed((index, device) {
                   // If the device is the coordinator we can show the latency
-                  final deviceLabel = !_coordinator.isCoordinator &&
+                  final deviceLabel =
+                      !_coordinator.isCoordinator &&
                           device == _coordinator.coordinatorId
                       ? '$device (${(_controllerLatency * 1000).toStringAsFixed(3)} ms)'
                       : device;
@@ -190,11 +191,11 @@ class _HomePageState extends State<HomePage> {
                     onDeleted: () {},
                     backgroundColor: device == widget.config.deviceId
                         ? _coordinator.isCoordinator
-                            ? Colors.blue.withAlpha(76)
-                            : Colors.green.withAlpha(76)
+                              ? Colors.blue.withAlpha(76)
+                              : Colors.green.withAlpha(76)
                         : device == _coordinator.coordinatorId
-                            ? Colors.blue.withAlpha(76)
-                            : Colors.grey.withAlpha(76),
+                        ? Colors.blue.withAlpha(76)
+                        : Colors.grey.withAlpha(76),
                   );
                 }).toList(),
               ),

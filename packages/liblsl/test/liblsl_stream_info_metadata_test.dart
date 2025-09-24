@@ -54,7 +54,9 @@ void main() {
             streamType: LSLContentType.eeg,
           );
           final outlet = await LSL.createOutlet(
-              streamInfo: streamInfo, useIsolates: false);
+            streamInfo: streamInfo,
+            useIsolates: false,
+          );
 
           await Future.delayed(Duration(milliseconds: 200));
 
@@ -83,7 +85,9 @@ void main() {
             streamType: LSLContentType.eeg,
           );
           final outlet = await LSL.createOutlet(
-              streamInfo: streamInfo, useIsolates: false);
+            streamInfo: streamInfo,
+            useIsolates: false,
+          );
 
           await Future.delayed(Duration(milliseconds: 200));
 
@@ -136,8 +140,10 @@ void main() {
         expect(() => streamInfo.description, returnsNormally);
 
         // Create outlet and resolve to get stream that can get full info
-        final outlet =
-            await LSL.createOutlet(streamInfo: streamInfo, useIsolates: false);
+        final outlet = await LSL.createOutlet(
+          streamInfo: streamInfo,
+          useIsolates: false,
+        );
         await Future.delayed(Duration(milliseconds: 100));
 
         final resolvedStreams = await LSL.resolveStreamsByProperty(
@@ -541,8 +547,10 @@ void main() {
         capElement.addChildValue('labelscheme', '10-20');
 
         // Step 5: Create outlet (like lsl_create_outlet)
-        final outlet =
-            await LSL.createOutlet(streamInfo: streamInfo, useIsolates: false);
+        final outlet = await LSL.createOutlet(
+          streamInfo: streamInfo,
+          useIsolates: false,
+        );
         await Future.delayed(Duration(milliseconds: 300));
 
         // Step 6: Resolve the stream (like lsl_resolve_byprop)
@@ -673,10 +681,14 @@ void main() {
         final streamInfo2 = await LSL.createStreamInfo(
           streamName: 'MultipleCallsTest2',
         );
-        final outlet =
-            await LSL.createOutlet(streamInfo: streamInfo, useIsolates: false);
-        final outlet2 =
-            await LSL.createOutlet(streamInfo: streamInfo2, useIsolates: false);
+        final outlet = await LSL.createOutlet(
+          streamInfo: streamInfo,
+          useIsolates: false,
+        );
+        final outlet2 = await LSL.createOutlet(
+          streamInfo: streamInfo2,
+          useIsolates: false,
+        );
 
         await Future.delayed(Duration(milliseconds: 200));
 

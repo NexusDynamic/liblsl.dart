@@ -27,12 +27,13 @@ class CoordinationConfig implements IConfig {
     this.initialStreamConfigs,
     TopologyConfig? topologyConfig,
     required this.transportConfig,
-  })  : sessionConfig =
-            sessionConfig ?? CoordinationSessionConfigFactory().defaultConfig(),
-        streamConfig =
-            streamConfig ?? CoordinationStreamConfigFactory().defaultConfig(),
-        topologyConfig = topologyConfig ??
-            HierarchicalTopologyConfigFactory().defaultConfig() {
+  }) : sessionConfig =
+           sessionConfig ?? CoordinationSessionConfigFactory().defaultConfig(),
+       streamConfig =
+           streamConfig ?? CoordinationStreamConfigFactory().defaultConfig(),
+       topologyConfig =
+           topologyConfig ??
+           HierarchicalTopologyConfigFactory().defaultConfig() {
     validate(throwOnError: true);
   }
 
@@ -77,8 +78,9 @@ class CoordinationConfig implements IConfig {
       'name': name,
       'sessionConfig': sessionConfig.toMap(),
       'streamConfig': streamConfig.toMap(),
-      'initialStreamConfigs':
-          initialStreamConfigs?.map((e) => e.toMap()).toList(),
+      'initialStreamConfigs': initialStreamConfigs
+          ?.map((e) => e.toMap())
+          .toList(),
       'topologyConfig': topologyConfig.toMap(),
       'transportConfig': transportConfig.toMap(),
     };

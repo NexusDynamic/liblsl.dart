@@ -20,8 +20,9 @@ Future<void> main(List<String> args) async {
   final maxNodes = args.length > 1
       ? int.tryParse(args[1]) ?? 2
       : 3; // Set low to test rejection
-  final testDuration =
-      args.length > 2 ? int.tryParse(args[2]) ?? 10 : 10; // seconds
+  final testDuration = args.length > 2
+      ? int.tryParse(args[2]) ?? 10
+      : 10; // seconds
 
   logger.info('🚀 Starting Multi-Node Coordination Test');
   logger.info('   Nodes to start: $nodeCount');
@@ -343,8 +344,9 @@ Future<void> _runCoordinatorTestLogic(
             {
               'phase': 1,
               'intensity': 'low',
-              'start_at':
-                  DateTime.now().add(Duration(seconds: 5)).toIso8601String(),
+              'start_at': DateTime.now()
+                  .add(Duration(seconds: 5))
+                  .toIso8601String(),
             },
           );
           break;
@@ -379,8 +381,9 @@ Future<void> _runCoordinatorTestLogic(
             {
               'phase': 2,
               'intensity': 'high',
-              'start_at':
-                  DateTime.now().add(Duration(seconds: 1)).toIso8601String(),
+              'start_at': DateTime.now()
+                  .add(Duration(seconds: 1))
+                  .toIso8601String(),
             },
           );
           break;

@@ -3,7 +3,7 @@ publish_to: none
 homepage: https://zeyus.com/
 repository: https://github.com/NexusDynamic/liblsl.dart
 environment:
-  sdk: ^3.6.0
+  sdk: ^3.9.0
   flutter: ^3.27.1
 workspace:
   - packages/liblsl
@@ -12,13 +12,12 @@ workspace:
   - packages/liblsl_timing
   - packages/liblsl_analysis
 dev_dependencies:
-  melos: ^7.0.0-dev.9
+  melos: ^7.0.0
 
 
 melos:
   packages:
     - packages/**
-
   command:
     version:
       # Only allow versioning to happen on main branch.
@@ -27,10 +26,9 @@ melos:
       # releaseUrl: true
       # includeCommitId: true
       # linkToCommits: true
-
     bootstrap:
       environment:
-        sdk: ^3.6.0
+        sdk: ^3.9.0
         flutter: ^3.27.1
         test: any
   scripts:
@@ -39,36 +37,29 @@ melos:
         - analyze
         - format
       description: Run all static analysis checks.
-
     analyze:
-      run: melos exec dart analyze .
+      exec: dart analyze .
       description: Run `dart analyze` for all packages.
-
+    format:
+      exec: dart format .
+      description: Run `dart format` for all packages.
     format-check:
-      run: melos exec dart format . --set-exit-if-changed
+      exec: dart format . --set-exit-if-changed
       description: Run `dart format` checks for all packages.
-
     test:select:
-      run: melos exec -c 1 -- flutter test --exclude-tags "performance"
-      packageFilters:
-        dirExists: test
-      description: Run `flutter test` for selected packages.
-
-    test:
-      run: melos run test:select --no-select
+      exec: flutter test --exclude-tags "performance"
+      concurrency: 1
       packageFilters:
         dirExists: test
         ignore:
           # for now, this doesn't pass in the Dart VM
           # the app works when built in release mode
           - liblsl_test
-
+      description: Run `flutter test` for selected packages.
+    test:
+      run: melos run test:select --no-select
       description: Run all Flutter tests in this project.
-
-    
-    
     upgrade: melos exec flutter pub upgrade
-    
     coverage:
       steps:
         - melos exec -- flutter test --coverage

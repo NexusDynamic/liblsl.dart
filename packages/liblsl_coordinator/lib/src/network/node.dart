@@ -127,9 +127,9 @@ class NodeConfig implements IConfig, IUniqueIdentity, IHasMetadata {
     String? uId,
     this.capabilities = const {NodeCapability.participant},
     Map<String, dynamic>? metadata,
-  })  : suppliedId = id,
-        uId = uId ?? generateUid(),
-        _metadata = metadata ?? {} {
+  }) : suppliedId = id,
+       uId = uId ?? generateUid(),
+       _metadata = metadata ?? {} {
     validate(throwOnError: true);
   }
 
@@ -238,7 +238,8 @@ class NodeConfigFactory implements IConfigFactory<NodeConfig> {
       name: map['name'] ?? 'Default Node',
       uId: map['uId'] as String?,
       id: map['id'] ?? 'node-${Random().nextInt(10000)}',
-      capabilities: (map['capabilities'] as List<dynamic>?)
+      capabilities:
+          (map['capabilities'] as List<dynamic>?)
               ?.map(
                 (e) => NodeCapability.values.firstWhere(
                   (cap) => cap.toString() == e,
@@ -424,13 +425,13 @@ class NullNode extends Node {
   @override
   String? get description => 'Null Node (id: $id)';
   NullNode()
-      : super(
-          NodeConfig(
-            name: 'Null Node',
-            id: 'null-node',
-            capabilities: {NodeCapability.none},
-          ),
-        );
+    : super(
+        NodeConfig(
+          name: 'Null Node',
+          id: 'null-node',
+          capabilities: {NodeCapability.none},
+        ),
+      );
 }
 
 /// Observer nodes can only observe the network, and cannot

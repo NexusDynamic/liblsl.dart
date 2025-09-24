@@ -36,8 +36,8 @@ abstract class CoordinationMessage {
     required this.fromNodeUId,
     DateTime? timestamp,
     Map<String, dynamic>? metadata,
-  })  : timestamp = timestamp ?? DateTime.now(),
-        metadata = metadata ?? {};
+  }) : timestamp = timestamp ?? DateTime.now(),
+       metadata = metadata ?? {};
 
   Map<String, dynamic> toMap();
 
@@ -105,12 +105,12 @@ class ConnectionTestMessage extends CoordinationMessage {
 
   @override
   Map<String, dynamic> toMap() => {
-        'type': type.name,
-        'fromNodeUId': fromNodeUId,
-        'timestamp': timestamp.toIso8601String(),
-        'testId': testId,
-        'metadata': metadata,
-      };
+    'type': type.name,
+    'fromNodeUId': fromNodeUId,
+    'timestamp': timestamp.toIso8601String(),
+    'testId': testId,
+    'metadata': metadata,
+  };
 
   factory ConnectionTestMessage.fromMap(Map<String, dynamic> map) =>
       ConnectionTestMessage(
@@ -135,13 +135,13 @@ class ConnectionTestResponseMessage extends CoordinationMessage {
 
   @override
   Map<String, dynamic> toMap() => {
-        'type': type.name,
-        'fromNodeUId': fromNodeUId,
-        'timestamp': timestamp.toIso8601String(),
-        'testId': testId,
-        'confirmed': confirmed,
-        'metadata': metadata,
-      };
+    'type': type.name,
+    'fromNodeUId': fromNodeUId,
+    'timestamp': timestamp.toIso8601String(),
+    'testId': testId,
+    'confirmed': confirmed,
+    'metadata': metadata,
+  };
 
   factory ConnectionTestResponseMessage.fromMap(Map<String, dynamic> map) =>
       ConnectionTestResponseMessage(
@@ -167,13 +167,13 @@ class HeartbeatMessage extends CoordinationMessage {
 
   @override
   Map<String, dynamic> toMap() => {
-        'type': type.name,
-        'fromNodeUId': fromNodeUId,
-        'timestamp': timestamp.toIso8601String(),
-        'nodeRole': nodeRole,
-        'isCoordinator': isCoordinator,
-        'metadata': metadata,
-      };
+    'type': type.name,
+    'fromNodeUId': fromNodeUId,
+    'timestamp': timestamp.toIso8601String(),
+    'nodeRole': nodeRole,
+    'isCoordinator': isCoordinator,
+    'metadata': metadata,
+  };
 
   factory HeartbeatMessage.fromMap(Map<String, dynamic> map) =>
       HeartbeatMessage(
@@ -199,13 +199,13 @@ class JoinOfferMessage extends CoordinationMessage {
 
   @override
   Map<String, dynamic> toMap() => {
-        'type': type.name,
-        'fromNodeUId': fromNodeUId,
-        'timestamp': timestamp.toIso8601String(),
-        'sessionId': sessionId,
-        'targetNode': targetNode.config.toMap(),
-        'metadata': metadata,
-      };
+    'type': type.name,
+    'fromNodeUId': fromNodeUId,
+    'timestamp': timestamp.toIso8601String(),
+    'sessionId': sessionId,
+    'targetNode': targetNode.config.toMap(),
+    'metadata': metadata,
+  };
 
   factory JoinOfferMessage.fromMap(Map<String, dynamic> map) =>
       JoinOfferMessage(
@@ -233,13 +233,13 @@ class JoinRequestMessage extends CoordinationMessage {
 
   @override
   Map<String, dynamic> toMap() => {
-        'type': type.name,
-        'fromNodeUId': fromNodeUId,
-        'timestamp': timestamp.toIso8601String(),
-        'requestingNode': requestingNode.config.toMap(),
-        'sessionId': sessionId,
-        'metadata': metadata,
-      };
+    'type': type.name,
+    'fromNodeUId': fromNodeUId,
+    'timestamp': timestamp.toIso8601String(),
+    'requestingNode': requestingNode.config.toMap(),
+    'sessionId': sessionId,
+    'metadata': metadata,
+  };
 
   factory JoinRequestMessage.fromMap(Map<String, dynamic> map) =>
       JoinRequestMessage(
@@ -267,29 +267,28 @@ class JoinAcceptMessage extends CoordinationMessage {
 
   @override
   Map<String, dynamic> toMap() => {
-        'type': type.name,
-        'fromNodeUId': fromNodeUId,
-        'timestamp': timestamp.toIso8601String(),
-        'acceptedNodeUId': acceptedNodeUId,
-        'currentTopology':
-            currentTopology.map((n) => n.config.toMap()).toList(),
-        'metadata': metadata,
-      };
+    'type': type.name,
+    'fromNodeUId': fromNodeUId,
+    'timestamp': timestamp.toIso8601String(),
+    'acceptedNodeUId': acceptedNodeUId,
+    'currentTopology': currentTopology.map((n) => n.config.toMap()).toList(),
+    'metadata': metadata,
+  };
 
-  factory JoinAcceptMessage.fromMap(Map<String, dynamic> map) =>
-      JoinAcceptMessage(
-        fromNodeUId: map['fromNodeUId'],
-        acceptedNodeUId: map['acceptedNodeUId'],
-        currentTopology: (map['currentTopology'] as List)
-            .map(
-              (n) => NodeFactory.createNodeFromConfig(
-                NodeConfigFactory().fromMap(n),
-              ),
-            )
-            .toList(),
-        timestamp: DateTime.parse(map['timestamp']),
-        metadata: Map<String, dynamic>.from(map['metadata'] ?? {}),
-      );
+  factory JoinAcceptMessage.fromMap(
+    Map<String, dynamic> map,
+  ) => JoinAcceptMessage(
+    fromNodeUId: map['fromNodeUId'],
+    acceptedNodeUId: map['acceptedNodeUId'],
+    currentTopology: (map['currentTopology'] as List)
+        .map(
+          (n) =>
+              NodeFactory.createNodeFromConfig(NodeConfigFactory().fromMap(n)),
+        )
+        .toList(),
+    timestamp: DateTime.parse(map['timestamp']),
+    metadata: Map<String, dynamic>.from(map['metadata'] ?? {}),
+  );
 }
 
 class JoinRejectMessage extends CoordinationMessage {
@@ -306,13 +305,13 @@ class JoinRejectMessage extends CoordinationMessage {
 
   @override
   Map<String, dynamic> toMap() => {
-        'type': type.name,
-        'fromNodeUId': fromNodeUId,
-        'timestamp': timestamp.toIso8601String(),
-        'rejectedNodeUId': rejectedNodeUId,
-        'reason': reason,
-        'metadata': metadata,
-      };
+    'type': type.name,
+    'fromNodeUId': fromNodeUId,
+    'timestamp': timestamp.toIso8601String(),
+    'rejectedNodeUId': rejectedNodeUId,
+    'reason': reason,
+    'metadata': metadata,
+  };
 
   factory JoinRejectMessage.fromMap(Map<String, dynamic> map) =>
       JoinRejectMessage(
@@ -338,13 +337,13 @@ class CreateStreamMessage extends CoordinationMessage {
 
   @override
   Map<String, dynamic> toMap() => {
-        'type': type.name,
-        'fromNodeUId': fromNodeUId,
-        'timestamp': timestamp.toIso8601String(),
-        'streamName': streamName,
-        'streamConfig': streamConfig.toMap(),
-        'metadata': metadata,
-      };
+    'type': type.name,
+    'fromNodeUId': fromNodeUId,
+    'timestamp': timestamp.toIso8601String(),
+    'streamName': streamName,
+    'streamConfig': streamConfig.toMap(),
+    'metadata': metadata,
+  };
 
   factory CreateStreamMessage.fromMap(Map<String, dynamic> map) =>
       CreateStreamMessage(
@@ -372,14 +371,14 @@ class StartStreamMessage extends CoordinationMessage {
 
   @override
   Map<String, dynamic> toMap() => {
-        'type': type.name,
-        'fromNodeUId': fromNodeUId,
-        'timestamp': timestamp.toIso8601String(),
-        'streamName': streamName,
-        'streamConfig': streamConfig.toMap(),
-        'startAt': startAt?.toIso8601String(),
-        'metadata': metadata,
-      };
+    'type': type.name,
+    'fromNodeUId': fromNodeUId,
+    'timestamp': timestamp.toIso8601String(),
+    'streamName': streamName,
+    'streamConfig': streamConfig.toMap(),
+    'startAt': startAt?.toIso8601String(),
+    'metadata': metadata,
+  };
 
   factory StartStreamMessage.fromMap(Map<String, dynamic> map) =>
       StartStreamMessage(
@@ -404,12 +403,12 @@ class StreamReadyMessage extends CoordinationMessage {
 
   @override
   Map<String, dynamic> toMap() => {
-        'type': type.name,
-        'fromNodeUId': fromNodeUId,
-        'timestamp': timestamp.toIso8601String(),
-        'streamName': streamName,
-        'metadata': metadata,
-      };
+    'type': type.name,
+    'fromNodeUId': fromNodeUId,
+    'timestamp': timestamp.toIso8601String(),
+    'streamName': streamName,
+    'metadata': metadata,
+  };
 
   factory StreamReadyMessage.fromMap(Map<String, dynamic> map) =>
       StreamReadyMessage(
@@ -432,12 +431,12 @@ class StopStreamMessage extends CoordinationMessage {
 
   @override
   Map<String, dynamic> toMap() => {
-        'type': type.name,
-        'fromNodeUId': fromNodeUId,
-        'timestamp': timestamp.toIso8601String(),
-        'streamName': streamName,
-        'metadata': metadata,
-      };
+    'type': type.name,
+    'fromNodeUId': fromNodeUId,
+    'timestamp': timestamp.toIso8601String(),
+    'streamName': streamName,
+    'metadata': metadata,
+  };
 
   factory StopStreamMessage.fromMap(Map<String, dynamic> map) =>
       StopStreamMessage(
@@ -460,12 +459,12 @@ class PauseStreamMessage extends CoordinationMessage {
 
   @override
   Map<String, dynamic> toMap() => {
-        'type': type.name,
-        'fromNodeUId': fromNodeUId,
-        'timestamp': timestamp.toIso8601String(),
-        'streamName': streamName,
-        'metadata': metadata,
-      };
+    'type': type.name,
+    'fromNodeUId': fromNodeUId,
+    'timestamp': timestamp.toIso8601String(),
+    'streamName': streamName,
+    'metadata': metadata,
+  };
 
   factory PauseStreamMessage.fromMap(Map<String, dynamic> map) =>
       PauseStreamMessage(
@@ -490,13 +489,13 @@ class ResumeStreamMessage extends CoordinationMessage {
 
   @override
   Map<String, dynamic> toMap() => {
-        'type': type.name,
-        'fromNodeUId': fromNodeUId,
-        'timestamp': timestamp.toIso8601String(),
-        'streamName': streamName,
-        'flushBeforeResume': flushBeforeResume,
-        'metadata': metadata,
-      };
+    'type': type.name,
+    'fromNodeUId': fromNodeUId,
+    'timestamp': timestamp.toIso8601String(),
+    'streamName': streamName,
+    'flushBeforeResume': flushBeforeResume,
+    'metadata': metadata,
+  };
 
   factory ResumeStreamMessage.fromMap(Map<String, dynamic> map) =>
       ResumeStreamMessage(
@@ -520,12 +519,12 @@ class FlushStreamMessage extends CoordinationMessage {
 
   @override
   Map<String, dynamic> toMap() => {
-        'type': type.name,
-        'fromNodeUId': fromNodeUId,
-        'timestamp': timestamp.toIso8601String(),
-        'streamName': streamName,
-        'metadata': metadata,
-      };
+    'type': type.name,
+    'fromNodeUId': fromNodeUId,
+    'timestamp': timestamp.toIso8601String(),
+    'streamName': streamName,
+    'metadata': metadata,
+  };
 
   factory FlushStreamMessage.fromMap(Map<String, dynamic> map) =>
       FlushStreamMessage(
@@ -548,12 +547,12 @@ class DestroyStreamMessage extends CoordinationMessage {
 
   @override
   Map<String, dynamic> toMap() => {
-        'type': type.name,
-        'fromNodeUId': fromNodeUId,
-        'timestamp': timestamp.toIso8601String(),
-        'streamName': streamName,
-        'metadata': metadata,
-      };
+    'type': type.name,
+    'fromNodeUId': fromNodeUId,
+    'timestamp': timestamp.toIso8601String(),
+    'streamName': streamName,
+    'metadata': metadata,
+  };
 
   factory DestroyStreamMessage.fromMap(Map<String, dynamic> map) =>
       DestroyStreamMessage(
@@ -580,14 +579,14 @@ class UserCoordinationMessage extends CoordinationMessage {
 
   @override
   Map<String, dynamic> toMap() => {
-        'type': type.name,
-        'fromNodeUId': fromNodeUId,
-        'timestamp': timestamp.toIso8601String(),
-        'messageId': messageId,
-        'description': description,
-        'payload': payload,
-        'metadata': metadata,
-      };
+    'type': type.name,
+    'fromNodeUId': fromNodeUId,
+    'timestamp': timestamp.toIso8601String(),
+    'messageId': messageId,
+    'description': description,
+    'payload': payload,
+    'metadata': metadata,
+  };
 
   factory UserCoordinationMessage.fromMap(Map<String, dynamic> map) =>
       UserCoordinationMessage(
@@ -612,12 +611,12 @@ class ConfigUpdateMessage extends CoordinationMessage {
 
   @override
   Map<String, dynamic> toMap() => {
-        'type': type.name,
-        'fromNodeUId': fromNodeUId,
-        'timestamp': timestamp.toIso8601String(),
-        'config': config,
-        'metadata': metadata,
-      };
+    'type': type.name,
+    'fromNodeUId': fromNodeUId,
+    'timestamp': timestamp.toIso8601String(),
+    'config': config,
+    'metadata': metadata,
+  };
 
   factory ConfigUpdateMessage.fromMap(Map<String, dynamic> map) =>
       ConfigUpdateMessage(
@@ -640,26 +639,26 @@ class TopologyUpdateMessage extends CoordinationMessage {
 
   @override
   Map<String, dynamic> toMap() => {
-        'type': type.name,
-        'fromNodeUId': fromNodeUId,
-        'timestamp': timestamp.toIso8601String(),
-        'topology': topology.map((n) => n.config.toMap()).toList(),
-        'metadata': metadata,
-      };
+    'type': type.name,
+    'fromNodeUId': fromNodeUId,
+    'timestamp': timestamp.toIso8601String(),
+    'topology': topology.map((n) => n.config.toMap()).toList(),
+    'metadata': metadata,
+  };
 
-  factory TopologyUpdateMessage.fromMap(Map<String, dynamic> map) =>
-      TopologyUpdateMessage(
-        fromNodeUId: map['fromNodeUId'],
-        topology: (map['topology'] as List)
-            .map(
-              (n) => NodeFactory.createNodeFromConfig(
-                NodeConfigFactory().fromMap(n),
-              ),
-            )
-            .toList(),
-        timestamp: DateTime.parse(map['timestamp']),
-        metadata: Map<String, dynamic>.from(map['metadata'] ?? {}),
-      );
+  factory TopologyUpdateMessage.fromMap(
+    Map<String, dynamic> map,
+  ) => TopologyUpdateMessage(
+    fromNodeUId: map['fromNodeUId'],
+    topology: (map['topology'] as List)
+        .map(
+          (n) =>
+              NodeFactory.createNodeFromConfig(NodeConfigFactory().fromMap(n)),
+        )
+        .toList(),
+    timestamp: DateTime.parse(map['timestamp']),
+    metadata: Map<String, dynamic>.from(map['metadata'] ?? {}),
+  );
 }
 
 class NodeLeavingMessage extends CoordinationMessage {
@@ -674,12 +673,12 @@ class NodeLeavingMessage extends CoordinationMessage {
 
   @override
   Map<String, dynamic> toMap() => {
-        'type': type.name,
-        'fromNodeUId': fromNodeUId,
-        'timestamp': timestamp.toIso8601String(),
-        'leavingNodeUId': leavingNodeUId,
-        'metadata': metadata,
-      };
+    'type': type.name,
+    'fromNodeUId': fromNodeUId,
+    'timestamp': timestamp.toIso8601String(),
+    'leavingNodeUId': leavingNodeUId,
+    'metadata': metadata,
+  };
 
   factory NodeLeavingMessage.fromMap(Map<String, dynamic> map) =>
       NodeLeavingMessage(

@@ -274,8 +274,9 @@ class _TestPageState extends State<TestPage> with TickerProviderStateMixin {
   }
 
   Widget _buildInteractiveTestUI() {
-    final bool renderSquare =
-        _frameBasedMode ? _photodiodeSquareVisible : _blackSquares.isNotEmpty;
+    final bool renderSquare = _frameBasedMode
+        ? _photodiodeSquareVisible
+        : _blackSquares.isNotEmpty;
     return Column(
       children: [
         Padding(
