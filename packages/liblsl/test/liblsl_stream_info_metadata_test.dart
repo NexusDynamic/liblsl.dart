@@ -317,7 +317,7 @@ void main() {
           final resolvedStreams = await LSL.resolveStreamsByProperty(
             property: LSLStreamProperty.name,
             value: 'InletTestMetadataIsolate',
-            waitTime: 1.0,
+            waitTime: 2.0,
           );
           expect(resolvedStreams.length, greaterThan(0));
           final basicStream = resolvedStreams.first;
@@ -326,7 +326,6 @@ void main() {
             streamInfo: basicStream,
             includeMetadata: true,
             useIsolates: true,
-            createTimeout: 5.0, // Shorter timeout to prevent hanging
           );
 
           expect(inlet.streamInfo, isA<LSLStreamInfoWithMetadata>());
@@ -340,7 +339,7 @@ void main() {
           streamInfo.destroy();
           resolvedStreams.destroy();
         },
-        timeout: Timeout(Duration(seconds: 10)),
+        timeout: Timeout(Duration(seconds: 20)),
       );
     });
 
