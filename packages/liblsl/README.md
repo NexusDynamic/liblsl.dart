@@ -1,6 +1,6 @@
 # liblsl dart Lab Streaming Layer (LSL) library
 
-![Pub Publisher](https://img.shields.io/pub/publisher/liblsl?style=flat-square) ![Pub Version](https://img.shields.io/pub/v/liblsl)
+[![Pub Publisher](https://img.shields.io/pub/publisher/liblsl?style=flat-square)](https://pub.dev/publishers/zeyus.com/packages) [![Pub Version](https://img.shields.io/pub/v/liblsl)](https://pub.dev/packages/liblsl) [![melos](https://img.shields.io/badge/maintained%20with-melos-f700ff.svg?style=flat-square)](https://github.com/invertase/melos) [![CI Test](https://github.com/NexusDynamic/liblsl.dart/actions/workflows/test.yml/badge.svg)](https://github.com/NexusDynamic/liblsl.dart/actions/workflows/test.yml)
 
 This package provides a Dart wrapper for liblsl, using the dart native-assets build system and ffi.
 

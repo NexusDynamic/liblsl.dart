@@ -341,6 +341,8 @@ void main() {
         },
         timeout: Timeout(Duration(seconds: 20)),
         // For some unknown reason this test just fails on CI
+        // TODO: Investigate why this test is flaky in CI but works on
+        // OSX / Win / Linux locally
         skip: true,
       );
     });
