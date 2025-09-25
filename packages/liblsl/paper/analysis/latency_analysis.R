@@ -69,8 +69,8 @@ geom_split_violin <- function(mapping = NULL, data = NULL, stat = "ydensity", po
 }
 
 # File paths
-ipad1_raw_data_path <- "ipad1_lsl_events_1748518428437.tsv"
-ipad2_raw_data_path <- "ipad2_lsl_events_1748518473569.tsv"
+ipad1_raw_data_path <- "ipad1_lsl_events_1749221727447_latency_wcorrection.tsv"
+ipad2_raw_data_path <- "ipad2_lsl_events_1749221766177_latency_wcorrection.tsv"
 
 # Columns
 log_colnames <- c(
@@ -87,7 +87,8 @@ log_colnames <- c(
 event_type_levels <- c(
     "EventType.testStarted",
     "EventType.sampleReceived",
-    "EventType.sampleSent"
+    "EventType.sampleSent",
+    "EventType.markerReceived"
 )
 
 # Column definitions
@@ -133,16 +134,26 @@ ipad2_raw <- read_tsv(ipad2_raw_data_path,
 
 ipad1_parsed <- ipad1_raw %>%
     dplyr::mutate(
-        metadata = map(metadata, ~ fromJSON(.) %>% as_tibble())
+        metadata = map(metadata, ~ {
+            json_data <- fromJSON(.)
+            # Convert NULL values to NA and ensure all elements are vectors
+            json_data[sapply(json_data, is.null)] <- NA
+            as_tibble(json_data)
+        })
     ) %>%
     unnest(cols = c(metadata))
 
 ipad2_parsed <- ipad2_raw %>%
     dplyr::mutate(
-        metadata = map(metadata, ~ fromJSON(.) %>% as_tibble())
+        metadata = map(metadata, ~ {
+            json_data <- fromJSON(.)
+            # Convert NULL values to NA and ensure all elements are vectors
+            json_data[sapply(json_data, is.null)] <- NA
+            as_tibble(json_data)
+        })
     ) %>%
     unnest(cols = c(metadata))
-
+    
 
 # Join the two datasets
 combined_data <- bind_rows(ipad1_parsed, ipad2_parsed)
@@ -211,6 +222,7 @@ calc_summary <- function(data, metric_name) {
 
     dart_stats
 }
+
 
 # Within-device latency violin plot
 same_device_dart <- same_device_latency %>%
