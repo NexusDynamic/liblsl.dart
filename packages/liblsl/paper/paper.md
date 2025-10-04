@@ -12,36 +12,90 @@ authors:
       surname: Ring
     orcid: 0009-0000-0930-4172
     affiliation: 1
+  - name:
+      given-names: Anna
+      surname: Zamm
+    orcid: 0000-0002-3774-3516
+    affiliation: 1
+  - name:
+      given-names: Chris
+      surname: Mathys
+    orcid: 0000-0003-4079-5453
+    affiliation: 3
+  - name:
+      given-names: Simon Lind
+      surname: Kappel
+    orcid: 0000-0003-0583-2255
+    affiliation: 2
 affiliations:
 - name: School of Communication and Culture, Department of Linguistics, Cognitive Science and Semiotics, Aarhus University, Denmark
   index: 1
   ror: 01aj84f44
+- name:  Department of Electrical and Computer Engineering - Biomedical Engineering, Aarhus University, Denmark
+  index: 2
+  ror: 01aj84f44
+- name: School of Culture and Society - Interacting Minds Centre, Aarhus University, Denmark
+  index: 3
+  ror: 01aj84f44
 
-date: 23 September 2025
+date: 1 October 2025
 bibliography: paper.bib
 ---
 
 # Summary
 
-The `liblsl` Dart package provides an API for Lab Streaming Layer (LSL) in Dart and Flutter applications. `liblsl` language wrappers exist for many programming languages, these languages, including the current `liblsl.dart` package are listed in the official [`liblsl` documentation](https://labstreaminglayer.readthedocs.io/info/language_wrappers.html) [@LiblslLanguageWrappers]. The Dart API for LSL allows developers and researchers to integrate LSL data stream production and consumption into Dart and Flutter applications, making it easier to build software that runs on a wide range of devices and platforms, lowering the barrier for entry and cost of replicating studies across labs and contexts. It enables real-time data streaming and synchronization across multiple platforms, including mobile (iOS, Android) and desktop (Windows, macOS, Linux). The package wraps the native LSL library [@stennerSccnLiblslV11622023] using Dart's native build system, which affords high performance and low latency data streaming. Streamed data can be processed in real-time or recorded for subsequent analysis. This package is designed to provide both a low-level interface to the native LSL library and a higher-level utility API to remove the need for direct memory management and provide additional functionality, while keeping performance as close to the native library as possible (Figure 1).
-
-![Figure 1. Distribution plots showing latency (Panel A) and inter-sample interval (ISI, Panel B) for two iPads, both producing one, and consuming two (one stream from itself, one stream from the other device) data streams with 16 channels each at a frequency of 1000Hz over a 1Gbps wired ethernet connection. iPad 1 Latency: n = 180000, Mean = 42µs, SD = 45µs | iPad 2 Latency: n = 179962, Mean = 49µs, SD = 48µs; iPad 1 ISI: n = 179999, Mean = 1000µs, SD = 115µs | iPad 2 ISI: n = 179999, Mean = 1000µs, SD = 131µs.](./figures/plot_latency_isi.png)
+The `liblsl` Dart package is the first implementation of Lab Streaming Layer (LSL) in the Dart and Flutter ecosystem, enabling easy deployment and integration of LSL's multimodal data streaming capabilities into different hardware and software platforms from using the same source code. LSL is a widely-adopted tool for real-time multimodal data acqusition and synchronization in research, and while LSL has been [implemented in many languages](https://labstreaminglayer.readthedocs.io/info/language_wrappers.html), none of these programming languages currently offer Dart and Flutter's 'write-once, deploy everywhere' capacity to target mobile (iOS, Android) and desktop (Linux, macOS, Windows) platforms [@LiblslLanguageWrappers].This package combines native LSL performance, with Dart-specific language features including type-safe inlets and outlets, automated memory management and utilities for high-performance inlet polling and LSL API configuration. 
 
 # Statement of need
 
-In academic research and industry settings, there is often a need to acquire, synchronize, and process data from multiple sources in real-time . For example, multimodal experiments, group research and electroencephalography (EEG) hyperscanning [@zammPracticalGuideEEG2024b] studies will often simultaneously record neural, behavioural (e.g. input and reaction times) and biometric (e.g. heart rate, skin conductance) data from multiple participants. In such experiments, ensuring recorded data is precisely time-synchronized across all devices can present a significant challenge [@dolmans2020data], yet it is critical for valid analysis and interpretation. LSL is designed, and widely used for multimodal data acquisition and synchronization as a software-based alternative to bespoke or costly hardware solutions [@kotheLabStreamingLayer2025; @iwamaTwoCommonIssues2024]. This current package provides a novel way to integrate LSL into applications that run on lab computers as well as consumer devices including smartphones and tablets. For researchers and other users of this package, real-time and offline data acquisition can be built from a single codebase, and source code with platform-specific compiled applications may be shared to provide an acessible means for running distributed experiments and replicating studies.
+Neuroscience and behavioral research increasingly make use of consumer hardware due to its lower cost and sufficient performance for running experiments. However, integration of consumer devices into labaratory data acquisition pipelines can be challenging, requiring platform-specific development which decreases flexibility and hinders reproducibility. The `liblsl` Dart package addresses this gap by enabling researchers to deploy LSL-enabled applications across all major platforms from a single Dart/Flutter codebase. Potential use cases include mobile brain-computer interfaces using an electroencephalography (EEG) headset and a smartphone, hyperscanning studies that simultaneously collect [@zammPracticalGuideEEG2024b] neuroimaging data and behavioural data streamed over LSL from multiple participants using tablets, and distributed experiments where multiple labs using a variety of devices collect methodologically consistent data in a standardized format for analysis. 
+
+# Performance
+
+![Figure 1. Dart liblsl API latency plots. Panel A shows latency for an iPad and a Pixel 7a, each producing and consuming their own 1000 Hz data stream with 16 channels of float data. iPad Latency: n = 180000, Mean = 65µs, SD = 47µs | Pixel Latency: n = 180000, Mean = 281µs, SD = 425µs; Panel B shows latency for two iPads producing and consuming each other's 1000 Hz data stream with 16 channels of float data over a local wired 1Gbps network. iPad (between-device) Latency: n = 180000, Mean = 148µs, SD = 129µs. Note: Dashed lines represent the 1st and 3rd quartiles, solid line represents the median. Outliers > 500 ms not shown, but are included in the summary statistics calcultation.](./figures/plot_latency.png)
+
+By wrapping the native LSL library [@stennerSccnLiblslV11622023] using Dart's native build system and Foreign Function Interface (FFI), this package achieves microsecond-level latencies comparable to native implementations (Figure 1), and provides both low-level access to the full LSL API as well as higher-level abstractions for integration into applications. The results in Figure 1 indicate that while there are device-level difference in latency, ...
+
+# Example
+
+The following code demonstrates how a complete data streaming application can be built in under 30 lines of code:
+
+```dart
+import 'package:liblsl/lsl.dart';
+import 'dart:async';
+
+void main() async {
+  // Describe the stream
+  final info = await LSL.createStreamInfo(
+    streamName: 'Counter',
+    streamType: LSLContentType.markers,
+    channelCount: 1,
+    sampleRate: LSL_IRREGULAR_RATE,
+    channelFormat: LSLChannelFormat.int8,
+    sourceId: 'uniqueStreamId123',
+  );
+  // Create the outlet
+  final outlet = await LSL.createOutlet(streamInfo: info);
+
+  // Send data
+  for (var i = 0; i < 10; i++) {
+    final sample = [i];
+    outlet.pushSample(sample);
+    await Future.delayed(const Duration(milliseconds: 500));
+  }
+  // Clean up
+  outlet.destroy();
+  info.destroy();
+}
+```
+
+# Impact
+
+LSL lowers the complexity of multimodal time-synchronized data acquisition from multiple devices [@dolmans2020data; @iwamaTwoCommonIssues2024; @kotheLabStreamingLayer2025], and Dart/Flutter simplify cross-platform application development. Together, they provide a powerful toolset for researchers and developers to create flexible, reproducible, and accessible applications for data collection and analysis.
+
 
 # Acknowledgements
 
-## PhD Supervision
-
-- [Anna Zamm](https://pure.au.dk/portal/en/persons/azamm%40cc.au.dk), School of Communication and Culture, Department of Linguistics, Cognitive Science and Semiotics, Aarhus University, Denmark.
-- [Simon Lind Kappel](https://pure.au.dk/portal/en/persons/slk%40ece.au.dk), Department of Electrical and Computer Engineering - Biomedical Engineering, Aarhus University, Denmark.
-- [Chris Mathys](https://pure.au.dk/portal/en/persons/chmathys%40cas.au.dk), School of Culture and Society - Interacting Minds Centre, Aarhus University, Denmark.
-
-## Software
-
-- [liblsl](https://github.com/sccn/liblsl) by Christian A. Kothe
-- [Dart programming language](https://dart.dev/) by the Dart project authors, Google
+This library builds on [liblsl](https://github.com/sccn/liblsl) by Christian A. Kothe using the [Dart programming language](https://dart.dev/) by the Dart project authors, Google. Thanks to [Chadwick Boulay](https://orcid.org/0000-0003-1747-3931) and members of the [dart_community Discord](https://discord.gg/Qt6DgfAWWx) for help with debugging.
 
 # References

@@ -6,13 +6,24 @@ library(jsonlite)
 library(gridExtra)
 library(conflicted)
 library(ggprism)
-
-
+library(showtext)
 
 ####### SETUP #######
+# install the New Computer Modern Sans font from:
+# https://download.gnu.org.ua/release/newcm/
+jossFont <- "NewComputerModernSans10"
+jossFontFileName <- "NewCMSans10-Book.otf"
+jossFontFileNameBold <- "NewCMSans10-Bold.otf"
+
+
+font_add(
+    family = jossFont,
+    regular = jossFontFileName,
+    bold = jossFontFileNameBold,
+)
+showtext_auto() 
 
 ## Geom split violin from: https://stackoverflow.com/a/47652563/570122
-
 GeomSplitViolin <- ggproto("GeomSplitViolin", GeomViolin,
   draw_group = function(self, data, ..., draw_quantiles = NULL) {
     # Original function by Jan Gleixner (@jan-glx)
@@ -69,8 +80,15 @@ geom_split_violin <- function(mapping = NULL, data = NULL, stat = "ydensity", po
 }
 
 # File paths
-ipad1_raw_data_path <- "ipad1_lsl_events_1749221727447_latency_wcorrection.tsv"
-ipad2_raw_data_path <- "ipad2_lsl_events_1749221766177_latency_wcorrection.tsv"
+ipad1_raw_data_path <- "ipad1_lsl_events_1759406662174.tsv"
+ipad2_raw_data_path <- "ipad2_lsl_events_1759406625793.tsv"
+pixel_raw_data_path <- "pixel_events_1759241635843.tsv"
+
+# Ipad 1 -> networked to ipad 2
+device_1_id <- "ipad1_001"
+device_2_id <- "ipad2_002"
+# Pixel 7a -> no networking, only self latency
+device_3_id <- "127_DID"
 
 # Columns
 log_colnames <- c(
@@ -117,22 +135,28 @@ ipad2_raw <- read_tsv(ipad2_raw_data_path,
     skip = 1
 )
 
+pixel_raw <- read_tsv(pixel_raw_data_path,
+    col_names = log_colnames,
+    col_types = log_coldef,
+    skip = 1
+)
+
 # Parse JSON metadata
 # sample metadata:
 # {
-#     "sampleId": "LatencyTest_ipad2_002_45",
+#     "sampleId": "LatencyTest_pixel_002_45",
 #     "counter": 45,
 #     "lslTimestamp": 5468.316284458,
 #     "lslSent": 5468.3162845,
 #     "dartTimestamp": 1748518239092311,
-#     "sourceId": "LatencyTest_ipad2_002",
-#     "reportingDeviceId": "ipad2_002",
+#     "sourceId": "LatencyTest_pixel_002",
+#     "reportingDeviceId": "pixel_002",
 #     "reportingDeviceName": "ipad2",
 #     "testType": "",
 #     "testId": ""
 # }
 
-ipad1_parsed <- ipad1_raw %>%
+ipad_parsed <- ipad1_raw %>%
     dplyr::mutate(
         metadata = map(metadata, ~ {
             json_data <- fromJSON(.)
@@ -147,16 +171,24 @@ ipad2_parsed <- ipad2_raw %>%
     dplyr::mutate(
         metadata = map(metadata, ~ {
             json_data <- fromJSON(.)
-            # Convert NULL values to NA and ensure all elements are vectors
             json_data[sapply(json_data, is.null)] <- NA
             as_tibble(json_data)
         })
     ) %>%
     unnest(cols = c(metadata))
-    
+
+pixel_parsed <- pixel_raw %>%
+    dplyr::mutate(
+        metadata = map(metadata, ~ {
+            json_data <- fromJSON(.)
+            json_data[sapply(json_data, is.null)] <- NA
+            as_tibble(json_data)
+        })
+    ) %>%
+    unnest(cols = c(metadata))
 
 # Join the two datasets
-combined_data <- bind_rows(ipad1_parsed, ipad2_parsed)
+combined_data <- bind_rows(ipad_parsed, ipad2_parsed, pixel_parsed)
 
 # Filter out testStarted events
 sample_data <- combined_data %>%
@@ -171,15 +203,6 @@ received_events <- sample_data %>%
     dplyr::filter(event_type == "EventType.sampleReceived") %>%
     dplyr::arrange(sourceId, counter, reportingDeviceId)
 
-# Calculate ISI for samples sent from each device
-production_isi <- sent_events %>%
-    group_by(sourceId) %>%
-    dplyr::arrange(counter) %>%
-    dplyr::mutate(
-        dart_isi = c(NA, diff(dartTimestamp / 1000))  # Convert to milliseconds
-    ) %>%
-    ungroup()
-
 # Create a lookup table for sent event timestamps
 sent_lookup <- sent_events %>%
     dplyr::mutate(raw_sent_dart_timestamp = dartTimestamp / 1000000) %>%  # Raw timestamp in seconds
@@ -188,27 +211,46 @@ sent_lookup <- sent_events %>%
     distinct()
 
 same_device_latency <- received_events %>%
-    dplyr::filter(str_extract(sourceId, "ipad[12]") == reportingDeviceName) %>%
-    left_join(sent_lookup, by = "sampleId") %>%
+    dplyr::filter(str_extract(sourceId, paste0("(", device_1_id, "|", device_3_id, ")"), group = 1) == reportingDeviceId) %>%
+    inner_join(sent_lookup, by = "sampleId") %>%
     dplyr::mutate(
-        dart_latency = (timestamp - raw_sent_dart_timestamp) * 1000  # Convert to milliseconds
+        dart_latency = (timestamp - raw_sent_dart_timestamp) * 1000,  # Convert to milliseconds
+        lsl_latency = (lslReceived - (lslTimestamp + lslTimeCorrection)) * 1000,  # Convert to milliseconds
+        sampleId = as.numeric(str_extract(sampleId, "[^_]+$"))
+    )
+
+# between-device latency (if applicable, i.e. run simultaneously on the network)
+
+between_device_latency <- received_events %>%
+    dplyr::filter(str_extract(sourceId, paste0("(", device_1_id, "|", device_2_id, ")"), group = 1) != reportingDeviceId) %>%
+    inner_join(sent_lookup, by = "sampleId") %>%
+    dplyr::mutate(
+        dart_latency = (timestamp - raw_sent_dart_timestamp) * 1000,  # Convert to milliseconds
+        lsl_latency = (lslReceived - (lslTimestamp + lslTimeCorrection)) * 1000,   # Convert to milliseconds
+        # get sample id (last number after last underscore)
+        sampleId = as.numeric(str_extract(sampleId, "[^_]+$"))
     )
 
 # Calculate summary statistics
 calc_summary <- function(data, metric_name) {
     
     dart_col <- paste0("dart_", metric_name)
+    lsl_col <- paste0("lsl_", metric_name)
     # Filter data that has non-missing values for Dart metric
     dart_data <- data %>%
-        dplyr::filter(!is.na(get(dart_col)))
+        dplyr::filter(!is.na(dart_col))
 
     if (nrow(dart_data) > 0) {
         dart_stats <- dart_data %>%
             dplyr::summarise(
                 min = min(get(dart_col), na.rm = TRUE) * 1000,
+                lsl_min = min(get(lsl_col), na.rm = TRUE) * 1000,
                 max = max(get(dart_col), na.rm = TRUE) * 1000,
+                lsl_max = max(get(lsl_col), na.rm = TRUE) * 1000,
                 mean = mean(get(dart_col), na.rm = TRUE) * 1000,
+                lsl_mean = mean(get(lsl_col), na.rm = TRUE) * 1000,
                 sd = sd(get(dart_col), na.rm = TRUE) * 1000,
+                lsl_sd = sd(get(lsl_col), na.rm = TRUE) * 1000,
                 count = n(),
                 .groups = "drop"
             ) %>%
@@ -225,76 +267,119 @@ calc_summary <- function(data, metric_name) {
 
 
 # Within-device latency violin plot
-same_device_dart <- same_device_latency %>%
-    select(device = reportingDeviceName, dart_latency) %>%
-    dplyr::filter(!is.na(dart_latency))
+same_device_plot_df <- same_device_latency %>%
+    select(device = reportingDeviceId, dart_latency, lsl_latency, sampleId) %>%
+    dplyr::filter(
+        !is.na(lsl_latency) &
+        device %in% c(device_1_id, device_3_id)) %>%
+        # sort by device
+        dplyr::arrange(device, sampleId)
 
-p1 <- ggplot(same_device_dart, aes(x = "iPad 1 | iPad 2", y = dart_latency, fill = device)) +
-    geom_split_violin(alpha = 0.7, draw_quantiles = c(0.25,0.50,0.75), linewidth=0.2) +
-    labs(title = "A) Send-Receieve Latency",
+same_device_plot_df$device <- factor(same_device_plot_df$device,
+    levels = c(device_1_id, device_3_id),
+    labels = c("iPad", "Pixel 7a")
+)
+
+local_outliers_over_500us <- nrow(same_device_plot_df[same_device_plot_df$lsl_latency > 0.5,])
+median.quartile <- function(x){
+  out <- quantile(x, probs = c(0.25,0.5,0.75))
+  names(out) <- c("25","50","75")
+  return(out) 
+}
+local_quartiles_dev1 <- median.quartile(same_device_plot_df[same_device_plot_df$device == "iPad",]$lsl_latency)
+local_quartiles_dev2 <- median.quartile(same_device_plot_df[same_device_plot_df$device == "Pixel 7a",]$lsl_latency)
+
+p1 <- ggplot(same_device_plot_df[same_device_plot_df$lsl_latency <= 0.5,], aes(x = "iPad1 | Pixel", y = lsl_latency, fill = device)) +
+    geom_split_violin(alpha = 0.7, linewidth=0.2, na.rm = TRUE) +
+    labs(title = "A) API latency",
          x = NULL, y = "Latency (ms)") +
-    theme_prism(base_size = 14) +
+    theme_prism(base_size = 12, base_family = jossFont, base_fontface = "plain") +
+    geom_segment(aes(y=local_quartiles_dev1["25"], x=0.572, xend=1), linetype = "dashed", color = "#000000", linewidth=0.2) +
+    geom_segment(aes(y=local_quartiles_dev1["50"], x=0.597, xend=1), linetype = "solid", color = "#000000", linewidth=0.2) +
+    geom_segment(aes(y=local_quartiles_dev1["75"], x=0.829, xend=1), linetype = "dashed", color = "#000000", linewidth=0.2) +
+    geom_segment(aes(y=local_quartiles_dev2["25"], x=1, xend=1.122), linetype = "dashed", color = "#000000", linewidth=0.2) +
+    geom_segment(aes(y=local_quartiles_dev2["50"], x=1, xend=1.138), linetype = "solid", color = "#000000", linewidth=0.2) +
+    geom_segment(aes(y=local_quartiles_dev2["75"], x=1, xend=1.063), linetype = "dashed", color = "#000000", linewidth=0.2) +
     scale_y_continuous(
-        limits = c(0, 2),
-        breaks = seq(0, 2, by = 0.5),
-        minor_breaks = seq(0, 2, by = 0.1),
+        limits = c(0, 0.5),
+        breaks = seq(0, 0.5, by = 0.1),
+        minor_breaks = seq(0, 0.5, by = 0.02),
         guide = "prism_offset_minor"
     ) +
+    scale_x_discrete(expand = c(-0.5, 0.5)) +
     scale_fill_brewer(type = "qual", palette = "Set1") +
     theme(legend.position = "none",
-          plot.title = element_text(size = 14))
+          plot.title = element_text(size = 13, face = "bold"))
 
-# ISI production violin plot
-production_dart <- production_isi %>%
-    select(sourceId, dart_isi) %>%
-    dplyr::mutate(device = str_extract(sourceId, "ipad[12]")) %>%
-    dplyr::filter(!is.na(dart_isi))
+# between-device latency plot
+between_device_plot_df <- between_device_latency %>%
+    select(device = reportingDeviceId, sourceId, dart_latency, lsl_latency, sampleId) %>%
+    dplyr::filter(
+        !is.na(lsl_latency) &
+        device %in% c(device_1_id)) %>%
+        # sort by device
+        dplyr::arrange(device, sampleId)
 
-p2 <- ggplot(production_dart, aes(x = "iPad 1 | iPad 2", y = dart_isi, fill = device)) +
-    geom_split_violin(alpha = 0.7, draw_quantiles = c(0.25,0.50,0.75), linewidth=0.2) +
-    labs(title = "B) Sample production ISI",
-         x = NULL, y = "Inter-Sample Interval (ms)") +
-     theme_prism(base_size = 14) +
+between_device_plot_df$device <- factor(between_device_plot_df$device,
+    levels = c(device_1_id),
+    labels = c("iPad1")
+)
+
+net_outliers_over_500us <- nrow(between_device_plot_df[between_device_plot_df$lsl_latency > 0.5,])
+
+net_quartiles_dev1 <- median.quartile(between_device_plot_df$lsl_latency)
+
+p2 <- ggplot(between_device_plot_df[between_device_plot_df$lsl_latency <= 0.5,], aes(x = "iPad 2 <-> iPad 1", y = lsl_latency, fill = device)) +
+    geom_violin(alpha = 0.7, linewidth=0.2, na.rm = TRUE) +
+    labs(title = "B) API + Network latency",
+         x = NULL, y = "Latency (ms)") +
+     theme_prism(base_size = 12, base_family = jossFont, base_fontface = "plain") +
     scale_y_continuous(
-        limits = c(0, 2),
-        breaks = seq(0, 2, by = 0.5),
-        minor_breaks = seq(0, 2, by = 0.1),
+        limits = c(0, 0.5),
+        breaks = seq(0, 0.5, by = 0.1),
+        minor_breaks = seq(0, 0.5, by = 0.02),
         guide = "prism_offset_minor"
     ) +
+    geom_segment(aes(y=net_quartiles_dev1["25"], x=0.6, xend=1.4), linetype = "dashed", color = "#000000", linewidth=0.2) +
+    geom_segment(aes(y=net_quartiles_dev1["50"], x=0.553, xend=1.447), linetype = "solid", color = "#000000", linewidth=0.2) +
+    geom_segment(aes(y=net_quartiles_dev1["75"], x=0.68, xend=1.32), linetype = "dashed", color = "#000000", linewidth=0.2) +
     scale_fill_brewer(type = "qual", palette = "Set1") +
     theme(legend.position = "none",
-          plot.title = element_text(size = 14))
+          plot.title = element_text(size = 13, face = "bold"))
 
 
 
 plot.out <- grid.arrange(p1, p2, nrow = 1, widths = c(1, 1))
-ggsave("plot_latency_isi.png", plot.out, width = 7, height = 5, dpi = 300)
+ggsave("plot_latency.png", plot.out, width = 7, height = 4, dpi = 300)
 
 
-ipad1_latency_summary <- calc_summary(same_device_dart[same_device_dart$device == "ipad1",], "latency")
-ipad2_latency_summary <- calc_summary(same_device_dart[same_device_dart$device == "ipad2",], "latency")
+ipad_latency_summary <- calc_summary(same_device_plot_df[same_device_plot_df$device == "iPad",], "latency")
+pixel_latency_summary <- calc_summary(same_device_plot_df[same_device_plot_df$device == "Pixel 7a",], "latency")
 
-ipad1_isi_summary <- calc_summary(production_dart[production_dart$device == "ipad1",], "isi")
-ipad2_isi_summary <- calc_summary(production_dart[production_dart$device == "ipad2",], "isi")
-# micro symbol: µ 
+# do a between-device latency summary
+between_device_lsl <- between_device_plot_df %>%
+    select(device, dart_latency, lsl_latency) %>%
+    dplyr::filter(!is.na(dart_latency))
+
+between_device_latency_summary <- calc_summary(between_device_lsl, "latency")
 figcaption <- paste0(
-    "Figure 1. Distribution plots showing latency (Panel A) and inter-sample interval (ISI, Panel B) ",
-    "for two iPads, both producing one, and consuming two (one stream from itself, ",
-    "one stream from the other device) data streams with 16 channels each at a ",
-    "frequency of 1000Hz over a 1Gbps wired ethernet connection. ",
-    "iPad 1 Latency: n = ", ipad1_latency_summary$count,
-    ", Mean = ", round(ipad1_latency_summary$mean, 0),
-    "µs, SD = ", round(ipad1_latency_summary$sd, 0),
-    "µs | iPad 2 Latency: n = ", ipad2_latency_summary$count,
-    ", Mean = ", round(ipad2_latency_summary$mean, 0),
-    "µs, SD = ", round(ipad2_latency_summary$sd, 0),
+    "Figure 1. Dart liblsl API latency plots. Panel A shows latency ",
+    "for an iPad and a Pixel 7a, each producing and consuming their own 1000 Hz ",
+    "data stream with 16 channels of float data. ",
+    "iPad Latency: n = ", ipad_latency_summary$count,
+    ", Mean = ", round(ipad_latency_summary$lsl_mean, 0),
+    "µs, SD = ", round(ipad_latency_summary$lsl_sd, 0),
+    "µs | Pixel Latency: n = ", pixel_latency_summary$count,
+    ", Mean = ", round(pixel_latency_summary$lsl_mean, 0),
+    "µs, SD = ", round(pixel_latency_summary$lsl_sd, 0),
     "µs; ",
-    "iPad 1 ISI: n = ", ipad1_isi_summary$count,
-    ", Mean = ", round(ipad1_isi_summary$mean, 0),
-    "µs, SD = ", round(ipad1_isi_summary$sd, 0),
-    "µs | iPad 2 ISI: n = ", ipad2_isi_summary$count,
-    ", Mean = ", round(ipad2_isi_summary$mean, 0),
-    "µs, SD = ", round(ipad2_isi_summary$sd, 0),
-    "µs."
+    "Panel B shows latency for two iPads producing and consuming each other's 1000 Hz ",
+    "data stream with 16 channels of float data over a local wired 1Gbps network. ",
+    "iPad (between-device) Latency: n = ", between_device_latency_summary$count,
+    ", Mean = ", round(between_device_latency_summary$lsl_mean, 0),
+    "µs, SD = ", round(between_device_latency_summary$lsl_sd, 0),
+    "µs. ",
+    "Note: Dashed lines represent the 1st and 3rd quartiles, solid line represents the median. ",
+    "Outliers > 500 ms not shown, but are included in the summary statistics calcultation. "
 )
 cat(figcaption)
