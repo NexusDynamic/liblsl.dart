@@ -7,6 +7,7 @@ library(gridExtra)
 library(conflicted)
 library(ggprism)
 library(showtext)
+library(knitr)
 
 ####### SETUP #######
 # install the New Computer Modern Sans font from:
@@ -291,7 +292,7 @@ local_quartiles_dev2 <- median.quartile(same_device_plot_df[same_device_plot_df$
 
 p1 <- ggplot(same_device_plot_df[same_device_plot_df$lsl_latency <= 0.5,], aes(x = "iPad1 | Pixel", y = lsl_latency, fill = device)) +
     geom_split_violin(alpha = 0.7, linewidth=0.2, na.rm = TRUE) +
-    labs(title = "A) API latency",
+    labs(title = "(A) API latency",
          x = NULL, y = "Latency (ms)") +
     theme_prism(base_size = 12, base_family = jossFont, base_fontface = "plain") +
     geom_segment(aes(y=local_quartiles_dev1["25"], x=0.572, xend=1), linetype = "dashed", color = "#000000", linewidth=0.2) +
@@ -331,7 +332,7 @@ net_quartiles_dev1 <- median.quartile(between_device_plot_df$lsl_latency)
 
 p2 <- ggplot(between_device_plot_df[between_device_plot_df$lsl_latency <= 0.5,], aes(x = "iPad 2 <-> iPad 1", y = lsl_latency, fill = device)) +
     geom_violin(alpha = 0.7, linewidth=0.2, na.rm = TRUE) +
-    labs(title = "B) API + Network latency",
+    labs(title = "(B) API + Network latency",
          x = NULL, y = "Latency (ms)") +
      theme_prism(base_size = 12, base_family = jossFont, base_fontface = "plain") +
     scale_y_continuous(
@@ -362,24 +363,22 @@ between_device_lsl <- between_device_plot_df %>%
     dplyr::filter(!is.na(dart_latency))
 
 between_device_latency_summary <- calc_summary(between_device_lsl, "latency")
-figcaption <- paste0(
-    "Figure 1. Dart liblsl API latency plots. Panel A shows latency ",
-    "for an iPad and a Pixel 7a, each producing and consuming their own 1000 Hz ",
-    "data stream with 16 channels of float data. ",
-    "iPad Latency: n = ", ipad_latency_summary$count,
-    ", Mean = ", round(ipad_latency_summary$lsl_mean, 0),
-    "µs, SD = ", round(ipad_latency_summary$lsl_sd, 0),
-    "µs | Pixel Latency: n = ", pixel_latency_summary$count,
-    ", Mean = ", round(pixel_latency_summary$lsl_mean, 0),
-    "µs, SD = ", round(pixel_latency_summary$lsl_sd, 0),
-    "µs; ",
-    "Panel B shows latency for two iPads producing and consuming each other's 1000 Hz ",
-    "data stream with 16 channels of float data over a local wired 1Gbps network. ",
-    "iPad (between-device) Latency: n = ", between_device_latency_summary$count,
-    ", Mean = ", round(between_device_latency_summary$lsl_mean, 0),
-    "µs, SD = ", round(between_device_latency_summary$lsl_sd, 0),
-    "µs. ",
-    "Note: Dashed lines represent the 1st and 3rd quartiles, solid line represents the median. ",
-    "Outliers > 500 ms not shown, but are included in the summary statistics calcultation. "
-)
-cat(figcaption)
+
+# LSL latency markdown table
+lsl_latency_summary_table <- bind_rows(ipad_latency_summary, pixel_latency_summary, between_device_latency_summary) %>%
+    dplyr::mutate(
+        Condition = c("Local", "Local", "Network"),
+        Device = c("iPad Pro M4", "Pixel 7a", "iPad Pro M4"),
+    ) %>%
+    select(
+        Condition,
+        Device,
+        "n" = count,
+        "Min (µs)" = lsl_min,
+        "Max (µs)" = lsl_max,
+        "Mean (µs)" = lsl_mean,
+        "SD (µs)" = lsl_sd
+    ) %>%
+    dplyr::mutate(across(c("Min (µs)", "Max (µs)", "Mean (µs)", "SD (µs)"), ~ round(.x, 0)))
+
+print(knitr::kable(lsl_latency_summary_table, format = "markdown"))

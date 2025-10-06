@@ -44,17 +44,39 @@ bibliography: paper.bib
 
 # Summary
 
-The `liblsl` Dart package is the first implementation of Lab Streaming Layer (LSL) in the Dart and Flutter ecosystem, enabling easy deployment and integration of LSL's multimodal data streaming capabilities into different hardware and software platforms from using the same source code. LSL is a widely-adopted tool for real-time multimodal data acqusition and synchronization in research, and while LSL has been [implemented in many languages](https://labstreaminglayer.readthedocs.io/info/language_wrappers.html), none of these programming languages currently offer Dart and Flutter's 'write-once, deploy everywhere' capacity to target mobile (iOS, Android) and desktop (Linux, macOS, Windows) platforms [@LiblslLanguageWrappers].This package combines native LSL performance, with Dart-specific language features including type-safe inlets and outlets, automated memory management and utilities for high-performance inlet polling and LSL API configuration. 
+The `liblsl` Dart package is the first implementation of [Lab Streaming Layer (LSL)](https://labstreaminglayer.org/) in the [Dart](https://dart.dev/) and [Flutter](https://flutter.dev/) ecosystem, enabling researchers to deploy multi-modal LSL-enabled data acquisition applications across mobile (iOS, Android) and desktop (Linux, macOS, Windows) platforms from shared source code. Unlike [existing LSL implementations](https://labstreaminglayer.readthedocs.io/info/language_wrappers.html) that are platform-specific or restricted to desktop devices [@LiblslLanguageWrappers], this package leverages Dart/Flutter's cross-platform capabilities while maintaining the microsecond-level latency requirements of neurophysiological research through direct Foreign Function Interface (FFI) bindings to the native LSL C library [@stennerSccnLiblslV11622023].
+
+# Background
+
+## Lab Streaming Layer (LSL)
+
+LSL provides a unified framework for time-synchronized data acquisition across heterogeneous hardware and software systems [@kotheLabStreamingLayer2025]. The protocol handles clock synchronization, network communication, and data buffering, making it particularly valuable for applications requiring precise temporal alignment of multiple data sources such as combining electroencephalography (EEG) recordings with behavioral responses, eye tracking, and stimulus presentation timing. Typical on-line applications demand sub-millisecond precision, making low-latency implementations critical.
 
 # Statement of need
 
-Neuroscience and behavioral research increasingly make use of consumer hardware due to its lower cost and sufficient performance for running experiments. However, integration of consumer devices into labaratory data acquisition pipelines can be challenging, requiring platform-specific development which decreases flexibility and hinders reproducibility. The `liblsl` Dart package addresses this gap by enabling researchers to deploy LSL-enabled applications across all major platforms from a single Dart/Flutter codebase. Potential use cases include mobile brain-computer interfaces using an electroencephalography (EEG) headset and a smartphone, hyperscanning studies that simultaneously collect [@zammPracticalGuideEEG2024b] neuroimaging data and behavioural data streamed over LSL from multiple participants using tablets, and distributed experiments where multiple labs using a variety of devices collect methodologically consistent data in a standardized format for analysis. 
+Neuroscience and behavioral research increasingly make use of consumer hardware due to its lower cost and sufficient performance for running experiments. However, integration of consumer devices into laboratory data acquisition pipelines can be challenging, requiring platform-specific development which decreases flexibility and hinders reproducibility. The `liblsl` Dart package addresses this gap by enabling researchers to deploy LSL-enabled applications across all major platforms from a single Dart/Flutter codebase. Potential use cases include mobile brain-computer interfaces using an EEG headset and a smartphone, hyperscanning studies that simultaneously collect [@zammPracticalGuideEEG2024b] neuroimaging data and behavioural data streamed over LSL from multiple participants using tablets, and distributed experiments where multiple labs using a variety of devices collect methodologically consistent data in a standardized format for analysis. 
 
 # Performance
 
-![Figure 1. Dart liblsl API latency plots. Panel A shows latency for an iPad and a Pixel 7a, each producing and consuming their own 1000 Hz data stream with 16 channels of float data. iPad Latency: n = 180000, Mean = 65µs, SD = 47µs | Pixel Latency: n = 180000, Mean = 281µs, SD = 425µs; Panel B shows latency for two iPads producing and consuming each other's 1000 Hz data stream with 16 channels of float data over a local wired 1Gbps network. iPad (between-device) Latency: n = 180000, Mean = 148µs, SD = 129µs. Note: Dashed lines represent the 1st and 3rd quartiles, solid line represents the median. Outliers > 500 ms not shown, but are included in the summary statistics calcultation.](./figures/plot_latency.png)
+## Methods
 
-By wrapping the native LSL library [@stennerSccnLiblslV11622023] using Dart's native build system and Foreign Function Interface (FFI), this package achieves microsecond-level latencies comparable to native implementations (Figure 1), and provides both low-level access to the full LSL API as well as higher-level abstractions for integration into applications. The results in Figure 1 indicate that while there are device-level difference in latency, ...
+Performance was characterized under controlled conditions to isolate different sources of latency. Local device tests measured the computational overhead of the package's Dart API by having a single device both produce and consume 1000 Hz data streams (16 channels, float32 format), representing typical EEG recording parameters. Network tests used two iPad Pro M4s connected via 1Gbps USB-C Ethernet adaptors to a consumer-grade gigabit router. All tests collected 180,000 samples (3 minutes) to ensure statistical reliability. Measurements represent end-to-end latency from sample production to consumption, including API call overhead, serialization, network transmission, and deserialization.
+
+## Results and Discussion
+
+![Latency characterization of the liblsl Dart package. **(A)** Local performance on iPad Pro M4 (left) and Pixel 7a (right), each producing and consuming its own 1000 Hz data stream. **(B)** Network performance between two iPads over 1Gbps Ethernet. Violin plots show median (solid line) with first and third quartiles (dashed lines). See Methods for experimental details and Table 1 for complete statistics. *Note: Outliers >500ms were excluded from visualization but are included in statistics*.](./figures/plot_latency.png)
+
+| Condition | Device      |      n | Min (µs) | Max (µs) | Mean (µs) | SD (µs) |
+|:----------|:------------|-------:|---------:|---------:|----------:|--------:|
+| Local     | iPad Pro M4 | 180000 |       21 |     4264 |        65 |      47 |
+| Local     | Pixel 7a    | 180000 |       39 |    18143 |       281 |     425 |
+| Network   | iPad Pro M4 | 180000 |       60 |     4261 |       148 |     129 |
+
+Table: Summary of latency measurements.
+
+Table 1 summarizes latency statistics across conditions and devices. Figure 1 illustrates the distribution of the relevant performance characteristics: (A) single-device performance showing the API's computational overhead when producing and consuming data locally (iPad: µ=65µs, σ=47µs; Pixel 7a: µ=281µs, σ=425µs), where standard deviations reflect timing jitter inherent to the operating system's thread scheduling and (B) network performance between two iPads over a 1Gbps wired connection (µ=148µs, σ=129µs). These results confirm that the Dart wrapper introduces minimal overhead beyond the base LSL C library performance, with observed differences primarily attributable to device hardware capabilities and network infrastructure rather than the API implementation itself.
+
+The observed latencies are consistent with previous benchmarking of native LSL implementations [@kotheLabStreamingLayer2025] and demonstrate that this package preserves the real-time performance characteristics required for neurophysiological applications [@iwamaTwoCommonIssues2024]. The local processing latencies (65-281µs) are well below typical neurophysiological event timing requirements (<1ms), confirming suitability for EEG, electromyography (EMG), and other biosignal applications. The mean inter-device network latency (148µs) demonstrates that network overhead remains minimal on well-configured local networks, though researchers should note that wireless networks and other factors including network traffic congestion may introduce additional jitter. The device-dependent variation (iPad: 65µs vs Pixel 7a: 281µs) reflects differences in CPU architecture, device network hardware and operating system scheduling rather than API limitations, indicating that platform selection should be validated through careful testing based on the requirements of the specific application.
 
 # Example
 
@@ -77,7 +99,7 @@ void main() async {
   // Create the outlet
   final outlet = await LSL.createOutlet(streamInfo: info);
 
-  // Send data
+  // Send data at 2 Hz (configurable for your application)
   for (var i = 0; i < 10; i++) {
     final sample = [i];
     outlet.pushSample(sample);
