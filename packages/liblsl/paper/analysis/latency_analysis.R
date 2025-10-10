@@ -16,7 +16,6 @@ jossFont <- "NewComputerModernSans10"
 jossFontFileName <- "NewCMSans10-Book.otf"
 jossFontFileNameBold <- "NewCMSans10-Bold.otf"
 
-
 font_add(
     family = jossFont,
     regular = jossFontFileName,
@@ -83,13 +82,13 @@ geom_split_violin <- function(mapping = NULL, data = NULL, stat = "ydensity", po
 # File paths
 ipad1_raw_data_path <- "ipad1_lsl_events_1759406662174.tsv"
 ipad2_raw_data_path <- "ipad2_lsl_events_1759406625793.tsv"
-pixel_raw_data_path <- "pixel_events_1759241635843.tsv"
+pixel_raw_data_path <- "pixel_events_1760093831497.tsv"
 
 # Ipad 1 -> networked to ipad 2
 device_1_id <- "ipad1_001"
 device_2_id <- "ipad2_002"
 # Pixel 7a -> no networking, only self latency
-device_3_id <- "127_DID"
+device_3_id <- "pixel7a"
 
 # Columns
 log_colnames <- c(
@@ -290,17 +289,17 @@ median.quartile <- function(x){
 local_quartiles_dev1 <- median.quartile(same_device_plot_df[same_device_plot_df$device == "iPad",]$lsl_latency)
 local_quartiles_dev2 <- median.quartile(same_device_plot_df[same_device_plot_df$device == "Pixel 7a",]$lsl_latency)
 
-p1 <- ggplot(same_device_plot_df[same_device_plot_df$lsl_latency <= 0.5,], aes(x = "iPad1 | Pixel", y = lsl_latency, fill = device)) +
+p1 <- ggplot(same_device_plot_df[same_device_plot_df$lsl_latency <= 0.5,], aes(x = "    iPad | Pixel 7a", y = lsl_latency, fill = device)) +
     geom_split_violin(alpha = 0.7, linewidth=0.2, na.rm = TRUE) +
     labs(title = "(A) API latency",
          x = NULL, y = "Latency (ms)") +
     theme_prism(base_size = 12, base_family = jossFont, base_fontface = "plain") +
-    geom_segment(aes(y=local_quartiles_dev1["25"], x=0.572, xend=1), linetype = "dashed", color = "#000000", linewidth=0.2) +
-    geom_segment(aes(y=local_quartiles_dev1["50"], x=0.597, xend=1), linetype = "solid", color = "#000000", linewidth=0.2) +
-    geom_segment(aes(y=local_quartiles_dev1["75"], x=0.829, xend=1), linetype = "dashed", color = "#000000", linewidth=0.2) +
-    geom_segment(aes(y=local_quartiles_dev2["25"], x=1, xend=1.122), linetype = "dashed", color = "#000000", linewidth=0.2) +
-    geom_segment(aes(y=local_quartiles_dev2["50"], x=1, xend=1.138), linetype = "solid", color = "#000000", linewidth=0.2) +
-    geom_segment(aes(y=local_quartiles_dev2["75"], x=1, xend=1.063), linetype = "dashed", color = "#000000", linewidth=0.2) +
+    geom_segment(aes(y=local_quartiles_dev1["25"], x=0.575, xend=1), linetype = "dashed", color = "#000000", linewidth=0.2) +
+    geom_segment(aes(y=local_quartiles_dev1["50"], x=0.62, xend=1), linetype = "solid", color = "#000000", linewidth=0.2) +
+    geom_segment(aes(y=local_quartiles_dev1["75"], x=0.831, xend=1), linetype = "dashed", color = "#000000", linewidth=0.2) +
+    geom_segment(aes(y=local_quartiles_dev2["25"], x=1, xend=1.095), linetype = "dashed", color = "#000000", linewidth=0.2) +
+    geom_segment(aes(y=local_quartiles_dev2["50"], x=1, xend=1.142), linetype = "solid", color = "#000000", linewidth=0.2) +
+    geom_segment(aes(y=local_quartiles_dev2["75"], x=1, xend=1.059), linetype = "dashed", color = "#000000", linewidth=0.2) +
     scale_y_continuous(
         limits = c(0, 0.5),
         breaks = seq(0, 0.5, by = 0.1),
