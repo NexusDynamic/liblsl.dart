@@ -4,6 +4,7 @@
 
 This package provides a Dart wrapper for liblsl, using the dart native-assets build system and ffi.
 
+Submitted [JOSS paper](./paper/paper.md): markdown version of the JOSS paper (pending review).
 
 ## Targets
 
