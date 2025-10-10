@@ -34,7 +34,7 @@ affiliations:
 - name: School of Culture and Society - Interacting Minds Centre, Aarhus University, Denmark
   index: 2
   ror: 01aj84f44
-- name:  Department of Electrical and Computer Engineering - Biomedical Engineering, Aarhus University, Denmark
+- name: Department of Electrical and Computer Engineering - Biomedical Engineering, Aarhus University, Denmark
   index: 3
   ror: 01aj84f44
 
