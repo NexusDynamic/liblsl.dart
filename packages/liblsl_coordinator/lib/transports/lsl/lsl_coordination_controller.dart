@@ -23,6 +23,7 @@ class CoordinationController {
   Timer? _nodeTimeoutTimer;
   StreamSubscription? _coordinationSubscription;
   StreamSubscription? _handlerSubscription;
+  StreamSubscription? _userMessageSubscription;
   StreamSubscription? _discoverySubscription;
   StreamSubscription? _streamReadySubscription;
 
@@ -47,6 +48,9 @@ class CoordinationController {
       StreamController<DestroyStreamMessage>.broadcast();
   final StreamController<UserCoordinationMessage> _userMessageController =
       StreamController<UserCoordinationMessage>.broadcast();
+  final StreamController<UserParticipantMessage>
+  _userParticipantMessageController =
+      StreamController<UserParticipantMessage>.broadcast();
   final StreamController<ConfigUpdateMessage> _configUpdateController =
       StreamController<ConfigUpdateMessage>.broadcast();
   final StreamController<Node> _nodeJoinedController =
@@ -74,6 +78,8 @@ class CoordinationController {
       _streamDestroyController.stream;
   Stream<UserCoordinationMessage> get userMessages =>
       _userMessageController.stream;
+  Stream<UserParticipantMessage> get userParticipantMessages =>
+      _userParticipantMessageController.stream;
   Stream<ConfigUpdateMessage> get configUpdates =>
       _configUpdateController.stream;
   Stream<Node> get nodeJoined => _nodeJoinedController.stream;
@@ -83,6 +89,7 @@ class CoordinationController {
   bool get isCoordinator => _state.isCoordinator;
   String? get coordinatorUId => _state.coordinatorUId;
   List<Node> get connectedNodes => _state.connectedNodes;
+  List<Node> get connectedParticipantNodes => _state.connectedParticipantNodes;
 
   CoordinationController({
     required this.coordinationConfig,
@@ -322,6 +329,8 @@ class CoordinationController {
     );
     _streamReadySubscription = _coordinatorHandler!.streamReadyNotifications
         .listen(_streamReadyController.add);
+    _userMessageSubscription = _coordinatorHandler!.userParticipantMessages
+        .listen(_userParticipantMessageController.add);
     // Start heartbeat
     _startHeartbeat();
 
@@ -364,6 +373,7 @@ class CoordinationController {
       _streamDestroyController.add,
     );
     _participantHandler!.userMessages.listen(_userMessageController.add);
+
     _participantHandler!.configUpdates.listen(_configUpdateController.add);
 
     // Send join request
@@ -631,7 +641,16 @@ class CoordinationController {
     Map<String, dynamic> payload,
   ) async {
     if (!_state.isCoordinator) {
-      throw StateError('Only coordinator can send user messages');
+      // @TODO: Implement properly
+      await _participantHandler!.sendMessage(
+        UserCoordinationMessage(
+          fromNodeUId: thisNode.uId,
+          messageId: messageId,
+          description: description,
+          payload: payload,
+        ),
+      );
+      return;
     }
     await _coordinatorHandler!.broadcastUserMessage(
       messageId,

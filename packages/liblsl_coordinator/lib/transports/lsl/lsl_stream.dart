@@ -1024,7 +1024,7 @@ class LSLDataStream extends DataStream<DataStreamConfig, IMessage>
             )
             ..setMetadata('lsl_timestamp', data.lslTimestamp)
             ..setMetadata('lsl_time_correction', data.lslTimeCorrection)
-            ..setMetadata('received_at', DateTime.now());
+            ..setMetadata('received_at', DateTime.now().toIso8601String());
         }
         break;
       case StreamDataType.int8:
@@ -1036,7 +1036,7 @@ class LSLDataStream extends DataStream<DataStreamConfig, IMessage>
             )
             ..setMetadata('lsl_timestamp', data.lslTimestamp)
             ..setMetadata('lsl_time_correction', data.lslTimeCorrection)
-            ..setMetadata('received_at', DateTime.now());
+            ..setMetadata('received_at', DateTime.now().toIso8601String());
         }
         break;
       case StreamDataType.int16:
@@ -1048,7 +1048,7 @@ class LSLDataStream extends DataStream<DataStreamConfig, IMessage>
             )
             ..setMetadata('lsl_timestamp', data.lslTimestamp)
             ..setMetadata('lsl_time_correction', data.lslTimeCorrection)
-            ..setMetadata('received_at', DateTime.now());
+            ..setMetadata('received_at', DateTime.now().toIso8601String());
         }
         break;
       case StreamDataType.int32:
@@ -1060,7 +1060,7 @@ class LSLDataStream extends DataStream<DataStreamConfig, IMessage>
             )
             ..setMetadata('lsl_timestamp', data.lslTimestamp)
             ..setMetadata('lsl_time_correction', data.lslTimeCorrection)
-            ..setMetadata('received_at', DateTime.now());
+            ..setMetadata('received_at', DateTime.now().toIso8601String());
         }
         break;
       case StreamDataType.int64:
@@ -1072,7 +1072,7 @@ class LSLDataStream extends DataStream<DataStreamConfig, IMessage>
             )
             ..setMetadata('lsl_timestamp', data.lslTimestamp)
             ..setMetadata('lsl_time_correction', data.lslTimeCorrection)
-            ..setMetadata('received_at', DateTime.now());
+            ..setMetadata('received_at', DateTime.now().toIso8601String());
         }
         break;
       case StreamDataType.string:
@@ -1084,7 +1084,7 @@ class LSLDataStream extends DataStream<DataStreamConfig, IMessage>
             )
             ..setMetadata('lsl_timestamp', data.lslTimestamp)
             ..setMetadata('lsl_time_correction', data.lslTimeCorrection)
-            ..setMetadata('received_at', DateTime.now());
+            ..setMetadata('received_at', DateTime.now().toIso8601String());
         }
         break;
     }
@@ -1217,7 +1217,7 @@ class LSLCoordinationStream
         )
         ..setMetadata('lsl_timestamp', data.lslTimestamp)
         ..setMetadata('lsl_time_correction', data.lslTimeCorrection)
-        ..setMetadata('received_at', DateTime.now());
+        ..setMetadata('received_at', DateTime.now().toIso8601String());
     }
     return null;
   }

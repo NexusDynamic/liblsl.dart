@@ -14,6 +14,7 @@ Submitted [JOSS paper](./paper/paper.md): markdown version of the JOSS paper (pe
 - [x] iOS
 - [x] Android
 - [ ] Web - Possibly in the future, see: [`native_assets_cli` build.dart / link.dart web backends and WasmCode and JsCode assets](https://github.com/dart-lang/native/issues/988)
+  - Alternatively, I have been working on the coordinator library, which currently only has an LSL backend implemented, but it might be possible to create a WebSockets version that can be used from a web app. This of course might be useful for WAN-based communication, but this is out of scope for this (LSL) package.
 
 Also confirmed working on:
 

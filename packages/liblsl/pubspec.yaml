@@ -22,7 +22,7 @@ dev_dependencies:
   ffigen: ^19.0.0
   lints: ^6.0.0
   test: ^1.26.0
-  dartdoc: ^8.3.3
+  dartdoc: ^9.0.0
 
 ffigen:
   name: Liblsl

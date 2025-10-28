@@ -31,6 +31,13 @@ class CoordinatorMessageHandler extends CoordinationMessageHandler {
   Stream<CoordinationMessage> get outgoingMessages =>
       _outgoingController.stream;
 
+  final StreamController<UserParticipantMessage>
+  _userParticipantMessageController =
+      StreamController<UserParticipantMessage>.broadcast();
+
+  Stream<UserParticipantMessage> get userParticipantMessages =>
+      _userParticipantMessageController.stream;
+
   final StreamController<StreamReadyMessage> _streamReadyController =
       StreamController<StreamReadyMessage>.broadcast();
   Stream<StreamReadyMessage> get streamReadyNotifications =>
@@ -54,6 +61,7 @@ class CoordinatorMessageHandler extends CoordinationMessageHandler {
           CoordinationMessageType.joinRequest,
           CoordinationMessageType.nodeLeaving,
           CoordinationMessageType.streamReady,
+          CoordinationMessageType.userParticipantMessage,
         }.contains(type);
   }
 

@@ -20,6 +20,7 @@ enum CoordinationMessageType {
   flushStream,
   destroyStream,
   userMessage,
+  userParticipantMessage,
   configUpdate,
   nodeLeaving,
 }
@@ -81,6 +82,8 @@ abstract class CoordinationMessage {
         return DestroyStreamMessage.fromMap(map);
       case CoordinationMessageType.userMessage:
         return UserCoordinationMessage.fromMap(map);
+      case CoordinationMessageType.userParticipantMessage:
+        return UserParticipantMessage.fromMap(map);
       case CoordinationMessageType.configUpdate:
         return ConfigUpdateMessage.fromMap(map);
       case CoordinationMessageType.nodeLeaving:
@@ -590,6 +593,44 @@ class UserCoordinationMessage extends CoordinationMessage {
 
   factory UserCoordinationMessage.fromMap(Map<String, dynamic> map) =>
       UserCoordinationMessage(
+        fromNodeUId: map['fromNodeUId'],
+        messageId: map['messageId'],
+        description: map['description'],
+        payload: Map<String, dynamic>.from(map['payload'] ?? {}),
+        timestamp: DateTime.parse(map['timestamp']),
+        metadata: Map<String, dynamic>.from(map['metadata'] ?? {}),
+      );
+}
+
+class UserParticipantMessage extends CoordinationMessage {
+  final String messageId;
+  final String description;
+  final Map<String, dynamic> payload;
+
+  UserParticipantMessage({
+    required super.fromNodeUId,
+    required this.messageId,
+    required this.description,
+    required this.payload,
+    super.timestamp,
+    super.metadata,
+  }) : super(type: CoordinationMessageType.userParticipantMessage);
+
+  @override
+  Map<String, dynamic> toMap() {
+    return {
+      'type': type.name,
+      'fromNodeUId': fromNodeUId,
+      'timestamp': timestamp.toIso8601String(),
+      'messageId': messageId,
+      'description': description,
+      'payload': payload,
+      'metadata': metadata,
+    };
+  }
+
+  factory UserParticipantMessage.fromMap(Map<String, dynamic> map) =>
+      UserParticipantMessage(
         fromNodeUId: map['fromNodeUId'],
         messageId: map['messageId'],
         description: map['description'],

@@ -44,6 +44,8 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
       _controller.streamDestroyCommands;
 
   Stream<UserCoordinationMessage> get userMessages => _controller.userMessages;
+  Stream<UserParticipantMessage> get userParticipantMessages =>
+      _controller.userParticipantMessages;
   Stream<ConfigUpdateMessage> get configUpdates => _controller.configUpdates;
   Stream<Node> get nodeJoined => _controller.nodeJoined;
   Stream<Node> get nodeLeft => _controller.nodeLeft;
@@ -53,6 +55,8 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
   bool get isCoordinator => _controller.isCoordinator;
   String? get coordinatorUId => _controller.coordinatorUId;
   List<Node> get connectedNodes => _controller.connectedNodes;
+  List<Node> get connectedParticipantNodes =>
+      _controller.connectedParticipantNodes;
 
   @override
   LSLTransport get transport => _transport;

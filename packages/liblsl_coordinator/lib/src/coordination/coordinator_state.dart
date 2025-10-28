@@ -51,6 +51,9 @@ class CoordinationState {
   bool get isCoordinator => _isCoordinator;
   String? get coordinatorUId => _coordinatorUId;
   List<Node> get connectedNodes => List.unmodifiable(_connectedNodes);
+  List<Node> get connectedParticipantNodes => _connectedNodes
+      .where((n) => n.role == NodeCapability.participant.toString())
+      .toList();
 
   Stream<CoordinationPhase> get phaseChanges => _phaseController.stream;
   Stream<Node> get nodeJoined => _nodeJoinedController.stream;
