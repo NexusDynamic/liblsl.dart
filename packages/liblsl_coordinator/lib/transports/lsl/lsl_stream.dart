@@ -911,7 +911,8 @@ class LSLDataStream extends DataStream<DataStreamConfig, IMessage>
   final LSLTransport lslTransport;
 
   @override
-  bool get useBusyWaitInlets => true; // Use busy-wait for data stream inlets
+  // Use busy-wait for data stream inlets if precise polling is enabled
+  bool get useBusyWaitInlets => config.precisePolling;
   @override
   bool get useBusyWaitOutlets => false; // Event-driven outlets for data streams
 

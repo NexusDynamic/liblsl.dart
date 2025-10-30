@@ -140,6 +140,12 @@ class DataStreamConfig extends NetworkStreamConfig {
   /// Defines who should participate in this data stream
   final StreamParticipationMode participationMode;
 
+  /// Whether precise polling is enabled for this data stream.
+  /// i.e. with the LSL transport, it will use busy-waiting to achieve lower
+  /// latency at the cost of higher CPU usage.
+  /// Defaults to true.
+  final bool precisePolling;
+
   /// Transport-specific configuration for the data stream.
   @override
   TransportStreamConfig? get transportConfig => _transportConfig;
@@ -153,6 +159,7 @@ class DataStreamConfig extends NetworkStreamConfig {
     required super.sampleRate,
     required super.dataType,
     this.participationMode = StreamParticipationMode.sendAllReceiveCoordinator,
+    this.precisePolling = true,
     TransportStreamConfig? transportConfig,
   }) : _transportConfig = transportConfig;
 
@@ -160,6 +167,7 @@ class DataStreamConfig extends NetworkStreamConfig {
   Map<String, dynamic> toMap() {
     final map = super.toMap();
     map['participationMode'] = participationMode.toString();
+    map['precisePolling'] = precisePolling;
 
     return map;
   }
@@ -180,6 +188,7 @@ class DataStreamConfig extends NetworkStreamConfig {
         other.sampleRate == sampleRate &&
         other.dataType == dataType &&
         other.participationMode == participationMode &&
+        other.precisePolling == precisePolling &&
         other.transportConfig == transportConfig;
   }
 
@@ -190,6 +199,7 @@ class DataStreamConfig extends NetworkStreamConfig {
     sampleRate,
     dataType,
     participationMode,
+    precisePolling,
     transportConfig,
   );
 }
@@ -226,6 +236,7 @@ class DataStreamConfigFactory implements IConfigFactory<DataStreamConfig> {
         orElse: () =>
             StreamParticipationMode.sendParticipantsReceiveCoordinator,
       ),
+      precisePolling: map['precisePolling'] ?? true,
       transportConfig: null, // Needs proper handling
     );
   }
