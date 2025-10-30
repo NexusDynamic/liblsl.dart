@@ -675,6 +675,7 @@ class CoordinationController {
     _nodeTimeoutTimer?.cancel();
     _discovery.stopDiscovery();
     _discoverySubscription?.cancel();
+    _userMessageSubscription?.cancel();
     if (!_state.isCoordinator && _participantHandler != null) {
       try {
         logger.info('Announcing leaving to coordinator');
