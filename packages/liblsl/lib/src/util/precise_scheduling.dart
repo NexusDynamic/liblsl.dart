@@ -1,6 +1,48 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:liblsl/native_liblsl.dart' show lsl_local_clock;
+
+class LSLStopwatch implements Stopwatch {
+  const LSLStopwatch();
+
+  @pragma("vm:shared")
+  static final int _frequency = 1000000; // Microseconds
+
+  @override
+  int get frequency => _frequency;
+
+  @override
+  void start() {}
+
+  @override
+  void stop() {}
+
+  @override
+  void reset() {}
+
+  @override
+  int get elapsedTicks => _lslClockMicros;
+
+  // Convert lsl_local_clock (double in seconds) to microseconds (int)
+  int get _lslClockMicros => (lsl_local_clock() * 1e6).round();
+
+  @override
+  bool get isRunning => true;
+
+  @override
+  Duration get elapsed => Duration(microseconds: _lslClockMicros);
+
+  @override
+  int get elapsedMilliseconds => _lslClockMicros ~/ 1000;
+
+  @override
+  int get elapsedMicroseconds => _lslClockMicros;
+}
+
+const LSLStopwatch lslStopwatch = LSLStopwatch();
+final Stopwatch dartStopwatch = Stopwatch();
+
 /// Run a callback at precise intervals.
 ///
 /// The [callback] is called at the specified [interval] duration.
@@ -21,23 +63,33 @@ import 'dart:io';
 /// [startBusyAt] to 1 millisecond. This means that the function will use low
 /// CPU usage for 999 milliseconds and then start busy-waiting for
 /// 1 millisecond.
+@pragma('vm:unsafe:no-bounds-checks')
 void runPreciseInterval<T>(
   Duration interval,
   T Function(T state) callback, {
   required Completer<void> completer,
   dynamic state,
   Duration startBusyAt = const Duration(milliseconds: 1),
+  Stopwatch? sw,
 }) {
-  final sw = Stopwatch()..start();
+  sw ??= dartStopwatch;
+  sw.start();
+  int nextAwake = sw.elapsedMicroseconds;
+  final bool canSleep = startBusyAt.inMicroseconds > 1000;
 
   for (int i = 1; true; i++) {
-    final nextAwake = interval * i;
-    final toSleep = (nextAwake - sw.elapsed) - startBusyAt;
-    if (toSleep > Duration.zero) {
-      sleep(toSleep);
+    nextAwake += interval.inMicroseconds;
+    if (canSleep) {
+      final toSleep =
+          (nextAwake - sw.elapsedMicroseconds) - startBusyAt.inMicroseconds;
+      // Only sleep if more than 1ms to avoid oversleeping
+      // Sleep resolution is 1ms in dart.
+      if (toSleep > 1000) {
+        sleep(Duration(microseconds: toSleep));
+      }
     }
 
-    while (sw.elapsed < nextAwake) {}
+    while (sw.elapsedMicroseconds < nextAwake) {}
 
     state = callback(state);
     if (completer.isCompleted) {
@@ -52,14 +104,17 @@ void runPreciseInterval<T>(
 /// the impact on the main thread.
 /// The tradeoff is that the callback may be called
 /// slightly later than the specified interval.
+@pragma('vm:unsafe:no-bounds-checks')
 Future<void> runPreciseIntervalAsync<T>(
   Duration interval,
   FutureOr<T> Function(T state) callback, {
   required Completer<void> completer,
   dynamic state,
   Duration startBusyAt = const Duration(milliseconds: 1),
+  Stopwatch? sw,
 }) async {
-  final sw = Stopwatch()..start();
+  sw ??= dartStopwatch;
+  sw.start();
 
   for (int i = 1; true; i++) {
     final nextAwake = interval * i;
