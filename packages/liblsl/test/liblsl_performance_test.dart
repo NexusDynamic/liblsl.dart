@@ -3,6 +3,7 @@
 import 'dart:async';
 import 'dart:math';
 
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:liblsl/lsl.dart';
 import 'package:test/test.dart';
 
@@ -270,7 +271,7 @@ class LSLPerformanceTester {
         sample[0] = LSL.localClock();
         // Track the last push future to avoid overwhelming the outlet
         futures[outlet]?.ignore();
-        futures[outlet] = outlet.pushSample(sample);
+        futures[outlet] = outlet.pushSample(IList(sample));
         // outlet.pushSampleSync(sample);
         statistics.samplesSent++;
       }

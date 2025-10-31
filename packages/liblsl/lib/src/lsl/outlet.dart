@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:ffi';
 
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:liblsl/lsl.dart';
 import 'package:liblsl/native_liblsl.dart';
 import 'package:liblsl/src/lsl/base.dart';
@@ -200,7 +201,7 @@ class LSLOutlet extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// **Returns:** Error code (0 = success).
   ///
   /// **See also:** [pushSampleSync] for zero-overhead direct calls
-  Future<int> pushSample(List<dynamic> data) => _useIsolates
+  Future<int> pushSample(IList<dynamic> data) => _useIsolates
       ? _pushSampleIsolated(data)
       : Future.value(_pushSampleDirect(data));
 
@@ -224,7 +225,7 @@ class LSLOutlet extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// **Returns:** Error code (0 = success).
   /// **See also:** [pushSample] for async operations
   /// **Throws:** [LSLException] if `useIsolates: true` or data validation fails.
-  int pushSampleSync(List<dynamic> data) =>
+  int pushSampleSync(IList<dynamic> data) =>
       requireDirect(() => _pushSampleDirect(data));
 
   /// Checks if consumers are currently connected to the outlet.
@@ -329,7 +330,7 @@ class LSLOutlet extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// - [data]: List of values to push
   /// **Returns:** Error code (0 = success).
   /// **Throws:** [LSLException] if pushing the sample fails.
-  Future<int> _pushSampleIsolated(List<dynamic> data) async {
+  Future<int> _pushSampleIsolated(IList<dynamic> data) async {
     _validateSampleData(data);
 
     // Set the sample data in the buffer
@@ -352,7 +353,7 @@ class LSLOutlet extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// - [data]: List of values to push
   /// **Returns:** Error code (0 = success).
   /// **Throws:** [LSLException] if pushing the sample fails.
-  int _pushSampleDirect(List<dynamic> data) {
+  int _pushSampleDirect(IList<dynamic> data) {
     _validateSampleData(data);
 
     // Set the sample data in the buffer
@@ -388,7 +389,7 @@ class LSLOutlet extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// **Parameters:**
   /// - [data]: List of values to validate
   /// **Throws:** [LSLException] if validation fails.
-  void _validateSampleData(List<dynamic> data) {
+  void _validateSampleData(IList<dynamic> data) {
     if (data.length != streamInfo.channelCount) {
       throw LSLException(
         'Data length (${data.length}) does not match channel count (${streamInfo.channelCount})',

@@ -3,6 +3,7 @@ import 'dart:isolate';
 import 'dart:ffi' show NativeType;
 import 'dart:math' show Random;
 
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:liblsl/src/lsl/isolated_inlet.dart';
 import 'package:liblsl/src/lsl/isolated_outlet.dart';
 import 'package:liblsl/src/lsl/sample.dart';
@@ -51,16 +52,20 @@ class LSLMessage {
   }
 }
 
-/// A response message from an isolate
-class LSLResponse {
+final class LSLResponseBase {
   final String messageId;
   final bool success;
+  const LSLResponseBase({required this.messageId, required this.success});
+}
+
+/// A response message from an isolate
+final class LSLResponse extends LSLResponseBase {
   final dynamic result;
   final String? error;
 
-  LSLResponse({
-    required this.messageId,
-    required this.success,
+  const LSLResponse({
+    required super.messageId,
+    required super.success,
     this.result,
     this.error,
   });
@@ -119,7 +124,7 @@ class LSLSerializer {
   /// Deserialize a sample
   static LSLSample<T> deserializeSample<T>(Map<String, dynamic> map) {
     return LSLSample<T>(
-      List<T>.from(map['data'] as List),
+      map['data'] as IList<T>,
       map['timestamp'] as double,
       map['errorCode'] as int,
     );
@@ -156,7 +161,7 @@ abstract class LSLIsolateManagerBase {
   Isolate? _isolate;
 
   /// Map to track pending requests
-  final Map<String, Completer<LSLResponse>> _pendingRequests = {};
+  final Map<String, Completer<LSLResponseBase>> _pendingRequests = {};
 
   LSLIsolateManagerBase() {
     _listen();
@@ -164,18 +169,19 @@ abstract class LSLIsolateManagerBase {
 
   void _listen() {
     _receivePort.listen((message) {
-      if (message is SendPort) {
-        // Initial handshake from isolate
-        _sendPort = message;
-        if (!_initialization.isCompleted) {
-          _initialization.complete();
-        }
-      } else if (message is Map<String, dynamic>) {
+      if (message is Map<String, dynamic>) {
         // Response from isolate
         final response = LSLResponse.fromMap(message);
         final completer = _pendingRequests.remove(response.messageId);
         if (completer != null && !completer.isCompleted) {
           completer.complete(response);
+        }
+      } else if (message is LSLSamplePointer) {
+      } else if (message is SendPort) {
+        // Initial handshake from isolate
+        _sendPort = message;
+        if (!_initialization.isCompleted) {
+          _initialization.complete();
         }
       }
     });

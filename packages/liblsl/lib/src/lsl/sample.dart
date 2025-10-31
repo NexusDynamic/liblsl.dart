@@ -1,15 +1,17 @@
 import 'dart:ffi' show Pointer, NativeType;
 
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+
 /// A representation of a sample.
 ///
 /// This class represents both samples pulled from an inlet, and in future
 /// versions, samples pushed to an outlet.
 class LSLSample<T> {
-  final List<T> data;
+  final IList<T> data;
   final double timestamp;
   final int errorCode;
 
-  LSLSample(this.data, this.timestamp, this.errorCode);
+  const LSLSample(this.data, this.timestamp, this.errorCode);
 
   T operator [](int index) {
     return data[index];
@@ -33,12 +35,13 @@ class LSLSample<T> {
   }
 }
 
-class LSLSamplePointer<T extends NativeType> {
+@pragma('vm:deeply-immutable')
+final class LSLSamplePointer<T extends NativeType> {
   final double timestamp;
   final int errorCode;
   final int pointerAddress;
 
-  LSLSamplePointer(this.timestamp, this.errorCode, this.pointerAddress);
+  const LSLSamplePointer(this.timestamp, this.errorCode, this.pointerAddress);
   Pointer<T> get pointer {
     return Pointer<T>.fromAddress(pointerAddress);
   }

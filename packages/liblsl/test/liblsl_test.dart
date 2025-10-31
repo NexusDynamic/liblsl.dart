@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:liblsl/native_liblsl.dart';
 import 'package:liblsl/lsl.dart';
 import 'package:liblsl/src/ffi/mem.dart' show FreePointerExtension;
@@ -69,7 +70,7 @@ void main() {
     test('push a default (float) sample', () async {
       final streamInfo = await LSL.createStreamInfo(channelCount: 2);
       final outlet = await LSL.createOutlet(streamInfo: streamInfo);
-      final result = await outlet.pushSample([5.0, 8.0]);
+      final result = await outlet.pushSample(IList([5.0, 8.0]));
       expect(result, 0); // 0 typically means success
 
       await outlet.destroy();
@@ -82,7 +83,7 @@ void main() {
         channelCount: 1,
       );
       final outlet = await LSL.createOutlet(streamInfo: streamInfo);
-      final result = await outlet.pushSample(['Test Sample']);
+      final result = await outlet.pushSample(IList(['Test Sample']));
       expect(result, 0);
 
       await outlet.destroy();
@@ -156,7 +157,7 @@ void main() {
       // Check how many samples are available before pulling
       () async {
         await Future.delayed(Duration(milliseconds: 100));
-        await outlet.pushSample([5.0, 8.0]);
+        await outlet.pushSample(IList([5.0, 8.0]));
       }();
 
       final s = await inlet.pullSample(timeout: 5.0);
@@ -172,7 +173,7 @@ void main() {
         expect(s[1], 8.0);
       });
       await Future.delayed(Duration(milliseconds: 50));
-      await outlet.pushSample([5.0, 8.0]);
+      await outlet.pushSample(IList([5.0, 8.0]));
 
       completer.complete();
       //await senderFuture; // Wait for the sender to finish

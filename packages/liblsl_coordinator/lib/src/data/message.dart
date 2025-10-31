@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:collection/collection.dart';
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:liblsl_coordinator/data.dart';
 import 'package:liblsl_coordinator/interfaces.dart';
 
@@ -200,7 +201,7 @@ class Message<D, M extends MessageTypeMapping<D>, T extends MessageType<D, M>>
   @override
   final T messageType;
   @override
-  final List<D> data;
+  final IList<D> data;
   @override
   final String uId;
   @override
@@ -319,7 +320,7 @@ class MessageFactory {
   /// if not provided.
   static StringMessage stringMessage({
     String? uId,
-    required List<String> data,
+    required IList<String> data,
     int channels = 1,
     DateTime? timestamp,
   }) {
@@ -343,7 +344,7 @@ class MessageFactory {
   /// if not provided.
   static Int8Message int8Message({
     String? uId,
-    required List<int> data,
+    required IList<int> data,
     int channels = 1,
     DateTime? timestamp,
   }) {
@@ -367,7 +368,7 @@ class MessageFactory {
   /// if not provided.
   static Int16Message int16Message({
     String? uId,
-    required List<int> data,
+    required IList<int> data,
     int channels = 1,
     DateTime? timestamp,
   }) {
@@ -391,7 +392,7 @@ class MessageFactory {
   /// if not provided.
   static Int32Message int32Message({
     String? uId,
-    required List<int> data,
+    required IList<int> data,
     int channels = 1,
     DateTime? timestamp,
   }) {
@@ -416,7 +417,7 @@ class MessageFactory {
   /// if not provided.
   static Int64Message int64Message({
     String? uId,
-    required List<int> data,
+    required IList<int> data,
     int channels = 1,
     DateTime? timestamp,
   }) {
@@ -440,7 +441,7 @@ class MessageFactory {
   /// if not provided.
   static Float32Message float32Message({
     String? uId,
-    required List<double> data,
+    required IList<double> data,
     int channels = 1,
     DateTime? timestamp,
   }) {
@@ -464,7 +465,7 @@ class MessageFactory {
   /// if not provided.
   static Double64Message double64Message({
     String? uId,
-    required List<double> data,
+    required IList<double> data,
     int channels = 1,
     DateTime? timestamp,
   }) {
@@ -483,7 +484,7 @@ class MessageFactory {
 extension StringToStringMessageExtension on String {
   StringMessage toStringMessage() {
     return MessageFactory.stringMessage(
-      data: [this],
+      data: IList<String>([this]),
       channels: 1,
       timestamp: DateTime.now(),
     );
@@ -491,7 +492,7 @@ extension StringToStringMessageExtension on String {
 
   StringMessage toStringMessageTimestamped(DateTime timestamp) {
     return MessageFactory.stringMessage(
-      data: [this],
+      data: IList<String>([this]),
       channels: 1,
       timestamp: timestamp,
     );
@@ -501,7 +502,7 @@ extension StringToStringMessageExtension on String {
 extension MapToStringMessageExtension on Map<String, dynamic> {
   StringMessage toStringMessage() {
     return MessageFactory.stringMessage(
-      data: [jsonEncode(this)],
+      data: IList<String>([jsonEncode(this)]),
       channels: length,
       timestamp: DateTime.now(),
     );
@@ -509,7 +510,7 @@ extension MapToStringMessageExtension on Map<String, dynamic> {
 
   StringMessage toStringMessageTimestamped(DateTime timestamp) {
     return MessageFactory.stringMessage(
-      data: [jsonEncode(this)],
+      data: IList<String>([jsonEncode(this)]),
       channels: length,
       timestamp: timestamp,
     );
@@ -522,7 +523,7 @@ extension ListStringToStringMessageExtension on List<String> {
   /// list.
   StringMessage toStringMessage() {
     return MessageFactory.stringMessage(
-      data: this,
+      data: IList<String>(this),
       channels: length,
       timestamp: DateTime.now(),
     );
@@ -530,7 +531,7 @@ extension ListStringToStringMessageExtension on List<String> {
 
   StringMessage toStringMessageTimestamped(DateTime timestamp) {
     return MessageFactory.stringMessage(
-      data: this,
+      data: IList<String>(this),
       channels: length,
       timestamp: timestamp,
     );
@@ -543,7 +544,7 @@ extension ListIntToMessageExtension on List<int> {
   /// list.
   Int32Message toInt32Message() {
     return MessageFactory.int32Message(
-      data: this,
+      data: IList<int>(this),
       channels: length,
       timestamp: DateTime.now(),
     );
@@ -551,7 +552,7 @@ extension ListIntToMessageExtension on List<int> {
 
   Int32Message toInt32MessageTimestamped(DateTime timestamp) {
     return MessageFactory.int32Message(
-      data: this,
+      data: IList<int>(this),
       channels: length,
       timestamp: timestamp,
     );
@@ -559,7 +560,7 @@ extension ListIntToMessageExtension on List<int> {
 
   Int16Message toInt16Message() {
     return MessageFactory.int16Message(
-      data: this,
+      data: IList<int>(this),
       channels: length,
       timestamp: DateTime.now(),
     );
@@ -567,7 +568,7 @@ extension ListIntToMessageExtension on List<int> {
 
   Int16Message toInt16MessageTimestamped(DateTime timestamp) {
     return MessageFactory.int16Message(
-      data: this,
+      data: IList<int>(this),
       channels: length,
       timestamp: timestamp,
     );
@@ -575,7 +576,7 @@ extension ListIntToMessageExtension on List<int> {
 
   Int8Message toInt8Message() {
     return MessageFactory.int8Message(
-      data: this,
+      data: IList<int>(this),
       channels: length,
       timestamp: DateTime.now(),
     );
@@ -583,7 +584,7 @@ extension ListIntToMessageExtension on List<int> {
 
   Int8Message toInt8MessageTimestamped(DateTime timestamp) {
     return MessageFactory.int8Message(
-      data: this,
+      data: IList<int>(this),
       channels: length,
       timestamp: timestamp,
     );
@@ -591,7 +592,7 @@ extension ListIntToMessageExtension on List<int> {
 
   Int64Message toInt64Message() {
     return MessageFactory.int64Message(
-      data: this,
+      data: IList<int>(this),
       channels: length,
       timestamp: DateTime.now(),
     );
@@ -599,7 +600,7 @@ extension ListIntToMessageExtension on List<int> {
 
   Int64Message toInt64MessageTimestamped(DateTime timestamp) {
     return MessageFactory.int64Message(
-      data: this,
+      data: IList<int>(this),
       channels: length,
       timestamp: timestamp,
     );
@@ -612,7 +613,7 @@ extension ListDoubleToMessageExtension on List<double> {
   /// list.
   Double64Message toDouble64Message() {
     return MessageFactory.double64Message(
-      data: this,
+      data: IList<double>(this),
       channels: length,
       timestamp: DateTime.now(),
     );
@@ -620,7 +621,7 @@ extension ListDoubleToMessageExtension on List<double> {
 
   Double64Message toDouble64MessageTimestamped(DateTime timestamp) {
     return MessageFactory.double64Message(
-      data: this,
+      data: IList<double>(this),
       channels: length,
       timestamp: timestamp,
     );
@@ -628,7 +629,7 @@ extension ListDoubleToMessageExtension on List<double> {
 
   Float32Message toFloat32Message() {
     return MessageFactory.float32Message(
-      data: this,
+      data: IList<double>(this),
       channels: length,
       timestamp: DateTime.now(),
     );
@@ -636,7 +637,7 @@ extension ListDoubleToMessageExtension on List<double> {
 
   Float32Message toFloat32MessageTimestamped(DateTime timestamp) {
     return MessageFactory.float32Message(
-      data: this,
+      data: IList<double>(this),
       channels: length,
       timestamp: timestamp,
     );

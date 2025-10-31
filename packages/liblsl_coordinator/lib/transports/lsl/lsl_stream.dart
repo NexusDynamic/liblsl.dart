@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:liblsl_coordinator/framework.dart';
 import 'package:liblsl_coordinator/transports/lsl.dart';
 // import 'package:meta/meta.dart';
@@ -697,7 +698,8 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
   // Abstract methods to be implemented by subclasses
   M? _createMessageFromSample(LSLSample sample) => null;
   M? _createMessageFromIsolateData(IsolateDataMessage data) => null;
-  List<dynamic> _createSampleFromMessage(M message) => [message.toString()];
+  IList<dynamic> _createSampleFromMessage(M message) =>
+      IList<String>([message.toString()]);
 
   @override
   Future<void> sendMessage(M message) async {
@@ -931,7 +933,7 @@ class LSLDataStream extends DataStream<DataStreamConfig, IMessage>
   String get description => 'High-precision data stream for ${config.name}';
 
   /// Send typed data based on stream configuration
-  void sendData(List<dynamic> data) {
+  void sendData(Iterable<dynamic> data) {
     if (!started) throw StateError('Stream not started');
 
     if (data.length != config.channels) {
@@ -939,16 +941,16 @@ class LSLDataStream extends DataStream<DataStreamConfig, IMessage>
         'Data length ${data.length} does not match channels ${config.channels}',
       );
     }
-
+    final iData = IList<dynamic>(data);
     // Validate data types
-    _validateDataType(data);
+    _validateDataType(iData);
 
     // Send directly through outlet or isolate
     if (useIsolates && _outletIsolate != null) {
       // logger.severe("Sending data through isolate: $data");
-      _outletIsolate!.sendData(data);
+      _outletIsolate!.sendData(iData);
     } else if (_outletResource != null) {
-      _outletResource!.outlet.pushSample(data);
+      _outletResource!.outlet.pushSample(iData);
     }
   }
 
@@ -968,19 +970,19 @@ class LSLDataStream extends DataStream<DataStreamConfig, IMessage>
         'Data length ${data.length} does not match channels ${config.channels}',
       );
     }
-
+    final iData = IList<dynamic>(data);
     // Validate data types
-    _validateDataType(data);
+    _validateDataType(iData);
 
     // Send directly through outlet or isolate
     if (useIsolates && _outletIsolate != null) {
-      _outletIsolate!.sendData(data);
+      _outletIsolate!.sendData(iData);
     } else if (_outletResource != null) {
-      _outletResource!.outlet.pushSample(data);
+      _outletResource!.outlet.pushSample(iData);
     }
   }
 
-  void _validateDataType(List<dynamic> data) {
+  void _validateDataType(IList<dynamic> data) {
     for (final value in data) {
       switch (config.dataType) {
         case StreamDataType.float32:
@@ -1019,7 +1021,7 @@ class LSLDataStream extends DataStream<DataStreamConfig, IMessage>
       case StreamDataType.double64:
         if (data.data.every((v) => v is num)) {
           return MessageFactory.double64Message(
-              data: data.data.map((v) => (v as num).toDouble()).toList(),
+              data: data.data as IList<double>,
               channels: config.channels,
               timestamp: data.timestamp,
             )
@@ -1031,7 +1033,7 @@ class LSLDataStream extends DataStream<DataStreamConfig, IMessage>
       case StreamDataType.int8:
         if (data.data.every((v) => v is int)) {
           return MessageFactory.int8Message(
-              data: data.data.cast<int>(),
+              data: data.data as IList<int>,
               channels: config.channels,
               timestamp: data.timestamp,
             )
@@ -1043,7 +1045,7 @@ class LSLDataStream extends DataStream<DataStreamConfig, IMessage>
       case StreamDataType.int16:
         if (data.data.every((v) => v is int)) {
           return MessageFactory.int16Message(
-              data: data.data.cast<int>(),
+              data: data.data as IList<int>,
               channels: config.channels,
               timestamp: data.timestamp,
             )
@@ -1055,7 +1057,7 @@ class LSLDataStream extends DataStream<DataStreamConfig, IMessage>
       case StreamDataType.int32:
         if (data.data.every((v) => v is int)) {
           return MessageFactory.int32Message(
-              data: data.data.cast<int>(),
+              data: data.data as IList<int>,
               channels: config.channels,
               timestamp: data.timestamp,
             )
@@ -1067,7 +1069,7 @@ class LSLDataStream extends DataStream<DataStreamConfig, IMessage>
       case StreamDataType.int64:
         if (data.data.every((v) => v is int)) {
           return MessageFactory.int64Message(
-              data: data.data.cast<int>(),
+              data: data.data as IList<int>,
               channels: config.channels,
               timestamp: data.timestamp,
             )
@@ -1079,7 +1081,7 @@ class LSLDataStream extends DataStream<DataStreamConfig, IMessage>
       case StreamDataType.string:
         if (data.data.every((v) => v is String)) {
           return MessageFactory.stringMessage(
-              data: data.data.cast<String>(),
+              data: data.data as IList<String>,
               channels: config.channels,
               timestamp: data.timestamp,
             )
@@ -1110,7 +1112,7 @@ class LSLDataStream extends DataStream<DataStreamConfig, IMessage>
   }
 
   @override
-  List<dynamic> _createSampleFromMessage(IMessage message) {
+  IList<dynamic> _createSampleFromMessage(IMessage message) {
     return message.data;
   }
 
@@ -1212,7 +1214,7 @@ class LSLCoordinationStream
   StringMessage? _createMessageFromIsolateData(IsolateDataMessage data) {
     if (data.data.isNotEmpty && data.data[0] is String) {
       return MessageFactory.stringMessage(
-          data: [data.data[0] as String],
+          data: IList<String>([data.data[0] as String]),
           timestamp: data.timestamp,
           channels: 1,
         )
@@ -1235,7 +1237,7 @@ class LSLCoordinationStream
   StringMessage? _createMessageFromSample(LSLSample sample) {
     if (sample.data.isNotEmpty) {
       return MessageFactory.stringMessage(
-        data: [sample.data[0] as String],
+        data: IList([sample.data[0] as String]),
         timestamp: DateTime.now(),
         channels: 1,
       );
@@ -1244,7 +1246,7 @@ class LSLCoordinationStream
   }
 
   @override
-  List<dynamic> _createSampleFromMessage(StringMessage message) {
+  IList<dynamic> _createSampleFromMessage(StringMessage message) {
     return message.data;
   }
 

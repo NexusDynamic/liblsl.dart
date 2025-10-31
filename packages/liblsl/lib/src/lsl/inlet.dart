@@ -1,5 +1,6 @@
 import 'dart:ffi';
 
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:liblsl/lsl.dart';
 import 'package:liblsl/native_liblsl.dart';
 import 'package:liblsl/src/ffi/mem.dart';
@@ -388,11 +389,8 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
       throw LSLException('Error pulling sample: ${response.error}');
     }
 
-    final data = response.result as Map<String, dynamic>;
-    return _processSampleResponse(
-      data['timestamp'] as double,
-      data['errorCode'] as int,
-    );
+    final data = response.result as LSLSamplePointer;
+    return _processSampleResponse(data.timestamp, data.errorCode);
   }
 
   /// Pulls a sample from the inlet directly using FFI calls.
@@ -541,12 +539,12 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// **Note:** If the timestamp is 0, it indicates no data was pulled.
   LSLSample<T> _processSampleResponse(double timestamp, int errorCode) {
     if (timestamp == 0) {
-      return LSLSample<T>([], 0, errorCode);
+      return LSLSample<T>(IList<T>(), 0, errorCode);
     }
 
     final sampleData =
         _pullFn.bufferToList(_buffer.buffer, streamInfo.channelCount)
-            as List<T>;
+            as IList<T>;
     return LSLSample<T>(sampleData, timestamp, errorCode);
   }
 }

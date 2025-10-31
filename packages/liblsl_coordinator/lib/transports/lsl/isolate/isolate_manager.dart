@@ -4,6 +4,7 @@ import 'dart:async';
 import 'dart:collection';
 import 'dart:isolate';
 import 'package:collection/collection.dart';
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:liblsl/lsl.dart';
 
 import 'package:liblsl_coordinator/framework.dart';
@@ -74,7 +75,7 @@ sealed class MutableIsolateMessage implements IIMessage {
 /// Message to send data through outlet - non-immutable thanks to List
 final class DataMessage extends MutableIsolateMessage {
   /// This is always List of ImmutableType, but dart doesnt care
-  final List<dynamic> payload;
+  final IList<dynamic> payload;
 
   const DataMessage(this.payload, {super.requestID}) : super(6);
 }
@@ -162,7 +163,7 @@ final class IsolateWorkerConfig {
   final int? outletAddress;
 
   // For inlets
-  final List<int>? inletAddresses;
+  final IList<int>? inletAddresses;
 
   const IsolateWorkerConfig({
     required this.streamId,
@@ -188,7 +189,7 @@ final class IsolateWorkerConfig {
     Duration? pollingInterval,
     SendPort? mainSendPort,
     int? outletAddress,
-    List<int>? inletAddresses,
+    IList<int>? inletAddresses,
     String? debugName,
   }) {
     return IsolateWorkerConfig(
@@ -213,7 +214,7 @@ final class IsolateDataMessage {
   final String messageId;
   final DateTime timestamp;
   // Should be an immutable list (e.g. List.unmodifiable, and contain only immutable types)
-  final List<dynamic> data;
+  final IList<dynamic> data;
   final String? sourceId;
   final double? lslTimestamp;
   final double? lslTimeCorrection;
@@ -243,7 +244,7 @@ final class IsolateDataMessage {
       streamId: map['streamId'] as String,
       messageId: map['messageId'] as String,
       timestamp: DateTime.parse(map['timestamp'] as String),
-      data: List.unmodifiable(map['data']),
+      data: map['data'],
       sourceId: map['sourceId'] as String?,
       lslTimestamp: map['lslTimestamp'] as double?,
       lslTimeCorrection: map['lslTimeCorrection'] as double?,
@@ -525,7 +526,7 @@ final class StreamInletIsolate extends StreamIsolate {
       useBusyWaitOutlets: useBusyWaitOutlets,
       pollingInterval: pollingInterval,
       mainSendPort: _receivePort!.sendPort,
-      inletAddresses: List.unmodifiable(_inletAddresses),
+      inletAddresses: IList(_inletAddresses),
       debugName: isolateDebugName,
     );
   }
@@ -564,7 +565,7 @@ final class StreamOutletIsolate extends StreamIsolate {
        );
 
   /// Send data through outlet
-  Future<void> sendData(List<dynamic> data) async {
+  Future<void> sendData(IList<dynamic> data) async {
     await sendDataMessage(DataMessage(data));
   }
 

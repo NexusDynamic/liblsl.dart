@@ -5,6 +5,7 @@ import 'package:liblsl/native_liblsl.dart';
 import 'package:liblsl/src/ffi/mem.dart';
 import 'package:liblsl/src/lsl/exception.dart';
 import 'package:liblsl/src/lsl/pull_sample.dart';
+import 'package:liblsl/src/lsl/sample.dart';
 import 'package:liblsl/src/lsl/stream_info.dart';
 import 'package:liblsl/src/lsl/helper.dart';
 import 'package:liblsl/src/lsl/structs.dart';
@@ -138,7 +139,7 @@ class LSLInletIsolate extends LSLIsolateWorkerBase {
   }
 
   /// Pulls a sample from the inlet.
-  Future<Map<String, dynamic>> _pullSample(Map<String, dynamic> data) async {
+  Future<LSLSamplePointer> _pullSample(Map<String, dynamic> data) async {
     if (_inlet == null || _streamInfo == null) {
       throw LSLException('Inlet not created');
     }
@@ -156,7 +157,7 @@ class LSLInletIsolate extends LSLIsolateWorkerBase {
     );
 
     // Return the serialized sample
-    return LSLSerializer.serializeSamplePointer(sample);
+    return sample;
   }
 
   /// Flushes the inlet, clearing any buffered samples.

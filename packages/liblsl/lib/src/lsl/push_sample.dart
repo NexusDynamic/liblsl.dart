@@ -1,4 +1,5 @@
 import 'dart:ffi';
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:ffi/ffi.dart' show Utf8, StringUtf8Pointer;
 import 'package:liblsl/native_liblsl.dart';
 import 'package:liblsl/src/util/reusable_buffer.dart';
@@ -33,7 +34,7 @@ abstract class LslPushSample<T extends NativeType> {
   Pointer<T> allocBuffer(int channels);
 
   @mustBeOverridden
-  void listToBuffer(List<dynamic> samples, Pointer<T> buffer);
+  void listToBuffer(IList<dynamic> samples, Pointer<T> buffer);
 }
 
 /// Push sample for float32 data.
@@ -51,7 +52,7 @@ class LslPushSampleFloat extends LslPushSample<Float> {
   }
 
   @override
-  void listToBuffer(List<dynamic> samples, Pointer<Float> buffer) {
+  void listToBuffer(IList<dynamic> samples, Pointer<Float> buffer) {
     for (int i = 0; i < samples.length; i++) {
       buffer[i] = samples[i];
     }
@@ -73,7 +74,7 @@ class LslPushSampleDouble extends LslPushSample<Double> {
   }
 
   @override
-  void listToBuffer(List<dynamic> samples, Pointer<Double> buffer) {
+  void listToBuffer(IList<dynamic> samples, Pointer<Double> buffer) {
     for (int i = 0; i < samples.length; i++) {
       buffer[i] = samples[i];
     }
@@ -95,7 +96,7 @@ class LslPushSampleInt8 extends LslPushSample<Char> {
   }
 
   @override
-  void listToBuffer(List<dynamic> samples, Pointer<Char> buffer) {
+  void listToBuffer(IList<dynamic> samples, Pointer<Char> buffer) {
     for (int i = 0; i < samples.length; i++) {
       buffer[i] = samples[i];
     }
@@ -117,7 +118,7 @@ class LslPushSampleInt16 extends LslPushSample<Int16> {
   }
 
   @override
-  void listToBuffer(List<dynamic> samples, Pointer<Int16> buffer) {
+  void listToBuffer(IList<dynamic> samples, Pointer<Int16> buffer) {
     for (int i = 0; i < samples.length; i++) {
       buffer[i] = samples[i];
     }
@@ -139,7 +140,7 @@ class LslPushSampleInt32 extends LslPushSample<Int32> {
   }
 
   @override
-  void listToBuffer(List<dynamic> samples, Pointer<Int32> buffer) {
+  void listToBuffer(IList<dynamic> samples, Pointer<Int32> buffer) {
     for (int i = 0; i < samples.length; i++) {
       buffer[i] = samples[i];
     }
@@ -161,7 +162,7 @@ class LslPushSampleInt64 extends LslPushSample<Int64> {
   }
 
   @override
-  void listToBuffer(List<dynamic> samples, Pointer<Int64> buffer) {
+  void listToBuffer(IList<dynamic> samples, Pointer<Int64> buffer) {
     for (int i = 0; i < samples.length; i++) {
       buffer[i] = samples[i];
     }
@@ -183,7 +184,7 @@ class LslPushSampleString extends LslPushSample<Pointer<Char>> {
   }
 
   @override
-  void listToBuffer(List<dynamic> samples, Pointer<Pointer<Char>> buffer) {
+  void listToBuffer(IList<dynamic> samples, Pointer<Pointer<Char>> buffer) {
     for (int i = 0; i < samples.length; i++) {
       final Pointer<Utf8> utf8String = (samples[i] as String).toNativeUtf8(
         allocator: allocate,
@@ -208,7 +209,7 @@ class LslPushSampleVoid extends LslPushSample<Void> {
   }
 
   @override
-  void listToBuffer(List<dynamic> samples, Pointer<Void> buffer) {
+  void listToBuffer(IList<dynamic> samples, Pointer<Void> buffer) {
     // No-op for void type
   }
 }

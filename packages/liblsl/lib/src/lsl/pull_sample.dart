@@ -1,4 +1,5 @@
 import 'dart:ffi';
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:liblsl/native_liblsl.dart';
 import 'package:liblsl/src/ffi/mem.dart';
 import 'package:liblsl/src/lsl/base.dart';
@@ -111,20 +112,20 @@ abstract class LslPullSample<T extends NativeType, D> {
     final double timestamp = _pullFn(inlet, buffer, channels, timeout, ec);
     final int errorCode = ec.value;
     if (LSLObj.error(errorCode)) {
-      return LSLSample<D>([], timestamp, errorCode);
+      return LSLSample<D>(IList(), timestamp, errorCode);
     }
     ec.free();
     if (timestamp > 0) {
-      final List<D> result = bufferToList(buffer, channels);
+      final IList<D> result = bufferToList(buffer, channels);
       buffer.free();
       return LSLSample<D>(result, timestamp, errorCode);
     }
     buffer.free();
-    return LSLSample<D>([], timestamp, errorCode);
+    return LSLSample<D>(IList(), timestamp, errorCode);
   }
 
   @mustBeOverridden
-  List<D> bufferToList(Pointer<T> buffer, int channels);
+  IList<D> bufferToList(Pointer<T> buffer, int channels);
 
   @mustBeOverridden
   Pointer<T> allocBuffer(int channels);
@@ -136,12 +137,8 @@ class LslPullSampleFloat extends LslPullSample<Float, double> {
   const LslPullSampleFloat() : super(lsl_pull_sample_f);
 
   @override
-  List<double> bufferToList(Pointer<Float> buffer, int channels) {
-    final List<double> result = [];
-    for (int i = 0; i < channels; i++) {
-      result.add(buffer[i]);
-    }
-    return result;
+  IList<double> bufferToList(Pointer<Float> buffer, int channels) {
+    return IList<double>(buffer.asTypedList(channels));
   }
 
   @override
@@ -167,12 +164,8 @@ class LslPullSampleDouble extends LslPullSample<Double, double> {
   const LslPullSampleDouble() : super(lsl_pull_sample_d);
 
   @override
-  List<double> bufferToList(Pointer<Double> buffer, int channels) {
-    final List<double> result = [];
-    for (int i = 0; i < channels; i++) {
-      result.add(buffer[i]);
-    }
-    return result;
+  IList<double> bufferToList(Pointer<Double> buffer, int channels) {
+    return IList<double>(buffer.asTypedList(channels));
   }
 
   @override
@@ -197,12 +190,8 @@ class LslPullSampleDouble extends LslPullSample<Double, double> {
 class LslPullSampleInt8 extends LslPullSample<Char, int> {
   const LslPullSampleInt8() : super(lsl_pull_sample_c);
   @override
-  List<int> bufferToList(Pointer<Char> buffer, int channels) {
-    final List<int> result = [];
-    for (int i = 0; i < channels; i++) {
-      result.add(buffer[i]);
-    }
-    return result;
+  IList<int> bufferToList(Pointer<Char> buffer, int channels) {
+    return IList<int>(buffer.cast<Uint8>().asTypedList(channels));
   }
 
   @override
@@ -227,12 +216,8 @@ class LslPullSampleInt8 extends LslPullSample<Char, int> {
 class LslPullSampleInt16 extends LslPullSample<Int16, int> {
   const LslPullSampleInt16() : super(lsl_pull_sample_s);
   @override
-  List<int> bufferToList(Pointer<Int16> buffer, int channels) {
-    final List<int> result = [];
-    for (int i = 0; i < channels; i++) {
-      result.add(buffer[i].toInt());
-    }
-    return result;
+  IList<int> bufferToList(Pointer<Int16> buffer, int channels) {
+    return IList<int>(buffer.asTypedList(channels));
   }
 
   @override
@@ -257,12 +242,8 @@ class LslPullSampleInt16 extends LslPullSample<Int16, int> {
 class LslPullSampleInt32 extends LslPullSample<Int32, int> {
   const LslPullSampleInt32() : super(lsl_pull_sample_i);
   @override
-  List<int> bufferToList(Pointer<Int32> buffer, int channels) {
-    final List<int> result = [];
-    for (int i = 0; i < channels; i++) {
-      result.add(buffer[i].toInt());
-    }
-    return result;
+  IList<int> bufferToList(Pointer<Int32> buffer, int channels) {
+    return IList<int>(buffer.asTypedList(channels));
   }
 
   @override
@@ -287,12 +268,8 @@ class LslPullSampleInt32 extends LslPullSample<Int32, int> {
 class LslPullSampleInt64 extends LslPullSample<Int64, int> {
   const LslPullSampleInt64() : super(lsl_pull_sample_l);
   @override
-  List<int> bufferToList(Pointer<Int64> buffer, int channels) {
-    final List<int> result = [];
-    for (int i = 0; i < channels; i++) {
-      result.add(buffer[i].toInt());
-    }
-    return result;
+  IList<int> bufferToList(Pointer<Int64> buffer, int channels) {
+    return IList<int>(buffer.asTypedList(channels));
   }
 
   @override
@@ -317,13 +294,14 @@ class LslPullSampleInt64 extends LslPullSample<Int64, int> {
 class LslPullSampleString extends LslPullSample<Pointer<Char>, String> {
   const LslPullSampleString() : super(lsl_pull_sample_str);
   @override
-  List<String> bufferToList(Pointer<Pointer<Char>> buffer, int channels) {
-    final List<String> result = [];
-    for (int i = 0; i < channels; i++) {
-      result.add(buffer[i].cast<Utf8>().toDartString());
-    }
-
-    return result;
+  IList<String> bufferToList(Pointer<Pointer<Char>> buffer, int channels) {
+    return IList<String>(
+      List<String>.generate(
+        channels,
+        (index) => buffer[index].cast<Utf8>().toDartString(),
+        growable: false,
+      ),
+    );
   }
 
   @override
@@ -348,8 +326,8 @@ class LslPullSampleString extends LslPullSample<Pointer<Char>, String> {
 class LslPullSampleUndefined extends LslPullSample<Void, Null> {
   const LslPullSampleUndefined() : super(lsl_pull_sample_v);
   @override
-  List<Null> bufferToList(Pointer<Void> buffer, int channels) {
-    return List<Null>.filled(channels, null);
+  IList<Null> bufferToList(Pointer<Void> buffer, int channels) {
+    return IList<Null>(List<Null>.filled(channels, null, growable: false));
   }
 
   @override

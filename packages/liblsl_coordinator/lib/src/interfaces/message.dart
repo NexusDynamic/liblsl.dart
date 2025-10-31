@@ -1,3 +1,4 @@
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:liblsl_coordinator/data.dart';
 import 'package:liblsl_coordinator/interfaces.dart';
 
@@ -17,5 +18,5 @@ abstract interface class IMessage<T extends IMessageType>
   T get messageType;
 
   /// The data associated with the message
-  List get data;
+  IList get data;
 }

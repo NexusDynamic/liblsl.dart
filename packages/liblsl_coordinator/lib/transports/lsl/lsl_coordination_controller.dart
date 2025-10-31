@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:liblsl_coordinator/liblsl_coordinator.dart';
 import 'package:liblsl_coordinator/transports/lsl.dart';
 
@@ -428,7 +429,7 @@ class CoordinationController {
   Future<void> _sendMessage(CoordinationMessage message) async {
     logger.finest('[CONTROLLER-${thisNode.uId}] Sending ${message.type}');
     final stringMessage = MessageFactory.stringMessage(
-      data: [message.toJson()],
+      data: IList([message.toJson()]),
       channels: 1,
     );
     await _coordinationStream.sendMessage(stringMessage);
