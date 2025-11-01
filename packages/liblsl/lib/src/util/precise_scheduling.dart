@@ -6,7 +6,7 @@ import 'package:liblsl/native_liblsl.dart' show lsl_local_clock;
 class LSLStopwatch implements Stopwatch {
   const LSLStopwatch();
 
-  @pragma("vm:shared")
+  //@pragma("vm:shared")
   static final int _frequency = 1000000; // Microseconds
 
   @override
