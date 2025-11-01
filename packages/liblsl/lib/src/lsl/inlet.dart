@@ -418,6 +418,25 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
     return sample;
   }
 
+  /// Pull a sample but return the pointer instead of copying data.
+  /// This may be used for advanced use cases where you want to avoid copying
+  /// data out of the buffer.
+  /// **Parameters:**
+  /// - [timeout]: Maximum wait time in seconds (default: 0.0)
+  ///   if 0.0, it will not block and return immediately.
+  /// **Returns:** A [LSLSamplePointer] containing the data pointer, timestamp, and error code.
+  /// **Throws:** [LSLException] if pulling the sample fails.
+  /// **Note:** This method is only available when `useIsolates: false`.
+  LSLSamplePointer pullSamplePointerSync({double timeout = 0.0}) {
+    return _pullFn.pullSampleIntoSync(
+      _buffer.buffer,
+      _inletBang,
+      streamInfo.channelCount,
+      timeout,
+      _buffer.ec,
+    );
+  }
+
   /// Flushes the inlet's buffer in isolated mode.
   /// This is used when `useIsolates: true`.
   /// **Returns:** Number of samples dropped during flush.

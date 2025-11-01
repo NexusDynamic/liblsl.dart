@@ -58,6 +58,8 @@ class LSLOutlet extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// It provides methods to allocate buffers and push samples.
   late final LslPushSample _pushFn;
 
+  LslPushSample get nativePush => _pushFn;
+
   /// Buffer for storing sample data before pushing.
   late final Pointer<NativeType> _buffer;
 
@@ -201,7 +203,7 @@ class LSLOutlet extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// **Returns:** Error code (0 = success).
   ///
   /// **See also:** [pushSampleSync] for zero-overhead direct calls
-  Future<int> pushSample(IList<dynamic> data) => _useIsolates
+  Future<int> pushSample(Iterable<dynamic> data) => _useIsolates
       ? _pushSampleIsolated(data)
       : Future.value(_pushSampleDirect(data));
 
@@ -225,7 +227,7 @@ class LSLOutlet extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// **Returns:** Error code (0 = success).
   /// **See also:** [pushSample] for async operations
   /// **Throws:** [LSLException] if `useIsolates: true` or data validation fails.
-  int pushSampleSync(IList<dynamic> data) =>
+  int pushSampleSync(Iterable<dynamic> data) =>
       requireDirect(() => _pushSampleDirect(data));
 
   /// Checks if consumers are currently connected to the outlet.
@@ -330,11 +332,11 @@ class LSLOutlet extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// - [data]: List of values to push
   /// **Returns:** Error code (0 = success).
   /// **Throws:** [LSLException] if pushing the sample fails.
-  Future<int> _pushSampleIsolated(IList<dynamic> data) async {
+  Future<int> _pushSampleIsolated(Iterable<dynamic> data) async {
     _validateSampleData(data);
 
     // Set the sample data in the buffer
-    _pushFn.listToBuffer(data, _buffer);
+    _pushFn.listToBuffer(IList(data), _buffer);
 
     final response = await _isolateManagerBang.sendMessage(
       LSLMessage(LSLMessageType.pushSample, {'pointerAddr': _buffer.address}),
@@ -353,11 +355,11 @@ class LSLOutlet extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// - [data]: List of values to push
   /// **Returns:** Error code (0 = success).
   /// **Throws:** [LSLException] if pushing the sample fails.
-  int _pushSampleDirect(IList<dynamic> data) {
+  int _pushSampleDirect(Iterable<dynamic> data) {
     _validateSampleData(data);
 
     // Set the sample data in the buffer
-    _pushFn.listToBuffer(data, _buffer);
+    _pushFn.listToBuffer(IList(data), _buffer);
 
     // Push the sample
     final result = _pushFn(_outletBang, _buffer);
@@ -365,6 +367,17 @@ class LSLOutlet extends LSLObj with LSLIOMixin, LSLExecutionMixin {
       throw LSLException('Error pushing sample: $result');
     }
     return result;
+  }
+
+  Pointer<NativeType> dataToBufferPointer(Iterable<dynamic> data) {
+    _validateSampleData(data);
+    // Set the sample data in the buffer
+    _pushFn.listToBuffer(IList(data), _buffer);
+    return _buffer;
+  }
+
+  int pushSamplePointerSync(Pointer<NativeType> pointer) {
+    return _pushFn(_outletBang, pointer);
   }
 
   /// Checks if consumers are connected in isolated mode.
@@ -389,7 +402,7 @@ class LSLOutlet extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// **Parameters:**
   /// - [data]: List of values to validate
   /// **Throws:** [LSLException] if validation fails.
-  void _validateSampleData(IList<dynamic> data) {
+  void _validateSampleData(Iterable<dynamic> data) {
     if (data.length != streamInfo.channelCount) {
       throw LSLException(
         'Data length (${data.length}) does not match channel count (${streamInfo.channelCount})',
