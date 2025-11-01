@@ -962,7 +962,7 @@ class LSLDataStream extends DataStream<DataStreamConfig, IMessage>
     _streamNode = newNode;
   }
 
-  void sendDataTyped<T>(List<T> data) {
+  void sendDataTyped<T>(Iterable<T> data) {
     if (!started) throw StateError('Stream not started');
 
     if (data.length != config.channels) {
@@ -970,19 +970,18 @@ class LSLDataStream extends DataStream<DataStreamConfig, IMessage>
         'Data length ${data.length} does not match channels ${config.channels}',
       );
     }
-    final iData = IList<dynamic>(data);
     // Validate data types
-    _validateDataType(iData);
+    _validateDataType(data);
 
     // Send directly through outlet or isolate
     if (useIsolates && _outletIsolate != null) {
-      _outletIsolate!.sendData(iData);
+      _outletIsolate!.sendData(IList(data));
     } else if (_outletResource != null) {
-      _outletResource!.outlet.pushSample(iData);
+      _outletResource!.outlet.pushSample(IList(data));
     }
   }
 
-  void _validateDataType(IList<dynamic> data) {
+  void _validateDataType(Iterable<dynamic> data) {
     for (final value in data) {
       switch (config.dataType) {
         case StreamDataType.float32:

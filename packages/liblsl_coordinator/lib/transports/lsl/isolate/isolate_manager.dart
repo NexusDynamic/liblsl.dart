@@ -2,6 +2,7 @@
 
 import 'dart:async';
 import 'dart:collection';
+import 'dart:ffi';
 import 'dart:isolate';
 import 'package:collection/collection.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
@@ -19,11 +20,12 @@ enum IsolateMessageType {
   stop, // 3
   addInlet, // 4
   removeInlet, // 5
-  data, // 6
+  sample, // 6
   recreateOutlet, // 7
   pause, // 8
   resume, // 9
   flush, // 10
+  data, // 11
 }
 
 /// This is dumb, but despite Enum being immutable, it doesn't work
@@ -62,22 +64,29 @@ sealed class IsolateMessage implements IIMessage {
 /// Base class for mutable isolate messages - will be copied when sent
 /// (probably?)
 /// This is probably more accurately `NonImmutableIsolateMessage`
-sealed class MutableIsolateMessage implements IIMessage {
-  @override
-  final int type;
+// sealed class MutableIsolateMessage implements IIMessage {
+//   @override
+//   final int type;
 
-  @override
-  final String? requestID;
+//   @override
+//   final String? requestID;
 
-  const MutableIsolateMessage(this.type, {this.requestID});
-}
+//   const MutableIsolateMessage(this.type, {this.requestID});
+// }
 
 /// Message to send data through outlet - non-immutable thanks to List
-final class DataMessage extends MutableIsolateMessage {
-  /// This is always List of ImmutableType, but dart doesnt care
-  final IList<dynamic> payload;
+@pragma('vm:deeply-immutable')
+final class SampleMessage extends IsolateMessage {
+  final LSLSamplePointer payload;
 
-  const DataMessage(this.payload, {super.requestID}) : super(6);
+  const SampleMessage(this.payload, {super.requestID}) : super(6);
+}
+
+@pragma('vm:deeply-immutable')
+final class DataMessage extends IsolateMessage {
+  final Pointer<NativeType> payload;
+
+  const DataMessage(this.payload, {super.requestID}) : super(11);
 }
 
 /// Message to start isolate processing - immutable
@@ -332,8 +341,8 @@ sealed class StreamIsolate {
     _sendPort?.send(message); // Direct object sending - no serialization!
   }
 
-  /// Send a mutable message to the isolate - will be copied :(
-  Future<void> sendDataMessage(MutableIsolateMessage message) async {
+  /// Send a mutable message to the isolate
+  Future<void> sendDataMessage(DataMessage message) async {
     await _initialized.future;
     _sendPort?.send(message);
   }
@@ -546,6 +555,9 @@ final class StreamOutletIsolate extends StreamIsolate {
   final int _outletAddress;
   final int _channelCount;
   final double _sampleRate;
+  late final LslPushSample _pushFn;
+  final Lock _bufferLock = Lock();
+  late final LSLReusableBuffer<NativeType> _buffer;
 
   StreamOutletIsolate({
     required super.streamId,
@@ -562,11 +574,36 @@ final class StreamOutletIsolate extends StreamIsolate {
        _sampleRate = sampleRate,
        super(
          isolateDebugName: isolateDebugName ?? 'StreamOutletIsolate-$streamId',
-       );
+       ) {
+    _pushFn = LSLMapper().pushSampleMap[_dataTypeToChannelFormat(dataType)]!;
+    _buffer = _pushFn.createReusableBuffer(_channelCount);
+  }
+
+  static LSLChannelFormat _dataTypeToChannelFormat(StreamDataType dataType) {
+    switch (dataType) {
+      case StreamDataType.float32:
+        return LSLChannelFormat.float32;
+      case StreamDataType.double64:
+        return LSLChannelFormat.double64;
+      case StreamDataType.int8:
+        return LSLChannelFormat.int8;
+      case StreamDataType.int16:
+        return LSLChannelFormat.int16;
+      case StreamDataType.int32:
+        return LSLChannelFormat.int32;
+      case StreamDataType.int64:
+        return LSLChannelFormat.int64;
+      case StreamDataType.string:
+        return LSLChannelFormat.string;
+    }
+  }
 
   /// Send data through outlet
   Future<void> sendData(IList<dynamic> data) async {
-    await sendDataMessage(DataMessage(data));
+    await _bufferLock.synchronized(() async {
+      _pushFn.listToBuffer(data, _buffer.buffer);
+      await sendDataMessage(DataMessage(_buffer.buffer));
+    });
   }
 
   Future<void> recreateOutlet(int address) async {
@@ -868,6 +905,7 @@ final class InletWorker extends IsolateWorker {
         case IsolateMessageType.removeInlet:
           _handleRemoveInlet(message as RemoveInletMessage);
           break;
+        case IsolateMessageType.sample:
         case IsolateMessageType.data:
         case IsolateMessageType.recreateOutlet:
         case IsolateMessageType.initialized:
@@ -1220,6 +1258,7 @@ final class OutletWorker extends IsolateWorker {
         case IsolateMessageType.recreateOutlet:
           _recreateOutlet(message as RecreateOutletMessage);
           break;
+        case IsolateMessageType.sample:
         case IsolateMessageType.addInlet:
         case IsolateMessageType.removeInlet:
         case IsolateMessageType.initialized:
@@ -1302,7 +1341,7 @@ final class OutletWorker extends IsolateWorker {
 
   void _handleData(DataMessage message) {
     if (running && !paused) {
-      outlet.pushSampleSync(message.payload);
+      outlet.pushSamplePointerSync(message.payload);
     }
   }
 }
