@@ -386,10 +386,12 @@ class CoordinationController {
   }
 
   Future<void> _handleIncomingMessage(StringMessage message) async {
+    print('[INCOMING] RAW message received, data length: ${message.data.length}');
     try {
       final CoordinationMessage coordMessage;
       try {
         coordMessage = CoordinationMessage.fromJson(message.data.first);
+        print('[INCOMING] Parsed message type: ${coordMessage.type}, from: ${coordMessage.fromNodeUId}');
       } catch (e) {
         logger.severe(
           '[CONTROLLER-${thisNode.uId}] Invalid coordination message JSON: $e\nRaw message data: ${message.data}',
@@ -398,7 +400,12 @@ class CoordinationController {
       }
 
       // Route to appropriate handler
+      print('[ROUTING] Checking handlers for ${coordMessage.type}');
+      print('[ROUTING] Coordinator handler exists: ${_coordinatorHandler != null}, can handle: ${_coordinatorHandler?.canHandle(coordMessage.type)}');
+      print('[ROUTING] Participant handler exists: ${_participantHandler != null}, can handle: ${_participantHandler?.canHandle(coordMessage.type)}');
+
       if (_coordinatorHandler?.canHandle(coordMessage.type) == true) {
+        print('[ROUTING] Using coordinator handler');
         try {
           await _coordinatorHandler!.handleMessage(coordMessage);
         } catch (e) {
@@ -407,6 +414,7 @@ class CoordinationController {
           );
         }
       } else if (_participantHandler?.canHandle(coordMessage.type) == true) {
+        print('[ROUTING] Using participant handler');
         try {
           await _participantHandler!.handleMessage(coordMessage);
         } catch (e) {
@@ -415,6 +423,7 @@ class CoordinationController {
           );
         }
       } else {
+        print('[ROUTING] NO HANDLER FOUND for ${coordMessage.type}!');
         logger.warning(
           '[CONTROLLER-${thisNode.uId}] No handler for message type: ${coordMessage.type}',
         );
@@ -427,12 +436,15 @@ class CoordinationController {
   }
 
   Future<void> _sendMessage(CoordinationMessage message) async {
+    print('[SEND] Sending ${message.type} from ${thisNode.uId}');
     logger.finest('[CONTROLLER-${thisNode.uId}] Sending ${message.type}');
     final stringMessage = MessageFactory.stringMessage(
       data: IList([message.toJson()]),
       channels: 1,
     );
+    print('[SEND] Calling _coordinationStream.sendMessage for ${message.type}...');
     await _coordinationStream.sendMessage(stringMessage);
+    print('[SEND] Message ${message.type} sent successfully');
   }
 
   void _startHeartbeat() {
