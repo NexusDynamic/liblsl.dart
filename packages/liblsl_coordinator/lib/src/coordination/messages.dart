@@ -281,34 +281,17 @@ class JoinAcceptMessage extends CoordinationMessage {
   factory JoinAcceptMessage.fromMap(
     Map<String, dynamic> map,
   ) {
-    try {
-      print('[JoinAcceptMessage.fromMap] Deserializing message from ${map['fromNodeUId']}');
-      print('[JoinAcceptMessage.fromMap] acceptedNodeUId: ${map['acceptedNodeUId']}');
-      print('[JoinAcceptMessage.fromMap] currentTopology type: ${map['currentTopology'].runtimeType}');
-      print('[JoinAcceptMessage.fromMap] currentTopology length: ${(map['currentTopology'] as List).length}');
+    final topology = (map['currentTopology'] as List)
+        .map((n) => NodeFactory.createNodeFromConfig(NodeConfigFactory().fromMap(n)))
+        .toList();
 
-      final topology = (map['currentTopology'] as List)
-          .map((n) {
-            print('[JoinAcceptMessage.fromMap] Processing topology node: ${n.runtimeType}');
-            return NodeFactory.createNodeFromConfig(NodeConfigFactory().fromMap(n));
-          })
-          .toList();
-
-      print('[JoinAcceptMessage.fromMap] Successfully deserialized ${topology.length} nodes');
-
-      return JoinAcceptMessage(
-        fromNodeUId: map['fromNodeUId'],
-        acceptedNodeUId: map['acceptedNodeUId'],
-        currentTopology: topology,
-        timestamp: DateTime.parse(map['timestamp']),
-        metadata: Map<String, dynamic>.from(map['metadata'] ?? {}),
-      );
-    } catch (e, st) {
-      print('[JoinAcceptMessage.fromMap] ❌ DESERIALIZATION FAILED: $e');
-      print('[JoinAcceptMessage.fromMap] Stack trace: $st');
-      print('[JoinAcceptMessage.fromMap] Map contents: $map');
-      rethrow;
-    }
+    return JoinAcceptMessage(
+      fromNodeUId: map['fromNodeUId'],
+      acceptedNodeUId: map['acceptedNodeUId'],
+      currentTopology: topology,
+      timestamp: DateTime.parse(map['timestamp']),
+      metadata: Map<String, dynamic>.from(map['metadata'] ?? {}),
+    );
   }
 }
 

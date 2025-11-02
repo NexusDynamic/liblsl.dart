@@ -286,11 +286,20 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
 
       /// now we can create inlets from each expected sender
       if (config.participationMode != StreamParticipationMode.coordinatorOnly) {
-        // Create inlets for all existing producers
-        // @TODO: we need to save more information about nodes than the uId
+        // Wait for all participants to create their outlets and signal ready
         final producers = await getProducersForStream(config.name);
         logger.info(
-          'Coordinator creating inlets for producers: ${producers.map((e) => "${e.uId} ${e.role}").join(', ')}',
+          'Coordinator waiting for ${producers.length} participants to be ready for stream: ${config.name}',
+        );
+
+        await _waitForParticipantStreamsReady(
+          config.name,
+          producers,
+          timeout: const Duration(seconds: 10),
+        );
+
+        logger.info(
+          'All participants ready, creating inlets for producers: ${producers.map((e) => "${e.uId} ${e.role}").join(', ')}',
         );
         await stream.createResolvedInletsForStream(producers);
       }
@@ -367,6 +376,75 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
 
     /// Send start command to all participants
     await _controller.startStream(streamName, stream.config, startAt: startAt);
+  }
+
+  /// Wait for all participants to signal they are ready for the specified stream
+  /// by listening to streamReadyNotifications.
+  /// Throws TimeoutException if not all participants signal ready within timeout.
+  Future<void> _waitForParticipantStreamsReady(
+    String streamName,
+    Set<Node> expectedProducers, {
+    required Duration timeout,
+  }) async {
+    if (expectedProducers.isEmpty) {
+      logger.info('No participants to wait for (coordinator-only stream)');
+      return;
+    }
+
+    final expectedNodeUIds =
+        expectedProducers.map((node) => node.uId).toSet();
+    final readyNodes = <String>{};
+
+    logger.info(
+      'Waiting for ${expectedNodeUIds.length} participants to be ready for stream $streamName: $expectedNodeUIds',
+    );
+
+    final completer = Completer<void>();
+    StreamSubscription<StreamReadyMessage>? subscription;
+
+    // Set up timeout
+    final timer = Timer(timeout, () {
+      if (!completer.isCompleted) {
+        final missingNodes = expectedNodeUIds.difference(readyNodes);
+        logger.severe(
+          'Timeout waiting for participants to be ready for stream $streamName. Missing: $missingNodes',
+        );
+        completer.completeError(
+          TimeoutException(
+            'Timeout waiting for participants to be ready for stream $streamName. Missing nodes: $missingNodes',
+            timeout,
+          ),
+        );
+      }
+    });
+
+    // Listen for streamReady messages
+    subscription = streamReadyNotifications.listen((message) {
+      if (message.streamName == streamName &&
+          expectedNodeUIds.contains(message.fromNodeUId)) {
+        readyNodes.add(message.fromNodeUId);
+        logger.info(
+          'Participant ${message.fromNodeUId} ready for stream $streamName (${readyNodes.length}/${expectedNodeUIds.length})',
+        );
+
+        // Check if all participants are ready
+        if (readyNodes.length == expectedNodeUIds.length) {
+          logger.info(
+            'All ${expectedNodeUIds.length} participants ready for stream $streamName',
+          );
+          if (!completer.isCompleted) {
+            completer.complete();
+          }
+        }
+      }
+    });
+
+    try {
+      await completer.future;
+    } finally {
+      timer.cancel();
+      await subscription.cancel();
+    }
   }
 
   Future<Set<Node>> getProducersForStream(String streamName) async {
