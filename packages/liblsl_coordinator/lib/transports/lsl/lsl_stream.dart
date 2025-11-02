@@ -1211,7 +1211,11 @@ class LSLCoordinationStream
 
   @override
   StringMessage? _createMessageFromIsolateData(IsolateDataMessage data) {
-    if (data.data.isNotEmpty && data.data[0] is String) {
+    if (data.data.isNotEmpty) {
+      final msgPayload = data.data[0] as String;
+      if (msgPayload.isEmpty) {
+        return null;
+      }
       return MessageFactory.stringMessage(
           data: IList<String>([data.data[0] as String]),
           timestamp: data.timestamp,
@@ -1235,6 +1239,10 @@ class LSLCoordinationStream
   @override
   StringMessage? _createMessageFromSample(LSLSample sample) {
     if (sample.data.isNotEmpty) {
+      final String msgPayload = sample.data[0] as String;
+      if (msgPayload.isEmpty) {
+        return null;
+      }
       return MessageFactory.stringMessage(
         data: IList([sample.data[0] as String]),
         timestamp: DateTime.now(),

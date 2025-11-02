@@ -90,7 +90,7 @@ Future<void> _runNode({
       heartbeatInterval: Duration(seconds: 1),
       discoveryInterval: Duration(seconds: 5),
       nodeTimeout: Duration(seconds: 10),
-      maxNodes: maxNodes, // This will cause some nodes to be rejected
+      maxNodes: maxNodes, // This may cause some nodes to be rejected
     );
 
     // Create coordination configuration
@@ -126,11 +126,17 @@ Future<void> _runNode({
       channels: 3, // timestamp, node_id, sample_count
       sampleRate: 10.0,
       dataType: StreamDataType.double64,
-      participationMode: StreamParticipationMode.allNodes,
+      participationMode:
+          StreamParticipationMode.sendParticipantsReceiveCoordinator,
     );
 
     // Create session using the new simplified API
-    final session = LSLCoordinationSession(coordinationConfig);
+    final session = LSLCoordinationSession(
+      coordinationConfig,
+      thisNodeConfig: NodeConfigFactory().defaultConfig().copyWith(
+        name: nodeId,
+      ),
+    );
 
     // Set up comprehensive event listeners
     _setupEventListeners(session, nodeId);
@@ -291,11 +297,11 @@ Future<void> _runCoordinatorTestLogic(
       switch (action) {
         case 'wait_for_nodes':
           logger.info(
-            '⏳ $nodeId: Waiting for [$maxNodes] participant nodes...',
+            '⏳ $nodeId: Waiting for [${maxNodes - 1}] participant nodes...',
           );
           try {
             await session.waitForMinNodes(
-              maxNodes,
+              maxNodes - 1,
               timeout: Duration(seconds: 20),
             );
             logger.info(

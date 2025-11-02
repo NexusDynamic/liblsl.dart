@@ -600,9 +600,14 @@ final class StreamOutletIsolate extends StreamIsolate {
 
   /// Send data through outlet
   Future<void> sendData(IList<dynamic> data) async {
+    final requestRecord = _generateRequestID();
     await _bufferLock.synchronized(() async {
       _pushFn.listToBuffer(data, _buffer.buffer);
-      await sendDataMessage(DataMessage(_buffer.buffer));
+      await sendDataMessage(
+        DataMessage(_buffer.buffer, requestID: requestRecord.$1),
+      );
+      // Wait for isolate to confirm data was pushed to LSL before releasing buffer
+      await requestRecord.$2.future;
     });
   }
 
@@ -612,6 +617,12 @@ final class StreamOutletIsolate extends StreamIsolate {
       RecreateOutletMessage(address, requestID: requestRecord.$1),
     );
     await requestRecord.$2.future;
+  }
+
+  @override
+  Future<void> dispose() async {
+    await super.dispose();
+    _buffer.free();
   }
 
   @override
@@ -914,9 +925,9 @@ final class InletWorker extends IsolateWorker {
           break;
       }
       if (message.requestID != null) {
-        logger.finest(
-          'Inlet worker for stream ${config.streamId} sending response for request ${message.requestID}',
-        );
+        // logger.finest(
+        //   'Inlet worker for stream ${config.streamId} sending response for request ${message.requestID}',
+        // );
         config.mainSendPort.send(ResponseMessage(requestID: message.requestID));
       }
     }
@@ -1267,9 +1278,9 @@ final class OutletWorker extends IsolateWorker {
           break;
       }
       if (message.requestID != null) {
-        logger.finest(
-          'Outlet worker for stream ${config.streamId} sending response for request ${message.requestID}',
-        );
+        // logger.finest(
+        //   'Outlet worker for stream ${config.streamId} sending response for request ${message.requestID}',
+        // );
         config.mainSendPort.send(ResponseMessage(requestID: message.requestID));
       }
     }
