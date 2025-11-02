@@ -434,8 +434,11 @@ class ParticipantMessageHandler extends CoordinationMessageHandler {
       return;
     }
 
+    logger.info('[DISPATCH] Processing message type: ${message.type}, isCoordinator: ${state.isCoordinator}, phase: ${state.phase}');
+
     switch (message.type) {
       case CoordinationMessageType.joinAccept:
+        logger.info('[DISPATCH] Handling joinAccept message');
         await _handleJoinAccept(message as JoinAcceptMessage);
         break;
       case CoordinationMessageType.joinReject:
