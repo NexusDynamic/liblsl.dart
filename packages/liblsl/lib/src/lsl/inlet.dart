@@ -71,7 +71,7 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// Pull function for converting raw data to Dart types.
   /// This is initialized based on the [streamInfo] type.
   /// It provides methods to create reusable buffers and pull samples.
-  late final LslPullSample _pullFn;
+  late final LSLPullSample _pullFn;
 
   /// Whether the inlet is created using isolates or direct FFI calls.
   @override

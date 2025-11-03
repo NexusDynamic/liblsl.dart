@@ -7,14 +7,14 @@ import 'package:meta/meta.dart';
 import 'package:liblsl/src/ffi/mem.dart';
 
 /// Generalized description of the lsl_push_sample_* functions.
-typedef DartLslPushSample<T extends NativeType> =
+typedef DartLSLPushSample<T extends NativeType> =
     int Function(lsl_outlet out, Pointer<T> data);
 
 /// The base class for all LSL push sample types.
-abstract class LslPushSample<T extends NativeType> {
-  final DartLslPushSample<T> _pushFn;
+abstract class LSLPushSample<T extends NativeType> {
+  final DartLSLPushSample<T> _pushFn;
 
-  const LslPushSample(this._pushFn);
+  const LSLPushSample(this._pushFn);
 
   int call(lsl_outlet out, Pointer<T> data) {
     return _pushFn(out, data);
@@ -38,8 +38,8 @@ abstract class LslPushSample<T extends NativeType> {
 }
 
 /// Push sample for float32 data.
-class LslPushSampleFloat extends LslPushSample<Float> {
-  const LslPushSampleFloat() : super(lsl_push_sample_f);
+class LSLPushSampleFloat extends LSLPushSample<Float> {
+  const LSLPushSampleFloat() : super(lsl_push_sample_f);
 
   @override
   LSLReusableBuffer<Float> createReusableBuffer(int channels) {
@@ -60,8 +60,8 @@ class LslPushSampleFloat extends LslPushSample<Float> {
 }
 
 /// Push sample for double64 data.
-class LslPushSampleDouble extends LslPushSample<Double> {
-  const LslPushSampleDouble() : super(lsl_push_sample_d);
+class LSLPushSampleDouble extends LSLPushSample<Double> {
+  const LSLPushSampleDouble() : super(lsl_push_sample_d);
 
   @override
   LSLReusableBuffer<Double> createReusableBuffer(int channels) {
@@ -82,8 +82,8 @@ class LslPushSampleDouble extends LslPushSample<Double> {
 }
 
 /// Push sample for int8 data.
-class LslPushSampleInt8 extends LslPushSample<Char> {
-  const LslPushSampleInt8() : super(lsl_push_sample_c);
+class LSLPushSampleInt8 extends LSLPushSample<Char> {
+  const LSLPushSampleInt8() : super(lsl_push_sample_c);
 
   @override
   LSLReusableBuffer<Char> createReusableBuffer(int channels) {
@@ -104,8 +104,8 @@ class LslPushSampleInt8 extends LslPushSample<Char> {
 }
 
 /// Push sample for int16 data.
-class LslPushSampleInt16 extends LslPushSample<Int16> {
-  const LslPushSampleInt16() : super(lsl_push_sample_s);
+class LSLPushSampleInt16 extends LSLPushSample<Int16> {
+  const LSLPushSampleInt16() : super(lsl_push_sample_s);
 
   @override
   LSLReusableBuffer<Int16> createReusableBuffer(int channels) {
@@ -126,8 +126,8 @@ class LslPushSampleInt16 extends LslPushSample<Int16> {
 }
 
 /// Push sample for int32 data.
-class LslPushSampleInt32 extends LslPushSample<Int32> {
-  const LslPushSampleInt32() : super(lsl_push_sample_i);
+class LSLPushSampleInt32 extends LSLPushSample<Int32> {
+  const LSLPushSampleInt32() : super(lsl_push_sample_i);
 
   @override
   LSLReusableBuffer<Int32> createReusableBuffer(int channels) {
@@ -148,8 +148,8 @@ class LslPushSampleInt32 extends LslPushSample<Int32> {
 }
 
 /// Push sample for int64 data.
-class LslPushSampleInt64 extends LslPushSample<Int64> {
-  const LslPushSampleInt64() : super(lsl_push_sample_l);
+class LSLPushSampleInt64 extends LSLPushSample<Int64> {
+  const LSLPushSampleInt64() : super(lsl_push_sample_l);
 
   @override
   LSLReusableBuffer<Int64> createReusableBuffer(int channels) {
@@ -170,8 +170,8 @@ class LslPushSampleInt64 extends LslPushSample<Int64> {
 }
 
 /// Push sample for string data.
-class LslPushSampleString extends LslPushSample<Pointer<Char>> {
-  const LslPushSampleString() : super(lsl_push_sample_str);
+class LSLPushSampleString extends LSLPushSample<Pointer<Char>> {
+  const LSLPushSampleString() : super(lsl_push_sample_str);
 
   @override
   LSLReusableBuffer<Pointer<Char>> createReusableBuffer(int channels) {
@@ -195,8 +195,8 @@ class LslPushSampleString extends LslPushSample<Pointer<Char>> {
 }
 
 /// Push sample for void data.
-class LslPushSampleVoid extends LslPushSample<Void> {
-  const LslPushSampleVoid() : super(lsl_push_sample_v);
+class LSLPushSampleVoid extends LSLPushSample<Void> {
+  const LSLPushSampleVoid() : super(lsl_push_sample_v);
 
   @override
   LSLReusableBuffer<Void> createReusableBuffer(int channels) {

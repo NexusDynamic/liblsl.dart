@@ -15,7 +15,7 @@ import 'package:liblsl/src/meta/todo.dart';
 class LSLOutletIsolate extends LSLIsolateWorkerBase {
   lsl_outlet? _outlet;
   LSLStreamInfo? _streamInfo;
-  late final LslPushSample _pushFn;
+  late final LSLPushSample _pushFn;
   late final bool _isStreamInfoOwner;
 
   /// Creates a new outlet isolate worker

@@ -17,7 +17,7 @@ import 'package:meta/meta.dart';
 class LSLInletIsolate extends LSLIsolateWorkerBase {
   lsl_inlet? _inlet;
   LSLStreamInfo? _streamInfo;
-  late final LslPullSample _pullFn;
+  late final LSLPullSample _pullFn;
   late final bool _isStreamInfoOwner;
 
   final Map<LSLMessageType, FutureOr Function(Map<String, dynamic>)> _handlers =

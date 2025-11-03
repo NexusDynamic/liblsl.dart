@@ -555,7 +555,7 @@ final class StreamOutletIsolate extends StreamIsolate {
   final int _outletAddress;
   final int _channelCount;
   final double _sampleRate;
-  late final LslPushSample _pushFn;
+  late final LSLPushSample _pushFn;
   final Lock _bufferLock = Lock();
   late final LSLReusableBuffer<NativeType> _buffer;
 

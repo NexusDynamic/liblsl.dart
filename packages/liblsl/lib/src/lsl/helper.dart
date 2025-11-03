@@ -13,28 +13,28 @@ import 'package:liblsl/src/lsl/structs.dart';
 class LSLMapper {
   static LSLMapper? _instance;
 
-  /// Map of [StreamInfo.channelFormat] to [LslPushSample].
-  static final Map<LSLChannelFormat, LslPushSample> _pushSampleMap = {
-    LSLChannelFormat.float32: LslPushSampleFloat(),
-    LSLChannelFormat.double64: LslPushSampleDouble(),
-    LSLChannelFormat.int8: LslPushSampleInt8(),
-    LSLChannelFormat.int16: LslPushSampleInt16(),
-    LSLChannelFormat.int32: LslPushSampleInt32(),
-    LSLChannelFormat.int64: LslPushSampleInt64(),
-    LSLChannelFormat.string: LslPushSampleString(),
-    LSLChannelFormat.undefined: LslPushSampleVoid(),
+  /// Map of [StreamInfo.channelFormat] to [LSLPushSample].
+  static final Map<LSLChannelFormat, LSLPushSample> _pushSampleMap = {
+    LSLChannelFormat.float32: LSLPushSampleFloat(),
+    LSLChannelFormat.double64: LSLPushSampleDouble(),
+    LSLChannelFormat.int8: LSLPushSampleInt8(),
+    LSLChannelFormat.int16: LSLPushSampleInt16(),
+    LSLChannelFormat.int32: LSLPushSampleInt32(),
+    LSLChannelFormat.int64: LSLPushSampleInt64(),
+    LSLChannelFormat.string: LSLPushSampleString(),
+    LSLChannelFormat.undefined: LSLPushSampleVoid(),
   };
 
-  /// Map of [StreamInfo.channelFormat] to [LslPullSample].
-  static final Map<LSLChannelFormat, LslPullSample> _pullSampleMap = {
-    LSLChannelFormat.float32: LslPullSampleFloat(),
-    LSLChannelFormat.double64: LslPullSampleDouble(),
-    LSLChannelFormat.int8: LslPullSampleInt8(),
-    LSLChannelFormat.int16: LslPullSampleInt16(),
-    LSLChannelFormat.int32: LslPullSampleInt32(),
-    LSLChannelFormat.int64: LslPullSampleInt64(),
-    LSLChannelFormat.string: LslPullSampleString(),
-    LSLChannelFormat.undefined: LslPullSampleUndefined(),
+  /// Map of [StreamInfo.channelFormat] to [LSLPullSample].
+  static final Map<LSLChannelFormat, LSLPullSample> _pullSampleMap = {
+    LSLChannelFormat.float32: LSLPullSampleFloat(),
+    LSLChannelFormat.double64: LSLPullSampleDouble(),
+    LSLChannelFormat.int8: LSLPullSampleInt8(),
+    LSLChannelFormat.int16: LSLPullSampleInt16(),
+    LSLChannelFormat.int32: LSLPullSampleInt32(),
+    LSLChannelFormat.int64: LSLPullSampleInt64(),
+    LSLChannelFormat.string: LSLPullSampleString(),
+    LSLChannelFormat.undefined: LSLPullSampleUndefined(),
   };
 
   LSLMapper._();
@@ -44,11 +44,11 @@ class LSLMapper {
     return _instance!;
   }
 
-  Map<LSLChannelFormat, LslPushSample> get pushSampleMap => _pushSampleMap;
-  Map<LSLChannelFormat, LslPullSample> get pullSampleMap => _pullSampleMap;
+  Map<LSLChannelFormat, LSLPushSample> get pushSampleMap => _pushSampleMap;
+  Map<LSLChannelFormat, LSLPullSample> get pullSampleMap => _pullSampleMap;
 
-  /// Gets the [LslPushSample] for the given [LSLStreamInfo].
-  LslPushSample streamPush(LSLStreamInfo streamInfo) {
+  /// Gets the [LSLPushSample] for the given [LSLStreamInfo].
+  LSLPushSample streamPush(LSLStreamInfo streamInfo) {
     final LSLChannelFormat channelFormat = streamInfo.channelFormat;
     if (_pushSampleMap.containsKey(channelFormat)) {
       return _pushSampleMap[channelFormat]!;
@@ -57,8 +57,8 @@ class LSLMapper {
     }
   }
 
-  /// Gets the [LslPullSample] for the given [LSLStreamInfo].
-  LslPullSample streamPull(LSLStreamInfo streamInfo) {
+  /// Gets the [LSLPullSample] for the given [LSLStreamInfo].
+  LSLPullSample streamPull(LSLStreamInfo streamInfo) {
     final LSLChannelFormat channelFormat = streamInfo.channelFormat;
     if (_pullSampleMap.containsKey(channelFormat)) {
       return _pullSampleMap[channelFormat]!;

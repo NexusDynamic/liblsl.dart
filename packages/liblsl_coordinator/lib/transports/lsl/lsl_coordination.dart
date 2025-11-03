@@ -391,8 +391,7 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
       return;
     }
 
-    final expectedNodeUIds =
-        expectedProducers.map((node) => node.uId).toSet();
+    final expectedNodeUIds = expectedProducers.map((node) => node.uId).toSet();
     final readyNodes = <String>{};
 
     logger.info(

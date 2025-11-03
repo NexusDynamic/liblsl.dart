@@ -57,9 +57,9 @@ class LSLOutlet extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// Push function for converting Dart types to raw data.
   /// This is initialized based on the [streamInfo] type.
   /// It provides methods to allocate buffers and push samples.
-  late final LslPushSample _pushFn;
+  late final LSLPushSample _pushFn;
 
-  LslPushSample get nativePush => _pushFn;
+  LSLPushSample get nativePush => _pushFn;
 
   /// Buffer for storing sample data before pushing.
   late final Pointer<NativeType> _buffer;
@@ -277,7 +277,7 @@ class LSLOutlet extends LSLObj with LSLIOMixin, LSLExecutionMixin {
     // Initialize the push function and buffer
     _pushFn = LSLMapper().streamPush(streamInfo);
     _buffer = _pushFn.allocBuffer(streamInfo.channelCount);
-    if (_buffer.isNullPointer && _pushFn is! LslPushSampleVoid) {
+    if (_buffer.isNullPointer && _pushFn is! LSLPushSampleVoid) {
       throw LSLException('Failed to allocate memory for buffer');
     }
   }
@@ -309,7 +309,7 @@ class LSLOutlet extends LSLObj with LSLIOMixin, LSLExecutionMixin {
     // Initialize the push function and buffer
     _pushFn = LSLMapper().streamPush(streamInfo);
     _buffer = _pushFn.allocBuffer(streamInfo.channelCount);
-    if (_buffer.isNullPointer && _pushFn is! LslPushSampleVoid) {
+    if (_buffer.isNullPointer && _pushFn is! LSLPushSampleVoid) {
       throw LSLException('Failed to allocate memory for buffer');
     }
 

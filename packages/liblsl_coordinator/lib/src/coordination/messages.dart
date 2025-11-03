@@ -278,11 +278,12 @@ class JoinAcceptMessage extends CoordinationMessage {
     'metadata': metadata,
   };
 
-  factory JoinAcceptMessage.fromMap(
-    Map<String, dynamic> map,
-  ) {
+  factory JoinAcceptMessage.fromMap(Map<String, dynamic> map) {
     final topology = (map['currentTopology'] as List)
-        .map((n) => NodeFactory.createNodeFromConfig(NodeConfigFactory().fromMap(n)))
+        .map(
+          (n) =>
+              NodeFactory.createNodeFromConfig(NodeConfigFactory().fromMap(n)),
+        )
         .toList();
 
     return JoinAcceptMessage(

@@ -5,7 +5,7 @@
 - Added methods for creating an inlet and outlet from the pointer directly: `LSLInlet.createFromPointer` and `LSLOutlet.createFromPointer`.
 - Performance test use the above to allow a single isolate for all outlets, and a single isolate for all inlets, reducing overhead and improving performance.
 - All non-performance tests made concurrency safe, which reduces test-suite run time. Performance tests still need to be run without concurrency to ensure accurate(ish) timing.
-- Exported some lower-level classes for advanced use cases: `LslPullSample`, `LslPushSample`, `LSLMapper`, `LSLSamplePointer`, `LSLReusableBuffer`, `LSLReusableBufferInt8`, `LSLReusableBufferDouble` and `LSLReusableBufferFloat`.
+- Exported some lower-level classes for advanced use cases: `LSLPullSample`, `LSLPushSample`, `LSLMapper`, `LSLSamplePointer`, `LSLReusableBuffer`, `LSLReusableBufferInt8`, `LSLReusableBufferDouble` and `LSLReusableBufferFloat`.
 - Added advanced methods `LSLInlet.pullSamplePointerSync()` which returns a `LSLSamplePointer` and `LSLOutlet.dataToBufferPointer` which returns a buuffer pointer for pushing samples.
 - Replace `List` with `IList` for sample management from `fast_immutable_collections` for better performance and immutability guarantees.
 - Added a check for `created` state in `LSLInlet.destroy` and `LSLOutlet.destroy` to avoid trying to destroy uncreated inlets/outlets.
@@ -85,7 +85,7 @@ There are also new packages that complement `liblsl.dart`, and are still work-in
 - Use [custom fork](https://github.com/zeyus/liblsl) of `liblsl` which allows API configuration to be specified at runtime (once, before any other LSL functions are called). This means that anything in the [LSL API configuration file](https://labstreaminglayer.readthedocs.io/info/lslapicfg.html#configuration-file-contents) can be set, including on mobile platforms that do not support environment variables or allow editing files in `/etc` or `./`.
   - This is exposed via the C/C++ API as `lsl_set_config_filename` and `lsl_set_config_content` to set the configuration file name and content (directly as a `std::string`/`char*`), respectively. The Dart API now provides a `LSLConfig` class that can be used to set the configuration file name and content, which can be used in `LSL.setConfigFilename` and `LSL.setConfigContent` methods.
 - New `LSLReusableBuffer` class for allowing sample structures to avoid creating new instances for each sample. This reuse significantly enhances the performance by reducing the allocations during sample pulling and pushing.
-- Generic push sample functions have now been replaced with specific implementations for each type e.g. `LslPushSampleFloat`.
+- Generic push sample functions have now been replaced with specific implementations for each type e.g. `LSLPushSampleFloat`.
 - A new helper function `runPreciseInterval` has been added to handle precision interval timing, using an adjustable busy-wait loop. The API is subject to change, but allows for a callback and a mutable `dyanmic state` to be passed in, which can be used to update the state of the callback. This is useful for implementing precise timing in LSL applications (such as requiring 1000Hz sample creation with high precision -> resulting in a mean of 1.0000, median of 1.0082 ms over 180,000 samples).
 - `hooks` package updated from `0.19.0` to `0.19.1`.
 - `native_toolchain_c` updated from `^0.16.0` to `^0.16.1`.

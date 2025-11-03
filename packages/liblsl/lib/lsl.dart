@@ -3,8 +3,8 @@ library;
 
 export 'package:liblsl/src/lsl/structs.dart';
 export 'package:liblsl/src/lsl/stream_info.dart';
-export 'package:liblsl/src/lsl/pull_sample.dart' show LslPullSample;
-export 'package:liblsl/src/lsl/push_sample.dart' show LslPushSample;
+export 'package:liblsl/src/lsl/pull_sample.dart' show LSLPullSample;
+export 'package:liblsl/src/lsl/push_sample.dart' show LSLPushSample;
 export 'package:liblsl/src/lsl/helper.dart' show LSLMapper;
 export 'package:liblsl/src/lsl/outlet.dart' show LSLOutlet;
 export 'package:liblsl/src/lsl/inlet.dart' show LSLInlet;
