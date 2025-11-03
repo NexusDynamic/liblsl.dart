@@ -48,7 +48,6 @@ melos:
       description: Run `dart format` checks for all packages.
     test:select:
       exec: flutter test --exclude-tags "performance"
-      concurrency: 1
       packageFilters:
         dirExists: test
         ignore:
@@ -56,6 +55,14 @@ melos:
           # the app works when built in release mode
           - liblsl_test
       description: Run `flutter test` for selected packages.
+    test:performance:
+      exec: flutter test --tags "performance"
+      concurrency: 1
+      packageFilters:
+        dirExists: test
+        ignore:
+          - liblsl_test
+      description: Run performance tests for selected packages (without concurrency).
     test:
       run: melos run test:select --no-select
       description: Run all Flutter tests in this project.

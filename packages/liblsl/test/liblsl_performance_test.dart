@@ -1,31 +1,35 @@
 // ignore: library_annotations
 @Tags(['performance'])
 import 'dart:async';
+import 'dart:isolate';
 import 'dart:math';
 
-import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:liblsl/lsl.dart';
+import 'package:liblsl/native_liblsl.dart';
 import 'package:test/test.dart';
 
+final apiConfig = LSLApiConfig(
+  ipv6: IPv6Mode.disable,
+  resolveScope: ResolveScope.link,
+  // listenAddress: '127.0.0.1',
+  addressesOverride: ['224.0.0.183'],
+  knownPeers: ['127.0.0.1'],
+  sessionId: 'LSLTestSession_${DateTime.now().millisecondsSinceEpoch}',
+  unicastMinRTT: 0.1,
+  multicastMinRTT: 0.1,
+  portRange: 128,
+  logLevel: -2,
+  // don't bother checking during the test
+  watchdogCheckInterval: 600.0,
+  sendSocketBufferSize: 1024,
+  receiveSocketBufferSize: 1024,
+  outletBufferReserveMs: 2000,
+  inletBufferReserveMs: 2000,
+);
+
 void main() {
-  setUpAll(() {
-    final apiConfig = LSLApiConfig(
-      ipv6: IPv6Mode.disable,
-      resolveScope: ResolveScope.link,
-      listenAddress: '127.0.0.1',
-      addressesOverride: ['224.0.0.183'],
-      knownPeers: ['127.0.0.1'],
-      sessionId: 'LSLTestSession',
-      unicastMinRTT: 0.1,
-      multicastMinRTT: 0.1,
-      portRange: 64,
-      // don't bother checking during the test
-      watchdogCheckInterval: 600.0,
-      sendSocketBufferSize: 1024,
-      receiveSocketBufferSize: 1024,
-      outletBufferReserveMs: 2000,
-      inletBufferReserveMs: 2000,
-    );
+  setUpAll(() async {
+    await Future.delayed(Duration(seconds: 3));
     LSL.setConfigContent(apiConfig);
   });
 
@@ -94,7 +98,7 @@ class LSLPerformanceTester {
     required double frequency,
   }) async {
     final List<LSLOutlet> outlets = [];
-    final List<LSLInlet<double>> inlets = [];
+    final List<LSLStreamInfo> inlets = [];
     final List<Completer<void>> completers = [];
 
     final int expectedSamples =
@@ -149,14 +153,7 @@ class LSLPerformanceTester {
       // Create inlets for the resolved streams
       int createdInlets = 0;
       for (LSLStreamInfo info in testStreams) {
-        final inlet = await LSL.createInlet<double>(
-          streamInfo: info,
-          maxBuffer: 1,
-          chunkSize: 1,
-          recover: true,
-          useIsolates: false, // Inlets in main isolate, only with timeout 0.0
-        );
-        inlets.add(inlet);
+        inlets.add(info);
         createdInlets++;
         if (createdInlets >= streamCount) break;
       }
@@ -194,17 +191,25 @@ class LSLPerformanceTester {
       final actualDuration =
           endTime.difference(startTime).inMilliseconds / 1_000.0;
 
-      // Wait until all sent samples are received or timeout after 5 seconds
-      final timeout = DateTime.now().add(Duration(seconds: 5));
+      // Wait until all sent samples are received or timeout after 10 seconds
+      final timeout = DateTime.now().add(Duration(seconds: 10));
       while (statistics.samplesSent > statistics.samplesReceived) {
         if (DateTime.now().isAfter(timeout)) {
           print('Timeout waiting for samples to be received');
           break;
         }
-        await Future.delayed(Duration(milliseconds: 100));
+        await Future.delayed(Duration(milliseconds: 200));
       }
       // Stop consumers
       for (final completer in completers) {
+        // It can take a bit longer to send the large list of results
+        // from the isolate, so we add a timeout here
+        await completer.future.timeout(
+          Duration(seconds: 5),
+          onTimeout: () {
+            print('Warning: Consumer did not complete in time');
+          },
+        );
         if (!completer.isCompleted) {
           completer.complete();
         }
@@ -232,7 +237,7 @@ class LSLPerformanceTester {
         }
       }
       for (final inlet in inlets) {
-        await inlet.destroy();
+        inlet.destroy();
       }
       for (final outlet in outlets) {
         outlet.streamInfo.destroy();
@@ -255,80 +260,162 @@ class LSLPerformanceTester {
     final totalSamples = (frequency * durationSeconds).round();
 
     var sentSamples = 0;
-    final stopwatch = Stopwatch()..start();
-    final futures = <LSLOutlet, Future?>{};
-    while (sentSamples < totalSamples &&
-        stopwatch.elapsedMilliseconds < durationSeconds * 1_000) {
-      // Generate sample data
-      final sample = List.generate(
-        channelCount,
-        (_) => random.nextDouble() * 100 - 50,
-      );
-
-      // Push sample
-      for (final outlet in outlets) {
-        // Add timestamp for latency measurement
-        sample[0] = LSL.localClock();
-        // Track the last push future to avoid overwhelming the outlet
-        futures[outlet]?.ignore();
-        futures[outlet] = outlet.pushSample(IList(sample));
-        // outlet.pushSampleSync(sample);
-        statistics.samplesSent++;
-      }
-
-      sentSamples++;
-
-      // Precise timing control
-      final targetTime = sentSamples * intervalMicroseconds;
-      final currentTime = stopwatch.elapsedMicroseconds;
-      final sleepTime = targetTime - currentTime;
-
-      if (sleepTime > 0) {
-        await Future.delayed(Duration(microseconds: sleepTime));
-      }
+    final List<lsl_outlet> outletPointers = [];
+    final List<lsl_streaminfo> streamInfoPointers = [];
+    for (final outlet in outlets) {
+      outletPointers.add(outlet.outlet);
+      streamInfoPointers.add(outlet.streamInfo.streamInfo);
     }
-    // Wait for all pending pushes to complete
-    await Future.wait(futures.values.whereType<Future>());
-    stopwatch.stop();
+
+    await Future.delayed(Duration(milliseconds: 500));
+    final TestStatistics stats = await Isolate.run(() async {
+      final stopwatch = Stopwatch()..start();
+      //final futures = <LSLOutlet, Future?>{};
+      final TestStatistics stats = TestStatistics(statistics.expectedSamples);
+      final List<LSLStreamInfo> infos = [];
+      final List<LSLOutlet> outlets = [];
+
+      for (int i = 0; i < outletPointers.length; i++) {
+        final info = LSLStreamInfo.fromStreamInfoAddr(
+          streamInfoPointers[i].address,
+        );
+        infos.add(info);
+        final outlet = await LSLOutlet(
+          info,
+          maxBuffer: 1,
+          chunkSize: 1,
+          useIsolates: false,
+        ).createFromPointer(outletPointers[i]);
+        outlets.add(outlet);
+      }
+
+      while (sentSamples < totalSamples &&
+          stopwatch.elapsedMilliseconds < durationSeconds * 1_000) {
+        // Generate sample data
+        final sample = List.generate(
+          channelCount,
+          (_) => random.nextDouble() * 100 - 50,
+        );
+
+        // Push sample
+        for (final outlet in outlets) {
+          // Add timestamp for latency measurement
+          sample[0] = LSL.localClock();
+          // Track the last push future to avoid overwhelming the outlet
+          //futures[outlet]?.ignore();
+          //futures[outlet] = outlet.pushSample(IList(sample));
+          outlet.pushSampleSync(sample);
+          stats.samplesSent++;
+        }
+
+        sentSamples++;
+
+        // Precise timing control
+        final targetTime = sentSamples * intervalMicroseconds;
+        final currentTime = stopwatch.elapsedMicroseconds;
+        final sleepTime = targetTime - currentTime;
+
+        if (sleepTime > 0) {
+          await Future.delayed(Duration(microseconds: sleepTime));
+        }
+      }
+      stopwatch.stop();
+      // Wait for all pending pushes to complete
+      //await Future.wait(futures.values.whereType<Future>());
+      for (final outlet in outlets) {
+        // Because it was created from pointer, this destroy call
+        // only cleans up internal resources (i.e. the reusable buffer) but
+        // does not free the underlying lsl_outlet pointer.
+        await outlet.destroy();
+      }
+
+      return stats;
+    });
+
+    statistics.samplesSent += stats.samplesSent;
+    print('  Data producer sent ${stats.samplesSent} samples');
   }
 
   Future<void> _startDataConsumer(
-    List<LSLInlet<double>> inlets,
+    List<LSLStreamInfo> inlets,
     TestStatistics statistics,
     List<Completer<void>> completers,
     Duration interval,
   ) async {
     final completer = Completer<void>();
     completers.add(completer);
-    await runPreciseIntervalAsync(
-      interval,
-      (state) async {
-        for (final inlet in inlets) {
-          try {
-            final sample = inlet.pullSampleSync(timeout: 0.0);
-
-            if (sample.data.isNotEmpty) {
-              // print('  Received sample from ${inlet.streamInfo.streamName}');
-              statistics.samplesReceived++;
-
-              // Calculate latency using first channel timestamp
-              final sentTimestamp = sample.data[0];
-              final receivedTimestamp = LSL.localClock();
-              final latency =
-                  (receivedTimestamp - sentTimestamp) *
-                  1_000; // Convert to milliseconds
-
-              statistics.addLatency(latency);
-            }
-          } catch (e) {
-            // Sample not available, continue
-          }
+    final inletPointers = inlets.map((inlet) => inlet.streamInfo).toList();
+    final TestStatistics stats = await Isolate.run(() async {
+      final completer = Completer<void>();
+      Future.delayed(Duration(seconds: testDurationSeconds + 3), () {
+        if (!completer.isCompleted) {
+          completer.complete();
         }
-      },
-      completer: completer,
-      state: null,
-      startBusyAt: Duration(microseconds: interval.inMicroseconds ~/ 1.001),
-    );
+      });
+      final streamInfos = inletPointers
+          .map((ptr) => LSLStreamInfo.fromStreamInfoAddr(ptr.address))
+          .toList();
+
+      final List<LSLInlet<double>> inlets = [];
+      for (final info in streamInfos) {
+        final inlet = LSLInlet<double>(
+          info,
+          maxBuffer: 1,
+          chunkSize: 1,
+          recover: false,
+          createTimeout: LSL_FOREVER,
+          useIsolates: false,
+        );
+        await inlet.create();
+        inlets.add(inlet);
+      }
+      final stats = TestStatistics(statistics.expectedSamples);
+      await runPreciseIntervalAsync(
+        interval,
+        (state) async {
+          for (final inlet in inlets) {
+            try {
+              final sample = inlet.pullSampleSync(timeout: 0.0);
+              if (sample.data.isNotEmpty) {
+                stats.samplesReceived++;
+
+                // Calculate latency using first channel timestamp
+                final sentTimestamp = sample.data[0];
+                final receivedTimestamp = LSL.localClock();
+                final latency =
+                    (receivedTimestamp - sentTimestamp) *
+                    1_000; // Convert to milliseconds
+
+                stats.addLatency(latency);
+              }
+            } catch (e) {
+              print(
+                '  Inlet ${inlet.streamInfo.streamName} pullSample error: $e',
+              );
+            }
+          }
+          if (stats.samplesReceived >= stats.expectedSamples) {
+            if (!completer.isCompleted) {
+              completer.complete();
+            }
+          }
+        },
+        completer: completer,
+        state: null,
+        startBusyAt: Duration(
+          microseconds: (interval.inMicroseconds * 0.0001).round(),
+        ),
+      );
+      for (final inlet in inlets) {
+        inlet.destroy();
+      }
+      return stats;
+    });
+    statistics.samplesReceived += stats.samplesReceived;
+    for (final latency in stats.latencies) {
+      statistics.addLatency(latency);
+    }
+    if (!completer.isCompleted) completer.complete();
   }
 
   Future<double> _estimateCpuUsage() async {

@@ -1,3 +1,17 @@
+# 0.10.0+0
+
+- Expose `LSLInlet<T>.inlet` which returns the underlying `lsl_inlet` pointer.
+- Expose `LSLOutlet<T>.inlet` which returns the underlying `lsl_outlet` pointer.
+- Added methods for creating an inlet and outlet from the pointer directly: `LSLInlet.createFromPointer` and `LSLOutlet.createFromPointer`.
+- Performance test use the above to allow a single isolate for all outlets, and a single isolate for all inlets, reducing overhead and improving performance.
+- All non-performance tests made concurrency safe, which reduces test-suite run time. Performance tests still need to be run without concurrency to ensure accurate(ish) timing.
+- Exported some lower-level classes for advanced use cases: `LslPullSample`, `LslPushSample`, `LSLMapper`, `LSLSamplePointer`, `LSLReusableBuffer`, `LSLReusableBufferInt8`, `LSLReusableBufferDouble` and `LSLReusableBufferFloat`.
+- Added advanced methods `LSLInlet.pullSamplePointerSync()` which returns a `LSLSamplePointer` and `LSLOutlet.dataToBufferPointer` which returns a buuffer pointer for pushing samples.
+- Replace `List` with `IList` for sample management from `fast_immutable_collections` for better performance and immutability guarantees.
+- Added a check for `created` state in `LSLInlet.destroy` and `LSLOutlet.destroy` to avoid trying to destroy uncreated inlets/outlets.
+- Isolated inlet and outlet now pass sample pointers as opposed to sample objects with dart collections, preventing copying between isolates and improving performance.
+- Improved performance of precise interval scheduling functions by reusing a single stopwatch instance and removing bounds checks, also will refuse to sleep if interval is below 1000 microseconds to avoid oversleeping.
+
 # 0.9.1
 
 - Updated `hooks` from `^0.20.0` to `^0.20.1`.

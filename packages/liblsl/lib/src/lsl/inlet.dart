@@ -5,12 +5,8 @@ import 'package:liblsl/lsl.dart';
 import 'package:liblsl/native_liblsl.dart';
 import 'package:liblsl/src/ffi/mem.dart';
 import 'package:liblsl/src/lsl/base.dart';
-import 'package:liblsl/src/lsl/helper.dart';
 import 'package:liblsl/src/lsl/isolate_manager.dart';
 import 'package:liblsl/src/lsl/lsl_io_mixin.dart';
-import 'package:liblsl/src/lsl/pull_sample.dart';
-import 'package:liblsl/src/lsl/sample.dart';
-import 'package:liblsl/src/util/reusable_buffer.dart';
 
 /// A unified LSL inlet that supports both isolated and direct execution modes.
 ///
@@ -83,6 +79,12 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
 
   /// The underlying lsl_inlet pointer.
   lsl_inlet? _inlet;
+
+  /// The underlying lsl_inlet pointer.
+  lsl_inlet get inlet => _inletBang;
+
+  /// Whether this inlet is managed (i.e. not created from an existing pointer).
+  late final bool _managed;
 
   // Force-unwrap getters (avoiding ! everywhere)
   // These throw LSLException if the resource hasn't been initialized
@@ -166,6 +168,7 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   @override
   Future<LSLInlet<T>> create() async {
     super.create();
+    _managed = true;
     // Create the inlet based on the execution mode
     return _useIsolates ? _createIsolated() : _createDirect();
   }
@@ -174,7 +177,7 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// You can no longer use the inlet after calling this method.
   @override
   Future<void> destroy() async {
-    if (destroyed) {
+    if (destroyed || !created) {
       return; // Already destroyed
     }
     super.destroy();
@@ -184,7 +187,7 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
         LSLMessage(LSLMessageType.destroy, {}),
       );
       _isolateManagerBang.dispose();
-    } else if (_inlet != null) {
+    } else if (_inlet != null && _managed) {
       try {
         lsl_close_stream(_inletBang);
       } catch (e) {
@@ -304,15 +307,44 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   int samplesAvailableSync() =>
       requireDirect(() => lsl_samples_available(_inletBang));
 
+  /// Creates an inlet from an existing lsl_inlet pointer.
+  /// **Parameters:**
+  /// - [pointer]: The existing lsl_inlet pointer.
+  /// **Returns:** A [LSLInlet] instance wrapping the existing pointer.
+  /// **Throws:** [LSLException] if inlet creation fails or if
+  /// `useIsolates: true`.
+  Future<LSLInlet<T>> createFromPointer(lsl_inlet pointer) async {
+    if (created) {
+      throw LSLException('Inlet already created');
+    }
+    if (useIsolates) {
+      throw LSLException(
+        'Creating inlet from pointer is not supported in isolated mode',
+      );
+    }
+    _managed = false;
+    super.create();
+    _inlet = pointer;
+    setupPullBuffer();
+    return this;
+  }
+
+  /// Sets up the pull buffer for sample data.
+  /// This allocates memory based on the channel count and initializes the pull
+  /// function.
+  /// **Throws:** [LSLException] if buffer allocation fails.
+  void setupPullBuffer() {
+    // Initialize the pull function
+    _pullFn = LSLMapper().streamPull(streamInfo);
+    _buffer = _pullFn.createReusableBuffer(streamInfo.channelCount);
+  }
+
   /// Creates the inlet directly using FFI calls.
   /// This is used when `useIsolates: false`.
   /// **Returns:** A [LSLInlet] instance ready for fluid interface
   /// **Throws:** [LSLException] if inlet creation fails.
   Future<LSLInlet<T>> _createDirect() async {
-    // Initialize the pull function
-    _pullFn = LSLMapper().streamPull(streamInfo);
-    _buffer = _pullFn.createReusableBuffer(streamInfo.channelCount);
-
+    setupPullBuffer();
     // Create the inlet using FFI
     _inlet = lsl_create_inlet(
       streamInfo.streamInfo,

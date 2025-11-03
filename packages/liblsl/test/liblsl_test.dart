@@ -112,8 +112,10 @@ void main() {
       streamInfo.destroy();
     });
     test('outlet, resolve, inlet, pull sample', () async {
+      final int testSuffix = DateTime.now().millisecondsSinceEpoch;
+      final String streamName = 'TestStream_$testSuffix';
       final oStreamInfo = await LSL.createStreamInfo(
-        streamName: 'TestStream',
+        streamName: streamName,
         channelCount: 2,
         channelFormat: LSLChannelFormat.float32,
         sampleRate: LSL_IRREGULAR_RATE,
@@ -141,9 +143,7 @@ void main() {
       final streams = await LSL.resolveStreams(waitTime: 1.0);
       expect(streams.length, greaterThan(0));
       // Find and validate the stream
-      final streamInfo = streams.firstWhere(
-        (s) => s.streamName == 'TestStream',
-      );
+      final streamInfo = streams.firstWhere((s) => s.streamName == streamName);
       expect(streamInfo, isNotNull);
 
       // Create inlet and allow time for connection

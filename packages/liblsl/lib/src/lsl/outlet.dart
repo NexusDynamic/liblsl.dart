@@ -5,7 +5,6 @@ import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:liblsl/lsl.dart';
 import 'package:liblsl/native_liblsl.dart';
 import 'package:liblsl/src/lsl/base.dart';
-import 'package:liblsl/src/lsl/helper.dart';
 import 'package:liblsl/src/lsl/isolate_manager.dart';
 import 'package:liblsl/src/lsl/lsl_io_mixin.dart';
 import 'package:liblsl/src/lsl/push_sample.dart';
@@ -42,6 +41,8 @@ class LSLOutlet extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// Default is true, which means it will use isolates for thread safety.
   final bool _useIsolates;
 
+  late final bool _managed;
+
   /// Chunk size in samples for transmission.
   /// 0 creates a chunk for each push operation.
   @override
@@ -69,6 +70,8 @@ class LSLOutlet extends LSLObj with LSLIOMixin, LSLExecutionMixin {
 
   /// The underlying lsl_outlet pointer.
   lsl_outlet? _outlet;
+
+  lsl_outlet get outlet => _outletBang;
 
   // Force-unwrap getters (avoiding ! everywhere)
   // These throw LSLException if the resource hasn't been initialized
@@ -118,16 +121,37 @@ class LSLOutlet extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// **See also:** [destroy] to clean up resources
   @override
   Future<LSLOutlet> create() async {
+    _managed = true;
     super.create();
     // Create the outlet based on the execution mode
     return _useIsolates ? _createIsolated() : _createDirect();
+  }
+
+  /// Creates an outlet from an existing lsl_outlet pointer.
+  /// **Parameters:**
+  /// - [pointer]: The existing lsl_outlet pointer.
+  /// **Returns:** A [LSLOutlet] instance wrapping the existing pointer.
+  /// **Throws:** [LSLException] if outlet creation fails or if
+  /// `useIsolates: true`.
+  Future<LSLOutlet> createFromPointer(lsl_outlet pointer) async {
+    if (created) {
+      throw LSLException('Outlet already created');
+    }
+    if (useIsolates) {
+      throw LSLException('Cannot create from pointer in isolated mode');
+    }
+    _managed = false;
+    _outlet = pointer;
+    super.create();
+    _setupPushBuffer();
+    return this;
   }
 
   /// Destroys the outlet and cleans up resources.
   /// You can no longer use the outlet after calling this method.
   @override
   Future<void> destroy() async {
-    if (destroyed) {
+    if (destroyed || !created) {
       return; // Already destroyed
     }
     super.destroy();
@@ -137,7 +161,7 @@ class LSLOutlet extends LSLObj with LSLIOMixin, LSLExecutionMixin {
         LSLMessage(LSLMessageType.destroy, {}),
       );
       _isolateManagerBang.dispose();
-    } else if (_outlet != null) {
+    } else if (_outlet != null && _managed) {
       try {
         lsl_destroy_outlet(_outletBang);
       } catch (e) {
@@ -245,18 +269,25 @@ class LSLOutlet extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   bool hasConsumersSync() =>
       requireDirect(() => lsl_have_consumers(_outletBang) != 0);
 
-  /// Creates the outlet directly using FFI calls.
-  /// This is used when `useIsolates: false`.
-  /// **Returns:** A [LSLOutlet] instance ready for fluid interface
-  /// **Throws:** [LSLException] if outlet creation fails.
-  Future<LSLOutlet> _createDirect() async {
+  /// Sets up the push buffer for sample data.
+  /// This allocates memory based on the channel count and initializes the push
+  /// function.
+  /// **Throws:** [LSLException] if buffer allocation fails.
+  void _setupPushBuffer() {
     // Initialize the push function and buffer
     _pushFn = LSLMapper().streamPush(streamInfo);
     _buffer = _pushFn.allocBuffer(streamInfo.channelCount);
     if (_buffer.isNullPointer && _pushFn is! LslPushSampleVoid) {
       throw LSLException('Failed to allocate memory for buffer');
     }
+  }
 
+  /// Creates the outlet directly using FFI calls.
+  /// This is used when `useIsolates: false`.
+  /// **Returns:** A [LSLOutlet] instance ready for fluid interface
+  /// **Throws:** [LSLException] if outlet creation fails.
+  Future<LSLOutlet> _createDirect() async {
+    _setupPushBuffer();
     // Create the outlet using FFI
     _outlet = lsl_create_outlet(streamInfo.streamInfo, chunkSize, maxBuffer);
     if (_outlet == null) {
