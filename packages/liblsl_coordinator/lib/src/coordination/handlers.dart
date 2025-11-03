@@ -411,6 +411,10 @@ class ParticipantMessageHandler extends CoordinationMessageHandler {
           CoordinationMessageType.joinOffer,
           CoordinationMessageType.connectionTestResponse,
           CoordinationMessageType.streamReady,
+          CoordinationMessageType.pauseStream,
+          CoordinationMessageType.resumeStream,
+          CoordinationMessageType.flushStream,
+          CoordinationMessageType.destroyStream,
         }.contains(type);
   }
 

@@ -31,6 +31,9 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
   Stream<StopStreamMessage> get streamStopCommands =>
       _controller.streamStopCommands;
 
+  // @TODO: We really need to refactor all the individual commands into
+  // a singl stream, this is way too messy and inovlves recreating the same
+  // pathway every time.
   Stream<PauseStreamMessage> get streamPauseCommands =>
       _controller.streamPauseCommands;
 
