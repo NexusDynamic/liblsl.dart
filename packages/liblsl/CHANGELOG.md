@@ -1,3 +1,8 @@
+# 0.10.0+2
+
+- Updated liblsl fork asio to match boost 1.89.0 (standalone asio)
+- Updated pugixml to v1.15
+
 # 0.10.0+1
 
 - Update liblsl fork, use boost 1.89.0
