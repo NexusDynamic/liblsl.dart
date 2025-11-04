@@ -76,7 +76,7 @@ class Log {
     return '$color$message$reset';
   }
 
-  static void logIsolateMessage(LogRecord record) {
+  static Future<void> logIsolateMessage(LogRecord record) async {
     logger.log(
       record.level,
       record.message,

@@ -1,3 +1,10 @@
+# 0.10.0+1
+
+- Update liblsl fork, use boost 1.89.0
+- Update `hooks` to `^0.20.5`.
+- Update `code_assets` to `^0.19.10`.
+- Update `native_toolchain_c` to `^0.17.2`.
+
 # 0.10.0+0
 
 - Expose `LSLInlet<T>.inlet` which returns the underlying `lsl_inlet` pointer.
