@@ -1,3 +1,7 @@
+# 0.10.1+1
+
+- Updated liblsl fork to fix a double-free issue (commit ID: `846c4199`)
+
 # 0.10.0+2
 
 - Updated liblsl fork asio to match boost 1.89.0 (standalone asio)

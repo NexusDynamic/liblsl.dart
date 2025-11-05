@@ -104,7 +104,7 @@ void main(List<String> args) async {
   await build(args, (input, output) async {
     // This needs to be manually copied from CMakeLists.txt.
     const String libLSLVersion = '1.16.2';
-    const String libLSLBranch = 'd6c43724';
+    const String libLSLBranch = '846c4199';
     const String libLSLPath = 'src/liblsl-$libLSLBranch';
     final OS targetOs = input.config.code.targetOS;
     final packageName = stripPrefix(targetOs, input.packageName);
