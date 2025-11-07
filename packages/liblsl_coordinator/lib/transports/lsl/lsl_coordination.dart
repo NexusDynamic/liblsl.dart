@@ -397,6 +397,17 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
     final expectedNodeUIds = expectedProducers.map((node) => node.uId).toSet();
     final readyNodes = <String>{};
 
+    // If we are in the expected nodes, mark ourselves as ready
+    if (expectedNodeUIds.contains(thisNode.uId)) {
+      readyNodes.add(thisNode.uId);
+      logger.info('Coordinator marked self as ready for stream $streamName');
+    }
+
+    if (readyNodes.length == expectedNodeUIds.length) {
+      logger.info('All participants already ready for stream $streamName');
+      return;
+    }
+
     logger.info(
       'Waiting for ${expectedNodeUIds.length} participants to be ready for stream $streamName: $expectedNodeUIds',
     );
