@@ -82,6 +82,10 @@ class CoordinatorMessageHandler extends CoordinationMessageHandler {
         break;
       case CoordinationMessageType.streamReady:
         await _handleStreamReady(message as StreamReadyMessage);
+      case CoordinationMessageType.userParticipantMessage:
+        final userMessage = message as UserParticipantMessage;
+        _userParticipantMessageController.add(userMessage);
+        break;
       default:
         logger.warning(
           'Coordinator cannot handle message type: ${message.type}',

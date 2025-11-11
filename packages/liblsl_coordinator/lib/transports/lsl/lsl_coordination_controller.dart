@@ -644,7 +644,7 @@ class CoordinationController {
     if (!_state.isCoordinator) {
       // @TODO: Implement properly
       await _participantHandler!.sendMessage(
-        UserCoordinationMessage(
+        UserParticipantMessage(
           fromNodeUId: thisNode.uId,
           messageId: messageId,
           description: description,
