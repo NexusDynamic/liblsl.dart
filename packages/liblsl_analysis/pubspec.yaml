@@ -41,7 +41,7 @@ dependencies:
   cupertino_icons: ^1.0.8
   file_picker: ^10.1.9
   csv: ^6.0.0
-  dartframe: ^0.6.3
+  dartframe: ^0.7.0
   fl_chart: ^1.0.0
   shared_preferences: ^2.5.3
 

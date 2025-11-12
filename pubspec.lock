@@ -205,10 +205,10 @@ packages:
     dependency: transitive
     description:
       name: dartframe
-      sha256: "77a28a19dface5195de786733fa67210e61ddb729c51560c51b88902d5af2949"
+      sha256: "13be9cbd03869f633b6e21b00f4ced95852531115799d0a8147b8ecb2d0f658e"
       url: "https://pub.dev"
     source: hosted
-    version: "0.6.3"
+    version: "0.7.0"
   dbus:
     dependency: transitive
     description:
