@@ -25,6 +25,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.3.2+1"
+  archive:
+    dependency: transitive
+    description:
+      name: archive
+      sha256: cb6a278ef2dbb298455e1a713bda08524a175630ec643a242c399c932a0a1f7d
+      url: "https://pub.dev"
+    source: hosted
+    version: "3.6.1"
   args:
     dependency: transitive
     description:
@@ -49,6 +57,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.1.2"
+  buffer:
+    dependency: transitive
+    description:
+      name: buffer
+      sha256: "389da2ec2c16283c8787e0adaede82b1842102f8c8aae2f49003a766c5c6b3d1"
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.2.3"
   characters:
     dependency: transitive
     description:
@@ -205,10 +221,10 @@ packages:
     dependency: transitive
     description:
       name: dartframe
-      sha256: "13be9cbd03869f633b6e21b00f4ced95852531115799d0a8147b8ecb2d0f658e"
+      sha256: "195e3e12a77f86774cfb2eb32db9c496115924a01491a51b688b762b8fa17c9e"
       url: "https://pub.dev"
     source: hosted
-    version: "0.7.0"
+    version: "0.8.5"
   dbus:
     dependency: transitive
     description:
@@ -241,6 +257,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.0.7"
+  excel:
+    dependency: transitive
+    description:
+      name: excel
+      sha256: "1a15327dcad260d5db21d1f6e04f04838109b39a2f6a84ea486ceda36e468780"
+      url: "https://pub.dev"
+    source: hosted
+    version: "4.0.6"
   fake_async:
     dependency: transitive
     description:
@@ -383,22 +407,6 @@ packages:
     description: flutter
     source: sdk
     version: "0.0.0"
-  geojson_vi:
-    dependency: transitive
-    description:
-      name: geojson_vi
-      sha256: a47e0efd17617aef8b239719ea2a3ef743563e873709531ee5498ccfd04069f2
-      url: "https://pub.dev"
-    source: hosted
-    version: "2.2.5"
-  geoxml:
-    dependency: transitive
-    description:
-      name: geoxml
-      sha256: "3001f183bfc5edf92e628ed36d80fc5350055edc2fed8ab8a95185f5f05f4134"
-      url: "https://pub.dev"
-    source: hosted
-    version: "2.6.2"
   glob:
     dependency: transitive
     description:
@@ -788,6 +796,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.5.2"
+  postgres:
+    dependency: transitive
+    description:
+      name: postgres
+      sha256: fefbbfe749c6130e5096588b9c4459173684c695952cd7636ab19be76f255469
+      url: "https://pub.dev"
+    source: hosted
+    version: "3.5.9"
   process:
     dependency: transitive
     description:
@@ -1025,6 +1041,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "7.0.0"
+  sqlite3:
+    dependency: transitive
+    description:
+      name: sqlite3
+      sha256: "3145bd74dcdb4fd6f5c6dda4d4e4490a8087d7f286a14dee5d37087290f0f8a2"
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.9.4"
   stack_trace:
     dependency: transitive
     description:
