@@ -24,6 +24,7 @@ class CoordinationController {
   Timer? _nodeTimeoutTimer;
   StreamSubscription? _coordinationSubscription;
   StreamSubscription? _handlerSubscription;
+  StreamSubscription? _participantHandlerSubscription;
   StreamSubscription? _userMessageSubscription;
   StreamSubscription? _discoverySubscription;
   StreamSubscription? _streamReadySubscription;
@@ -332,6 +333,9 @@ class CoordinationController {
         .listen(_streamReadyController.add);
     _userMessageSubscription = _coordinatorHandler!.userParticipantMessages
         .listen(_userParticipantMessageController.add);
+
+    // Listen to userMessages
+    _coordinatorHandler!.userMessages.listen(_userMessageController.add);
     // Start heartbeat
     _startHeartbeat();
 
@@ -353,9 +357,8 @@ class CoordinationController {
     );
 
     // Listen to outgoing messages from handler
-    _handlerSubscription = _participantHandler!.outgoingMessages.listen(
-      _sendMessage,
-    );
+    _participantHandlerSubscription = _participantHandler!.outgoingMessages
+        .listen(_sendMessage);
     // TODO: save the subscriptions to cancell!!!!
     // Forward handler events to public streams
     _participantHandler!.streamCreateCommands.listen(
@@ -693,6 +696,7 @@ class CoordinationController {
 
     await _coordinationSubscription?.cancel();
     await _handlerSubscription?.cancel();
+    await _participantHandlerSubscription?.cancel();
     await _streamReadySubscription?.cancel();
 
     // Send leaving message if we're a participant

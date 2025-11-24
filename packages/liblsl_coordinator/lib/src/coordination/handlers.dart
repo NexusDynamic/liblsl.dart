@@ -38,6 +38,15 @@ class CoordinatorMessageHandler extends CoordinationMessageHandler {
   Stream<UserParticipantMessage> get userParticipantMessages =>
       _userParticipantMessageController.stream;
 
+  // Note: this subscription is only useful if the coordinator
+  // will also be a participant in the session - but it gives the option
+  // to handle those messages directly (with similar network latency).
+  final StreamController<UserCoordinationMessage> _userMessageController =
+      StreamController<UserCoordinationMessage>.broadcast();
+
+  Stream<UserCoordinationMessage> get userMessages =>
+      _userMessageController.stream;
+
   final StreamController<StreamReadyMessage> _streamReadyController =
       StreamController<StreamReadyMessage>.broadcast();
   Stream<StreamReadyMessage> get streamReadyNotifications =>
@@ -61,6 +70,7 @@ class CoordinatorMessageHandler extends CoordinationMessageHandler {
           CoordinationMessageType.joinRequest,
           CoordinationMessageType.nodeLeaving,
           CoordinationMessageType.streamReady,
+          CoordinationMessageType.userMessage,
           CoordinationMessageType.userParticipantMessage,
         }.contains(type);
   }
@@ -82,6 +92,11 @@ class CoordinatorMessageHandler extends CoordinationMessageHandler {
         break;
       case CoordinationMessageType.streamReady:
         await _handleStreamReady(message as StreamReadyMessage);
+        break;
+      case CoordinationMessageType.userMessage:
+        final userMessage = message as UserCoordinationMessage;
+        _userMessageController.add(userMessage);
+        break;
       case CoordinationMessageType.userParticipantMessage:
         final userMessage = message as UserParticipantMessage;
         _userParticipantMessageController.add(userMessage);
