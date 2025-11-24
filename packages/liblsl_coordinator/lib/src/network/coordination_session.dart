@@ -34,6 +34,16 @@ class CoordinationSessionConfig implements IConfig {
   /// This should be at least twice the [heartbeatInterval].
   final Duration nodeTimeout;
 
+  /// Determines whether on becoming coordinator, the node should
+  /// also consume the coordination stream - specifically, this is used for
+  /// a coordinator to be able to consume UserMessages (UserCoordinationMessage)
+  /// within the coordination session, this allows for a session coordinator
+  /// to also act as a participant in the session, and have similar latency
+  /// characteristics as other nodes.
+  /// Default is true.
+
+  final bool consumeCoordinationStreamAsCoordinator;
+
   CoordinationSessionConfig({
     required this.name,
     this.maxNodes = 10,
@@ -41,6 +51,7 @@ class CoordinationSessionConfig implements IConfig {
     this.heartbeatInterval = const Duration(seconds: 5),
     this.discoveryInterval = const Duration(seconds: 10),
     this.nodeTimeout = const Duration(seconds: 15),
+    this.consumeCoordinationStreamAsCoordinator = true,
   }) {
     validate(throwOnError: true);
   }
@@ -100,6 +111,8 @@ class CoordinationSessionConfig implements IConfig {
       'heartbeatInterval': heartbeatInterval.inMilliseconds,
       'discoveryInterval': discoveryInterval.inMilliseconds,
       'nodeTimeout': nodeTimeout.inMilliseconds,
+      'consumeCoordinationStreamAsCoordinator':
+          consumeCoordinationStreamAsCoordinator,
     };
   }
 
@@ -107,7 +120,9 @@ class CoordinationSessionConfig implements IConfig {
   String toString() {
     return 'NetworkSessionConfig(name: $name, maxNodes: $maxNodes, '
         'minNodes: $minNodes, heartbeatInterval: $heartbeatInterval, '
-        'discoveryInterval: $discoveryInterval, nodeTimeout: $nodeTimeout)';
+        'discoveryInterval: $discoveryInterval, nodeTimeout: $nodeTimeout, '
+        'consumeCoordinationStreamAsCoordinator: '
+        '$consumeCoordinationStreamAsCoordinator)';
   }
 
   @override
@@ -118,6 +133,7 @@ class CoordinationSessionConfig implements IConfig {
     Duration? heartbeatInterval,
     Duration? discoveryInterval,
     Duration? nodeTimeout,
+    bool? consumeCoordinationStreamAsCoordinator,
   }) {
     return CoordinationSessionConfig(
       name: name ?? this.name,
@@ -126,6 +142,9 @@ class CoordinationSessionConfig implements IConfig {
       heartbeatInterval: heartbeatInterval ?? this.heartbeatInterval,
       discoveryInterval: discoveryInterval ?? this.discoveryInterval,
       nodeTimeout: nodeTimeout ?? this.nodeTimeout,
+      consumeCoordinationStreamAsCoordinator:
+          consumeCoordinationStreamAsCoordinator ??
+          this.consumeCoordinationStreamAsCoordinator,
     );
   }
 
@@ -137,6 +156,7 @@ class CoordinationSessionConfig implements IConfig {
       heartbeatInterval: const Duration(seconds: 5),
       discoveryInterval: const Duration(seconds: 10),
       nodeTimeout: const Duration(seconds: 15),
+      consumeCoordinationStreamAsCoordinator: true,
     );
   }
 
@@ -151,7 +171,9 @@ class CoordinationSessionConfig implements IConfig {
         other.minNodes == minNodes &&
         other.heartbeatInterval == heartbeatInterval &&
         other.discoveryInterval == discoveryInterval &&
-        other.nodeTimeout == nodeTimeout;
+        other.nodeTimeout == nodeTimeout &&
+        other.consumeCoordinationStreamAsCoordinator ==
+            consumeCoordinationStreamAsCoordinator;
   }
 
   @override
@@ -162,7 +184,8 @@ class CoordinationSessionConfig implements IConfig {
         minNodes.hashCode ^
         heartbeatInterval.hashCode ^
         discoveryInterval.hashCode ^
-        nodeTimeout.hashCode;
+        nodeTimeout.hashCode ^
+        consumeCoordinationStreamAsCoordinator.hashCode;
   }
 }
 

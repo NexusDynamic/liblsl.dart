@@ -91,6 +91,7 @@ Future<void> _runNode({
       discoveryInterval: Duration(seconds: 5),
       nodeTimeout: Duration(seconds: 10),
       maxNodes: maxNodes, // This may cause some nodes to be rejected
+      consumeCoordinationStreamAsCoordinator: false,
     );
 
     // Create coordination configuration

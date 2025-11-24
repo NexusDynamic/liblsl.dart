@@ -233,6 +233,14 @@ class CoordinationController {
     _state.transitionTo(CoordinationPhase.accepting);
 
     logger.fine('Coordinator ready, accepting nodes');
+    if (coordinationConfig
+        .sessionConfig
+        .consumeCoordinationStreamAsCoordinator) {
+      // Connect to own coordinator stream as participant
+      await _connectToCoordinator(thisNode.uId);
+    } else {
+      logger.info('Not consuming own coordinator stream as per configuration');
+    }
   }
 
   /// Become a participant
@@ -304,11 +312,23 @@ class CoordinationController {
     logger.finer(
       '[CONTROLLER-${thisNode.uId}] Found coordinator stream, adding inlet...',
     );
-    // parse streaminfo
-    final info = LSLStreamInfoHelper.parseSourceId(streamInfos.first.sourceId);
-    final nodeUId = info[LSLStreamInfoHelper.nodeUIdKey]!;
-    // set coordinator UId in state
-    _state.becomeParticipant(nodeUId);
+    if (thisNode.uId != coordinatorUId) {
+      // parse streaminfo
+      final info = LSLStreamInfoHelper.parseSourceId(
+        streamInfos.first.sourceId,
+      );
+      final nodeUId = info[LSLStreamInfoHelper.nodeUIdKey]!;
+      logger.fine(
+        '[CONTROLLER-${thisNode.uId}] Connecting to coordinator stream of node $nodeUId as participant',
+      );
+      // set coordinator UId in state
+      _state.becomeParticipant(nodeUId);
+    } else {
+      logger.fine(
+        '[CONTROLLER-${thisNode.uId}] Connected to own coordinator stream (self-coordination)',
+      );
+    }
+
     await _coordinationStream.addInlet(streamInfos.first);
     logger.info(
       '[CONTROLLER-${thisNode.uId}] Connected to coordinator stream successfully',

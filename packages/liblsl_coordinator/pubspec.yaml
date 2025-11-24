@@ -1,6 +1,6 @@
 name: liblsl_coordinator
 description: A performance-focused Dart (and Flutter) LSL-based device coordination library.
-version: 0.0.5+0
+version: 0.0.6+0
 homepage: https://zeyus.com/
 repository: https://github.com/NexusDynamic/liblsl.dart
 issue_tracker: https://github.com/NexusDynamic/liblsl.dart/issues
