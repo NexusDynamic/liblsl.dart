@@ -3,7 +3,10 @@ import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:liblsl_coordinator/liblsl_coordinator.dart';
 import 'package:liblsl_coordinator/transports/lsl.dart';
 
-/// Controls the coordination flow with clear phases and event-driven logic
+/// Controls the coordination flow with clear phases and event-driven logic.
+///
+/// Emits all coordination events through a single [events] stream.
+/// Use the [ControllerEventStreamExtensions] for convenient filtering.
 class CoordinationController {
   final CoordinationConfig coordinationConfig;
   final LSLTransport transport;
@@ -24,68 +27,23 @@ class CoordinationController {
   Timer? _nodeTimeoutTimer;
   StreamSubscription? _coordinationSubscription;
   StreamSubscription? _handlerSubscription;
-  StreamSubscription? _participantHandlerSubscription;
-  StreamSubscription? _userMessageSubscription;
+  StreamSubscription? _handlerEventSubscription;
   StreamSubscription? _discoverySubscription;
-  StreamSubscription? _streamReadySubscription;
+  StreamSubscription? _stateEventSubscription;
 
-  // Public streams for application logic
-  final StreamController<CoordinationPhase> _phaseController =
-      StreamController<CoordinationPhase>.broadcast();
-  final StreamController<CreateStreamMessage> _streamCreateController =
-      StreamController<CreateStreamMessage>.broadcast();
-  final StreamController<StartStreamMessage> _streamStartController =
-      StreamController<StartStreamMessage>.broadcast();
-  final StreamController<StreamReadyMessage> _streamReadyController =
-      StreamController<StreamReadyMessage>.broadcast();
-  final StreamController<StopStreamMessage> _streamStopController =
-      StreamController<StopStreamMessage>.broadcast();
-  final StreamController<PauseStreamMessage> _streamPauseController =
-      StreamController<PauseStreamMessage>.broadcast();
-  final StreamController<ResumeStreamMessage> _streamResumeController =
-      StreamController<ResumeStreamMessage>.broadcast();
-  final StreamController<FlushStreamMessage> _streamFlushController =
-      StreamController<FlushStreamMessage>.broadcast();
-  final StreamController<DestroyStreamMessage> _streamDestroyController =
-      StreamController<DestroyStreamMessage>.broadcast();
-  final StreamController<UserCoordinationMessage> _userMessageController =
-      StreamController<UserCoordinationMessage>.broadcast();
-  final StreamController<UserParticipantMessage>
-  _userParticipantMessageController =
-      StreamController<UserParticipantMessage>.broadcast();
-  final StreamController<ConfigUpdateMessage> _configUpdateController =
-      StreamController<ConfigUpdateMessage>.broadcast();
-  final StreamController<Node> _nodeJoinedController =
-      StreamController<Node>.broadcast();
-  final StreamController<Node> _nodeLeftController =
-      StreamController<Node>.broadcast();
+  /// Single event stream for all coordination events.
+  final StreamController<ControllerEvent> _eventController =
+      StreamController<ControllerEvent>.broadcast();
 
-  // Public API
-  Stream<CoordinationPhase> get phaseChanges => _phaseController.stream;
-  Stream<CreateStreamMessage> get streamCreateCommands =>
-      _streamCreateController.stream;
-  Stream<StartStreamMessage> get streamStartCommands =>
-      _streamStartController.stream;
-  Stream<StreamReadyMessage> get streamReadyNotifications =>
-      _streamReadyController.stream;
-  Stream<StopStreamMessage> get streamStopCommands =>
-      _streamStopController.stream;
-  Stream<PauseStreamMessage> get streamPauseCommands =>
-      _streamPauseController.stream;
-  Stream<ResumeStreamMessage> get streamResumeCommands =>
-      _streamResumeController.stream;
-  Stream<FlushStreamMessage> get streamFlushCommands =>
-      _streamFlushController.stream;
-  Stream<DestroyStreamMessage> get streamDestroyCommands =>
-      _streamDestroyController.stream;
-  Stream<UserCoordinationMessage> get userMessages =>
-      _userMessageController.stream;
-  Stream<UserParticipantMessage> get userParticipantMessages =>
-      _userParticipantMessageController.stream;
-  Stream<ConfigUpdateMessage> get configUpdates =>
-      _configUpdateController.stream;
-  Stream<Node> get nodeJoined => _nodeJoinedController.stream;
-  Stream<Node> get nodeLeft => _nodeLeftController.stream;
+  /// Single public stream for all coordination events.
+  ///
+  /// Use the extension methods for convenient filtering:
+  /// ```dart
+  /// controller.events.phaseChanges.listen((e) => ...);
+  /// controller.events.streamCreate.listen((e) => ...);
+  /// controller.events.nodeJoined.listen((e) => ...);
+  /// ```
+  Stream<ControllerEvent> get events => _eventController.stream;
 
   CoordinationPhase get currentPhase => _state.phase;
   bool get isCoordinator => _state.isCoordinator;
@@ -104,10 +62,8 @@ class CoordinationController {
   }
 
   void _setupStateListeners() {
-    // Forward state events to public streams
-    _state.phaseChanges.listen(_phaseController.add);
-    _state.nodeJoined.listen(_nodeJoinedController.add);
-    _state.nodeLeft.listen(_nodeLeftController.add);
+    // Forward state events to the unified event stream
+    _stateEventSubscription = _state.events.listen(_eventController.add);
   }
 
   /// Initialize the controller - creates streams and discovery
@@ -253,12 +209,6 @@ class CoordinationController {
     _coordinationStream.updateNode(participantNode);
     await _coordinationStream.recreateOutlet();
 
-    // Extract coordinator info
-    // final sourceInfo = LSLStreamInfoHelper.parseSourceId(
-    //   coordinatorStream.sourceId,
-    // );
-    // final coordinatorUId = sourceInfo[LSLStreamInfoHelper.nodeUIdKey]!;
-
     // Update state
     _state.becomeParticipant();
 
@@ -349,13 +299,12 @@ class CoordinationController {
     _handlerSubscription = _coordinatorHandler!.outgoingMessages.listen(
       _sendMessage,
     );
-    _streamReadySubscription = _coordinatorHandler!.streamReadyNotifications
-        .listen(_streamReadyController.add);
-    _userMessageSubscription = _coordinatorHandler!.userParticipantMessages
-        .listen(_userParticipantMessageController.add);
 
-    // Listen to userMessages
-    _coordinatorHandler!.userMessages.listen(_userMessageController.add);
+    // Forward handler events to the unified event stream
+    _handlerEventSubscription = _coordinatorHandler!.events.listen(
+      _eventController.add,
+    );
+
     // Start heartbeat
     _startHeartbeat();
 
@@ -377,28 +326,14 @@ class CoordinationController {
     );
 
     // Listen to outgoing messages from handler
-    _participantHandlerSubscription = _participantHandler!.outgoingMessages
-        .listen(_sendMessage);
-    // TODO: save the subscriptions to cancell!!!!
-    // Forward handler events to public streams
-    _participantHandler!.streamCreateCommands.listen(
-      _streamCreateController.add,
+    _handlerSubscription = _participantHandler!.outgoingMessages.listen(
+      _sendMessage,
     );
-    _participantHandler!.streamStartCommands.listen(_streamStartController.add);
-    _streamReadySubscription = _participantHandler!.streamReadyNotifications
-        .listen(_streamReadyController.add);
-    _participantHandler!.streamStopCommands.listen(_streamStopController.add);
-    _participantHandler!.streamPauseCommands.listen(_streamPauseController.add);
-    _participantHandler!.streamResumeCommands.listen(
-      _streamResumeController.add,
-    );
-    _participantHandler!.streamFlushCommands.listen(_streamFlushController.add);
-    _participantHandler!.streamDestroyCommands.listen(
-      _streamDestroyController.add,
-    );
-    _participantHandler!.userMessages.listen(_userMessageController.add);
 
-    _participantHandler!.configUpdates.listen(_configUpdateController.add);
+    // Forward handler events to the unified event stream
+    _handlerEventSubscription = _participantHandler!.events.listen(
+      _eventController.add,
+    );
 
     // Send join request
     logger.info('Sending join request to coordinator');
@@ -698,8 +633,9 @@ class CoordinationController {
     _heartbeatTimer?.cancel();
     _nodeTimeoutTimer?.cancel();
     _discovery.stopDiscovery();
-    _discoverySubscription?.cancel();
-    _userMessageSubscription?.cancel();
+    await _discoverySubscription?.cancel();
+    await _stateEventSubscription?.cancel();
+    await _handlerEventSubscription?.cancel();
     if (!_state.isCoordinator && _participantHandler != null) {
       try {
         logger.info('Announcing leaving to coordinator');
@@ -716,21 +652,9 @@ class CoordinationController {
 
     await _coordinationSubscription?.cancel();
     await _handlerSubscription?.cancel();
-    await _participantHandlerSubscription?.cancel();
-    await _streamReadySubscription?.cancel();
-
-    // Send leaving message if we're a participant
 
     _state.dispose();
-    await _phaseController.close();
-    await _streamCreateController.close();
-    await _streamStartController.close();
-    await _streamReadyController.close();
-    await _streamStopController.close();
-    await _userMessageController.close();
-    await _configUpdateController.close();
-    await _nodeJoinedController.close();
-    await _nodeLeftController.close();
+    await _eventController.close();
     logger.info('Coordination controller disposed');
   }
 }

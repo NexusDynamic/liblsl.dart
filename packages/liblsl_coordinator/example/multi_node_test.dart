@@ -212,46 +212,46 @@ Future<void> _runNode({
 /// Set up comprehensive event listeners for testing
 void _setupEventListeners(LSLCoordinationSession session, String nodeId) {
   // Phase changes
-  session.phaseChanges.listen((phase) {
-    logger.info('📊 $nodeId: Phase changed to $phase');
+  session.events.phaseChanges.listen((event) {
+    logger.info('📊 $nodeId: Phase changed to ${event.phase}');
   });
 
   // Node topology changes
-  session.nodeJoined.listen((node) {
-    logger.info('➕ $nodeId: Node joined: ${node.name} (${node.id})');
+  session.events.nodeJoined.listen((event) {
+    logger.info('➕ $nodeId: Node joined: ${event.node.name} (${event.node.id})');
     logger.info('   Total nodes: ${session.connectedNodes.length}');
   });
 
-  session.nodeLeft.listen((node) {
-    logger.info('➖ $nodeId: Node left: ${node.name} (${node.id})');
+  session.events.nodeLeft.listen((event) {
+    logger.info('➖ $nodeId: Node left: ${event.node.name} (${event.node.id})');
     logger.info('   Total nodes: ${session.connectedNodes.length}');
   });
 
   // User messages (coordination commands)
-  session.userMessages.listen((message) {
+  session.events.userCoordinationMessages.listen((event) {
     logger.info(
-      '💬 $nodeId: User Message: ${message.messageId} - ${message.description}',
+      '💬 $nodeId: User Message: ${event.messageId} - ${event.description}',
     );
-    if (message.payload.isNotEmpty) {
-      logger.info('   Payload: ${message.payload}');
+    if (event.payload.isNotEmpty) {
+      logger.info('   Payload: ${event.payload}');
     }
   });
 
   // Configuration updates
-  session.configUpdates.listen((update) {
-    logger.info('⚙️ $nodeId: Config Update: ${update.config}');
+  session.events.configUpdates.listen((event) {
+    logger.info('⚙️ $nodeId: Config Update: ${event.config}');
   });
 
   // Stream commands
-  session.streamStartCommands.listen((command) {
-    logger.info('▶️ $nodeId: Stream START command: ${command.streamName}');
-    if (command.startAt != null) {
-      logger.info('   Scheduled for: ${command.startAt}');
+  session.events.streamStart.listen((event) {
+    logger.info('▶️ $nodeId: Stream START command: ${event.streamName}');
+    if (event.startAt != null) {
+      logger.info('   Scheduled for: ${event.startAt}');
     }
   });
 
-  session.streamStopCommands.listen((command) {
-    logger.info('⏹️ $nodeId: Stream STOP command: ${command.streamName}');
+  session.events.streamStop.listen((event) {
+    logger.info('⏹️ $nodeId: Stream STOP command: ${event.streamName}');
   });
 }
 
@@ -454,12 +454,12 @@ Future<void> _runParticipantTestLogic(
   StreamSubscription? inboxSubscription;
 
   // Listen for test commands
-  session.userMessages.listen((message) async {
-    switch (message.messageId) {
+  session.events.userCoordinationMessages.listen((event) async {
+    switch (event.messageId) {
       case 'start_test_phase':
-        final phase = message.payload['phase'] as int;
-        intensity = message.payload['intensity'] as String;
-        final startAtStr = message.payload['start_at'] as String;
+        final phase = event.payload['phase'] as int;
+        intensity = event.payload['intensity'] as String;
+        final startAtStr = event.payload['start_at'] as String;
         final startAt = DateTime.parse(startAtStr);
 
         logger.info(
@@ -491,20 +491,20 @@ Future<void> _runParticipantTestLogic(
         logger.info('   $nodeId: FINAL message count: $messageReceivedCount');
         dataTimer?.cancel();
         inboxSubscription?.cancel();
-        final duration = message.payload['total_duration'];
+        final duration = event.payload['total_duration'];
         logger.info('   Total test duration: ${duration}s');
         break;
     }
   });
 
   // Listen for stream commands and generate data accordingly
-  session.streamStartCommands.listen((command) async {
-    final testStream = await session.getDataStream(command.streamName);
+  session.events.streamStart.listen((event) async {
+    final testStream = await session.getDataStream(event.streamName);
     inboxSubscription = testStream.inbox.listen((data) {
       // logger.info('📥 $nodeId: Received data: $data');
       messageReceivedCount++;
     });
-    logger.info('📊 $nodeId: Data stream started: ${command.streamName}');
+    logger.info('📊 $nodeId: Data stream started: ${event.streamName}');
     dataTimer = _startDataGeneration(
       nodeId,
       nodeIdHash,
@@ -514,47 +514,47 @@ Future<void> _runParticipantTestLogic(
     );
   });
 
-  session.streamReadyNotifications.listen((notification) async {
+  session.events.streamReady.listen((event) async {
     logger.info(
-      '✅ $nodeId: Stream ready acknowledged: ${notification.streamName}',
+      '✅ $nodeId: Stream ready acknowledged: ${event.streamName}',
     );
   });
 
-  session.streamStopCommands.listen((command) {
-    logger.info('📊 $nodeId: Data stream stopped: ${command.streamName}');
+  session.events.streamStop.listen((event) {
+    logger.info('📊 $nodeId: Data stream stopped: ${event.streamName}');
     dataTimer?.cancel();
   });
 
   // Listen for pause/resume commands to show coordination working
-  session.streamPauseCommands.listen((command) {
+  session.events.streamPause.listen((event) {
     logger.info(
-      '⏸️  $nodeId: PARTICIPANT received pause command for ${command.streamName}',
+      '⏸️  $nodeId: PARTICIPANT received pause command for ${event.streamName}',
     );
     logger.info(
       '   $nodeId: Busy-wait polling paused - freeing system resources',
     );
   });
 
-  session.streamResumeCommands.listen((command) {
+  session.events.streamResume.listen((event) {
     logger.info(
-      '▶️  $nodeId: PARTICIPANT received resume command for ${command.streamName}',
+      '▶️  $nodeId: PARTICIPANT received resume command for ${event.streamName}',
     );
     logger.info(
-      '   $nodeId: Flush before resume: ${command.flushBeforeResume}',
+      '   $nodeId: Flush before resume: ${event.flushBeforeResume}',
     );
     logger.info('   $nodeId: Busy-wait polling resumed');
   });
 
-  session.streamFlushCommands.listen((command) {
+  session.events.streamFlush.listen((event) {
     logger.info(
-      '🚿 $nodeId: PARTICIPANT received flush command for ${command.streamName}',
+      '🚿 $nodeId: PARTICIPANT received flush command for ${event.streamName}',
     );
     logger.info('   $nodeId: Stream buffers cleared');
   });
 
-  session.streamDestroyCommands.listen((command) {
+  session.events.streamDestroy.listen((event) {
     logger.info(
-      '💥 $nodeId: PARTICIPANT received destroy command for ${command.streamName}',
+      '💥 $nodeId: PARTICIPANT received destroy command for ${event.streamName}',
     );
     logger.info('   $nodeId: Stream resources completely destroyed');
   });
@@ -568,8 +568,8 @@ Future<void> _runParticipantTestLogic(
   final testCompleter = Completer<void>();
 
   // Listen for test completion
-  session.userMessages.listen((message) {
-    if (message.messageId == 'end_test' && !testCompleted) {
+  session.events.userCoordinationMessages.listen((event) {
+    if (event.messageId == 'end_test' && !testCompleted) {
       testCompleted = true;
       testCompleter.complete();
     }

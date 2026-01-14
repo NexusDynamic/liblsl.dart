@@ -4,7 +4,15 @@ import 'package:liblsl_coordinator/liblsl_coordinator.dart';
 import 'package:liblsl_coordinator/transports/lsl.dart';
 import 'lsl_coordination_controller.dart';
 
-/// Simplified coordination session using the controller pattern
+/// Simplified coordination session using the controller pattern.
+///
+/// All coordination events are emitted through a single [events] stream.
+/// Use the [ControllerEventStreamExtensions] for convenient filtering:
+/// ```dart
+/// session.events.phaseChanges.listen((e) => print('Phase: ${e.phase}'));
+/// session.events.streamCreate.listen((e) => print('Create: ${e.streamName}'));
+/// session.events.nodeJoined.listen((e) => print('Joined: ${e.node.id}'));
+/// ```
 class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
   @override
   String get id => 'lsl-coordination-session';
@@ -18,40 +26,15 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
   late final CoordinationController _controller;
   final Map<String, LSLDataStream> _dataStreams = {};
 
-  // Public streams - forward from controller
-  Stream<CoordinationPhase> get phaseChanges => _controller.phaseChanges;
-  Stream<CreateStreamMessage> get streamCreateCommands =>
-      _controller.streamCreateCommands;
-  Stream<StartStreamMessage> get streamStartCommands =>
-      _controller.streamStartCommands;
-
-  Stream<StreamReadyMessage> get streamReadyNotifications =>
-      _controller.streamReadyNotifications;
-
-  Stream<StopStreamMessage> get streamStopCommands =>
-      _controller.streamStopCommands;
-
-  // @TODO: We really need to refactor all the individual commands into
-  // a singl stream, this is way too messy and inovlves recreating the same
-  // pathway every time.
-  Stream<PauseStreamMessage> get streamPauseCommands =>
-      _controller.streamPauseCommands;
-
-  Stream<ResumeStreamMessage> get streamResumeCommands =>
-      _controller.streamResumeCommands;
-
-  Stream<FlushStreamMessage> get streamFlushCommands =>
-      _controller.streamFlushCommands;
-
-  Stream<DestroyStreamMessage> get streamDestroyCommands =>
-      _controller.streamDestroyCommands;
-
-  Stream<UserCoordinationMessage> get userMessages => _controller.userMessages;
-  Stream<UserParticipantMessage> get userParticipantMessages =>
-      _controller.userParticipantMessages;
-  Stream<ConfigUpdateMessage> get configUpdates => _controller.configUpdates;
-  Stream<Node> get nodeJoined => _controller.nodeJoined;
-  Stream<Node> get nodeLeft => _controller.nodeLeft;
+  /// Single event stream for all coordination events.
+  ///
+  /// Use the extension methods for convenient filtering:
+  /// ```dart
+  /// session.events.phaseChanges.listen((e) => ...);
+  /// session.events.streamCreate.listen((e) => ...);
+  /// session.events.nodeJoined.listen((e) => ...);
+  /// ```
+  Stream<ControllerEvent> get events => _controller.events;
 
   // Public state access
   CoordinationPhase get currentPhase => _controller.currentPhase;
@@ -88,83 +71,100 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
   }
 
   void _setupStreamCommandHandlers() {
-    // Handle createStream commands - prepare stream but don't start
-    streamCreateCommands.listen((command) async {
-      // Create the stream but don't start it yet
-      if (!_dataStreams.containsKey(command.streamName)) {
-        await createDataStream(command.streamConfig);
+    // Handle all stream lifecycle events through the unified event stream
+    events.streamLifecycle.listen((event) async {
+      switch (event) {
+        case StreamCreateEvent e:
+          await _handleStreamCreate(e);
+        case StreamStartEvent e:
+          await _handleStreamStart(e);
+        case StreamReadyEvent _:
+          // StreamReady events are for coordination, no local action needed
+          break;
+        case StreamStopEvent e:
+          await _handleStreamStop(e);
+        case StreamPauseEvent e:
+          await _handleStreamPause(e);
+        case StreamResumeEvent e:
+          await _handleStreamResume(e);
+        case StreamFlushEvent e:
+          await _handleStreamFlush(e);
+        case StreamDestroyEvent e:
+          await _handleStreamDestroy(e);
       }
-
-      // Notify coordinator we're ready
-      await _controller.markStreamReady(command.streamName);
-      logger.finest('Stream prepared and marked ready: ${command.streamName}');
     });
+  }
 
-    // Handle startStream commands - actually start the stream
-    streamStartCommands.listen((command) async {
-      logger.finest('Received start stream command: ${command.streamName}');
+  Future<void> _handleStreamCreate(StreamCreateEvent event) async {
+    // Create the stream but don't start it yet
+    if (!_dataStreams.containsKey(event.streamName)) {
+      await createDataStream(event.streamConfig);
+    }
 
-      final stream = _dataStreams[command.streamName];
-      if (stream != null) {
-        if (!stream.started) {
-          await stream.start();
-          logger.info('Started stream: ${command.streamName}');
-        } else {
-          logger.warning(
-            'Stream ${command.streamName} already started, skipping',
-          );
-        }
+    // Notify coordinator we're ready
+    await _controller.markStreamReady(event.streamName);
+    logger.finest('Stream prepared and marked ready: ${event.streamName}');
+  }
+
+  Future<void> _handleStreamStart(StreamStartEvent event) async {
+    logger.finest('Received start stream command: ${event.streamName}');
+
+    final stream = _dataStreams[event.streamName];
+    if (stream != null) {
+      if (!stream.started) {
+        await stream.start();
+        logger.info('Started stream: ${event.streamName}');
       } else {
-        logger.warning('Stream ${command.streamName} not found');
-      }
-    });
-
-    streamStopCommands.listen((command) async {
-      final stream = _dataStreams[command.streamName];
-      if (stream != null && stream.started) {
-        await stream.stop(); // Now just pauses polling, doesn't dispose
-        logger.info('PARTICIPANT Stopped stream: ${command.streamName}');
-      }
-    });
-
-    // Handle pauseStream commands
-    streamPauseCommands.listen((command) async {
-      final stream = _dataStreams[command.streamName];
-      if (stream != null && stream.started && !stream.paused) {
-        await stream.pauseStream();
-        logger.info('PARTICIPANT Paused stream: ${command.streamName}');
-      }
-    });
-
-    // Handle resumeStream commands
-    streamResumeCommands.listen((command) async {
-      final stream = _dataStreams[command.streamName];
-      if (stream != null && stream.started && stream.paused) {
-        await stream.resumeStream(flushBeforeResume: command.flushBeforeResume);
-        logger.info(
-          'PARTICIPANT Resumed stream: ${command.streamName}, flush: ${command.flushBeforeResume}',
+        logger.warning(
+          'Stream ${event.streamName} already started, skipping',
         );
       }
-    });
+    } else {
+      logger.warning('Stream ${event.streamName} not found');
+    }
+  }
 
-    // Handle flushStream commands
-    streamFlushCommands.listen((command) async {
-      final stream = _dataStreams[command.streamName];
-      if (stream != null && stream.started) {
-        await stream.flushStreams();
-        logger.info('PARTICIPANT Flushed stream: ${command.streamName}');
-      }
-    });
+  Future<void> _handleStreamStop(StreamStopEvent event) async {
+    final stream = _dataStreams[event.streamName];
+    if (stream != null && stream.started) {
+      await stream.stop(); // Now just pauses polling, doesn't dispose
+      logger.info('PARTICIPANT Stopped stream: ${event.streamName}');
+    }
+  }
 
-    // Handle destroyStream commands
-    streamDestroyCommands.listen((command) async {
-      final stream = _dataStreams[command.streamName];
-      if (stream != null) {
-        await stream.destroyStream();
-        _dataStreams.remove(command.streamName);
-        logger.info('PARTICIPANT Destroyed stream: ${command.streamName}');
-      }
-    });
+  Future<void> _handleStreamPause(StreamPauseEvent event) async {
+    final stream = _dataStreams[event.streamName];
+    if (stream != null && stream.started && !stream.paused) {
+      await stream.pauseStream();
+      logger.info('PARTICIPANT Paused stream: ${event.streamName}');
+    }
+  }
+
+  Future<void> _handleStreamResume(StreamResumeEvent event) async {
+    final stream = _dataStreams[event.streamName];
+    if (stream != null && stream.started && stream.paused) {
+      await stream.resumeStream(flushBeforeResume: event.flushBeforeResume);
+      logger.info(
+        'PARTICIPANT Resumed stream: ${event.streamName}, flush: ${event.flushBeforeResume}',
+      );
+    }
+  }
+
+  Future<void> _handleStreamFlush(StreamFlushEvent event) async {
+    final stream = _dataStreams[event.streamName];
+    if (stream != null && stream.started) {
+      await stream.flushStreams();
+      logger.info('PARTICIPANT Flushed stream: ${event.streamName}');
+    }
+  }
+
+  Future<void> _handleStreamDestroy(StreamDestroyEvent event) async {
+    final stream = _dataStreams[event.streamName];
+    if (stream != null) {
+      await stream.destroyStream();
+      _dataStreams.remove(event.streamName);
+      logger.info('PARTICIPANT Destroyed stream: ${event.streamName}');
+    }
   }
 
   @override
@@ -202,10 +202,10 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
         CoordinationPhase.ready,
       }, timeout: Duration(seconds: config.discoveryInterval.inSeconds * 10));
       logger.info(
-        '✅ Joined coordination session as ${_controller.isCoordinator ? 'COORDINATOR' : 'PARTICIPANT'}',
+        'Joined coordination session as ${_controller.isCoordinator ? 'COORDINATOR' : 'PARTICIPANT'}',
       );
     } catch (e) {
-      logger.severe('❌ COORDINATION FAILED: $e');
+      logger.severe('COORDINATION FAILED: $e');
       throw StateError('Failed to establish coordination: $e');
     }
   }
@@ -241,8 +241,8 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
     late StreamSubscription subscription;
     Timer? timeoutTimer;
 
-    subscription = phaseChanges.listen((phase) {
-      if (targetPhase.contains(phase)) {
+    subscription = events.phaseChanges.listen((event) {
+      if (targetPhase.contains(event.phase)) {
         timeoutTimer?.cancel();
         subscription.cancel();
         if (!completer.isCompleted) {
@@ -413,7 +413,7 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
     );
 
     final completer = Completer<void>();
-    StreamSubscription<StreamReadyMessage>? subscription;
+    StreamSubscription<StreamReadyEvent>? subscription;
 
     // Set up timeout
     final timer = Timer(timeout, () {
@@ -431,13 +431,13 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
       }
     });
 
-    // Listen for streamReady messages
-    subscription = streamReadyNotifications.listen((message) {
-      if (message.streamName == streamName &&
-          expectedNodeUIds.contains(message.fromNodeUId)) {
-        readyNodes.add(message.fromNodeUId);
+    // Listen for streamReady events
+    subscription = events.streamReady.listen((event) {
+      if (event.streamName == streamName &&
+          expectedNodeUIds.contains(event.fromNodeUId)) {
+        readyNodes.add(event.fromNodeUId);
         logger.info(
-          'Participant ${message.fromNodeUId} ready for stream $streamName (${readyNodes.length}/${expectedNodeUIds.length})',
+          'Participant ${event.fromNodeUId} ready for stream $streamName (${readyNodes.length}/${expectedNodeUIds.length})',
         );
 
         // Check if all participants are ready
@@ -616,7 +616,7 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
     late StreamSubscription subscription;
     Timer? timeoutTimer;
 
-    subscription = nodeJoined.listen((_) {
+    subscription = events.nodeJoined.listen((_) {
       if (connectedNodes.length >= minNodes) {
         timeoutTimer?.cancel();
         subscription.cancel();
@@ -641,20 +641,20 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
   }
 
   /// Wait for a specific user message
-  Future<UserCoordinationMessage> waitForUserMessage(
+  Future<UserCoordinationEvent> waitForUserMessage(
     String messageId, {
     Duration? timeout,
   }) async {
-    final completer = Completer<UserCoordinationMessage>();
+    final completer = Completer<UserCoordinationEvent>();
     late StreamSubscription subscription;
     Timer? timeoutTimer;
 
-    subscription = userMessages.listen((message) {
-      if (message.messageId == messageId) {
+    subscription = events.userCoordinationMessages.listen((event) {
+      if (event.messageId == messageId) {
         timeoutTimer?.cancel();
         subscription.cancel();
         if (!completer.isCompleted) {
-          completer.complete(message);
+          completer.complete(event);
         }
       }
     });

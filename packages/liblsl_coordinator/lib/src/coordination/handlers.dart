@@ -25,32 +25,19 @@ abstract class CoordinationMessageHandler {
 
 /// Handles coordination when this node is the coordinator
 class CoordinatorMessageHandler extends CoordinationMessageHandler {
+  /// Stream for outgoing coordination messages (to be sent over the network).
   final StreamController<CoordinationMessage> _outgoingController =
       StreamController<CoordinationMessage>();
+
+  /// Single event stream for all handler events.
+  final StreamController<ControllerEvent> _eventController =
+      StreamController<ControllerEvent>.broadcast();
 
   Stream<CoordinationMessage> get outgoingMessages =>
       _outgoingController.stream;
 
-  final StreamController<UserParticipantMessage>
-  _userParticipantMessageController =
-      StreamController<UserParticipantMessage>.broadcast();
-
-  Stream<UserParticipantMessage> get userParticipantMessages =>
-      _userParticipantMessageController.stream;
-
-  // Note: this subscription is only useful if the coordinator
-  // will also be a participant in the session - but it gives the option
-  // to handle those messages directly (with similar network latency).
-  final StreamController<UserCoordinationMessage> _userMessageController =
-      StreamController<UserCoordinationMessage>.broadcast();
-
-  Stream<UserCoordinationMessage> get userMessages =>
-      _userMessageController.stream;
-
-  final StreamController<StreamReadyMessage> _streamReadyController =
-      StreamController<StreamReadyMessage>.broadcast();
-  Stream<StreamReadyMessage> get streamReadyNotifications =>
-      _streamReadyController.stream;
+  /// Single event stream for all coordinator handler events.
+  Stream<ControllerEvent> get events => _eventController.stream;
 
   // Control flags
   bool _acceptingNewNodes = true;
@@ -80,27 +67,32 @@ class CoordinatorMessageHandler extends CoordinationMessageHandler {
     switch (message.type) {
       case CoordinationMessageType.heartbeat:
         await _handleHeartbeat(message as HeartbeatMessage);
-        break;
       case CoordinationMessageType.connectionTest:
         await _handleConnectionTest(message as ConnectionTestMessage);
-        break;
       case CoordinationMessageType.joinRequest:
         await _handleJoinRequest(message as JoinRequestMessage);
-        break;
       case CoordinationMessageType.nodeLeaving:
         await _handleNodeLeaving(message as NodeLeavingMessage);
-        break;
       case CoordinationMessageType.streamReady:
         await _handleStreamReady(message as StreamReadyMessage);
-        break;
       case CoordinationMessageType.userMessage:
         final userMessage = message as UserCoordinationMessage;
-        _userMessageController.add(userMessage);
-        break;
+        _eventController.add(UserCoordinationEvent(
+          messageId: userMessage.messageId,
+          description: userMessage.description,
+          payload: userMessage.payload,
+          fromNodeUId: userMessage.fromNodeUId,
+          timestamp: userMessage.timestamp,
+        ));
       case CoordinationMessageType.userParticipantMessage:
         final userMessage = message as UserParticipantMessage;
-        _userParticipantMessageController.add(userMessage);
-        break;
+        _eventController.add(UserParticipantEvent(
+          messageId: userMessage.messageId,
+          description: userMessage.description,
+          payload: userMessage.payload,
+          fromNodeUId: userMessage.fromNodeUId,
+          timestamp: userMessage.timestamp,
+        ));
       default:
         logger.warning(
           'Coordinator cannot handle message type: ${message.type}',
@@ -136,7 +128,11 @@ class CoordinatorMessageHandler extends CoordinationMessageHandler {
     logger.info(
       'Node ${message.fromNodeUId} is ready for stream ${message.streamName}',
     );
-    _streamReadyController.add(message);
+    _eventController.add(StreamReadyEvent(
+      streamName: message.streamName,
+      fromNodeUId: message.fromNodeUId,
+      timestamp: message.timestamp,
+    ));
   }
 
   Future<void> _handleJoinRequest(JoinRequestMessage message) async {
@@ -165,11 +161,6 @@ class CoordinatorMessageHandler extends CoordinationMessageHandler {
         return;
       }
     }
-    // If the node is already connected, it is fine, maybe a rejoin
-    // if (state.connectedNodes.any((n) => n.uId == nodeUId)) {
-    //   await _rejectJoin(nodeUId, 'Node already connected');
-    //   return;
-    // }
 
     // Accept the join
     await _acceptJoin(message);
@@ -352,34 +343,19 @@ class CoordinatorMessageHandler extends CoordinationMessageHandler {
 
   void dispose() {
     _outgoingController.close();
-    _streamReadyController.close();
+    _eventController.close();
   }
 }
 
 /// Handles coordination when this node is a participant
 class ParticipantMessageHandler extends CoordinationMessageHandler {
+  /// Stream for outgoing coordination messages (to be sent over the network).
   final StreamController<CoordinationMessage> _outgoingController =
       StreamController<CoordinationMessage>();
-  final StreamController<CreateStreamMessage> _streamCreateController =
-      StreamController<CreateStreamMessage>.broadcast();
-  final StreamController<StartStreamMessage> _streamStartController =
-      StreamController<StartStreamMessage>.broadcast();
-  final StreamController<StreamReadyMessage> _streamReadyController =
-      StreamController<StreamReadyMessage>.broadcast();
-  final StreamController<StopStreamMessage> _streamStopController =
-      StreamController<StopStreamMessage>.broadcast();
-  final StreamController<PauseStreamMessage> _streamPauseController =
-      StreamController<PauseStreamMessage>.broadcast();
-  final StreamController<ResumeStreamMessage> _streamResumeController =
-      StreamController<ResumeStreamMessage>.broadcast();
-  final StreamController<FlushStreamMessage> _streamFlushController =
-      StreamController<FlushStreamMessage>.broadcast();
-  final StreamController<DestroyStreamMessage> _streamDestroyController =
-      StreamController<DestroyStreamMessage>.broadcast();
-  final StreamController<UserCoordinationMessage> _userMessageController =
-      StreamController<UserCoordinationMessage>.broadcast();
-  final StreamController<ConfigUpdateMessage> _configUpdateController =
-      StreamController<ConfigUpdateMessage>.broadcast();
+
+  /// Single event stream for all handler events.
+  final StreamController<ControllerEvent> _eventController =
+      StreamController<ControllerEvent>.broadcast();
 
   // Connection test tracking
   final Map<String, Completer<bool>> _pendingConnectionTests = {};
@@ -387,26 +363,9 @@ class ParticipantMessageHandler extends CoordinationMessageHandler {
 
   Stream<CoordinationMessage> get outgoingMessages =>
       _outgoingController.stream;
-  Stream<CreateStreamMessage> get streamCreateCommands =>
-      _streamCreateController.stream;
-  Stream<StartStreamMessage> get streamStartCommands =>
-      _streamStartController.stream;
-  Stream<StreamReadyMessage> get streamReadyNotifications =>
-      _streamReadyController.stream;
-  Stream<StopStreamMessage> get streamStopCommands =>
-      _streamStopController.stream;
-  Stream<PauseStreamMessage> get streamPauseCommands =>
-      _streamPauseController.stream;
-  Stream<ResumeStreamMessage> get streamResumeCommands =>
-      _streamResumeController.stream;
-  Stream<FlushStreamMessage> get streamFlushCommands =>
-      _streamFlushController.stream;
-  Stream<DestroyStreamMessage> get streamDestroyCommands =>
-      _streamDestroyController.stream;
-  Stream<UserCoordinationMessage> get userMessages =>
-      _userMessageController.stream;
-  Stream<ConfigUpdateMessage> get configUpdates =>
-      _configUpdateController.stream;
+
+  /// Single event stream for all participant handler events.
+  Stream<ControllerEvent> get events => _eventController.stream;
 
   ParticipantMessageHandler({
     required super.state,
@@ -460,55 +419,39 @@ class ParticipantMessageHandler extends CoordinationMessageHandler {
     switch (message.type) {
       case CoordinationMessageType.joinAccept:
         await _handleJoinAccept(message as JoinAcceptMessage);
-        break;
       case CoordinationMessageType.joinReject:
         await _handleJoinReject(message as JoinRejectMessage);
-        break;
       case CoordinationMessageType.topologyUpdate:
         await _handleTopologyUpdate(message as TopologyUpdateMessage);
-        break;
       case CoordinationMessageType.createStream:
         await _handleCreateStream(message as CreateStreamMessage);
-        break;
       case CoordinationMessageType.startStream:
         await _handleStartStream(message as StartStreamMessage);
-        break;
       case CoordinationMessageType.streamReady:
         await _handleStreamReady(message as StreamReadyMessage);
-        break;
       case CoordinationMessageType.stopStream:
         await _handleStopStream(message as StopStreamMessage);
-        break;
       case CoordinationMessageType.pauseStream:
         await _handlePauseStream(message as PauseStreamMessage);
-        break;
       case CoordinationMessageType.resumeStream:
         await _handleResumeStream(message as ResumeStreamMessage);
-        break;
       case CoordinationMessageType.flushStream:
         await _handleFlushStream(message as FlushStreamMessage);
-        break;
       case CoordinationMessageType.destroyStream:
         await _handleDestroyStream(message as DestroyStreamMessage);
-        break;
       case CoordinationMessageType.userMessage:
         await _handleUserMessage(message as UserCoordinationMessage);
-        break;
       case CoordinationMessageType.configUpdate:
         await _handleConfigUpdate(message as ConfigUpdateMessage);
-        break;
       case CoordinationMessageType.heartbeat:
         // We can keep track of the last seen heartbeat from the coordinator
         state.updateNodeHeartbeat(message.fromNodeUId);
-        break;
       case CoordinationMessageType.joinOffer:
         await _handleJoinOffer(message as JoinOfferMessage);
-        break;
       case CoordinationMessageType.connectionTestResponse:
         await _handleConnectionTestResponse(
           message as ConnectionTestResponseMessage,
         );
-        break;
       default:
         logger.warning(
           'Participant cannot handle message type: ${message.type}',
@@ -527,7 +470,10 @@ class ParticipantMessageHandler extends CoordinationMessageHandler {
       fromNodeUId: thisNode.uId,
       streamName: streamName,
     );
-    _streamReadyController.add(message);
+    _eventController.add(StreamReadyEvent(
+      streamName: streamName,
+      fromNodeUId: thisNode.uId,
+    ));
     await sendMessage(message);
   }
 
@@ -594,36 +540,65 @@ class ParticipantMessageHandler extends CoordinationMessageHandler {
 
   Future<void> _handleCreateStream(CreateStreamMessage message) async {
     logger.info('Received create stream command: ${message.streamName}');
-    _streamCreateController.add(message);
+    _eventController.add(StreamCreateEvent(
+      streamName: message.streamName,
+      streamConfig: message.streamConfig,
+      fromNodeUId: message.fromNodeUId,
+      timestamp: message.timestamp,
+    ));
   }
 
   Future<void> _handleStartStream(StartStreamMessage message) async {
     logger.info('Received start stream command: ${message.streamName}');
-    _streamStartController.add(message);
+    _eventController.add(StreamStartEvent(
+      streamName: message.streamName,
+      streamConfig: message.streamConfig,
+      startAt: message.startAt,
+      fromNodeUId: message.fromNodeUId,
+      timestamp: message.timestamp,
+    ));
   }
 
   Future<void> _handleStreamReady(StreamReadyMessage message) async {
     logger.info(
       'Node ${message.fromNodeUId} is ready for stream ${message.streamName}',
     );
-    _streamReadyController.add(message);
+    _eventController.add(StreamReadyEvent(
+      streamName: message.streamName,
+      fromNodeUId: message.fromNodeUId,
+      timestamp: message.timestamp,
+    ));
   }
 
   Future<void> _handleStopStream(StopStreamMessage message) async {
     logger.info('Received stop stream command: ${message.streamName}');
-    _streamStopController.add(message);
+    _eventController.add(StreamStopEvent(
+      streamName: message.streamName,
+      fromNodeUId: message.fromNodeUId,
+      timestamp: message.timestamp,
+    ));
   }
 
   Future<void> _handleUserMessage(UserCoordinationMessage message) async {
     logger.info(
       'Received user message: ${message.messageId} - ${message.description}',
     );
-    _userMessageController.add(message);
+    _eventController.add(UserCoordinationEvent(
+      messageId: message.messageId,
+      description: message.description,
+      payload: message.payload,
+      fromNodeUId: message.fromNodeUId,
+      timestamp: message.timestamp,
+    ));
   }
 
   Future<void> _handleConfigUpdate(ConfigUpdateMessage message) async {
     logger.info('Received config update from coordinator');
-    _configUpdateController.add(message);
+    _eventController.add(ConfigUpdateEvent(
+      config: message.config,
+      fromNodeUId: message.fromNodeUId,
+      timestamp: message.timestamp,
+    ));
   }
 
   // Participant methods
@@ -741,22 +716,39 @@ class ParticipantMessageHandler extends CoordinationMessageHandler {
 
   /// Handle pause stream message by forwarding to stream
   Future<void> _handlePauseStream(PauseStreamMessage message) async {
-    _streamPauseController.add(message);
+    _eventController.add(StreamPauseEvent(
+      streamName: message.streamName,
+      fromNodeUId: message.fromNodeUId,
+      timestamp: message.timestamp,
+    ));
   }
 
   /// Handle resume stream message by forwarding to stream
   Future<void> _handleResumeStream(ResumeStreamMessage message) async {
-    _streamResumeController.add(message);
+    _eventController.add(StreamResumeEvent(
+      streamName: message.streamName,
+      flushBeforeResume: message.flushBeforeResume,
+      fromNodeUId: message.fromNodeUId,
+      timestamp: message.timestamp,
+    ));
   }
 
   /// Handle flush stream message by forwarding to stream
   Future<void> _handleFlushStream(FlushStreamMessage message) async {
-    _streamFlushController.add(message);
+    _eventController.add(StreamFlushEvent(
+      streamName: message.streamName,
+      fromNodeUId: message.fromNodeUId,
+      timestamp: message.timestamp,
+    ));
   }
 
   /// Handle destroy stream message by forwarding to stream
   Future<void> _handleDestroyStream(DestroyStreamMessage message) async {
-    _streamDestroyController.add(message);
+    _eventController.add(StreamDestroyEvent(
+      streamName: message.streamName,
+      fromNodeUId: message.fromNodeUId,
+      timestamp: message.timestamp,
+    ));
   }
 
   void dispose() {
@@ -769,15 +761,6 @@ class ParticipantMessageHandler extends CoordinationMessageHandler {
     _pendingConnectionTests.clear();
 
     _outgoingController.close();
-    _streamCreateController.close();
-    _streamStartController.close();
-    _streamReadyController.close();
-    _streamStopController.close();
-    _streamPauseController.close();
-    _streamResumeController.close();
-    _streamFlushController.close();
-    _streamDestroyController.close();
-    _userMessageController.close();
-    _configUpdateController.close();
+    _eventController.close();
   }
 }

@@ -31,7 +31,9 @@ enum CoordinationPhase {
   disposing,
 }
 
-/// Internal coordination state with clear phase management
+/// Internal coordination state with clear phase management.
+///
+/// Emits [ControllerEvent]s for state changes through a single event stream.
 class CoordinationState {
   CoordinationPhase _phase = CoordinationPhase.idle;
   bool _isCoordinator = false;
@@ -39,13 +41,9 @@ class CoordinationState {
   final List<Node> _connectedNodes = [];
   final Map<String, DateTime> _lastHeartbeats = {};
 
-  // Stream controllers for state changes
-  final StreamController<CoordinationPhase> _phaseController =
-      StreamController<CoordinationPhase>.broadcast();
-  final StreamController<Node> _nodeJoinedController =
-      StreamController<Node>.broadcast();
-  final StreamController<Node> _nodeLeftController =
-      StreamController<Node>.broadcast();
+  /// Single event stream for all state changes.
+  final StreamController<ControllerEvent> _eventController =
+      StreamController<ControllerEvent>.broadcast();
 
   CoordinationPhase get phase => _phase;
   bool get isCoordinator => _isCoordinator;
@@ -55,9 +53,8 @@ class CoordinationState {
       .where((n) => n.role == NodeCapability.participant.toString())
       .toList();
 
-  Stream<CoordinationPhase> get phaseChanges => _phaseController.stream;
-  Stream<Node> get nodeJoined => _nodeJoinedController.stream;
-  Stream<Node> get nodeLeft => _nodeLeftController.stream;
+  /// Single event stream for all state-related events.
+  Stream<ControllerEvent> get events => _eventController.stream;
 
   bool get isEstablished =>
       _phase == CoordinationPhase.established ||
@@ -75,7 +72,10 @@ class CoordinationState {
       final oldPhase = _phase;
       _phase = newPhase;
       logger.info('Coordination phase: $oldPhase -> $newPhase');
-      _phaseController.add(newPhase);
+      _eventController.add(PhaseChangedEvent(
+        phase: newPhase,
+        fromNodeUId: _coordinatorUId ?? '',
+      ));
     }
   }
 
@@ -95,7 +95,10 @@ class CoordinationState {
     if (!_connectedNodes.any((n) => n.uId == node.uId)) {
       _connectedNodes.add(node);
       _lastHeartbeats[node.uId] = DateTime.now();
-      _nodeJoinedController.add(node);
+      _eventController.add(NodeJoinedEvent(
+        node: node,
+        fromNodeUId: node.uId,
+      ));
     } else {
       // Update existing node info
       final index = _connectedNodes.indexWhere((n) => n.uId == node.uId);
@@ -108,7 +111,10 @@ class CoordinationState {
     if (node != null) {
       _connectedNodes.removeWhere((n) => n.uId == nodeUId);
       _lastHeartbeats.remove(nodeUId);
-      _nodeLeftController.add(node);
+      _eventController.add(NodeLeftEvent(
+        node: node,
+        fromNodeUId: nodeUId,
+      ));
     }
   }
 
@@ -129,8 +135,6 @@ class CoordinationState {
   }
 
   void dispose() {
-    _phaseController.close();
-    _nodeJoinedController.close();
-    _nodeLeftController.close();
+    _eventController.close();
   }
 }
