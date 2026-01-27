@@ -33,12 +33,12 @@ ffigen:
   output: 'lib/native_liblsl.dart'
   headers:
     entry-points:
-      - 'src/liblsl-846c4199/include/lsl_c.h'
+      - 'src/liblsl-e9104554/include/lsl_c.h'
     include-directives:
-      - 'src/liblsl-846c4199/include/lsl/*.h'
-      - 'src/liblsl-846c4199/include/lsl_c.h'
+      - 'src/liblsl-e9104554/include/lsl/*.h'
+      - 'src/liblsl-e9104554/include/lsl_c.h'
   compiler-opts:
-    - '-Isrc/liblsl-846c4199/include'
+    - '-Isrc/liblsl-e9104554/include'
   structs:
     dependency-only: opaque
   functions:

@@ -100,7 +100,7 @@ class _AnalysisHomePageState extends State<AnalysisHomePage> {
       // Get the last used directory
       final initialDirectory = await _getLastDirectory();
 
-      final result = await FilePicker.platform.pickFiles(
+      final result = await FilePicker.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['tsv'],
         dialogTitle: 'Select TSV files',

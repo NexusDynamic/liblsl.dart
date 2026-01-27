@@ -9,17 +9,18 @@ import 'package:native_toolchain_c/src/native_toolchain/android_ndk.dart';
 /// It is possible, but untested, to compile liblsl for WASM.
 /// Here is the command that successfully compiled it for WASM:
 /// ```bash
-/// LSL_SRC=./src/liblsl-bea40e2c
+/// LSL_SRC=./src/liblsl-e9104554
+/// PUGIXML_SRC=./src/pugixml
 /// emcc -pthread -sPTHREAD_POOL_SIZE=32 -sEXPORT_NAME=liblsl --no-entry \
-///       -sENVIRONMENT=web,worker -DVERSION=1.16.2 -DLSL_ABI_VERSION=2 \
+///       -sENVIRONMENT=web,worker -DVERSION=1.17.5 -DLSL_ABI_VERSION=2 \
 ///       -DASIO_NO_DEPRECATED -DBOOST_ALL_NO_LIB -DLIBLSL_EXPORTS \
+///       -DASIO_DISABLE_VISIBILITY -DLOGURU_DEBUG_LOGGING=0 \
 ///       -DLSL_VERSION_INFO=git:x/branch:x/build:dart_native/compiler:unknown \
 ///       -DLOGURU_STACKTRACES=0 -include ./src/include/lsl_lib_version.h \
 ///       -I$LSL_SRC/lslboost -I$LSL_SRC/include \
-///       -I$LSL_SRC/thirdparty \
 ///       -I$LSL_SRC/thirdparty/asio \
 ///       -I$LSL_SRC/thirdparty/loguru \
-///       -I$LSL_SRC/thirdparty/pugixml \
+///       -I$PUGIXML_SRC/src \
 ///       $LSL_SRC/src/buildinfo.cpp \
 ///       $LSL_SRC/src/api_config.cpp \
 ///       $LSL_SRC/src/cancellation.cpp \
@@ -49,7 +50,7 @@ import 'package:native_toolchain_c/src/native_toolchain/android_ndk.dart';
 ///       $LSL_SRC/src/util/endian.cpp \
 ///       $LSL_SRC/src/util/inireader.cpp \
 ///       $LSL_SRC/src/util/strfuns.cpp \
-///       $LSL_SRC/thirdparty/pugixml/pugixml.cpp \
+///       $PUGIXML_SRC/src/pugixml.cpp \
 ///       $LSL_SRC/thirdparty/loguru/loguru.cpp \
 ///       -o ./liblsl.js
 /// ```
@@ -100,16 +101,45 @@ const androidNdkArchABIMap = {
   Architecture.riscv64: 'riscv64-linux-android',
 };
 
+/// Fetches pugixml source (v1.15) via git clone if not already present.
+/// This mirrors the CMake FetchContent behavior in Dependencies.cmake.
+Future<void> _fetchPugixml(String pugixmlPath) async {
+  final dir = Directory(pugixmlPath);
+  // This might need to be more robust in the future.
+  // For now, the only version used so far is v1.15
+  if (dir.existsSync()) return;
+
+  final result = await Process.run('git', [
+    'clone',
+    '--depth',
+    '1',
+    '--branch',
+    'v1.15',
+    'https://github.com/zeux/pugixml.git',
+    pugixmlPath,
+  ]);
+  if (result.exitCode != 0) {
+    throw Exception(
+      'Failed to fetch pugixml v1.15: ${result.stderr}\n'
+      'Ensure git is installed and you have network access.',
+    );
+  }
+}
+
 void main(List<String> args) async {
   await build(args, (input, output) async {
     // This needs to be manually copied from CMakeLists.txt.
-    const String libLSLVersion = '1.16.2';
-    const String libLSLBranch = '846c4199';
+    const String libLSLVersion = '1.17.5';
+    const String libLSLBranch = 'e9104554';
     const String libLSLPath = 'src/liblsl-$libLSLBranch';
+    const String pugixmlPath = 'src/pugixml';
     final OS targetOs = input.config.code.targetOS;
     final packageName = stripPrefix(targetOs, input.packageName);
     final Architecture targetArchitecture =
         input.config.code.targetArchitecture;
+
+    // Fetch pugixml source (mirrors CMake FetchContent in Dependencies.cmake).
+    await _fetchPugixml(pugixmlPath);
 
     List<String> flags = [];
     List<String> frameworks = [];
@@ -120,11 +150,13 @@ void main(List<String> args) async {
       'VERSION': libLSLVersion,
       'LSL_ABI_VERSION': '2',
       'ASIO_NO_DEPRECATED': null,
+      'ASIO_DISABLE_VISIBILITY': null,
       'BOOST_ALL_NO_LIB': null,
       'LIBLSL_EXPORTS': null,
       'LSL_VERSION_INFO':
           'git:$libLSLVersion/branch:$libLSLBranch/build:dart_native/compiler:unknown',
       'LOGURU_STACKTRACES': '0',
+      'LOGURU_DEBUG_LOGGING': '0',
     };
 
     var forcedIncludes = <String>[];
@@ -147,21 +179,13 @@ void main(List<String> args) async {
 
     // WIN
     if (targetOs == OS.windows) {
-      // @TODO: check which of these are actually necessary.
       defines.addAll({
         '_WIN32_WINNT': '0x0601',
-        '_WINDOWS': null,
-        '_MBCS': null,
-        'WIN32': null,
         '_CRT_SECURE_NO_WARNINGS': null,
-        '_WINDLL': null,
         'LSLNOAUTOLINK': null,
       });
       flags.add('/EHsc');
-      // Required for ASIO I think.
-      libraries.add('winmm');
-      // Required for the network interface.
-      libraries.add('iphlpapi');
+      libraries.addAll(['winmm', 'iphlpapi', 'mswsock', 'ws2_32']);
     }
 
     final builder = CBuilder.library(
@@ -199,17 +223,16 @@ void main(List<String> args) async {
         '$libLSLPath/src/util/endian.cpp',
         '$libLSLPath/src/util/inireader.cpp',
         '$libLSLPath/src/util/strfuns.cpp',
-        '$libLSLPath/thirdparty/pugixml/pugixml.cpp',
+        '$pugixmlPath/src/pugixml.cpp',
         '$libLSLPath/thirdparty/loguru/loguru.cpp',
       ],
       language: Language.cpp,
       includes: [
         '$libLSLPath/lslboost',
         '$libLSLPath/include',
-        '$libLSLPath/thirdparty',
         '$libLSLPath/thirdparty/asio',
         '$libLSLPath/thirdparty/loguru',
-        '$libLSLPath/thirdparty/pugixml',
+        '$pugixmlPath/src',
       ],
       defines: defines,
       flags: flags,
