@@ -38,31 +38,34 @@ affiliations:
   index: 3
   ror: 01aj84f44
 
-date: 1 October 2025
+date: 3 February 2026
 bibliography: paper.bib
 ---
 
 # Summary
 
-The `liblsl` Dart package is the first implementation of [Lab Streaming Layer (LSL)](https://labstreaminglayer.org/) in the [Dart](https://dart.dev/) and [Flutter](https://flutter.dev/) ecosystem, enabling researchers to deploy multi-modal LSL-enabled data acquisition applications across mobile (iOS, Android) and desktop (Linux, macOS, Windows) platforms from shared source code. Unlike [existing LSL implementations](https://labstreaminglayer.readthedocs.io/info/language_wrappers.html) that are platform-specific or restricted to desktop devices [@LiblslLanguageWrappers], this package leverages Dart/Flutter's cross-platform capabilities while maintaining the microsecond-level latency requirements of neurophysiological research through direct Foreign Function Interface (FFI) bindings to the native LSL C library [@stennerSccnLiblslV11622023].
-
+The `liblsl` Dart package is the first implementation of [Lab Streaming Layer (LSL)](https://labstreaminglayer.org/) in the [Dart](https://dart.dev/) and [Flutter](https://flutter.dev/) ecosystem, enabling researchers to deploy multi-modal LSL-enabled data acquisition applications across mobile (iOS, Android) and desktop (Linux, macOS, Windows) platforms from shared source code.
 
 
 # Statement of need
 
-Neuroscience and behavioral research increasingly make use of consumer hardware due to its lower cost and sufficient performance for running experiments [@roqueRealTimeMobileEEG2025], however, the integration of consumer devices into laboratory data acquisition pipelines often requires platform-specific development and adds complexity to the data alignment and collection process, both of which can hinder flexibility and reproducibility [@iwamaTwoCommonIssues2024]. The LSL system partially adresses some of the complexity via a software based unified method of time-synchronized data acquisition across heterogeneous hardware and software systems [@kotheLabStreamingLayer2025]. LSL handles clock synchronization, network communication, and data buffering, making it particularly valuable for applications requiring precise temporal alignment of multiple data sources. The `liblsl` Dart package further reduces the complexity by enabling researchers to deploy LSL-enabled applications across all major platforms from a single Dart/Flutter codebase. Potential use cases include general multimodal experiments [@wangScopingReviewUse2023; @dolmans2020data], mobile brain-computer interfaces using an EEG headset and a smartphone [@stopczynskiSmartphoneBrainScanner2014; @debenerUnobtrusiveAmbulatoryEEG2015; @blumEEGRecordingOnline2017a], hyperscanning studies [@zammPracticalGuideEEG2024b] that simultaneously collect neuroimaging data from multiple participants [@luftSocialSynchronizationBrain2022; @boggioSocialAffectiveNeuroscience2023; roqueRealTimeMobileEEG2025], and distributed experiments where multiple labs using a variety of devices collect methodologically consistent data in a standardized format for analysis [@demazureDistributedRemoteEEG2021; @schultzLinkingLabsInterconnecting2021]. 
+Neuroscience and behavioral research increasingly make use of consumer hardware due to its lower cost and sufficient performance for running experiments [@roqueRealTimeMobileEEG2025], however, the integration of consumer devices into laboratory data acquisition pipelines often requires platform-specific development and adds complexity to the data alignment and collection process, both of which can hinder flexibility and reproducibility [@iwamaTwoCommonIssues2024]. The LSL system partially addresses some of the complexity via a software based unified method of time-synchronized data acquisition across heterogeneous hardware and software systems [@kotheLabStreamingLayer2025]. LSL handles clock synchronization, network communication, and data buffering, making it particularly valuable for applications requiring precise temporal alignment of multiple data sources. The `liblsl` Dart package further reduces the complexity by enabling researchers to deploy LSL-enabled applications across all major platforms from a single Dart/Flutter codebase. Potential use cases include general multimodal experiments [@wangScopingReviewUse2023; @dolmans2020data], mobile brain-computer interfaces using an EEG headset and a smartphone [@stopczynskiSmartphoneBrainScanner2014; @debenerUnobtrusiveAmbulatoryEEG2015; @blumEEGRecordingOnline2017a], hyperscanning studies [@zammPracticalGuideEEG2024b] that simultaneously collect neuroimaging data from multiple participants [@luftSocialSynchronizationBrain2022; @boggioSocialAffectiveNeuroscience2023; @roqueRealTimeMobileEEG2025], and distributed experiments where multiple labs using a variety of devices collect methodologically consistent data in a standardized format for analysis [@demazureDistributedRemoteEEG2021; @schultzLinkingLabsInterconnecting2021]. 
 
+# State of the field
 
+ There are [existing LSL implementations](https://labstreaminglayer.readthedocs.io/info/language_wrappers.html) in other programming languages that are platform-specific or restricted to desktop devices [@LiblslLanguageWrappers], this package leverages Dart/Flutter's cross-platform capabilities while maintaining the microsecond-level latency requirements of neurophysiological research through direct Foreign Function Interface (FFI) bindings to the native LSL C library [@stennerSccnLiblslV11622023]. The need for a Dart implementation of `liblsl` arose during development of a group multimodal experiment paradigm that is intended to become available as a research tool, as such, making it available to as wide an audience as possible makes Dart a logical choice because distributable applications can readily be built for all major desktop and mobile operating systems.
 
-# Performance
+# Software design
 
-## Methods
+Due to `liblsl.dart` being in a library implementation, the intentional decision was made to create a simplified wrapper in addition to exposing direct access to the `liblsl` API via the Foreign Function Interface (FFI) generated by `ffigen`[^1]. The native interface requires knowledge of low-level memory management and a familiarity with the FFI API, whereas the wrapped API handles the lower-level complexity and provides clear, typed Dart objects for working with LSL. `liblsl.dart` allows for both pseudo-synchronous and asynchronous, multithreaded (`Isolates` in Dart) interaction with LSL, giving users the ability to decide for their use-case if stricter timing or increased data throughput are more relevant. Although the current underlying `liblsl` implementation is asynchronous, the synchronous version in Dart removes the overhead of inter-thread communication and provides the foundation for integrating an upcoming `sync` mode in the `liblsl` library. The asynchronous version in Dart prevents blocking during high-frequency polling, which is especially relevant in Flutter where the code can be executed in the UI thread where blocking will make an application unresponsive to end users. From the start, this package was required to maintain the low latency of `liblsl` to ensure it is appropriate for online multimodal research. Comprehensive testing of the package is done via unit testing and continuous integration via GitHub Actions.
+
+[^1]: ffigen: bindings generator for FFI bindings. [https://pub.dev/packages/ffigen](https://pub.dev/packages/ffigen).
+
+## Performance
 
 Performance was characterized under controlled conditions to isolate different sources of latency. Local device tests measured the computational overhead of the package's Dart API by having a single device both produce and consume 1000 Hz data streams (16 channels, float32 format), representing typical EEG recording parameters. Network tests used two iPad Pro M4s connected via 1Gbps USB-C Ethernet adaptors to a consumer-grade gigabit router. All tests were run for 3 minutes (approximately 180,000 samples) to ensure statistical reliability. Measurements represent end-to-end latency from sample production to consumption, including API call overhead, serialization, network transmission, and deserialization.
 
-## Results and Discussion
-
-![\label{latencyfig} Latency characterization of the liblsl Dart package. **(A)** Local performance on iPad Pro M4 (left) and Pixel 7a (right), each producing and consuming its own 1000 Hz data stream. **(B)** Network performance between two iPads over 1Gbps Ethernet. Violin plots show median (solid line) with first and third quartiles (dashed lines). See Methods for experimental details and \autoref{latencystats} for complete statistics. *Note: Outliers >500µs were excluded from visualization but are included in statistics*.](./figures/plot_latency.png)
+![\label{latencyfig} Latency characterization of the `liblsl` Dart package. **(A)** Local performance on iPad Pro M4 (left) and Pixel 7a (right), each producing and consuming its own 1000 Hz data stream. **(B)** Network performance between two iPads over 1Gbps Ethernet. Violin plots show median (solid line) with first and third quartiles (dashed lines). See \autoref{latencystats} for complete statistics. *Note: Outliers >500µs were excluded from visualization but are included in statistics*.](./figures/plot_latency.png)
 
 | Condition | Device      |      n | Min (µs) | Max (µs) | Mean (µs) | SD (µs) |
 |:----------|:------------|-------:|---------:|---------:|----------:|--------:|
@@ -74,13 +77,24 @@ Table: \label{latencystats} Summary of latency measurements.
 
 \autoref{latencystats} summarizes latency statistics across conditions and devices. \autoref{latencyfig} illustrates the distribution of the relevant performance characteristics: (A) single-device performance showing the API's computational overhead when producing and consuming data locally (iPad: µ=65µs, σ=47µs; Pixel 7a: µ=274µs, σ=434µs), where standard deviations reflect timing jitter inherent to the operating system's thread scheduling and (B) network performance between two iPads over a 1Gbps wired connection (µ=148µs, σ=129µs). These results confirm that the Dart wrapper introduces minimal overhead beyond the base LSL C library performance, with observed differences primarily attributable to device hardware capabilities and network infrastructure rather than the API implementation itself.
 
-The observed latencies are consistent with previous benchmarking of native LSL implementations [@kotheLabStreamingLayer2025] and demonstrate that this package preserves the real-time performance characteristics required for neurophysiological applications [@iwamaTwoCommonIssues2024]. The local processing latencies (65-274µs) are well below typical neurophysiological event timing requirements (<1ms), confirming suitability for EEG, electromyography (EMG), and other biosignal applications[^1]. The mean inter-device network latency (148µs) demonstrates that network overhead remains minimal on well-configured local networks[^2], though researchers should note that wireless networks and other factors including network traffic congestion may introduce additional jitter. The device-dependent variation (iPad: 65µs vs Pixel 7a: 274µs) reflects differences in CPU architecture, device network hardware and operating system scheduling rather than API limitations, indicating that platform selection should be validated through careful testing based on the requirements of the specific application.
+The observed latencies are consistent with previous benchmarking of native LSL implementations [@kotheLabStreamingLayer2025] and demonstrate that this package preserves the real-time performance characteristics required for neurophysiological applications [@iwamaTwoCommonIssues2024]. The local processing latencies (65-274µs) are well below typical neurophysiological event timing requirements (<1ms), confirming suitability for EEG, electromyography (EMG), and other biosignal applications[^2]. The mean inter-device network latency (148µs) demonstrates that network overhead remains minimal on well-configured local networks[^3], though researchers should note that wireless networks and other factors including network traffic congestion may introduce additional jitter. The device-dependent variation (iPad: 65µs vs Pixel 7a: 274µs) reflects differences in CPU architecture, device network hardware and operating system scheduling rather than API limitations, indicating that platform selection should be validated through careful testing based on the requirements of the specific application.
 
-[^1]: Raw data and source code used for generating the figures and statistics are available at: [https://github.com/NexusDynamic/liblsl.dart/tree/main/packages/liblsl/paper/analysis](https://github.com/NexusDynamic/liblsl.dart/tree/main/packages/liblsl/paper/analysis)
 
-[^2]: In a lab context, this typically may be achieved by using a closed, wired network, with a high throughput hardware switch or router, and by disabling firewalls, traffic shaping and other features that may introduce latency such as deep packet inspection.
+[^2]: Raw data and source code used for generating the figures and statistics are available at: [https://github.com/NexusDynamic/liblsl.dart/tree/main/packages/liblsl/paper/analysis](https://github.com/NexusDynamic/liblsl.dart/tree/main/packages/liblsl/paper/analysis).
 
-# Example
+[^3]: In a lab context, this typically may be achieved by using a closed, wired network, with a high throughput hardware switch or router, and by disabling firewalls, traffic shaping and other features that may introduce latency such as deep packet inspection.
+
+
+# Research Impact Statement
+
+LSL lowers the complexity of multimodal time-synchronized data acquisition from multiple devices [@dolmans2020data; @iwamaTwoCommonIssues2024; @kotheLabStreamingLayer2025], and Dart/Flutter simplify cross-platform application development. Together, they provide a powerful toolset for researchers and developers to create flexible, reproducible, and accessible applications for data collection and analysis. The package includes well-documented source code, examples, tests and related packages that implement `liblsl.dart`. During the development of this package, the author has contributed fixes and improvements to `liblsl`[^4] which benefits this package as well as the core library and implementations in other programming languages. From a practical standpoint, the `liblsl.dart` package has also been used to build the LSL library for previously unsupported platforms[^5] which demonstrates the flexibility of the current implementation. The `liblsl.dart` package is currently being used actively in research projects by the authors which will be published as partial requirements of a PhD thesis.
+
+
+[^4]: Merged and pending pull requests by author Luke Ring (\@zeyus) for the `liblsl` repository:  [https://github.com/sccn/liblsl/pulls?q=is%3Apr+author%3Azeyus](https://github.com/sccn/liblsl/pulls?q=is%3Apr+author%3Azeyus).
+
+[^5]: `liblsl` for ARMv7 on Debian 9 built with `liblsl.dart`:  [https://github.com/NexusDynamic/Bela-liblsl](https://github.com/NexusDynamic/Bela-liblsl).
+
+# Example LSL Integration
 
 The following code demonstrates how a complete data streaming application can be built in under 30 lines of code:
 
@@ -113,13 +127,15 @@ void main() async {
 }
 ```
 
-# Impact
 
-LSL lowers the complexity of multimodal time-synchronized data acquisition from multiple devices [@dolmans2020data; @iwamaTwoCommonIssues2024; @kotheLabStreamingLayer2025], and Dart/Flutter simplify cross-platform application development. Together, they provide a powerful toolset for researchers and developers to create flexible, reproducible, and accessible applications for data collection and analysis.
+# AI usage disclosure
+
+The package and wrapping API design are that of the author's and are the result of incremental development and testing. However, two generative AI tools have been used during development: 1) Microsoft Copilot integration in Visual Studio Code has been used as an enhanced auto-correct tool for simple or repetitive tasks (i.e. class structure skeletons, paths and import statements); 2) Claude Code has been used for "rubber duck debugging", general debugging, and for limited generation of boilerplate code, some tests and documentation. No AI generated content has been accepted without review and testing, nor does it constitute the majority of the work produced. In addition to human review, the suite of tests, including performance testing are continuously run to prevent regressions. For this paper, Claude was used to suggest edits for clarity and structure, but was not used to generate the contents or sections, nor were the suggestions implemented wholesale.
+
 
 
 # Acknowledgements
 
-This library builds on [liblsl](https://github.com/sccn/liblsl) by Christian A. Kothe using the [Dart programming language](https://dart.dev/) by the Dart project authors, Google. Thanks to [Chadwick Boulay](https://orcid.org/0000-0003-1747-3931) and members of the [dart_community Discord](https://discord.gg/Qt6DgfAWWx) for help with debugging.
+This library builds on [`liblsl`](https://github.com/sccn/liblsl) by Christian A. Kothe using the [Dart programming language](https://dart.dev/) by the Dart project authors, Google. Thanks to [Chadwick Boulay](https://orcid.org/0000-0003-1747-3931) and members of the [dart_community Discord](https://discord.gg/Qt6DgfAWWx) for help with debugging. No external funding was used for the development of this package and is being developed as part of the first author's PhD research project, which was awarded a "4+4 scheme" research scholarship from the Arts Graduate School at Aarhus University.
 
 # References
