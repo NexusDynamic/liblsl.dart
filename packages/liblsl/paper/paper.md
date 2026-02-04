@@ -38,7 +38,7 @@ affiliations:
   index: 3
   ror: 01aj84f44
 
-date: 3 February 2026
+date: 4 February 2026
 bibliography: paper.bib
 ---
 
@@ -47,13 +47,13 @@ bibliography: paper.bib
 The `liblsl` Dart package is the first implementation of [Lab Streaming Layer (LSL)](https://labstreaminglayer.org/) in the [Dart](https://dart.dev/) and [Flutter](https://flutter.dev/) ecosystem, enabling researchers to deploy multi-modal LSL-enabled data acquisition applications across mobile (iOS, Android) and desktop (Linux, macOS, Windows) platforms from shared source code.
 
 
-# Statement of need
+# Statement of Need
 
 Neuroscience and behavioral research increasingly make use of consumer hardware due to its lower cost and sufficient performance for running experiments [@roqueRealTimeMobileEEG2025], however, the integration of consumer devices into laboratory data acquisition pipelines often requires platform-specific development and adds complexity to the data alignment and collection process, both of which can hinder flexibility and reproducibility [@iwamaTwoCommonIssues2024]. The LSL system partially addresses some of the complexity via a software based unified method of time-synchronized data acquisition across heterogeneous hardware and software systems [@kotheLabStreamingLayer2025]. LSL handles clock synchronization, network communication, and data buffering, making it particularly valuable for applications requiring precise temporal alignment of multiple data sources. The `liblsl` Dart package further reduces the complexity by enabling researchers to deploy LSL-enabled applications across all major platforms from a single Dart/Flutter codebase. Potential use cases include general multimodal experiments [@wangScopingReviewUse2023; @dolmans2020data], mobile brain-computer interfaces using an EEG headset and a smartphone [@stopczynskiSmartphoneBrainScanner2014; @debenerUnobtrusiveAmbulatoryEEG2015; @blumEEGRecordingOnline2017a], hyperscanning studies [@zammPracticalGuideEEG2024b] that simultaneously collect neuroimaging data from multiple participants [@luftSocialSynchronizationBrain2022; @boggioSocialAffectiveNeuroscience2023; @roqueRealTimeMobileEEG2025], and distributed experiments where multiple labs using a variety of devices collect methodologically consistent data in a standardized format for analysis [@demazureDistributedRemoteEEG2021; @schultzLinkingLabsInterconnecting2021]. 
 
-# State of the field
+# State of the Field
 
- There are [existing LSL implementations](https://labstreaminglayer.readthedocs.io/info/language_wrappers.html) in other programming languages that are platform-specific or restricted to desktop devices [@LiblslLanguageWrappers], this package leverages Dart/Flutter's cross-platform capabilities while maintaining the microsecond-level latency requirements of neurophysiological research through direct Foreign Function Interface (FFI) bindings to the native LSL C library [@stennerSccnLiblslV11622023]. The need for a Dart implementation of `liblsl` arose during development of a group multimodal experiment paradigm that is intended to become available as a research tool, as such, making it available to as wide an audience as possible makes Dart a logical choice because distributable applications can readily be built for all major desktop and mobile operating systems.
+ There are [existing LSL implementations](https://labstreaminglayer.readthedocs.io/info/language_wrappers.html) in other programming languages that are platform-specific or restricted to desktop devices [@LiblslLanguageWrappers], this package leverages Dart/Flutter's cross-platform capabilities while maintaining the millisecond level latency requirements of neurophysiological research through direct Foreign Function Interface (FFI) bindings to the native LSL C library [@stennerSccnLiblslV11622023]. The need for a Dart LSL package is particularly extant within the behavioural science research community, where researchers often require multiplatform applications but lack the ability to develop applications for new platforms.
 
 # Software design
 
@@ -87,7 +87,7 @@ The observed latencies are consistent with previous benchmarking of native LSL i
 
 # Research Impact Statement
 
-LSL lowers the complexity of multimodal time-synchronized data acquisition from multiple devices [@dolmans2020data; @iwamaTwoCommonIssues2024; @kotheLabStreamingLayer2025], and Dart/Flutter simplify cross-platform application development. Together, they provide a powerful toolset for researchers and developers to create flexible, reproducible, and accessible applications for data collection and analysis. The package includes well-documented source code, examples, tests and related packages that implement `liblsl.dart`. During the development of this package, the author has contributed fixes and improvements to `liblsl`[^4] which benefits this package as well as the core library and implementations in other programming languages. From a practical standpoint, the `liblsl.dart` package has also been used to build the LSL library for previously unsupported platforms[^5] which demonstrates the flexibility of the current implementation. The `liblsl.dart` package is currently being used actively in research projects by the authors which will be published as partial requirements of a PhD thesis.
+LSL lowers the complexity of multimodal time-synchronized data acquisition from multiple devices [@dolmans2020data; @iwamaTwoCommonIssues2024; @kotheLabStreamingLayer2025], and Dart/Flutter simplify cross-platform application development. Together, they provide a powerful toolset for researchers and developers to create flexible, reproducible, and accessible applications for data collection and analysis. The package includes well-documented source code, examples, tests and related packages that implement `liblsl.dart`. During the development of this package, the author has contributed fixes and improvements to `liblsl`[^4] which benefits this package as well as the core library and implementations in other programming languages. From a practical standpoint, the `liblsl.dart` package has also been used to build the LSL library for previously unsupported platforms[^5] which demonstrates the flexibility of the current implementation (see also \hyperref[reference-implementations]{Reference Implementations}).
 
 
 [^4]: Merged and pending pull requests by author Luke Ring (\@zeyus) for the `liblsl` repository:  [https://github.com/sccn/liblsl/pulls?q=is%3Apr+author%3Azeyus](https://github.com/sccn/liblsl/pulls?q=is%3Apr+author%3Azeyus).
@@ -127,8 +127,18 @@ void main() async {
 }
 ```
 
+# Reference Implementations 
 
-# AI usage disclosure
+The `liblsl.dart` package is currently being used actively in research projects by the authors which will be published as partial requirements of a PhD thesis. The LSL integration is used in a multimodal tablet-based experimental platform built in Flutter designed for simultaneous data acquisition from groups of participants interacting in real-time[^6]. The platform has also been utilized for a multi-device coordination system that can control network device configuration and data stream management in lab settings[^7]. This package was also used to create a latency and timing benchmarking application that validates the configuration in lab-specific environments[^8].
+
+
+[^6]: Poster overview: [https://nexusdynamic.org/FINAL-Coop_comp_paradigm-A0Poster_reduced.pdf](https://nexusdynamic.org/FINAL-Coop_comp_paradigm-A0Poster_reduced.pdf).
+
+[^7]: `liblsl_coordinator`: [https://github.com/NexusDynamic/liblsl.dart/tree/main/packages/liblsl_coordinator](https://github.com/NexusDynamic/liblsl.dart/tree/main/packages/liblsl_coordinator).
+
+[^8]: `liblsl_timing`: [https://github.com/NexusDynamic/liblsl.dart/tree/main/packages/liblsl_timing](https://github.com/NexusDynamic/liblsl.dart/tree/main/packages/liblsl_timing).
+
+# AI Usage Disclosure
 
 The package and wrapping API design are that of the author's and are the result of incremental development and testing. However, two generative AI tools have been used during development: 1) Microsoft Copilot integration in Visual Studio Code has been used as an enhanced auto-correct tool for simple or repetitive tasks (i.e. class structure skeletons, paths and import statements); 2) Claude Code has been used for "rubber duck debugging", general debugging, and for limited generation of boilerplate code, some tests and documentation. No AI generated content has been accepted without review and testing, nor does it constitute the majority of the work produced. In addition to human review, the suite of tests, including performance testing are continuously run to prevent regressions. For this paper, Claude was used to suggest edits for clarity and structure, but was not used to generate the contents or sections, nor were the suggestions implemented wholesale.
 
