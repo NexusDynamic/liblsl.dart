@@ -20,7 +20,7 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
   String get name => 'LSL Coordination Session';
   @override
   String get description =>
-      'Simplified LSL coordination session using controller pattern';
+      'LSL coordination session';
 
   late final LSLTransport _transport;
   late final CoordinationController _controller;

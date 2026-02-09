@@ -280,8 +280,15 @@ class CoordinationController {
     }
 
     await _coordinationStream.addInlet(streamInfos.first);
+    final streamInfoXml = streamInfos.first.toXml();
+    // ip related info: `<hostname>`,`<v4address>`, `<v4data_port>`, `<v4service_port>`, `<v6address>`, `<v6data_port>`, `<v6service_port>`
+    // match with regex -> that way no need for XML libraries, this is just a one-off (once per coordination session)
+    final ipInfo = RegExp(r'<(hostname|v[46]address|v[46]data_port|v[46]service_port)>(.*?)<\/\1>')
+        .allMatches(streamInfoXml)
+        .map((m) => '${m.group(1)}: ${m.group(2)}')
+        .join(', ');
     logger.info(
-      '[CONTROLLER-${thisNode.uId}] Connected to coordinator stream successfully',
+      '[CONTROLLER-${thisNode.uId}] Connected to coordinator stream successfully ($ipInfo)',
     );
   }
 
