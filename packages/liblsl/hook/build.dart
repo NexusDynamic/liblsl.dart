@@ -131,7 +131,7 @@ void main(List<String> args) async {
     if (input.config.buildCodeAssets) {
       // This needs to be manually copied from CMakeLists.txt.
       const String libLSLVersion = '1.17.5';
-      const String libLSLBranch = '82e09c7d';
+      const String libLSLBranch = '76b054da';
       const String libLSLPath = 'src/liblsl-$libLSLBranch';
       const String pugixmlPath = 'src/pugixml';
       final OS targetOs = input.config.code.targetOS;

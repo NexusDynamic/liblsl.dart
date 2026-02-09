@@ -1,6 +1,6 @@
 # 0.10.2+0
 
-- Updated liblsl fork, sync with upstream. (commit ID: `82e09c7d`)
+- Updated liblsl fork, sync with upstream. (commit ID: `76b054da`)
 
 # 0.10.1+1
 
