@@ -1,3 +1,7 @@
+# 0.10.2+0
+
+- Updated liblsl fork, sync with upstream. (commit ID: `82e09c7d`)
+
 # 0.10.1+1
 
 - Updated liblsl fork to fix a double-free issue (commit ID: `846c4199`)
