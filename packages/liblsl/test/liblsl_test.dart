@@ -32,12 +32,12 @@ void main() {
   });
   group('LSL ffi direct', () {
     test('Check lsl library version', () {
-      expect(lsl_library_version(), 116);
+      expect(lsl_library_version(), 117);
     });
   });
   group('LSL', () {
     test('Check lsl library version', () async {
-      expect(LSL.version, 116);
+      expect(LSL.version, 117);
     });
 
     test('Create stream info', () async {
