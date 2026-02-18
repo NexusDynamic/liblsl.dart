@@ -666,6 +666,8 @@ class ParticipantMessageHandler extends CoordinationMessageHandler {
     await sendMessage(message);
   }
 
+  // TODO: Use messageID for tracking connection test requests instead of relying on testId in payload
+  // can still have a sequence, but the "id" is no longer necessary because we have messageId and parentMessageId for tracking request-response pairs
   Future<void> _handleConnectionTestResponse(
     ConnectionTestResponseMessage message,
   ) async {
