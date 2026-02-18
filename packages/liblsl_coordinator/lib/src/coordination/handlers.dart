@@ -77,22 +77,30 @@ class CoordinatorMessageHandler extends CoordinationMessageHandler {
         await _handleStreamReady(message as StreamReadyMessage);
       case CoordinationMessageType.userMessage:
         final userMessage = message as UserCoordinationMessage;
-        _eventController.add(UserCoordinationEvent(
-          messageId: userMessage.messageId,
-          description: userMessage.description,
-          payload: userMessage.payload,
-          fromNodeUId: userMessage.fromNodeUId,
-          timestamp: userMessage.timestamp,
-        ));
+        _eventController.add(
+          UserCoordinationEvent(
+            messageType: userMessage.messageType,
+            messageId: userMessage.messageId,
+            parentMessageId: message.parentMessageId,
+            description: userMessage.description,
+            payload: userMessage.payload,
+            fromNodeUId: userMessage.fromNodeUId,
+            timestamp: userMessage.timestamp,
+          ),
+        );
       case CoordinationMessageType.userParticipantMessage:
         final userMessage = message as UserParticipantMessage;
-        _eventController.add(UserParticipantEvent(
-          messageId: userMessage.messageId,
-          description: userMessage.description,
-          payload: userMessage.payload,
-          fromNodeUId: userMessage.fromNodeUId,
-          timestamp: userMessage.timestamp,
-        ));
+        _eventController.add(
+          UserParticipantEvent(
+            messageType: userMessage.messageType,
+            messageId: userMessage.messageId,
+            description: userMessage.description,
+            payload: userMessage.payload,
+            fromNodeUId: userMessage.fromNodeUId,
+            parentMessageId: userMessage.parentMessageId,
+            timestamp: userMessage.timestamp,
+          ),
+        );
       default:
         logger.warning(
           'Coordinator cannot handle message type: ${message.type}',
@@ -128,11 +136,15 @@ class CoordinatorMessageHandler extends CoordinationMessageHandler {
     logger.info(
       'Node ${message.fromNodeUId} is ready for stream ${message.streamName}',
     );
-    _eventController.add(StreamReadyEvent(
-      streamName: message.streamName,
-      fromNodeUId: message.fromNodeUId,
-      timestamp: message.timestamp,
-    ));
+    _eventController.add(
+      StreamReadyEvent(
+        streamName: message.streamName,
+        fromNodeUId: message.fromNodeUId,
+        timestamp: message.timestamp,
+        messageId: message.messageId,
+        parentMessageId: message.parentMessageId,
+      ),
+    );
   }
 
   Future<void> _handleJoinRequest(JoinRequestMessage message) async {
@@ -320,14 +332,16 @@ class CoordinatorMessageHandler extends CoordinationMessageHandler {
   }
 
   Future<void> broadcastUserMessage(
-    String messageId,
+    String messageType,
     String description,
     Map<String, dynamic> payload,
+    String? parentMessageId,
   ) async {
     final message = UserCoordinationMessage(
+      messageType: messageType,
       fromNodeUId: thisNode.uId,
-      messageId: messageId,
       description: description,
+      parentMessageId: parentMessageId,
       payload: payload,
     );
     await sendMessage(message);
@@ -470,10 +484,9 @@ class ParticipantMessageHandler extends CoordinationMessageHandler {
       fromNodeUId: thisNode.uId,
       streamName: streamName,
     );
-    _eventController.add(StreamReadyEvent(
-      streamName: streamName,
-      fromNodeUId: thisNode.uId,
-    ));
+    _eventController.add(
+      StreamReadyEvent(streamName: streamName, fromNodeUId: thisNode.uId),
+    );
     await sendMessage(message);
   }
 
@@ -540,65 +553,89 @@ class ParticipantMessageHandler extends CoordinationMessageHandler {
 
   Future<void> _handleCreateStream(CreateStreamMessage message) async {
     logger.info('Received create stream command: ${message.streamName}');
-    _eventController.add(StreamCreateEvent(
-      streamName: message.streamName,
-      streamConfig: message.streamConfig,
-      fromNodeUId: message.fromNodeUId,
-      timestamp: message.timestamp,
-    ));
+    _eventController.add(
+      StreamCreateEvent(
+        streamName: message.streamName,
+        streamConfig: message.streamConfig,
+        fromNodeUId: message.fromNodeUId,
+        timestamp: message.timestamp,
+        messageId: message.messageId,
+        parentMessageId: message.parentMessageId,
+      ),
+    );
   }
 
   Future<void> _handleStartStream(StartStreamMessage message) async {
     logger.info('Received start stream command: ${message.streamName}');
-    _eventController.add(StreamStartEvent(
-      streamName: message.streamName,
-      streamConfig: message.streamConfig,
-      startAt: message.startAt,
-      fromNodeUId: message.fromNodeUId,
-      timestamp: message.timestamp,
-    ));
+    _eventController.add(
+      StreamStartEvent(
+        streamName: message.streamName,
+        streamConfig: message.streamConfig,
+        startAt: message.startAt,
+        fromNodeUId: message.fromNodeUId,
+        timestamp: message.timestamp,
+        messageId: message.messageId,
+        parentMessageId: message.parentMessageId,
+      ),
+    );
   }
 
   Future<void> _handleStreamReady(StreamReadyMessage message) async {
     logger.info(
       'Node ${message.fromNodeUId} is ready for stream ${message.streamName}',
     );
-    _eventController.add(StreamReadyEvent(
-      streamName: message.streamName,
-      fromNodeUId: message.fromNodeUId,
-      timestamp: message.timestamp,
-    ));
+    _eventController.add(
+      StreamReadyEvent(
+        streamName: message.streamName,
+        fromNodeUId: message.fromNodeUId,
+        timestamp: message.timestamp,
+        messageId: message.messageId,
+        parentMessageId: message.parentMessageId,
+      ),
+    );
   }
 
   Future<void> _handleStopStream(StopStreamMessage message) async {
     logger.info('Received stop stream command: ${message.streamName}');
-    _eventController.add(StreamStopEvent(
-      streamName: message.streamName,
-      fromNodeUId: message.fromNodeUId,
-      timestamp: message.timestamp,
-    ));
+    _eventController.add(
+      StreamStopEvent(
+        streamName: message.streamName,
+        fromNodeUId: message.fromNodeUId,
+        timestamp: message.timestamp,
+        messageId: message.messageId,
+        parentMessageId: message.parentMessageId,
+      ),
+    );
   }
 
   Future<void> _handleUserMessage(UserCoordinationMessage message) async {
     logger.info(
       'Received user message: ${message.messageId} - ${message.description}',
     );
-    _eventController.add(UserCoordinationEvent(
-      messageId: message.messageId,
-      description: message.description,
-      payload: message.payload,
-      fromNodeUId: message.fromNodeUId,
-      timestamp: message.timestamp,
-    ));
+    _eventController.add(
+      UserCoordinationEvent(
+        messageType: message.messageType,
+        description: message.description,
+        payload: message.payload,
+        fromNodeUId: message.fromNodeUId,
+        timestamp: message.timestamp,
+        messageId: message.messageId,
+        parentMessageId: message.parentMessageId,
+      ),
+    );
   }
 
   Future<void> _handleConfigUpdate(ConfigUpdateMessage message) async {
     logger.info('Received config update from coordinator');
-    _eventController.add(ConfigUpdateEvent(
-      config: message.config,
-      fromNodeUId: message.fromNodeUId,
-      timestamp: message.timestamp,
-    ));
+    _eventController.add(
+      ConfigUpdateEvent(
+        config: message.config,
+        fromNodeUId: message.fromNodeUId,
+        timestamp: message.timestamp,
+        messageId: message.messageId,
+        parentMessageId: message.parentMessageId,
+      ),
+    );
   }
 
   // Participant methods
@@ -716,39 +753,55 @@ class ParticipantMessageHandler extends CoordinationMessageHandler {
 
   /// Handle pause stream message by forwarding to stream
   Future<void> _handlePauseStream(PauseStreamMessage message) async {
-    _eventController.add(StreamPauseEvent(
-      streamName: message.streamName,
-      fromNodeUId: message.fromNodeUId,
-      timestamp: message.timestamp,
-    ));
+    _eventController.add(
+      StreamPauseEvent(
+        streamName: message.streamName,
+        fromNodeUId: message.fromNodeUId,
+        timestamp: message.timestamp,
+        messageId: message.messageId,
+        parentMessageId: message.parentMessageId,
+      ),
+    );
   }
 
   /// Handle resume stream message by forwarding to stream
   Future<void> _handleResumeStream(ResumeStreamMessage message) async {
-    _eventController.add(StreamResumeEvent(
-      streamName: message.streamName,
-      flushBeforeResume: message.flushBeforeResume,
-      fromNodeUId: message.fromNodeUId,
-      timestamp: message.timestamp,
-    ));
+    _eventController.add(
+      StreamResumeEvent(
+        streamName: message.streamName,
+        flushBeforeResume: message.flushBeforeResume,
+        fromNodeUId: message.fromNodeUId,
+        timestamp: message.timestamp,
+        messageId: message.messageId,
+        parentMessageId: message.parentMessageId,
+      ),
+    );
   }
 
   /// Handle flush stream message by forwarding to stream
   Future<void> _handleFlushStream(FlushStreamMessage message) async {
-    _eventController.add(StreamFlushEvent(
-      streamName: message.streamName,
-      fromNodeUId: message.fromNodeUId,
-      timestamp: message.timestamp,
-    ));
+    _eventController.add(
+      StreamFlushEvent(
+        streamName: message.streamName,
+        fromNodeUId: message.fromNodeUId,
+        timestamp: message.timestamp,
+        messageId: message.messageId,
+        parentMessageId: message.parentMessageId,
+      ),
+    );
   }
 
   /// Handle destroy stream message by forwarding to stream
   Future<void> _handleDestroyStream(DestroyStreamMessage message) async {
-    _eventController.add(StreamDestroyEvent(
-      streamName: message.streamName,
-      fromNodeUId: message.fromNodeUId,
-      timestamp: message.timestamp,
-    ));
+    _eventController.add(
+      StreamDestroyEvent(
+        streamName: message.streamName,
+        fromNodeUId: message.fromNodeUId,
+        timestamp: message.timestamp,
+        messageId: message.messageId,
+        parentMessageId: message.parentMessageId,
+      ),
+    );
   }
 
   void dispose() {

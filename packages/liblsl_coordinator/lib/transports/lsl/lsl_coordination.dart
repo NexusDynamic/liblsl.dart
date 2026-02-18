@@ -19,8 +19,7 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
   @override
   String get name => 'LSL Coordination Session';
   @override
-  String get description =>
-      'LSL coordination session';
+  String get description => 'LSL coordination session';
 
   late final LSLTransport _transport;
   late final CoordinationController _controller;
@@ -114,10 +113,12 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
       if (!stream.started) {
         await stream.start();
         logger.info('Started stream: ${event.streamName}');
+        // Notify coordinator we're ready
+        await _controller.markStreamReady(event.streamName);
       } else {
-        logger.warning(
-          'Stream ${event.streamName} already started, skipping',
-        );
+        logger.warning('Stream ${event.streamName} already started, skipping');
+        // Notify coordinator we're ready
+        await _controller.markStreamReady(event.streamName);
       }
     } else {
       logger.warning('Stream ${event.streamName} not found');
@@ -129,6 +130,8 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
     if (stream != null && stream.started) {
       await stream.stop(); // Now just pauses polling, doesn't dispose
       logger.info('PARTICIPANT Stopped stream: ${event.streamName}');
+      // Notify coordinator we're ready
+      await _controller.markStreamReady(event.streamName);
     }
   }
 
@@ -137,6 +140,8 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
     if (stream != null && stream.started && !stream.paused) {
       await stream.pauseStream();
       logger.info('PARTICIPANT Paused stream: ${event.streamName}');
+      // Notify coordinator we're ready
+      await _controller.markStreamReady(event.streamName);
     }
   }
 
@@ -147,6 +152,8 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
       logger.info(
         'PARTICIPANT Resumed stream: ${event.streamName}, flush: ${event.flushBeforeResume}',
       );
+      // Notify coordinator we're ready
+      await _controller.markStreamReady(event.streamName);
     }
   }
 
@@ -155,6 +162,8 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
     if (stream != null && stream.started) {
       await stream.flushStreams();
       logger.info('PARTICIPANT Flushed stream: ${event.streamName}');
+      // Notify coordinator we're ready
+      await _controller.markStreamReady(event.streamName);
     }
   }
 
@@ -164,6 +173,8 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
       await stream.destroyStream();
       _dataStreams.remove(event.streamName);
       logger.info('PARTICIPANT Destroyed stream: ${event.streamName}');
+      // Notify coordinator we're ready
+      await _controller.markStreamReady(event.streamName);
     }
   }
 
@@ -600,8 +611,14 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
     String messageId,
     String description, [
     Map<String, dynamic>? payload,
+    String? parentMessageId,
   ]) async {
-    await _controller.sendUserMessage(messageId, description, payload ?? {});
+    await _controller.sendUserMessage(
+      messageId,
+      description,
+      payload ?? {},
+      parentMessageId: parentMessageId,
+    );
   }
 
   Future<void> updateConfig(Map<String, dynamic> config) async {

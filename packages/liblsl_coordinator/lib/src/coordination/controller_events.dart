@@ -10,9 +10,16 @@ import 'package:liblsl_coordinator/framework.dart';
 sealed class ControllerEvent {
   final String fromNodeUId;
   final DateTime timestamp;
+  final String messageId;
+  final String? parentMessageId;
 
-  ControllerEvent({required this.fromNodeUId, DateTime? timestamp})
-      : timestamp = timestamp ?? DateTime.now();
+  ControllerEvent({
+    required this.fromNodeUId,
+    DateTime? timestamp,
+    String? messageId,
+    this.parentMessageId,
+  }) : timestamp = timestamp ?? DateTime.now(),
+       messageId = messageId ?? generateUid();
 }
 
 // =============================================================================
@@ -23,7 +30,12 @@ sealed class ControllerEvent {
 final class PhaseChangedEvent extends ControllerEvent {
   final CoordinationPhase phase;
 
-  PhaseChangedEvent({required this.phase, required super.fromNodeUId});
+  PhaseChangedEvent({
+    required this.phase,
+    required super.fromNodeUId,
+    super.messageId,
+    super.parentMessageId,
+  });
 }
 
 // =============================================================================
@@ -34,17 +46,32 @@ final class PhaseChangedEvent extends ControllerEvent {
 sealed class NodeEvent extends ControllerEvent {
   final Node node;
 
-  NodeEvent({required this.node, required super.fromNodeUId});
+  NodeEvent({
+    required this.node,
+    required super.fromNodeUId,
+    super.messageId,
+    super.parentMessageId,
+  });
 }
 
 /// Emitted when a node joins the coordination session.
 final class NodeJoinedEvent extends NodeEvent {
-  NodeJoinedEvent({required super.node, required super.fromNodeUId});
+  NodeJoinedEvent({
+    required super.node,
+    required super.fromNodeUId,
+    super.messageId,
+    super.parentMessageId,
+  });
 }
 
 /// Emitted when a node leaves the coordination session.
 final class NodeLeftEvent extends NodeEvent {
-  NodeLeftEvent({required super.node, required super.fromNodeUId});
+  NodeLeftEvent({
+    required super.node,
+    required super.fromNodeUId,
+    super.messageId,
+    super.parentMessageId,
+  });
 }
 
 // =============================================================================
@@ -59,6 +86,8 @@ sealed class StreamLifecycleEvent extends ControllerEvent {
     required this.streamName,
     required super.fromNodeUId,
     super.timestamp,
+    super.messageId,
+    super.parentMessageId,
   });
 }
 
@@ -71,6 +100,8 @@ final class StreamCreateEvent extends StreamLifecycleEvent {
     required this.streamConfig,
     required super.fromNodeUId,
     super.timestamp,
+    super.messageId,
+    super.parentMessageId,
   });
 }
 
@@ -85,6 +116,8 @@ final class StreamStartEvent extends StreamLifecycleEvent {
     this.startAt,
     required super.fromNodeUId,
     super.timestamp,
+    super.messageId,
+    super.parentMessageId,
   });
 }
 
@@ -94,6 +127,8 @@ final class StreamReadyEvent extends StreamLifecycleEvent {
     required super.streamName,
     required super.fromNodeUId,
     super.timestamp,
+    super.messageId,
+    super.parentMessageId,
   });
 }
 
@@ -103,6 +138,8 @@ final class StreamStopEvent extends StreamLifecycleEvent {
     required super.streamName,
     required super.fromNodeUId,
     super.timestamp,
+    super.messageId,
+    super.parentMessageId,
   });
 }
 
@@ -112,6 +149,8 @@ final class StreamPauseEvent extends StreamLifecycleEvent {
     required super.streamName,
     required super.fromNodeUId,
     super.timestamp,
+    super.messageId,
+    super.parentMessageId,
   });
 }
 
@@ -124,6 +163,8 @@ final class StreamResumeEvent extends StreamLifecycleEvent {
     this.flushBeforeResume = true,
     required super.fromNodeUId,
     super.timestamp,
+    super.messageId,
+    super.parentMessageId,
   });
 }
 
@@ -133,6 +174,8 @@ final class StreamFlushEvent extends StreamLifecycleEvent {
     required super.streamName,
     required super.fromNodeUId,
     super.timestamp,
+    super.messageId,
+    super.parentMessageId,
   });
 }
 
@@ -142,6 +185,8 @@ final class StreamDestroyEvent extends StreamLifecycleEvent {
     required super.streamName,
     required super.fromNodeUId,
     super.timestamp,
+    super.messageId,
+    super.parentMessageId,
   });
 }
 
@@ -151,15 +196,17 @@ final class StreamDestroyEvent extends StreamLifecycleEvent {
 
 /// Base class for user-defined message events.
 sealed class UserMessageEvent extends ControllerEvent {
-  final String messageId;
+  final String messageType;
   final String description;
   final Map<String, dynamic> payload;
 
   UserMessageEvent({
-    required this.messageId,
+    required this.messageType,
     required this.description,
     required this.payload,
     required super.fromNodeUId,
+    super.messageId,
+    super.parentMessageId,
     super.timestamp,
   });
 }
@@ -167,10 +214,12 @@ sealed class UserMessageEvent extends ControllerEvent {
 /// User message from coordinator (broadcast to all).
 final class UserCoordinationEvent extends UserMessageEvent {
   UserCoordinationEvent({
-    required super.messageId,
+    required super.messageType,
     required super.description,
     required super.payload,
     required super.fromNodeUId,
+    super.messageId,
+    super.parentMessageId,
     super.timestamp,
   });
 }
@@ -178,10 +227,12 @@ final class UserCoordinationEvent extends UserMessageEvent {
 /// User message from participant (to coordinator).
 final class UserParticipantEvent extends UserMessageEvent {
   UserParticipantEvent({
-    required super.messageId,
+    required super.messageType,
     required super.description,
     required super.payload,
     required super.fromNodeUId,
+    super.messageId,
+    super.parentMessageId,
     super.timestamp,
   });
 }
@@ -197,6 +248,8 @@ final class ConfigUpdateEvent extends ControllerEvent {
   ConfigUpdateEvent({
     required this.config,
     required super.fromNodeUId,
+    super.messageId,
+    super.parentMessageId,
     super.timestamp,
   });
 }

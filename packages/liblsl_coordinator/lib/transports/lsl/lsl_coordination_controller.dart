@@ -283,10 +283,9 @@ class CoordinationController {
     final streamInfoXml = streamInfos.first.toXml();
     // ip related info: `<hostname>`,`<v4address>`, `<v4data_port>`, `<v4service_port>`, `<v6address>`, `<v6data_port>`, `<v6service_port>`
     // match with regex -> that way no need for XML libraries, this is just a one-off (once per coordination session)
-    final ipInfo = RegExp(r'<(hostname|v[46]address|v[46]data_port|v[46]service_port)>(.*?)<\/\1>')
-        .allMatches(streamInfoXml)
-        .map((m) => '${m.group(1)}: ${m.group(2)}')
-        .join(', ');
+    final ipInfo = RegExp(
+      r'<(hostname|v[46]address|v[46]data_port|v[46]service_port)>(.*?)<\/\1>',
+    ).allMatches(streamInfoXml).map((m) => '${m.group(1)}: ${m.group(2)}').join(', ');
     logger.info(
       '[CONTROLLER-${thisNode.uId}] Connected to coordinator stream successfully ($ipInfo)',
     );
@@ -602,26 +601,29 @@ class CoordinationController {
   }
 
   Future<void> sendUserMessage(
-    String messageId,
+    String messageType,
     String description,
-    Map<String, dynamic> payload,
-  ) async {
+    Map<String, dynamic> payload, {
+    String? parentMessageId,
+  }) async {
     if (!_state.isCoordinator) {
       // @TODO: Implement properly
       await _participantHandler!.sendMessage(
         UserParticipantMessage(
           fromNodeUId: thisNode.uId,
-          messageId: messageId,
+          messageType: messageType,
           description: description,
           payload: payload,
+          parentMessageId: parentMessageId,
         ),
       );
       return;
     }
     await _coordinatorHandler!.broadcastUserMessage(
-      messageId,
+      messageType,
       description,
       payload,
+      parentMessageId,
     );
   }
 
