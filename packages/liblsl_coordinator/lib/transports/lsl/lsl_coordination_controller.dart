@@ -474,6 +474,12 @@ class CoordinationController {
               return;
             }
             _coordinatorHandler!.sendJoinOffer(newNode);
+          }).catchError((Object e, StackTrace st) {
+            logger.severe(
+              'Failed to add inlet for discovered node $nodeId ($nodeUId): $e',
+              e,
+              st,
+            );
           });
         }
       } else if (discoveryEvent is DiscoveryTimeoutEvent) {

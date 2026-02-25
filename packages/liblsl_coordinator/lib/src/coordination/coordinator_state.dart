@@ -50,7 +50,7 @@ class CoordinationState {
   String? get coordinatorUId => _coordinatorUId;
   List<Node> get connectedNodes => List.unmodifiable(_connectedNodes);
   List<Node> get connectedParticipantNodes => _connectedNodes
-      .where((n) => n.role == NodeCapability.participant.toString())
+      .where((n) => n.role == NodeCapability.participant.shortString)
       .toList();
 
   /// Single event stream for all state-related events.
