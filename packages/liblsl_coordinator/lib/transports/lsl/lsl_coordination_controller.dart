@@ -20,6 +20,10 @@ class CoordinationController {
 
   bool _stopping = false;
 
+  /// Tracks node UIDs with a pending inlet creation or join offer in progress,
+  /// to prevent duplicate addInlet/sendJoinOffer calls every discovery cycle.
+  final Set<String> _pendingJoinNodeUIds = {};
+
   CoordinatorMessageHandler? _coordinatorHandler;
   ParticipantMessageHandler? _participantHandler;
 
@@ -63,7 +67,13 @@ class CoordinationController {
 
   void _setupStateListeners() {
     // Forward state events to the unified event stream
-    _stateEventSubscription = _state.events.listen(_eventController.add);
+    _stateEventSubscription = _state.events.listen((event) {
+      _eventController.add(event);
+      // Clean up pending join tracking when a node successfully joins
+      if (event is NodeJoinedEvent) {
+        _pendingJoinNodeUIds.remove(event.node.uId);
+      }
+    });
   }
 
   /// Initialize the controller - creates streams and discovery
@@ -431,56 +441,81 @@ class CoordinationController {
       if (_stopping) return;
       if (discoveryEvent is StreamDiscoveredEvent) {
         for (StreamInfoResource infoResource in discoveryEvent.streams) {
-          final info = LSLStreamInfoHelper.parseSourceId(
-            infoResource.streamInfo.sourceId,
-          );
-          final nodeUId = info[LSLStreamInfoHelper.nodeUIdKey]!;
-          final nodeId = info[LSLStreamInfoHelper.nodeIdKey]!;
-          final nodeRole = info[LSLStreamInfoHelper.nodeRoleKey]!;
-          if (nodeUId == thisNode.uId) {
-            // Ignore our own stream
-            continue;
-          }
-          if (_state.connectedNodes.any((n) => n.uId == nodeUId)) {
-            // Already connected
-            continue;
-          }
-
-          logger.info(
-            'Discovered new node: $nodeId ($nodeUId), role: $nodeRole',
-          );
-
-          final nodeConfig = NodeConfig(
-            id: nodeId,
-            name: 'participant-$nodeId',
-            uId: nodeUId,
-            capabilities: {NodeCapability.participant},
-            metadata: {'discoveredAt': DateTime.now().toIso8601String()},
-          );
-          final newNode = ParticipantNode(nodeConfig);
-
-          // Don't add node to state yet - wait for successful join request
-          // TODO: reimplement management.
-          infoResource.updateManager(null);
-          _coordinationStream.addInlet(infoResource.streamInfo).then((_) {
-            logger.finest(
-              'Added inlet for discovered node $nodeId ($nodeUId), sending join offer',
+          try {
+            final info = LSLStreamInfoHelper.parseSourceId(
+              infoResource.streamInfo.sourceId,
             );
-            // TODO: ensure state is correct and we can accept nodes
-            if (!_state.canAcceptNodes) {
-              logger.warning(
-                'Not accepting new nodes, skipping join offer to $nodeId ($nodeUId)',
-              );
-              return;
+            final nodeUId = info[LSLStreamInfoHelper.nodeUIdKey]!;
+            final nodeId = info[LSLStreamInfoHelper.nodeIdKey]!;
+            final nodeRole = info[LSLStreamInfoHelper.nodeRoleKey]!;
+            if (nodeUId == thisNode.uId) {
+              // Ignore our own stream
+              continue;
             }
-            _coordinatorHandler!.sendJoinOffer(newNode);
-          }).catchError((Object e, StackTrace st) {
+            if (_state.connectedNodes.any((n) => n.uId == nodeUId)) {
+              // Already connected
+              continue;
+            }
+            if (_pendingJoinNodeUIds.contains(nodeUId)) {
+              // Inlet creation / join offer already in progress for this node
+              logger.finer(
+                'Join already in progress for node $nodeId ($nodeUId), skipping',
+              );
+              continue;
+            }
+
+            logger.info(
+              'Discovered new node: $nodeId ($nodeUId), role: $nodeRole',
+            );
+
+            final nodeConfig = NodeConfig(
+              id: nodeId,
+              name: 'participant-$nodeId',
+              uId: nodeUId,
+              capabilities: {NodeCapability.participant},
+              metadata: {'discoveredAt': DateTime.now().toIso8601String()},
+            );
+            final newNode = ParticipantNode(nodeConfig);
+
+            // Release resource from discovery manager BEFORE passing to addInlet.
+            // This prevents a use-after-free: without this, the next discovery
+            // cycle calls _discoveredStreams.destroy() which frees the C
+            // lsl_streaminfo pointer while addInlet may still be using it.
+            // Ownership of the LSLStreamInfo now transfers to
+            // _coordinationStream._inletStreamInfos, which frees it on dispose.
+            _discovery.releaseResource<StreamInfoResource>(infoResource.id);
+            _pendingJoinNodeUIds.add(nodeUId);
+
+            _coordinationStream.addInlet(infoResource.streamInfo).then((_) {
+              logger.finest(
+                'Added inlet for discovered node $nodeId ($nodeUId), sending join offer',
+              );
+              if (!_state.canAcceptNodes) {
+                logger.warning(
+                  'Not accepting new nodes, skipping join offer to $nodeId ($nodeUId)',
+                );
+                _pendingJoinNodeUIds.remove(nodeUId);
+                return;
+              }
+              _coordinatorHandler!.sendJoinOffer(newNode);
+              // _pendingJoinNodeUIds entry removed via NodeJoinedEvent in
+              // _setupStateListeners once the node successfully joins.
+            }).catchError((Object e, StackTrace st) {
+              _pendingJoinNodeUIds.remove(nodeUId);
+              logger.severe(
+                'Failed to add inlet for discovered node $nodeId ($nodeUId): $e',
+                e,
+                st,
+              );
+            });
+          } catch (e, st) {
             logger.severe(
-              'Failed to add inlet for discovered node $nodeId ($nodeUId): $e',
+              'Error processing discovered stream '
+              '${infoResource.streamInfo.sourceId}: $e',
               e,
               st,
             );
-          });
+          }
         }
       } else if (discoveryEvent is DiscoveryTimeoutEvent) {
         logger.severe('Unexpected discovery timeout event received');
