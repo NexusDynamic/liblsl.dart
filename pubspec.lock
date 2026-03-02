@@ -372,10 +372,10 @@ packages:
     dependency: transitive
     description:
       name: flutter_multicast_lock
-      sha256: c0c477231a4d9439d8f91d81a2220d2c50396bbfa090311dac8d09f620422004
+      sha256: "2ba1516a0ccbde5b6efde6b09583a8b4265c4d40a012548740fe2d7b7129680c"
       url: "https://pub.dev"
     source: hosted
-    version: "1.1.1"
+    version: "1.2.0"
   flutter_plugin_android_lifecycle:
     dependency: transitive
     description:
