@@ -39,7 +39,7 @@ class LSLInletIsolate extends LSLIsolateWorkerBase {
     _handlers[LSLMessageType.samplesAvailable] = _samplesAvailable;
     _handlers[LSLMessageType.destroy] = _destroy;
     _handlers[LSLMessageType.pullChunk] = pullChunk;
-    _handlers[LSLMessageType.getFullInfo] = (data) async {
+    _handlers[LSLMessageType.getFullInfo] = (Map<String, dynamic> data) async {
       if (_inlet == null) {
         throw LSLException('Inlet not created');
       }
