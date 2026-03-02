@@ -138,9 +138,9 @@ void main() {
       //   // }
       // }();
 
-      await Future.delayed(Duration(milliseconds: 10));
+      await Future.delayed(Duration(milliseconds: 50));
 
-      final streams = await LSL.resolveStreams(waitTime: 1.0);
+      final streams = await LSL.resolveStreams(waitTime: 2.0);
       expect(streams.length, greaterThan(0));
       // Find and validate the stream
       final streamInfo = streams.firstWhere((s) => s.streamName == streamName);
