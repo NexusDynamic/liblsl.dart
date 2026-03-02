@@ -16,7 +16,7 @@ void main() {
       await tester.pumpAndSettle(Duration(seconds: 1));
 
       // Verify the counter increments by 1.
-      expect(find.text('LSL Version 116'), findsOneWidget);
+      expect(find.text('LSL Version 117'), findsOneWidget);
     });
 
     testWidgets('Start LSL stream and consumer', (WidgetTester tester) async {
@@ -27,7 +27,7 @@ void main() {
       await tester.pumpWidget(const LSLTestApp());
       await tester.pumpAndSettle(Duration(milliseconds: 200));
 
-      expect(find.text('LSL Version 116'), findsOneWidget);
+      expect(find.text('LSL Version 117'), findsOneWidget);
 
       // Press the start streaming button
       await tester.tap(find.byKey(const Key('start_streaming')));
