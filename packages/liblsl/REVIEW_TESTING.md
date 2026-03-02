@@ -1,3 +1,7 @@
+# Outline for testing the Dart liblsl package
+
+This is just a rough guide for testing options for this package. It will give some ideas based on which devices you have access to.
+
 <!-- vscode-markdown-toc -->
 1. [Initial setup](#Initialsetup)
    * 1.1. [Getting the code](#Gettingthecode)
@@ -11,14 +15,9 @@
 	/vscode-markdown-toc-config -->
 <!-- /vscode-markdown-toc -->
 
-# Outline for testing the Dart liblsl package
-
-
-This is just a rough guide for testing options for this package. It will give some ideas based on which devices you have access to.
-
 ##  1. <a name='Initialsetup'></a>Initial setup
 
-**Note: Flutter is not required for using this package, but if you want to run some of the example apps, then you will need to have Flutter installed.**
+**Note: Flutter is not required for using the liblsl package, but if you want to run some of the example apps, then you will need to have Flutter installed.**
 
 ###  1.1. <a name='Gettingthecode'></a>Getting the code
 
