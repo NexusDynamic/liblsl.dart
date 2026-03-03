@@ -1,6 +1,8 @@
 # Outline for testing the Dart liblsl package
 
 This is just a rough guide for testing options for this package. It will give some ideas based on which devices you have access to.
+For lower-level documentation, see the [API documentation](https://pub.dev/documentation/liblsl/latest/lsl/) on the [pub.dev package page](https://pub.dev/packages/liblsl), which also shows the example script and other useful package information.
+
 <!-- TOC -->
 
 - [Outline for testing the Dart liblsl package](#outline-for-testing-the-dart-liblsl-package)
