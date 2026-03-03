@@ -143,4 +143,4 @@ If something is wrong with this guide or something doesn't work as expected, ple
 
 # Footnotes
 
-[^1]: The reason that this package does not yet use dart stable is because the [`native_toolchain_c`](https://pub.dev/packages/native_toolchain_c) package is still in experimental status, but this is required for compiling the liblsl C code and creating the shared lib and FFI bindings. When `native_toolchain_c` reaches stable, then this package will be updated to use the stable Dart SDK. Additionally, this package can be used with the stable Dart SDK, but for development and testing purposes, the dev/beta release is required.
+[^1]: The reason that this package does not yet use dart stable is because the [`native_toolchain_c`](https://pub.dev/packages/native_toolchain_c) package is still in experimental status, but this is required for compiling the liblsl C code and creating the shared lib and FFI bindings. When `native_toolchain_c` reaches stable, then this package will be updated to use the stable Dart SDK. **Despite this, the package can still be used with the stable Dart SDK**, but for development and testing purposes, the dev/beta release is required.
