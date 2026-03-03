@@ -6,8 +6,8 @@ This is just a rough guide for testing options for this package. It will give so
 * 1\. [Initial setup](#Initialsetup)
 	* 1.1. [Getting the code](#Gettingthecode)
 	* 1.2. [Installing Dart and Flutter](#InstallingDartandFlutter)
-		* 1.2.1. [Option 1: FVM](#Option1:FVM)
-		* 1.2.2. [Option 2: Manual installation](#Option2:Manualinstallation)
+		* 1.2.1. [Option 1: FVM](#Option1FVM)
+		* 1.2.2. [Option 2: Manual installation](#Option2Manualinstallation)
 	* 1.3. [Preparing the environment](#Preparingtheenvironment)
 * 2\. [Testing process](#Testingprocess)
 	* 2.1. [First time setup](#Firsttimesetup)
@@ -37,7 +37,7 @@ This is just a rough guide for testing options for this package. It will give so
 
 ###  1.2. <a name='InstallingDartandFlutter'></a>Installing Dart and Flutter
 
-####  1.2.1. <a name='Option1:FVM'></a>Option 1: FVM
+####  1.2.1. <a name='Option1FVM'></a>Option 1: FVM
 
 FVM is probably the easiest way to go here both if you do not have an existing Dart/Flutter setup and also if you have other projects, this will help avoid version conflicts.
 
@@ -46,7 +46,7 @@ FVM is probably the easiest way to go here both if you do not have an existing D
 
 The version of flutter is expected to be beta or dev/main[^1].
 
-####  1.2.2. <a name='Option2:Manualinstallation'></a>Option 2: Manual installation
+####  1.2.2. <a name='Option2Manualinstallation'></a>Option 2: Manual installation
 
 - Get the latest beta or dev (main) release of the Flutter SDK from https://docs.flutter.dev/install/archive
 - Follow the normal installation instructions for your OS here: https://docs.flutter.dev/install/manual
