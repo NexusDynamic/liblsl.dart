@@ -96,6 +96,13 @@ Of course, the automated tests only cover some of the functionality, and are lim
 
 This is what the application looks like to give you an idea of what to expect.
 
+Desktop:
+
+<img width="801" height="636" alt="screenshot of liblsl_test running on MacOS" src="https://github.com/user-attachments/assets/b86f649a-a2fa-4ad5-be2d-d789384eb97d" />
+
+Android:
+
+<img width="1080" height="2293" alt="screenshot of liblsl_test running on Android" src="https://github.com/user-attachments/assets/6541ef63-c49e-412b-af78-c8a9db507a30" />
 
 
 
