@@ -14,6 +14,7 @@ This is just a rough guide for testing options for this package. It will give so
         - [First time setup](#first-time-setup)
         - [Automated tests](#automated-tests)
     - [Integration testing](#integration-testing)
+        - [liblsl_test application screenshots](#liblsl_test-application-screenshots)
         - [liblsl_test example application for testing](#liblsl_test-example-application-for-testing)
             - [Running the precompiled binaries](#running-the-precompiled-binaries)
         - [Testing with another LSL enabled device or application](#testing-with-another-lsl-enabled-device-or-application)
@@ -91,7 +92,14 @@ The automated tests consist of the following:
 
 Of course, the automated tests only cover some of the functionality, and are limited to the loopback network interface. In order to test it within an app, and to test the network / LAN functionality, there is a specific example app that can do this.
 
-### liblsl_test example application for testing
+### `liblsl_test` application screenshots
+
+This is what the application looks like to give you an idea of what to expect.
+
+
+
+
+### `liblsl_test` example application for testing
 
 For the purposes of review, testing, there are [precompiled binaries of the `liblsl_test` application available](https://github.com/NexusDynamic/liblsl.dart/releases/tag/liblsl_test_preview), these are for linux-x64, MacOS (universal), android (universal APK) and Windows-x64.
 
