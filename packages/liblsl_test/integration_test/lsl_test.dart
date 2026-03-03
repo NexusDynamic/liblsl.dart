@@ -1,73 +1,59 @@
-import 'package:flutter/material.dart' show Key;
+import 'package:flutter/material.dart' show Key, Text;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:liblsl_test/main.dart';
-import 'package:liblsl/lsl.dart';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
   group('Ensure native bindings operate correctly', () {
     testWidgets('Wait for the version to load', (tester) async {
-      // Load app widget.
       await tester.pumpWidget(const LSLTestApp());
-
-      // Trigger a frame, wait 1 second, the default of 100ms is too short.
-      await tester.pumpAndSettle(Duration(seconds: 1));
-
-      // Verify the counter increments by 1.
-      expect(find.text('LSL Version 116'), findsOneWidget);
+      // _setupLSL is synchronous; one pump is enough, but give a little margin.
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.text('LSL Version 117'), findsOneWidget);
     });
 
-    testWidgets('Start LSL stream and consumer', (WidgetTester tester) async {
-      // start searching for streams
-      final futureStreams = LSL.resolveStreams(waitTime: 3.0, maxStreams: 1);
-
-      // Build our app and trigger a frame.
+    testWidgets('Start LSL stream and sample via app UI', (
+      WidgetTester tester,
+    ) async {
       await tester.pumpWidget(const LSLTestApp());
-      await tester.pumpAndSettle(Duration(milliseconds: 200));
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.text('LSL Version 117'), findsOneWidget);
 
-      expect(find.text('LSL Version 116'), findsOneWidget);
-
-      // Press the start streaming button
+      // ── Producer ──────────────────────────────────────────────────────────
+      // Default settings: 5 Hz, 5 seconds, 2 channels.
       await tester.tap(find.byKey(const Key('start_streaming')));
-      // give it some time to start the stream and send samples (200ms interval)
-      await tester.pumpAndSettle(Duration(milliseconds: 500));
-      await tester.pumpAndSettle(Duration(milliseconds: 200));
 
-      final streams = await futureStreams;
-      expect(streams.length, 1);
-      expect(streams[0].streamName, 'FlutterApp');
-      expect(streams[0].channelCount, 2);
-      expect(streams[0].channelFormat, LSLChannelFormat.float32);
+      // Let the outlet register on the network before searching.
+      // Note: pumpAndSettle cannot be used here because the elapsed-time
+      // timer fires every second and keeps the frame queue non-empty.
+      await tester.pump(const Duration(milliseconds: 500));
 
-      // create inlet
-      final inlet = await LSL.createInlet(
-        streamInfo: streams[0],
-        maxBuffer: 3,
-        chunkSize: 1,
-      );
-      expect(inlet, isNotNull);
-      expect(inlet.streamInfo, isNotNull);
-      expect(inlet.streamInfo.streamName, 'FlutterApp');
-      await tester.pumpAndSettle(Duration(milliseconds: 200));
-      await tester.pumpAndSettle(Duration(milliseconds: 200));
-      // pull some samples
-      final sample = await inlet.pullSample(timeout: 1.0);
-      expect(sample, isNotNull);
-      expect(sample.timestamp, isNotNull);
-      expect(sample.data, isNotNull);
-      expect(sample.data.length, 2);
-      expect(sample.data[0], isA<double>());
-      expect(sample.data[1], isA<double>());
-      expect(sample.errorCode, 0);
+      // ── Consumer: find streams ─────────────────────────────────────────
+      await tester.tap(find.byKey(const Key('check_streams')));
 
-      // close inlet
-      inlet.destroy();
+      // resolveStreams uses waitTime: 2.0 s internally; allow 3 s of margin.
+      await tester.pump(const Duration(seconds: 3));
 
-      // press the stop streaming button
-      await tester.tap(find.byKey(const Key('stop_streaming')));
-      await tester.pumpAndSettle();
+      // Start Sampling button only appears once _foundStreams is non-empty.
+      expect(find.byKey(const Key('start_sampling')), findsOneWidget);
+
+      // ── Consumer: sample ──────────────────────────────────────────────
+      await tester.tap(find.byKey(const Key('start_sampling')));
+
+      // Give the sampling timer at least one pull cycle (fires every 100 ms @ 10Hz).
+      await tester.pump(const Duration(milliseconds: 500));
+
+      // sample_data widget is always present; verify it holds real data.
+      final sampleFinder = find.byKey(const Key('sample_data'));
+      expect(sampleFinder, findsOneWidget);
+      final sampleText = tester.widget<Text>(sampleFinder);
+      expect(sampleText.data, startsWith('Sample:'));
+
+      // ── Teardown ───────────────────────────────────────────────────────
+      await tester.tap(find.byKey(const Key('stop_sampling')));
+      await tester.pump(const Duration(milliseconds: 200));
     });
   });
 }

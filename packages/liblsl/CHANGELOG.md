@@ -1,3 +1,12 @@
+# 0.11.0+0
+
+- Update liblsl fork, stream fullinfo bugfix (commit ID: `9f0b6122`).
+- Version increment change due to liblsl version updating from 1.16.2 -> 1.17.5. See [liblsl releases](https://github.com/sccn/liblsl/releases).
+
+# 0.10.2+0
+
+- Updated liblsl fork, sync with upstream. (commit ID: `76b054da`)
+
 # 0.10.1+1
 
 - Updated liblsl fork to fix a double-free issue (commit ID: `846c4199`)

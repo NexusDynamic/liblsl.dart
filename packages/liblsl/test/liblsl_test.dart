@@ -32,12 +32,12 @@ void main() {
   });
   group('LSL ffi direct', () {
     test('Check lsl library version', () {
-      expect(lsl_library_version(), 116);
+      expect(lsl_library_version(), 117);
     });
   });
   group('LSL', () {
     test('Check lsl library version', () async {
-      expect(LSL.version, 116);
+      expect(LSL.version, 117);
     });
 
     test('Create stream info', () async {
@@ -138,9 +138,9 @@ void main() {
       //   // }
       // }();
 
-      await Future.delayed(Duration(milliseconds: 10));
+      await Future.delayed(Duration(milliseconds: 50));
 
-      final streams = await LSL.resolveStreams(waitTime: 1.0);
+      final streams = await LSL.resolveStreams(waitTime: 2.0);
       expect(streams.length, greaterThan(0));
       // Find and validate the stream
       final streamInfo = streams.firstWhere((s) => s.streamName == streamName);

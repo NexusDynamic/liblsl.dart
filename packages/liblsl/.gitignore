@@ -3,3 +3,6 @@
 doc/api/
 paper/jats
 paper/paper.pdf
+
+# Fetched at build time by hook/build.dart (mirrors CMake FetchContent)
+src/pugixml/
