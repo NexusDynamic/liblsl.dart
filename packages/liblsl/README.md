@@ -6,6 +6,8 @@ This package provides a Dart wrapper for liblsl, using the dart native-assets bu
 
 Submitted [JOSS paper](./paper/paper.md): markdown version of the JOSS paper.
 
+[Take a look at the review/test guid](./REVIEW_TESTING.md) for testing options and instructions.
+
 ## Targets
 
 - [x] Linux
