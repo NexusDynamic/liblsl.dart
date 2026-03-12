@@ -4,6 +4,7 @@ import 'package:logging/logging.dart';
 import 'package:hooks/hooks.dart';
 import 'package:native_toolchain_c/native_toolchain_c.dart';
 import 'package:native_toolchain_c/src/cbuilder/run_cbuilder.dart';
+import 'package:native_toolchain_c/src/tool/tool_resolver.dart';
 import 'package:native_toolchain_c/src/native_toolchain/android_ndk.dart';
 
 /// It is possible, but untested, to compile liblsl for WASM.
@@ -253,7 +254,7 @@ void main(List<String> args) async {
       if (targetOs == OS.android) {
         // add libc++_shared.so from the NDK
         final aclang = await androidNdkClang.defaultResolver!.resolve(
-          logger: Logger(''),
+          ToolResolvingContext(logger: Logger('')),
         );
         for (final tool in aclang) {
           if (tool.tool.name == 'Clang') {
