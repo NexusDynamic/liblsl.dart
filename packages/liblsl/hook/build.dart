@@ -3,58 +3,6 @@ import 'package:code_assets/code_assets.dart';
 import 'package:logging/logging.dart';
 import 'package:hooks/hooks.dart';
 import 'package:native_toolchain_c/native_toolchain_c.dart';
-import 'package:native_toolchain_c/src/cbuilder/run_cbuilder.dart';
-import 'package:native_toolchain_c/src/tool/tool_resolver.dart';
-import 'package:native_toolchain_c/src/native_toolchain/android_ndk.dart';
-
-/// It is possible, but untested, to compile liblsl for WASM.
-/// Here is the command that successfully compiled it for WASM:
-/// ```bash
-/// LSL_SRC=./src/liblsl-e9104554
-/// PUGIXML_SRC=./src/pugixml
-/// emcc -pthread -sPTHREAD_POOL_SIZE=32 -sEXPORT_NAME=liblsl --no-entry \
-///       -sENVIRONMENT=web,worker -DVERSION=1.17.5 -DLSL_ABI_VERSION=2 \
-///       -DASIO_NO_DEPRECATED -DBOOST_ALL_NO_LIB -DLIBLSL_EXPORTS \
-///       -DASIO_DISABLE_VISIBILITY -DLOGURU_DEBUG_LOGGING=0 \
-///       -DLSL_VERSION_INFO=git:x/branch:x/build:dart_native/compiler:unknown \
-///       -DLOGURU_STACKTRACES=0 -include ./src/include/lsl_lib_version.h \
-///       -I$LSL_SRC/lslboost -I$LSL_SRC/include \
-///       -I$LSL_SRC/thirdparty/asio \
-///       -I$LSL_SRC/thirdparty/loguru \
-///       -I$PUGIXML_SRC/src \
-///       $LSL_SRC/src/buildinfo.cpp \
-///       $LSL_SRC/src/api_config.cpp \
-///       $LSL_SRC/src/cancellation.cpp \
-///       $LSL_SRC/src/common.cpp \
-///       $LSL_SRC/src/consumer_queue.cpp \
-///       $LSL_SRC/src/data_receiver.cpp \
-///       $LSL_SRC/src/info_receiver.cpp \
-///       $LSL_SRC/src/inlet_connection.cpp \
-///       $LSL_SRC/src/lsl_resolver_c.cpp \
-///       $LSL_SRC/src/lsl_inlet_c.cpp \
-///       $LSL_SRC/src/lsl_outlet_c.cpp \
-///       $LSL_SRC/src/lsl_streaminfo_c.cpp \
-///       $LSL_SRC/src/lsl_xml_element_c.cpp \
-///       $LSL_SRC/src/netinterfaces.cpp \
-///       $LSL_SRC/src/resolver_impl.cpp \
-///       $LSL_SRC/src/resolve_attempt_udp.cpp \
-///       $LSL_SRC/src/sample.cpp \
-///       $LSL_SRC/src/send_buffer.cpp \
-///       $LSL_SRC/src/socket_utils.cpp \
-///       $LSL_SRC/src/stream_info_impl.cpp \
-///       $LSL_SRC/src/stream_outlet_impl.cpp \
-///       $LSL_SRC/src/tcp_server.cpp \
-///       $LSL_SRC/src/time_postprocessor.cpp \
-///       $LSL_SRC/src/time_receiver.cpp \
-///       $LSL_SRC/src/udp_server.cpp \
-///       $LSL_SRC/src/util/cast.cpp \
-///       $LSL_SRC/src/util/endian.cpp \
-///       $LSL_SRC/src/util/inireader.cpp \
-///       $LSL_SRC/src/util/strfuns.cpp \
-///       $PUGIXML_SRC/src/pugixml.cpp \
-///       $LSL_SRC/thirdparty/loguru/loguru.cpp \
-///       -o ./liblsl.js
-/// ```
 
 /// The default name prefix for dynamic libraries per [OS].
 const _dylibPrefix = {
@@ -66,20 +14,6 @@ const _dylibPrefix = {
   OS.windows: '',
 };
 
-// extension OSLibraryPrefix on OS {
-//   /// The prefix for the library name on this OS.
-//   ///
-//   /// This is used to determine the library name when building a shared
-//   /// library.
-//   String get libraryPrefix {
-//     final prefix = _dylibPrefix[this];
-//     if (prefix == null) {
-//       throw UnsupportedError('OS $this does not have a library prefix');
-//     }
-//     return prefix;
-//   }
-// }
-
 String stripPrefix(OS os, String name) {
   final prefix = _dylibPrefix[os];
   if (prefix == null) {
@@ -90,17 +24,6 @@ String stripPrefix(OS os, String name) {
   }
   return name;
 }
-
-/// This is the same as the one in the native_toolchain_c package
-/// with the exception of arm, which is just "arm", instead of
-/// "armv7a-linux-androideabi".
-const androidNdkArchABIMap = {
-  Architecture.arm: 'arm-linux-androideabi',
-  Architecture.arm64: 'aarch64-linux-android',
-  Architecture.ia32: 'i686-linux-android',
-  Architecture.x64: 'x86_64-linux-android',
-  Architecture.riscv64: 'riscv64-linux-android',
-};
 
 /// Fetches pugixml source (v1.15) via git clone if not already present.
 /// This mirrors the CMake FetchContent behavior in Dependencies.cmake.
@@ -137,8 +60,6 @@ void main(List<String> args) async {
       const String pugixmlPath = 'src/pugixml';
       final OS targetOs = input.config.code.targetOS;
       final packageName = stripPrefix(targetOs, input.packageName);
-      final Architecture targetArchitecture =
-          input.config.code.targetArchitecture;
 
       // Fetch pugixml source (mirrors CMake FetchContent in Dependencies.cmake).
       await _fetchPugixml(pugixmlPath);
@@ -250,36 +171,6 @@ void main(List<String> args) async {
           ..level = Level.ALL
           ..onRecord.listen((record) => print(record.message)),
       );
-
-      if (targetOs == OS.android) {
-        // add libc++_shared.so from the NDK
-        final aclang = await androidNdkClang.defaultResolver!.resolve(
-          ToolResolvingContext(logger: Logger('')),
-        );
-        for (final tool in aclang) {
-          if (tool.tool.name == 'Clang') {
-            final sysroot = tool.uri.resolve('../sysroot/').toString();
-            // use the arch from native_toolchain_c.
-            String libPath =
-                '${sysroot}usr/lib/${RunCBuilder.androidNdkClangTargetFlags[targetArchitecture]}/libc++_shared.so';
-            // check if path exists.
-            if (!File(libPath).existsSync()) {
-              // if not we can try the alternate map (this will only fix ARM).
-              libPath =
-                  '${sysroot}usr/lib/${androidNdkArchABIMap[targetArchitecture]}/libc++_shared.so';
-            }
-            output.assets.code.add(
-              CodeAsset(
-                package: input.packageName,
-                name: 'libc++_shared.so',
-                file: Uri.parse(libPath),
-                linkMode: DynamicLoadingBundled(),
-              ),
-            );
-            break;
-          }
-        }
-      }
     }
   });
 }
