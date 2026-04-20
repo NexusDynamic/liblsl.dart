@@ -45,7 +45,7 @@ FVM is probably the easiest way to go here both if you do not have an existing D
 - Install FVM, following the Getting Started guide: https://fvm.app/documentation/getting-started/overview
 - This project has a `.fvmrc` file in the repository root that a correctly installed FVM will recognize.
 
-The version of flutter is expected to be beta or dev/main[^1].
+The package runs on Dart / Flutter stable.[^1].
 
 #### Option 2: Manual installation
 
@@ -143,4 +143,4 @@ If something is wrong with this guide or something doesn't work as expected, ple
 
 # Footnotes
 
-[^1]: The reason that this package does not yet use dart stable is because the [`native_toolchain_c`](https://pub.dev/packages/native_toolchain_c) package is still in experimental status, but this is required for compiling the liblsl C code and creating the shared lib and FFI bindings. When `native_toolchain_c` reaches stable, then this package will be updated to use the stable Dart SDK. **Despite this, the package can still be used with the stable Dart SDK**, but for development and testing purposes, the dev/beta release is required.
+[^1]: ~The reason that this package does not yet use dart stable is because the [`native_toolchain_c`](https://pub.dev/packages/native_toolchain_c) package is still in experimental status, but this is required for compiling the liblsl C code and creating the shared lib and FFI bindings. When `native_toolchain_c` reaches stable, then this package will be updated to use the stable Dart SDK. **Despite this, the package can still be used with the stable Dart SDK**, but for development and testing purposes, the dev/beta release is required.~~ No longer relevant, the `code_assets` package is now stable and build doesn't need any special flags.

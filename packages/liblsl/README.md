@@ -25,7 +25,7 @@ Also confirmed working on:
    
    `sudo apt update && sudo apt install build-essential clang llvm`
    
-   `dart --enable-experiment=native-assets test`
+   `dart test`
    
    ![screenshot of tests passing on RPi](./doc/image.png)
 
@@ -225,10 +225,10 @@ stringArray.free();
 
 ## Testing
 
-Currently (September 2025), the native assets are branch blocked so you will need to use flutter / dart "main" or beta channel to work with this lib for development purposes.
+Set up the environment (for more details, see the [REVIEW_TESTING.md](./REVIEW_TESTING.md) file):
 
 ```bash
-dart --enable-experiment=native-assets test
+dart test
 ```
 
 ## Contributing

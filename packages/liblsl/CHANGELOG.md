@@ -1,3 +1,7 @@
+# 0.12.0+0
+
+- Package no longer requires dev/beta version of Dart SDK, as `code_assets` is now stable and does not require any special flags for building.
+
 # 0.11.0+0
 
 - Update liblsl fork, stream fullinfo bugfix (commit ID: `9f0b6122`).
