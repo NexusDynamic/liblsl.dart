@@ -5,35 +5,36 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   test:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
-      with:
-        submodules: recursive
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
 
-    - name: Setup Flutter
-      uses: subosito/flutter-action@v2
-      with:
-        channel: beta
-        cache: true
-        cache-key: "flutter-:os:-:channel:-:version:-:arch:-main"
-        pub-cache-key: "flutter-pub-:os:-:channel:-:version:-:arch:-main"
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+          cache-key: "flutter-:os:-:channel:-:version:-:arch:-main"
+          pub-cache-key: "flutter-pub-:os:-:channel:-:version:-:arch:-main"
 
-    - name: Install melos
-      run: dart pub global activate melos
+      - name: Install melos
+        run: dart pub global activate melos
 
-    - name: Bootstrap packages
-      run: melos bootstrap
+      - name: Bootstrap packages
+        run: melos bootstrap
 
-    - name: Analyze code
-      run: melos run analyze
+      - name: Analyze code
+        run: melos run analyze
 
-    - name: Check formatting
-      run: melos run format-check
+      - name: Check formatting
+        run: melos run format-check
 
-    - name: Run tests
-      run: melos run test
+      - name: Run tests
+        run: melos run test
