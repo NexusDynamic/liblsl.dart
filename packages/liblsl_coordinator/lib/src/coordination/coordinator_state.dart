@@ -72,10 +72,9 @@ class CoordinationState {
       final oldPhase = _phase;
       _phase = newPhase;
       logger.info('Coordination phase: $oldPhase -> $newPhase');
-      _eventController.add(PhaseChangedEvent(
-        phase: newPhase,
-        fromNodeUId: _coordinatorUId ?? '',
-      ));
+      _eventController.add(
+        PhaseChangedEvent(phase: newPhase, fromNodeUId: _coordinatorUId ?? ''),
+      );
     }
   }
 
@@ -95,10 +94,7 @@ class CoordinationState {
     if (!_connectedNodes.any((n) => n.uId == node.uId)) {
       _connectedNodes.add(node);
       _lastHeartbeats[node.uId] = DateTime.now();
-      _eventController.add(NodeJoinedEvent(
-        node: node,
-        fromNodeUId: node.uId,
-      ));
+      _eventController.add(NodeJoinedEvent(node: node, fromNodeUId: node.uId));
     } else {
       // Update existing node info
       final index = _connectedNodes.indexWhere((n) => n.uId == node.uId);
@@ -111,10 +107,7 @@ class CoordinationState {
     if (node != null) {
       _connectedNodes.removeWhere((n) => n.uId == nodeUId);
       _lastHeartbeats.remove(nodeUId);
-      _eventController.add(NodeLeftEvent(
-        node: node,
-        fromNodeUId: nodeUId,
-      ));
+      _eventController.add(NodeLeftEvent(node: node, fromNodeUId: nodeUId));
     }
   }
 

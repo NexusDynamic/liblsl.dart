@@ -486,28 +486,31 @@ class CoordinationController {
             _discovery.releaseResource<StreamInfoResource>(infoResource.id);
             _pendingJoinNodeUIds.add(nodeUId);
 
-            _coordinationStream.addInlet(infoResource.streamInfo).then((_) {
-              logger.finest(
-                'Added inlet for discovered node $nodeId ($nodeUId), sending join offer',
-              );
-              if (!_state.canAcceptNodes) {
-                logger.warning(
-                  'Not accepting new nodes, skipping join offer to $nodeId ($nodeUId)',
-                );
-                _pendingJoinNodeUIds.remove(nodeUId);
-                return;
-              }
-              _coordinatorHandler!.sendJoinOffer(newNode);
-              // _pendingJoinNodeUIds entry removed via NodeJoinedEvent in
-              // _setupStateListeners once the node successfully joins.
-            }).catchError((Object e, StackTrace st) {
-              _pendingJoinNodeUIds.remove(nodeUId);
-              logger.severe(
-                'Failed to add inlet for discovered node $nodeId ($nodeUId): $e',
-                e,
-                st,
-              );
-            });
+            _coordinationStream
+                .addInlet(infoResource.streamInfo)
+                .then((_) {
+                  logger.finest(
+                    'Added inlet for discovered node $nodeId ($nodeUId), sending join offer',
+                  );
+                  if (!_state.canAcceptNodes) {
+                    logger.warning(
+                      'Not accepting new nodes, skipping join offer to $nodeId ($nodeUId)',
+                    );
+                    _pendingJoinNodeUIds.remove(nodeUId);
+                    return;
+                  }
+                  _coordinatorHandler!.sendJoinOffer(newNode);
+                  // _pendingJoinNodeUIds entry removed via NodeJoinedEvent in
+                  // _setupStateListeners once the node successfully joins.
+                })
+                .catchError((Object e, StackTrace st) {
+                  _pendingJoinNodeUIds.remove(nodeUId);
+                  logger.severe(
+                    'Failed to add inlet for discovered node $nodeId ($nodeUId): $e',
+                    e,
+                    st,
+                  );
+                });
           } catch (e, st) {
             logger.severe(
               'Error processing discovered stream '

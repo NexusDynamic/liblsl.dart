@@ -218,7 +218,9 @@ void _setupEventListeners(LSLCoordinationSession session, String nodeId) {
 
   // Node topology changes
   session.events.nodeJoined.listen((event) {
-    logger.info('➕ $nodeId: Node joined: ${event.node.name} (${event.node.id})');
+    logger.info(
+      '➕ $nodeId: Node joined: ${event.node.name} (${event.node.id})',
+    );
     logger.info('   Total nodes: ${session.connectedNodes.length}');
   });
 
@@ -515,9 +517,7 @@ Future<void> _runParticipantTestLogic(
   });
 
   session.events.streamReady.listen((event) async {
-    logger.info(
-      '✅ $nodeId: Stream ready acknowledged: ${event.streamName}',
-    );
+    logger.info('✅ $nodeId: Stream ready acknowledged: ${event.streamName}');
   });
 
   session.events.streamStop.listen((event) {
@@ -539,9 +539,7 @@ Future<void> _runParticipantTestLogic(
     logger.info(
       '▶️  $nodeId: PARTICIPANT received resume command for ${event.streamName}',
     );
-    logger.info(
-      '   $nodeId: Flush before resume: ${event.flushBeforeResume}',
-    );
+    logger.info('   $nodeId: Flush before resume: ${event.flushBeforeResume}');
     logger.info('   $nodeId: Busy-wait polling resumed');
   });
 
