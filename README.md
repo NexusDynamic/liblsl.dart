@@ -13,3 +13,8 @@ Packages:
 - [liblsl_test](./packages/liblsl_test): An integration test so you can try out liblsl with flutter on any supported target platform.
 - [liblsl_timing](./packages/liblsl_timing): App based multi-device latency, sync and interactive timing tests with automatic device coordination via LSL
 - [liblsl_analysis](./packages/liblsl_analysis): Analysis of results from the timing tests in [liblsl_timing](./packages/liblsl_timing)
+
+
+## Contributing
+
+See the [CONTRIBUTING.md](./CONTRIBUTING.md) file for guidelines on how to contribute to this project.
