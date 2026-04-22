@@ -1,3 +1,6 @@
+import 'dart:io';
+import 'dart:convert';
+
 import 'package:csv/csv.dart';
 import 'package:flutter/foundation.dart';
 import '../models/csv_data.dart';
@@ -6,11 +9,9 @@ class CSVService {
   /// Process a CSV string into structured CSVData
   Future<CSVData> processCSV(String csvString) async {
     // Convert the CSV string to a list of lists
-    final List<List<dynamic>> rowsAsListOfValues = const CsvToListConverter(
-      shouldParseNumbers: true,
-      allowInvalid: false,
-      eol: '\n',
-    ).convert(csvString);
+    final List<List<dynamic>> rowsAsListOfValues = await File(
+      csvString,
+    ).openRead().transform(utf8.decoder).transform(csv.decoder).toList();
 
     if (rowsAsListOfValues.isEmpty) {
       throw Exception('CSV file is empty');

@@ -11,7 +11,7 @@ publish_to: 'none'
 resolution: workspace
 
 environment:
-  sdk: ^3.9.0
+  sdk: ^3.11.0
 
 # Add regular dependencies here.
 dependencies:
@@ -19,11 +19,11 @@ dependencies:
   # liblsl: ^0.9.0
   liblsl:
     path: ../liblsl
-  synchronized: ^3.4.0
+  synchronized: ^3.4.0+1
   logging: ^1.3.0
-  uuid: ^4.5.1
+  uuid: ^4.5.3
   collection: ^1.19.1
-  fast_immutable_collections: ^11.1.0
+  fast_immutable_collections: ^11.2.0
   # path: ^1.8.0
 
 dev_dependencies:

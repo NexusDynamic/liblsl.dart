@@ -1,3 +1,8 @@
+# 0.13.0+0
+
+- Updated `native_toolchain_c` to `^0.18.0`.
+- Updated `android_libcpp_shared` to `^0.1.1`.
+
 # 0.12.0+0
 
 - Package no longer requires dev/beta version of Dart SDK, as `code_assets` is now stable and does not require any special flags for building.
