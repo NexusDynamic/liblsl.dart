@@ -233,23 +233,23 @@ dart test
 
 ## Contributing
 
-See the [CONTRIBUTING.md](./CONTRIBUTING.md) file for guidelines on how to contribute to this project.
+See the [CONTRIBUTING.md](https://github.com/NexusDynamic/liblsl.dart/blob/main/CONTRIBUTING.md) file for guidelines on how to contribute to this project.
 
 ## Code of Conduct
 
-This project and everyone participating in it must uphold [Code of Conduct](./CODE_OF_CONDUCT.md). By participating, you are expected to uphold this code.
+This project and everyone participating in it must uphold [Code of Conduct](https://github.com/NexusDynamic/liblsl.dart/blob/main/CODE_OF_CONDUCT.md). By participating, you are expected to uphold this code.
 
 ## Support
 
-Please see the [SUPPORT.md](./SUPPORT.md) file for information on how to get support for liblsl.dart and where to ask questions or discuss potential features.
+Please see the [SUPPORT.md](https://github.com/NexusDynamic/liblsl.dart/blob/main/SUPPORT.md) file for information on how to get support for liblsl.dart and where to ask questions or discuss potential features.
 
 ## Security
 
-Please see the [SECURITY.md](./SECURITY.md) file for information on how to report security vulnerabilities for liblsl.dart.
+Please see the [SECURITY.md](https://github.com/NexusDynamic/liblsl.dart/blob/main/SECURITY.md) file for information on how to report security vulnerabilities for liblsl.dart.
 
 # License
 
-This project is licensed under the MIT License - see the [LICENSE](./LICENSE) file for details.
+This project is licensed under the MIT License - see the [LICENSE](https://github.com/NexusDynamic/liblsl.dart/blob/main/packages/liblsl/LICENSE) file for details.
 
 # Acknowledgments
 
