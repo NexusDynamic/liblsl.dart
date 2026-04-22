@@ -129,28 +129,23 @@ void main() {
       expect(outlet, isNotNull);
 
       final Completer<void> completer = Completer<void>();
-      // Start sending data in the background
-      // this works
-      // final senderFuture = () async {
-      //   // while (!completer.isCompleted) {
-      //   await Future.delayed(Duration(milliseconds: 200));
-      //   await outlet.pushSample([5.0, 8.0]);
-      //   // }
-      // }();
 
       await Future.delayed(Duration(milliseconds: 50));
-
-      final streams = await LSL.resolveStreams(waitTime: 2.0);
+      // Increased maxstreams for concurrent tests in case
+      // multiple streams are found but do not match.
+      final streams = await LSL.resolveStreams(waitTime: 2.0, maxStreams: 10);
       expect(streams.length, greaterThan(0));
       // Find and validate the stream
-      final streamInfo = streams.firstWhere((s) => s.streamName == streamName);
+      final streamInfo = streams.firstWhereOrNull(
+        (s) => s.streamName == streamName,
+      );
       expect(streamInfo, isNotNull);
 
       // Create inlet and allow time for connection
       final inlet = await LSL.createInlet<double>(
         maxBuffer: 360,
         chunkSize: 1,
-        streamInfo: streamInfo,
+        streamInfo: streamInfo!,
         recover: false,
       );
       // After creating the inlet
