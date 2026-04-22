@@ -243,8 +243,8 @@ This project and everyone participating in it must uphold [Code of Conduct](http
 
 Please see the [SUPPORT.md](https://github.com/NexusDynamic/liblsl.dart/blob/main/SUPPORT.md) file for information on how to get support for liblsl.dart and where to ask questions or discuss potential features.
 
-[![Matrix chat room](https://img.shields.io/matrix/liblsl.dart%3Aneuro.wang?server_fqdn=matrix.neuro.wang&fetchMode=summary&logo=matrix&label=Matrix%20Chat%20Room)
-](https://matrix.to/#/#liblsl.dart:neuro.wang)
+[![Matrix chat room](https://img.shields.io/matrix/NexusDynamic%3Aneuro.wang?server_fqdn=matrix.neuro.wang&fetchMode=summary&logo=matrix&label=Matrix%20Chat%20Room)
+](https://matrix.to/#/#NexusDynamic:neuro.wang)
 
 ## Security
 
