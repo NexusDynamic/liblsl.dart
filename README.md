@@ -24,6 +24,9 @@ This project and everyone participating in it must uphold [Code of Conduct](./CO
 
 Please see the [SUPPORT.md](./SUPPORT.md) file for information on how to get support for liblsl.dart and where to ask questions or discuss potential features.
 
+[![Matrix chat room](https://img.shields.io/matrix/liblsl.dart%3Aneuro.wang?server_fqdn=matrix.neuro.wang&fetchMode=summary&logo=matrix&label=Matrix%20Chat%20Room)
+](https://matrix.to/#/#liblsl.dart:neuro.wang)
+
 ## Security
 
 Please see the [SECURITY.md](./SECURITY.md) file for information on how to report security vulnerabilities for liblsl.dart.
