@@ -225,7 +225,7 @@ stringArray.free();
 
 ## Testing
 
-Set up the environment (for more details, see the [REVIEW_TESTING.md](./REVIEW_TESTING.md) file):
+Set up the environment (for more details, see the [REVIEW_TESTING.md](https://github.com/NexusDynamic/liblsl.dart/blob/main/packages/liblsl/REVIEW_TESTING.md) file):
 
 ```bash
 dart test
