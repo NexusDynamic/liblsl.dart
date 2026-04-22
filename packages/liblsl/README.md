@@ -235,11 +235,17 @@ dart test
 
 See the [CONTRIBUTING.md](./CONTRIBUTING.md) file for guidelines on how to contribute to this project.
 
-### Development Guidelines
+## Code of Conduct
 
-- Follow Dart's [effective dart](https://dart.dev/guides/language/effective-dart) style guide.
-- Write tests for new features and bug fixes.
-- Ensure all tests pass before submitting a pull request.
+This project and everyone participating in it must uphold [Code of Conduct](./CODE_OF_CONDUCT.md). By participating, you are expected to uphold this code.
+
+## Support
+
+Please see the [SUPPORT.md](./SUPPORT.md) file for information on how to get support for liblsl.dart and where to ask questions or discuss potential features.
+
+## Security
+
+Please see the [SECURITY.md](./SECURITY.md) file for information on how to report security vulnerabilities for liblsl.dart.
 
 # License
 
