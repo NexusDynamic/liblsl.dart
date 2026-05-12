@@ -109,8 +109,16 @@ class CoordinationController {
 
     logger.info('Starting coordination process...');
     _state.transitionTo(CoordinationPhase.discovering);
-
-    await _startElection();
+    if (_thisNode.capabilities.contains(NodeCapability.coordinator) &&
+        !_thisNode.capabilities.contains(NodeCapability.participant)) {
+      logger.warning(
+        'This node is required to become coordinator based on capabilities, skipping election',
+      );
+      _thisNode.setMetadata(LSLStreamInfoHelper.randomRollKey, '1.0');
+      await _becomeCoordinator();
+    } else {
+      await _startElection();
+    }
   }
 
   /// Election process - discover coordinators or become one
