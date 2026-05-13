@@ -2,6 +2,8 @@
 
 [![Pub Publisher](https://img.shields.io/pub/publisher/liblsl?style=flat-square)](https://pub.dev/publishers/zeyus.com/packages) [![Pub Version](https://img.shields.io/pub/v/liblsl)](https://pub.dev/packages/liblsl) [![melos](https://img.shields.io/badge/maintained%20with-melos-f700ff.svg?style=flat-square)](https://github.com/invertase/melos) [![CI Test](https://github.com/NexusDynamic/liblsl.dart/actions/workflows/test.yml/badge.svg)](https://github.com/NexusDynamic/liblsl.dart/actions/workflows/test.yml) [![status](https://joss.theoj.org/papers/2d813b551058e59edacefd35ea281e40/status.svg)](https://joss.theoj.org/papers/2d813b551058e59edacefd35ea281e40)
 
+[API Documentation](https://pub.dev/documentation/liblsl/latest/) | [Example](./example/liblsl_example.dart) | [Tests](./test/liblsl_test.dart)
+
 This package provides a Dart wrapper for liblsl, using the dart native-assets build system and ffi.
 
 Submitted [JOSS paper](./paper/paper.md): markdown version of the JOSS paper.
