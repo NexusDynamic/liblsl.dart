@@ -8,20 +8,56 @@ library(conflicted)
 library(ggprism)
 library(showtext)
 library(knitr)
+library(progress)
+
+
+spawn_progressbar <- function(x, .name = .pb, .times = 1) {
+    .name <- substitute(.name)
+    n <- nrow(x) * .times
+    eval(
+        substitute(
+            .name <<- progress_bar$new(
+                format = "  processing [:bar] :percent eta: :eta",
+                total = n,
+                clear = FALSE,
+                width = 60
+            )
+        )
+    )
+    .pb$tick(0)
+    x
+}
 
 ####### SETUP #######
-# install the New Computer Modern Sans font from:
-# https://download.gnu.org.ua/release/newcm/
+# Font files are included in the fonts/ subdirectory (New Computer Modern Sans,
+# licensed under the GUST Font License — see fonts/LICENSE.txt).
+# If the files are not found the script falls back to the system "sans" font.
 jossFont <- "NewComputerModernSans10"
-jossFontFileName <- "NewCMSans10-Book.otf"
-jossFontFileNameBold <- "NewCMSans10-Bold.otf"
 
-font_add(
-    family = jossFont,
-    regular = jossFontFileName,
-    bold = jossFontFileNameBold,
-)
-showtext_auto() 
+.findFontFile <- function(filename) {
+    candidates <- c(
+        file.path("fonts", filename),   # repo layout: fonts/ next to the script
+        file.path("/fonts", filename),  # Docker image path
+        filename                        # working-directory fallback
+    )
+    found <- Filter(file.exists, candidates)
+    if (length(found)) found[[1]] else NULL
+}
+
+.font_regular <- .findFontFile("NewCMSans10-Book.otf")
+.font_bold    <- .findFontFile("NewCMSans10-Bold.otf")
+
+if (!is.null(.font_regular) && !is.null(.font_bold)) {
+    # add the font to the font search path
+    font_paths(c(dirname(.font_regular)))
+    font_add(family = jossFont, regular = .font_regular, bold = .font_bold)
+    showtext_auto()
+} else {
+    jossFont <- "sans"
+    message("NewComputerModernSans10 not found — falling back to 'sans'. ",
+            "Ensure fonts/NewCMSans10-Book.otf and fonts/NewCMSans10-Bold.otf ",
+            "are present for an exact reproduction of the published figure.")
+}
 
 ## Geom split violin from: https://stackoverflow.com/a/47652563/570122
 GeomSplitViolin <- ggproto("GeomSplitViolin", GeomViolin,
@@ -68,17 +104,25 @@ create_quantile_segment_frame <- function(data, draw_quantiles, split = FALSE, g
   }
 }
 
+parse_json_metadata <- function(x, .pb) {
+    json_data <- fromJSON(x)
+    .pb$tick()
+    # Convert NULL values to NA and ensure all elements are vectors
+    json_data[sapply(json_data, is.null)] <- NA
+    as_tibble(json_data)
+}
+
 
 ##### LOAD DATA ######
 
-geom_split_violin <- function(mapping = NULL, data = NULL, stat = "ydensity", position = "identity", ..., 
-                              draw_quantiles = NULL, trim = TRUE, scale = "area", na.rm = FALSE, 
+geom_split_violin <- function(mapping = NULL, data = NULL, stat = "ydensity", position = "identity", ...,
+                              draw_quantiles = NULL, trim = TRUE, scale = "area", na.rm = FALSE,
                               show.legend = NA, inherit.aes = TRUE) {
-  layer(data = data, mapping = mapping, stat = stat, geom = GeomSplitViolin, position = position, 
-        show.legend = show.legend, inherit.aes = inherit.aes, 
+  layer(data = data, mapping = mapping, stat = stat, geom = GeomSplitViolin, position = position,
+        show.legend = show.legend, inherit.aes = inherit.aes,
         params = list(trim = trim, scale = scale, draw_quantiles = draw_quantiles, na.rm = na.rm, ...))
 }
-
+message("Loading event data...")
 # File paths
 ipad1_raw_data_path <- "ipad1_lsl_events_1759406662174.tsv"
 ipad2_raw_data_path <- "ipad2_lsl_events_1759406625793.tsv"
@@ -126,19 +170,22 @@ log_coldef <- cols(
 ipad1_raw <- read_tsv(ipad1_raw_data_path,
     col_names = log_colnames,
     col_types = log_coldef,
-    skip = 1
+    skip = 1,
+    progress = TRUE
 )
 
 ipad2_raw <- read_tsv(ipad2_raw_data_path,
     col_names = log_colnames,
     col_types = log_coldef,
-    skip = 1
+    skip = 1,
+    progress = TRUE
 )
 
 pixel_raw <- read_tsv(pixel_raw_data_path,
     col_names = log_colnames,
     col_types = log_coldef,
-    skip = 1
+    skip = 1,
+    progress = TRUE
 )
 
 # Parse JSON metadata
@@ -156,38 +203,32 @@ pixel_raw <- read_tsv(pixel_raw_data_path,
 #     "testId": ""
 # }
 
+message("Parsing JSON metadata from iPad 1...")
 ipad_parsed <- ipad1_raw %>%
+    spawn_progressbar() %>%
     dplyr::mutate(
-        metadata = map(metadata, ~ {
-            json_data <- fromJSON(.)
-            # Convert NULL values to NA and ensure all elements are vectors
-            json_data[sapply(json_data, is.null)] <- NA
-            as_tibble(json_data)
-        })
+        metadata = map(metadata, parse_json_metadata, .pb)
     ) %>%
     unnest(cols = c(metadata))
 
+message("Parsing JSON metadata from iPad 2...")
 ipad2_parsed <- ipad2_raw %>%
+    spawn_progressbar() %>%
     dplyr::mutate(
-        metadata = map(metadata, ~ {
-            json_data <- fromJSON(.)
-            json_data[sapply(json_data, is.null)] <- NA
-            as_tibble(json_data)
-        })
+        metadata = map(metadata, parse_json_metadata, .pb)
     ) %>%
     unnest(cols = c(metadata))
 
+message("Parsing JSON metadata from Pixel 7a...")
 pixel_parsed <- pixel_raw %>%
+    spawn_progressbar() %>%
     dplyr::mutate(
-        metadata = map(metadata, ~ {
-            json_data <- fromJSON(.)
-            json_data[sapply(json_data, is.null)] <- NA
-            as_tibble(json_data)
-        })
+        metadata = map(metadata, parse_json_metadata, .pb)
     ) %>%
     unnest(cols = c(metadata))
 
 # Join the two datasets
+message("Combining datasets...")
 combined_data <- bind_rows(ipad_parsed, ipad2_parsed, pixel_parsed)
 
 # Filter out testStarted events
@@ -210,6 +251,7 @@ sent_lookup <- sent_events %>%
            raw_sent_dart_timestamp) %>%
     distinct()
 
+message("Calculating within-device latency...")
 same_device_latency <- received_events %>%
     dplyr::filter(str_extract(sourceId, paste0("(", device_1_id, "|", device_3_id, ")"), group = 1) == reportingDeviceId) %>%
     inner_join(sent_lookup, by = "sampleId") %>%
@@ -220,7 +262,7 @@ same_device_latency <- received_events %>%
     )
 
 # between-device latency (if applicable, i.e. run simultaneously on the network)
-
+message("Calculating between-device latency...")
 between_device_latency <- received_events %>%
     dplyr::filter(str_extract(sourceId, paste0("(", device_1_id, "|", device_2_id, ")"), group = 1) != reportingDeviceId) %>%
     inner_join(sent_lookup, by = "sampleId") %>%
@@ -232,8 +274,9 @@ between_device_latency <- received_events %>%
     )
 
 # Calculate summary statistics
+message("Calculating summary statistics...")
 calc_summary <- function(data, metric_name) {
-    
+
     dart_col <- paste0("dart_", metric_name)
     lsl_col <- paste0("lsl_", metric_name)
     # Filter data that has non-missing values for Dart metric
@@ -267,6 +310,7 @@ calc_summary <- function(data, metric_name) {
 
 
 # Within-device latency violin plot
+message("Creating within-device latency plot...")
 same_device_plot_df <- same_device_latency %>%
     select(device = reportingDeviceId, dart_latency, lsl_latency, sampleId) %>%
     dplyr::filter(
@@ -284,7 +328,7 @@ local_outliers_over_500us <- nrow(same_device_plot_df[same_device_plot_df$lsl_la
 median.quartile <- function(x){
   out <- quantile(x, probs = c(0.25,0.5,0.75))
   names(out) <- c("25","50","75")
-  return(out) 
+  return(out)
 }
 local_quartiles_dev1 <- median.quartile(same_device_plot_df[same_device_plot_df$device == "iPad",]$lsl_latency)
 local_quartiles_dev2 <- median.quartile(same_device_plot_df[same_device_plot_df$device == "Pixel 7a",]$lsl_latency)
@@ -312,6 +356,7 @@ p1 <- ggplot(same_device_plot_df[same_device_plot_df$lsl_latency <= 0.5,], aes(x
           plot.title = element_text(size = 13, face = "bold"))
 
 # between-device latency plot
+message("Creating between-device latency plot...")
 between_device_plot_df <- between_device_latency %>%
     select(device = reportingDeviceId, sourceId, dart_latency, lsl_latency, sampleId) %>%
     dplyr::filter(
@@ -350,9 +395,10 @@ p2 <- ggplot(between_device_plot_df[between_device_plot_df$lsl_latency <= 0.5,],
 
 
 plot.out <- grid.arrange(p1, p2, nrow = 1, widths = c(1, 1))
+message("Saving latency plot...")
 ggsave("plot_latency.png", plot.out, width = 7, height = 4, dpi = 300)
 
-
+message("Calculating latency summary statistics...")
 ipad_latency_summary <- calc_summary(same_device_plot_df[same_device_plot_df$device == "iPad",], "latency")
 pixel_latency_summary <- calc_summary(same_device_plot_df[same_device_plot_df$device == "Pixel 7a",], "latency")
 
