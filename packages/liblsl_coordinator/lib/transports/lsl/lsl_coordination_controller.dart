@@ -102,6 +102,8 @@ class CoordinationController {
   }
 
   /// Start the coordination process - begins election
+  /// TODO: Don't always become coordinator based on capabilities
+  /// - instead, follow correct strategy. For now it's fine.
   Future<void> start() async {
     if (_state.phase != CoordinationPhase.idle) {
       throw StateError('Coordination already started');
