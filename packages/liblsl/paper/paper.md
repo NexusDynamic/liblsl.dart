@@ -21,24 +21,21 @@ authors:
       given-names: Chris
       surname: Mathys
     orcid: 0000-0003-4079-5453
-    affiliation: 2
+    affiliation: 1
   - name:
       given-names: Simon Lind
       surname: Kappel
     orcid: 0000-0003-0583-2255
-    affiliation: 3
+    affiliation: 2
 affiliations:
 - name: School of Communication and Culture, Department of Linguistics, Cognitive Science and Semiotics, Aarhus University, Denmark
   index: 1
   ror: 01aj84f44
-- name: School of Culture and Society - Interacting Minds Centre, Aarhus University, Denmark
+- name: Department of Electrical and Computer Engineering - Biomedical Engineering, Aarhus University, Denmark
   index: 2
   ror: 01aj84f44
-- name: Department of Electrical and Computer Engineering - Biomedical Engineering, Aarhus University, Denmark
-  index: 3
-  ror: 01aj84f44
 
-date: 4 February 2026
+date: 14 May 2026
 bibliography: paper.bib
 ---
 
