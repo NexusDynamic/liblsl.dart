@@ -119,7 +119,9 @@ class CoordinationController {
       _thisNode.setMetadata(LSLStreamInfoHelper.randomRollKey, '1.0');
       await _becomeCoordinator();
     } else {
-      await _startElection(timeout ? timeout - Duration(seconds: 1) : null);
+      await _startElection(
+        timeout != null ? timeout - Duration(seconds: 1) : null,
+      );
     }
   }
 
