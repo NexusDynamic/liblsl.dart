@@ -199,19 +199,21 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
   }
 
   @override
-  Future<void> join() async {
+  Future<void> join([Duration? timeout]) async {
     await super.join();
 
     logger.info('Joining coordination session...');
-    await _controller.start();
+    await _controller.start(timeout);
 
     // Wait for coordination to be established
     try {
       // TODO: make timeout configurable
-      await _waitForPhase({
-        CoordinationPhase.accepting,
-        CoordinationPhase.ready,
-      }, timeout: Duration(seconds: config.discoveryInterval.inSeconds * 10));
+      await _waitForPhase(
+        {CoordinationPhase.accepting, CoordinationPhase.ready},
+        timeout:
+            timeout ??
+            Duration(seconds: config.discoveryInterval.inSeconds * 10),
+      );
       logger.info(
         'Joined coordination session as ${_controller.isCoordinator ? 'COORDINATOR' : 'PARTICIPANT'}',
       );

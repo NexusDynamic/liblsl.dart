@@ -104,7 +104,7 @@ class CoordinationController {
   /// Start the coordination process - begins election
   /// TODO: Don't always become coordinator based on capabilities
   /// - instead, follow correct strategy. For now it's fine.
-  Future<void> start() async {
+  Future<void> start([Duration? timeout]) async {
     if (_state.phase != CoordinationPhase.idle) {
       throw StateError('Coordination already started');
     }
@@ -119,12 +119,12 @@ class CoordinationController {
       _thisNode.setMetadata(LSLStreamInfoHelper.randomRollKey, '1.0');
       await _becomeCoordinator();
     } else {
-      await _startElection();
+      await _startElection(timeout ? timeout - Duration(seconds: 1) : null);
     }
   }
 
   /// Election process - discover coordinators or become one
-  Future<void> _startElection() async {
+  Future<void> _startElection([Duration? timeout]) async {
     logger.info('Starting coordinator election');
     _state.transitionTo(CoordinationPhase.electing);
 
@@ -156,8 +156,9 @@ class CoordinationController {
       final streamInfos = await LslDiscovery.discoverOnceByPredicate(
         electionPredicate,
         timeout:
+            timeout ??
             coordinationConfig.sessionConfig.discoveryInterval *
-            2, // Shorter timeout
+                2, // Shorter timeout
         minStreams: 1,
         maxStreams: 1,
       );
@@ -168,6 +169,10 @@ class CoordinationController {
           'Election: Found existing coordinator or better candidate, becoming participant',
         );
         await _becomeParticipant(streamInfos.first);
+      } else if (!_thisNode.capabilities.contains(NodeCapability.coordinator)) {
+        throw StateError(
+          'Election: No coordinator found but this node is not eligible to be coordinator',
+        );
       } else {
         // No better candidates - become coordinator
         logger.info(
