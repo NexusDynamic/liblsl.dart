@@ -1,0 +1,103 @@
+{
+  "@context": "https://w3id.org/codemeta/3.0",
+  "type": "SoftwareSourceCode",
+  "applicationCategory": "Research",
+  "author": [
+    {
+      "id": "http://orcid.org/0009-0000-0930-4172",
+      "type": "Person",
+      "affiliation": {
+        "type": "Organization",
+        "name": "School of Communication and Culture, Department of Linguistics, Cognitive Science and Semiotics, Aarhus University, Denmark"
+      },
+      "email": "dev@zeyus.com",
+      "familyName": "Ring",
+      "givenName": "Luke Daniel"
+    },
+    {
+      "id": "http://orcid.org/0000-0002-3774-3516",
+      "type": "Person",
+      "affiliation": {
+        "type": "Organization",
+        "name": "School of Communication and Culture, Department of Linguistics, Cognitive Science and Semiotics, Aarhus University, Denmark"
+      },
+      "familyName": "Zamm",
+      "givenName": "Anna"
+    },
+    {
+      "id": "http://orcid.org/0000-0003-4079-5453",
+      "type": "Person",
+      "affiliation": {
+        "type": "Organization",
+        "name": "School of Communication and Culture, Department of Linguistics, Cognitive Science and Semiotics, Aarhus University, Denmark"
+      },
+      "familyName": "Mathys",
+      "givenName": "Chris"
+    },
+    {
+      "id": "http://orcid.org/0000-0003-0583-2255",
+      "type": "Person",
+      "affiliation": {
+        "type": "Organization",
+        "name": "Department of Electrical and Computer Engineering - Biomedical Engineering, Aarhus University, Denmark"
+      },
+      "familyName": "Kappel",
+      "givenName": "Simon Lind"
+    }
+  ],
+  "codeRepository": "https://github.com/NexusDynamic/liblsl.dart/tree/main/packages/liblsl",
+  "contributor": {
+    "id": "http://orcid.org/0009-0000-0930-4172",
+    "type": "Person",
+    "affiliation": {
+      "type": "Organization",
+      "name": "School of Communication and Culture, Department of Linguistics, Cognitive Science and Semiotics, Aarhus University, Denmark"
+    },
+    "email": "dev@zeyus.com",
+    "familyName": "Ring",
+    "givenName": "Luke Daniel"
+  },
+  "dateCreated": "2025-03-01",
+  "dateModified": "2026-05-22",
+  "datePublished": "2025-03-12",
+  "description": "A Dart (and Flutter) native library for working with Lab Streaming Layer (LSL / liblsl).",
+  "downloadUrl": "https://pub.dev/api/archives/liblsl-0.13.0.tar.gz",
+  "identifier": [
+    {
+      "type": "PropertyValue",
+      "propertyID": "doi",
+      "value": "10.5281/zenodo.20340248"
+    }
+  ],
+  "isPartOf": "https://github.com/NexusDynamic/liblsl.dart",
+  "keywords": [
+    "Lab Streaming Layer",
+    "Dart",
+    "Flutter",
+    "Data streaming",
+    "Cross-platform",
+    "Multimodal"
+  ],
+  "license": "https://spdx.org/licenses/MIT",
+  "name": "liblsl",
+  "operatingSystem": ["Android", "iOS", "Linux", "MacOS", "Windows"],
+  "programmingLanguage": ["Dart", "Flutter"],
+  "relatedLink": [
+    "https://nexusdynamic.org/",
+    "https://zeyus.com/",
+    "https://pub.dev/packages/liblsl"
+  ],
+  "softwareRequirements": [
+    "https://dart.dev/get-dart",
+    "https://pub.dev/packages/native_toolchain_c",
+    "https://pub.dev/packages/hooks",
+    "https://pub.dev/packages/ffi",
+    "https://pub.dev/packages/code_assets",
+    "https://pub.dev/packages/logging",
+    "https://pub.dev/packages/meta"
+  ],
+  "version": "0.13.1",
+  "continuousIntegration": "https://github.com/NexusDynamic/liblsl.dart/actions/workflows/test.yml",
+  "developmentStatus": "active",
+  "issueTracker": "https://github.com/NexusDynamic/liblsl.dart/issues"
+}

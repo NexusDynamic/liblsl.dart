@@ -1,0 +1,182 @@
+name: Zenodo Release (liblsl)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version: match packages/liblsl/pubspec.yaml"
+        required: true
+        type: string
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout with submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Set version outputs
+        id: version
+        run: |
+          VERSION="${{ inputs.version }}"
+          TAG="liblsl-v$VERSION"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "archive=liblsl-$VERSION.zip" >> "$GITHUB_OUTPUT"
+
+      - name: Verify pubspec version matches
+        run: |
+          PUBSPEC_VERSION=$(grep '^version:' packages/liblsl/pubspec.yaml | sed 's/version: *//' | sed 's/+.*//' | tr -d ' ')
+          if [ "$PUBSPEC_VERSION" != "${{ inputs.version }}" ]; then
+            echo "ERROR: pubspec.yaml version ($PUBSPEC_VERSION) does not match input (${{ inputs.version }})"
+            exit 1
+          fi
+
+      - name: Sync metadata file versions
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          TODAY=$(date -u +%Y-%m-%d)
+          export TODAY
+
+          # CITATION.cff
+          sed -i "s/^version: .*/version: \"$VERSION\"/" CITATION.cff
+          sed -i "s/^date-released: .*/date-released: \"$TODAY\"/" CITATION.cff
+
+          # codemeta.json and .zenodo.json
+          python3 - <<'PYEOF'
+          import json, os
+
+          version = os.environ["VERSION"]
+          today = os.environ["TODAY"]
+
+          for path, keys in [
+              ("codemeta.json", {"version": version, "dateModified": today}),
+              (".zenodo.json",  {"version": version}),
+          ]:
+              with open(path) as f:
+                  data = json.load(f)
+              data.update(keys)
+              with open(path, "w") as f:
+                  json.dump(data, f, indent=2)
+                  f.write("\n")
+              print(f"Updated {path}")
+          PYEOF
+
+      - name: Commit code meta, tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add CITATION.cff codemeta.json .zenodo.json
+          if git diff --cached --quiet; then
+            echo "No metadata changes — creating tag on current HEAD."
+          else
+            git commit -m "chore: release liblsl ${{ steps.version.outputs.version }}"
+            git push origin HEAD:main
+          fi
+          git tag "${{ steps.version.outputs.tag }}"
+          git push origin "${{ steps.version.outputs.tag }}"
+
+      - name: Build release archive
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          ARCHIVE="${{ steps.version.outputs.archive }}"
+          STAGING="liblsl-${VERSION}"
+
+          mkdir -p "${STAGING}"
+
+          # Package source (includes paper/, src/, lib/, test/, etc.)
+          cp -r packages/liblsl/. "${STAGING}/"
+
+          # metadata files
+          cp CITATION.cff "${STAGING}/"
+          cp codemeta.json "${STAGING}/"
+
+          zip -r "${ARCHIVE}" "${STAGING}/"
+          echo "Created ${ARCHIVE} ($(du -sh "${ARCHIVE}" | cut -f1))"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: "liblsl ${{ steps.version.outputs.version }}"
+          body: |
+            Release of the `liblsl` Dart package v${{ steps.version.outputs.version }}.
+
+            The attached zip archive contains the `liblsl` package source (including the upstream C library submodule).
+
+            See the [CHANGELOG](https://github.com/NexusDynamic/liblsl.dart/blob/main/packages/liblsl/CHANGELOG.md) for details.
+          files: ${{ steps.version.outputs.archive }}
+          draft: false
+          prerelease: false
+
+      - name: Upload to Zenodo draft
+        env:
+          ZENODO_TOKEN: ${{ secrets.ZENODO_TOKEN }}
+          ZENODO_DEPOSIT_ID: ${{ secrets.ZENODO_DEPOSIT_ID }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          ARCHIVE="${{ steps.version.outputs.archive }}"
+
+          # Check status
+          STATUS=$(curl -sf \
+            -H "Authorization: Bearer $ZENODO_TOKEN" \
+            "https://zenodo.org/api/deposit/depositions/$ZENODO_DEPOSIT_ID" \
+            | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['state'])")
+
+          if [ "$STATUS" != "inprogress" ] && [ "$STATUS" != "unsubmitted" ]; then
+            echo "Deposit $ZENODO_DEPOSIT_ID is not in an editable state (state=$STATUS). Aborting."
+            exit 1
+          fi
+
+          # Get the bucket URL for file uploads
+          BUCKET_URL=$(curl -sf \
+            -H "Authorization: Bearer $ZENODO_TOKEN" \
+            "https://zenodo.org/api/deposit/depositions/$ZENODO_DEPOSIT_ID" \
+            | python3 -c "import sys,json; print(json.load(sys.stdin)['links']['bucket'])")
+
+          # Upload the archive
+          echo "Uploading $ARCHIVE to bucket..."
+          curl -sf -X PUT \
+            -H "Authorization: Bearer $ZENODO_TOKEN" \
+            -H "Content-Type: application/octet-stream" \
+            --data-binary @"$ARCHIVE" \
+            "$BUCKET_URL/$ARCHIVE"
+
+          # Push metadata from .zenodo.json to Zenodo
+          python3 - <<'PYEOF'
+          import json, os, urllib.request
+
+          with open('.zenodo.json') as f:
+              meta = json.load(f)
+
+          payload = json.dumps({'metadata': meta}).encode()
+          req = urllib.request.Request(
+              f"https://zenodo.org/api/deposit/depositions/{os.environ['ZENODO_DEPOSIT_ID']}",
+              data=payload,
+              method='PUT',
+              headers={
+                  'Authorization': f"Bearer {os.environ['ZENODO_TOKEN']}",
+                  'Content-Type': 'application/json',
+              }
+          )
+          with urllib.request.urlopen(req) as resp:
+              result = json.load(resp)
+              print(f"Metadata updated. DOI: {result.get('doi', 'n/a')}")
+          PYEOF
+
+      - name: Summary
+        run: |
+          echo "## Release complete" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Tag:** \`${{ steps.version.outputs.tag }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Archive:** \`${{ steps.version.outputs.archive }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Zenodo deposit:** https://zenodo.org/deposit/${{ secrets.ZENODO_DEPOSIT_ID }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Now publish on Zenodo." >> "$GITHUB_STEP_SUMMARY"
