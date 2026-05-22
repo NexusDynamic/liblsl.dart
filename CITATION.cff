@@ -1,0 +1,54 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+title: "liblsl.dart: A Dart native API for Lab Streaming Layer (LSL)"
+version: "0.13.1"
+date-released: "2026-05-22"
+license: MIT
+repository-code: "https://github.com/NexusDynamic/liblsl.dart"
+url: "https://pub.dev/packages/liblsl"
+doi: "10.5281/zenodo.20340248"
+keywords:
+  - Lab Streaming Layer
+  - Dart
+  - Flutter
+  - Data streaming
+  - Cross-platform
+  - Multimodal
+authors:
+  - family-names: Ring
+    given-names: Luke Daniel
+    orcid: "https://orcid.org/0009-0000-0930-4172"
+    affiliation: "School of Communication and Culture, Department of Linguistics, Cognitive Science and Semiotics, Aarhus University, Denmark"
+    email: dev@zeyus.com
+  - family-names: Zamm
+    given-names: Anna
+    orcid: "https://orcid.org/0000-0002-3774-3516"
+    affiliation: "School of Communication and Culture, Department of Linguistics, Cognitive Science and Semiotics, Aarhus University, Denmark"
+  - family-names: Mathys
+    given-names: Chris
+    orcid: "https://orcid.org/0000-0003-4079-5453"
+    affiliation: "School of Communication and Culture, Department of Linguistics, Cognitive Science and Semiotics, Aarhus University, Denmark"
+  - family-names: Kappel
+    given-names: Simon Lind
+    orcid: "https://orcid.org/0000-0003-0583-2255"
+    affiliation: "Department of Electrical and Computer Engineering - Biomedical Engineering, Aarhus University, Denmark"
+preferred-citation:
+  type: article
+  title: "Liblsl.dart: A Dart native API for Lab Streaming Layer (LSL)"
+  journal: "Journal of Open Source Software"
+  year: 2026
+  # doi: "10.21105/joss.XXXXX"
+  authors:
+    - family-names: Ring
+      given-names: Luke Daniel
+      orcid: "https://orcid.org/0009-0000-0930-4172"
+    - family-names: Zamm
+      given-names: Anna
+      orcid: "https://orcid.org/0000-0002-3774-3516"
+    - family-names: Mathys
+      given-names: Chris
+      orcid: "https://orcid.org/0000-0003-4079-5453"
+    - family-names: Kappel
+      given-names: Simon Lind
+      orcid: "https://orcid.org/0000-0003-0583-2255"

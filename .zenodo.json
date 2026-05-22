@@ -1,0 +1,50 @@
+{
+  "upload_type": "software",
+  "title": "liblsl.dart: A Dart native API for Lab Streaming Layer (LSL)",
+  "description": "A Dart (and Flutter) native library for working with Lab Streaming Layer (LSL / liblsl). Provides cross-platform bindings (Android, iOS, Linux, macOS, Windows) to the liblsl C library, enabling real-time streaming of time-series data from mobile and embedded devices.",
+  "version": "0.13.1",
+  "license": "MIT",
+  "keywords": [
+    "Lab Streaming Layer",
+    "Dart",
+    "Flutter",
+    "Data streaming",
+    "Cross-platform",
+    "Multimodal"
+  ],
+  "creators": [
+    {
+      "name": "Ring, Luke Daniel",
+      "orcid": "0009-0000-0930-4172",
+      "affiliation": "School of Communication and Culture, Department of Linguistics, Cognitive Science and Semiotics, Aarhus University, Denmark"
+    },
+    {
+      "name": "Zamm, Anna",
+      "orcid": "0000-0002-3774-3516",
+      "affiliation": "School of Communication and Culture, Department of Linguistics, Cognitive Science and Semiotics, Aarhus University, Denmark"
+    },
+    {
+      "name": "Mathys, Chris",
+      "orcid": "0000-0003-4079-5453",
+      "affiliation": "School of Communication and Culture, Department of Linguistics, Cognitive Science and Semiotics, Aarhus University, Denmark"
+    },
+    {
+      "name": "Kappel, Simon Lind",
+      "orcid": "0000-0003-0583-2255",
+      "affiliation": "Department of Electrical and Computer Engineering - Biomedical Engineering, Aarhus University, Denmark"
+    }
+  ],
+  "related_identifiers": [
+    {
+      "identifier": "https://github.com/NexusDynamic/liblsl.dart",
+      "relation": "isSupplementTo",
+      "scheme": "url"
+    },
+    {
+      "identifier": "https://pub.dev/packages/liblsl",
+      "relation": "isDocumentedBy",
+      "scheme": "url"
+    }
+  ],
+  "communities": [{ "identifier": "joss" }]
+}
