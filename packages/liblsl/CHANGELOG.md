@@ -1,3 +1,8 @@
+# 0.13.2+0
+
+- Zenodo DOI: [10.5281/zenodo.20340248](https://doi.org/10.5281/zenodo.20340248)
+- JOSS Paper archive
+
 # 0.13.0+0
 
 - Updated `native_toolchain_c` to `^0.18.0`.
