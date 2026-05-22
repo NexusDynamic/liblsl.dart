@@ -80,8 +80,17 @@
   ],
   "license": "https://spdx.org/licenses/MIT",
   "name": "liblsl",
-  "operatingSystem": ["Android", "iOS", "Linux", "MacOS", "Windows"],
-  "programmingLanguage": ["Dart", "Flutter"],
+  "operatingSystem": [
+    "Android",
+    "iOS",
+    "Linux",
+    "MacOS",
+    "Windows"
+  ],
+  "programmingLanguage": [
+    "Dart",
+    "Flutter"
+  ],
   "relatedLink": [
     "https://nexusdynamic.org/",
     "https://zeyus.com/",

@@ -46,5 +46,9 @@
       "scheme": "url"
     }
   ],
-  "communities": [{ "identifier": "joss" }]
+  "communities": [
+    {
+      "identifier": "joss"
+    }
+  ]
 }
