@@ -105,7 +105,7 @@
     "https://pub.dev/packages/logging",
     "https://pub.dev/packages/meta"
   ],
-  "version": "0.13.1",
+  "version": "0.13.2",
   "continuousIntegration": "https://github.com/NexusDynamic/liblsl.dart/actions/workflows/test.yml",
   "developmentStatus": "active",
   "issueTracker": "https://github.com/NexusDynamic/liblsl.dart/issues"

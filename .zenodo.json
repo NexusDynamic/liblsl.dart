@@ -2,7 +2,7 @@
   "upload_type": "software",
   "title": "liblsl.dart: A Dart native API for Lab Streaming Layer (LSL)",
   "description": "A Dart (and Flutter) native library for working with Lab Streaming Layer (LSL / liblsl). Provides cross-platform bindings (Android, iOS, Linux, macOS, Windows) to the liblsl C library, enabling real-time streaming of time-series data from mobile and embedded devices.",
-  "version": "0.13.1",
+  "version": "0.13.2",
   "license": "MIT",
   "keywords": [
     "Lab Streaming Layer",
