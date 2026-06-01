@@ -350,7 +350,7 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
 
   bool get started => _started;
 
-  bool get running => !_disposed && _created && _started && !_paused;
+  bool get running => !disposed && created && started && !paused;
 
   @override
   Future<void> create() async {
