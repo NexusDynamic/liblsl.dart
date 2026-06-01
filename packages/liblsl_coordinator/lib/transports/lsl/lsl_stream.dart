@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:liblsl_coordinator/framework.dart';
 import 'package:liblsl_coordinator/transports/lsl.dart';
+
 // import 'package:meta/meta.dart';
 
 extension LSLType on StreamDataType {
@@ -348,6 +349,8 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
   IResourceManager? get manager => _manager;
 
   bool get started => _started;
+
+  bool get running => !_disposed && _created && _started && !_paused;
 
   @override
   Future<void> create() async {
