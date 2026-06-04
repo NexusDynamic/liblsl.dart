@@ -13,13 +13,13 @@ environment:
 
 dependencies:
   ffi: ^2.1.5
-  hooks: ^1.0.1
-  native_toolchain_c: ^0.18.0
+  hooks: ^2.0.2
+  native_toolchain_c: ^0.19.1
   code_assets: ^1.0.0
   logging: ^1.3.0
   meta: ^1.17.0
   fast_immutable_collections: ^11.1.0
-  android_libcpp_shared: ^0.1.1
+  android_libcpp_shared: ^0.2.0
 
 dev_dependencies:
   ffigen: ^20.1.1
