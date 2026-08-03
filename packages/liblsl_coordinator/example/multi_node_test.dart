@@ -127,6 +127,8 @@ Future<void> _runNode({
       channels: 3, // timestamp, node_id, sample_count
       sampleRate: 10.0,
       dataType: StreamDataType.double64,
+      // sendParticipantsReceiveCoordinator means that the participant nodes
+      // will not consume data sent either by other participants, or the coordinator
       participationMode:
           StreamParticipationMode.sendParticipantsReceiveCoordinator,
     );
@@ -453,6 +455,7 @@ Future<void> _runParticipantTestLogic(
   Timer? dataTimer;
   final nodeIdHash = nodeId.hashCode.abs() % 1000; // Unique ID for this node
   int messageReceivedCount = 0;
+  int messageSentCount = 0;
   StreamSubscription? inboxSubscription;
 
   // Wait for the test duration or until test completes
@@ -460,7 +463,7 @@ Future<void> _runParticipantTestLogic(
   final testCompleter = Completer<void>();
 
   // Listen for test commands
-  session.events.userCoordinationMessages.listen((event) async {
+  final ucSub = session.events.userCoordinationMessages.listen((event) async {
     switch (event.messageType) {
       case 'start_test_phase':
         final phase = event.payload['phase'] as int;
@@ -498,7 +501,13 @@ Future<void> _runParticipantTestLogic(
           testCompleter.complete();
         }
         logger.info('🏁 $nodeId: Test ended by coordinator');
-        logger.info('   $nodeId: FINAL message count: $messageReceivedCount');
+        logger.info(
+          '   $nodeId: FINAL received message count '
+          '(expected to be 0 when '
+          'StreamParticipationMode.sendParticipantsReceiveCoordinator'
+          '): $messageReceivedCount',
+        );
+        logger.info('   $nodeId: FINAL sent message count: $messageSentCount');
         dataTimer?.cancel();
         inboxSubscription?.cancel();
         final duration = event.payload['total_duration'];
@@ -517,8 +526,9 @@ Future<void> _runParticipantTestLogic(
   });
 
   // Listen for stream commands and generate data accordingly
-  session.events.streamStart.listen((event) async {
+  final ssSub = session.events.streamStart.listen((event) async {
     final testStream = await session.getDataStream(event.streamName);
+    inboxSubscription?.cancel(); // Cancel any previous subscription
     inboxSubscription = testStream.inbox.listen((data) {
       // logger.info('📥 $nodeId: Received data: $data');
       messageReceivedCount++;
@@ -530,20 +540,21 @@ Future<void> _runParticipantTestLogic(
       testStream,
       () => currentPhase,
       () => intensity,
+      () => messageSentCount++,
     );
   });
 
-  session.events.streamReady.listen((event) async {
+  final srSub = session.events.streamReady.listen((event) async {
     logger.info('✅ $nodeId: Stream ready acknowledged: ${event.streamName}');
   });
 
-  session.events.streamStop.listen((event) {
+  final stSub = session.events.streamStop.listen((event) {
     logger.info('📊 $nodeId: Data stream stopped: ${event.streamName}');
     dataTimer?.cancel();
   });
 
   // Listen for pause/resume commands to show coordination working
-  session.events.streamPause.listen((event) {
+  final spSub = session.events.streamPause.listen((event) {
     logger.info(
       '⏸️  $nodeId: PARTICIPANT received pause command for ${event.streamName}',
     );
@@ -552,7 +563,7 @@ Future<void> _runParticipantTestLogic(
     );
   });
 
-  session.events.streamResume.listen((event) {
+  final rsSub = session.events.streamResume.listen((event) {
     logger.info(
       '▶️  $nodeId: PARTICIPANT received resume command for ${event.streamName}',
     );
@@ -560,14 +571,14 @@ Future<void> _runParticipantTestLogic(
     logger.info('   $nodeId: Busy-wait polling resumed');
   });
 
-  session.events.streamFlush.listen((event) {
+  final sfSub = session.events.streamFlush.listen((event) {
     logger.info(
       '🚿 $nodeId: PARTICIPANT received flush command for ${event.streamName}',
     );
     logger.info('   $nodeId: Stream buffers cleared');
   });
 
-  session.events.streamDestroy.listen((event) {
+  final sdSub = session.events.streamDestroy.listen((event) {
     logger.info(
       '💥 $nodeId: PARTICIPANT received destroy command for ${event.streamName}',
     );
@@ -584,6 +595,15 @@ Future<void> _runParticipantTestLogic(
   } on TimeoutException {
     logger.info('⏰ $nodeId: Participant test timeout, completing...');
   }
+  // cancel subscriptions
+  await ucSub.cancel();
+  await ssSub.cancel();
+  await srSub.cancel();
+  await stSub.cancel();
+  await spSub.cancel();
+  await rsSub.cancel();
+  await sfSub.cancel();
+  await sdSub.cancel();
 }
 
 /// Generate test data for participants
@@ -593,6 +613,7 @@ Timer _startDataGeneration(
   LSLDataStream testStream,
   int Function() getCurrentPhase,
   String Function() getIntensity,
+  void Function() onSampleSent,
 ) {
   final random = Random();
   var sampleCount = 0;
@@ -627,6 +648,7 @@ Timer _startDataGeneration(
     ];
 
     testStream.sendData(data);
+    onSampleSent();
     sampleCount++;
 
     // logger.info status every 2 seconds

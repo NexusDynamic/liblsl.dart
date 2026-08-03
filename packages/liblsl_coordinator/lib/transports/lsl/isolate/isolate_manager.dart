@@ -4,7 +4,6 @@ import 'dart:async';
 import 'dart:collection';
 import 'dart:ffi';
 import 'dart:isolate';
-import 'package:collection/collection.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:liblsl/lsl.dart';
 
@@ -26,6 +25,7 @@ enum IsolateMessageType {
   resume, // 9
   flush, // 10
   data, // 11
+  bufferReleased, // 12
 }
 
 /// This is dumb, but despite Enum being immutable, it doesn't work
@@ -86,7 +86,21 @@ final class SampleMessage extends IsolateMessage {
 final class DataMessage extends IsolateMessage {
   final Pointer<NativeType> payload;
 
-  const DataMessage(this.payload, {super.requestID}) : super(11);
+  /// Index of the pooled buffer backing [payload]; echoed back via
+  /// [BufferReleasedMessage] once the worker has pushed the sample.
+  final int bufferIndex;
+
+  const DataMessage(this.payload, {required this.bufferIndex, super.requestID})
+    : super(11);
+}
+
+/// Sent from the outlet worker back to the main isolate once a pooled
+/// send buffer may be reused.
+@pragma('vm:deeply-immutable')
+final class BufferReleasedMessage extends IsolateMessage {
+  final int bufferIndex;
+
+  const BufferReleasedMessage(this.bufferIndex) : super(12);
 }
 
 /// Message to start isolate processing - immutable
@@ -220,7 +234,6 @@ final class IsolateWorkerConfig {
 /// Message sent from isolate to main
 final class IsolateDataMessage {
   final String streamId;
-  final String messageId;
   final DateTime timestamp;
   // Should be an immutable list (e.g. List.unmodifiable, and contain only immutable types)
   final IList<dynamic> data;
@@ -230,7 +243,6 @@ final class IsolateDataMessage {
 
   const IsolateDataMessage({
     required this.streamId,
-    required this.messageId,
     required this.timestamp,
     required this.data,
     this.sourceId,
@@ -240,7 +252,6 @@ final class IsolateDataMessage {
 
   Map<String, dynamic> toMap() => {
     'streamId': streamId,
-    'messageId': messageId,
     'timestamp': timestamp.toIso8601String(),
     'data': data,
     'sourceId': sourceId,
@@ -251,7 +262,6 @@ final class IsolateDataMessage {
   factory IsolateDataMessage.fromMap(Map<String, dynamic> map) {
     return IsolateDataMessage(
       streamId: map['streamId'] as String,
-      messageId: map['messageId'] as String,
       timestamp: DateTime.parse(map['timestamp'] as String),
       data: map['data'],
       sourceId: map['sourceId'] as String?,
@@ -295,6 +305,8 @@ sealed class StreamIsolate {
   // Communication ports - managed by this instance
   SendPort? _sendPort;
   ReceivePort? _receivePort;
+  ReceivePort? _errorPort;
+  ReceivePort? _exitPort;
   Isolate? _isolate;
 
   // Ready completer for synchronization
@@ -326,13 +338,49 @@ sealed class StreamIsolate {
     _receivePort = ReceivePort();
     _receivePort!.listen(_handleMessage);
 
+    // A crashed or exited isolate must fail all in-flight requests,
+    // otherwise their completers (and any awaiting sendData calls) hang
+    // forever.
+    _errorPort = ReceivePort();
+    _errorPort!.listen((error) {
+      logger.severe('[$isolateDebugName] Uncaught isolate error: $error');
+      _failPendingRequests(
+        StateError('Isolate for stream $streamId died: $error'),
+      );
+    });
+    _exitPort = ReceivePort();
+    _exitPort!.listen((_) {
+      _failPendingRequests(StateError('Isolate for stream $streamId exited'));
+    });
+
     final config = _createConfig();
     _isolate = await Isolate.spawn(
       _getWorkerFunction(),
       config,
       debugName: isolateDebugName,
+      onError: _errorPort!.sendPort,
+      onExit: _exitPort!.sendPort,
     );
     await _initialized.future;
+  }
+
+  /// Fails every in-flight request (and initialization, if still pending)
+  /// so no caller is left awaiting a response that can never arrive.
+  void _failPendingRequests(Object error) {
+    if (!_initialized.isCompleted) {
+      _initialized.completeError(error);
+      // The completer may have no awaiter yet; don't surface an unhandled
+      // async error for a failure that is already reported via completers.
+      _initialized.future.ignore();
+    }
+    if (_responseCompleters.isEmpty) return;
+    final pending = _responseCompleters.values.toList(growable: false);
+    _responseCompleters.clear();
+    for (final completer in pending) {
+      if (!completer.isCompleted) {
+        completer.completeError(error);
+      }
+    }
   }
 
   /// Send a message to the isolate - now sends objects directly!
@@ -428,16 +476,23 @@ sealed class StreamIsolate {
     _receivePort = null;
     _sendPort = null;
 
+    // Close notification ports before the kill so a normal stop doesn't
+    // route through the crash path.
+    _errorPort?.close();
+    _errorPort = null;
+    _exitPort?.close();
+    _exitPort = null;
+
     _isolate?.kill(priority: Isolate.immediate);
-    // await incomingData.drain();
-    // await _incomingDataController.close().timeout(
-    //   const Duration(seconds: 2),
-    //   onTimeout: () {
-    //     logger.warning(
-    //       'Timeout waiting for incoming data controller to close for stream $streamId',
-    //     );
-    //   },
-    // );
+    _isolate = null;
+
+    // Anything still awaiting a response (e.g. a timed-out stop request or
+    // in-flight sends) must not hang forever.
+    _failPendingRequests(StateError('Isolate for stream $streamId stopped'));
+
+    // Don't await: close() completes when the (already cancelled) listener
+    // is done, and teardown must not block on that.
+    unawaited(_incomingDataController.close());
   }
 
   /// Clean up resources
@@ -475,6 +530,8 @@ sealed class StreamIsolate {
     } else if (message is ResponseMessage) {
       final completer = _responseCompleters.remove(message.requestID);
       completer?.complete();
+    } else if (message is BufferReleasedMessage) {
+      _handleBufferReleased(message);
     } else if (message is Map<String, dynamic>) {
       // Handle status messages
       logger.warning('Unhandled isolate message: $message');
@@ -483,6 +540,9 @@ sealed class StreamIsolate {
 
   /// Create worker configuration - implemented by subclasses
   IsolateWorkerConfig _createConfig();
+
+  /// Buffer recycling - only meaningful for outlet isolates.
+  void _handleBufferReleased(BufferReleasedMessage message) {}
 
   /// Get worker function - implemented by subclasses
   Future<void> Function(IsolateWorkerConfig) _getWorkerFunction();
@@ -552,12 +612,19 @@ final class StreamInletIsolate extends StreamIsolate {
 
 /// Outlet isolate for sending data
 final class StreamOutletIsolate extends StreamIsolate {
+  /// Number of pooled native sample buffers. Sends only block when all
+  /// buffers are in flight, giving bounded backpressure without a
+  /// per-sample isolate round-trip.
+  static const int bufferPoolSize = 8;
+
   final int _outletAddress;
   final int _channelCount;
   final double _sampleRate;
   late final LSLPushSample _pushFn;
   final Lock _bufferLock = Lock();
-  late final LSLReusableBuffer<NativeType> _buffer;
+  late final List<LSLReusableBuffer<NativeType>> _buffers;
+  final ListQueue<int> _freeBuffers = ListQueue<int>(bufferPoolSize);
+  final ListQueue<Completer<void>> _bufferWaiters = ListQueue<Completer<void>>();
 
   StreamOutletIsolate({
     required super.streamId,
@@ -576,7 +643,14 @@ final class StreamOutletIsolate extends StreamIsolate {
          isolateDebugName: isolateDebugName ?? 'StreamOutletIsolate-$streamId',
        ) {
     _pushFn = LSLMapper().pushSampleMap[_dataTypeToChannelFormat(dataType)]!;
-    _buffer = _pushFn.createReusableBuffer(_channelCount);
+    _buffers = List.generate(
+      bufferPoolSize,
+      (_) => _pushFn.createReusableBuffer(_channelCount),
+      growable: false,
+    );
+    for (int i = 0; i < bufferPoolSize; i++) {
+      _freeBuffers.add(i);
+    }
   }
 
   static LSLChannelFormat _dataTypeToChannelFormat(StreamDataType dataType) {
@@ -598,17 +672,54 @@ final class StreamOutletIsolate extends StreamIsolate {
     }
   }
 
-  /// Send data through outlet
+  /// Send data through outlet.
+  ///
+  /// Completes once the sample has been handed to the outlet isolate (not
+  /// once LSL has pushed it). The backing buffer comes from a fixed pool of
+  /// [bufferPoolSize]; when every buffer is in flight this blocks until the
+  /// worker releases one, which bounds how far senders can run ahead.
   Future<void> sendData(IList<dynamic> data) async {
-    final requestRecord = _generateRequestID();
+    if (stopped) {
+      throw StateError('Cannot send data: isolate for $streamId is stopped');
+    }
+    // The lock preserves send ordering and serializes buffer acquisition.
     await _bufferLock.synchronized(() async {
-      _pushFn.listToBuffer(data, _buffer.buffer);
+      final index = await _acquireBuffer();
+      _pushFn.listToBuffer(data, _buffers[index].buffer);
       await sendDataMessage(
-        DataMessage(_buffer.buffer, requestID: requestRecord.$1),
+        DataMessage(_buffers[index].buffer, bufferIndex: index),
       );
-      // Wait for isolate to confirm data was pushed to LSL before releasing buffer
-      await requestRecord.$2.future;
     });
+  }
+
+  Future<int> _acquireBuffer() async {
+    while (_freeBuffers.isEmpty) {
+      if (stopped) {
+        throw StateError('Cannot send data: isolate for $streamId is stopped');
+      }
+      final waiter = Completer<void>();
+      _bufferWaiters.add(waiter);
+      await waiter.future;
+    }
+    return _freeBuffers.removeFirst();
+  }
+
+  @override
+  void _handleBufferReleased(BufferReleasedMessage message) {
+    _freeBuffers.add(message.bufferIndex);
+    if (_bufferWaiters.isNotEmpty) {
+      _bufferWaiters.removeFirst().complete();
+    }
+  }
+
+  @override
+  void _failPendingRequests(Object error) {
+    super._failPendingRequests(error);
+    // Senders parked on buffer acquisition must fail too - covers both
+    // clean stop and isolate crash/exit.
+    while (_bufferWaiters.isNotEmpty) {
+      _bufferWaiters.removeFirst().completeError(error);
+    }
   }
 
   Future<void> recreateOutlet(int address) async {
@@ -622,7 +733,12 @@ final class StreamOutletIsolate extends StreamIsolate {
   @override
   Future<void> dispose() async {
     await super.dispose();
-    _buffer.free();
+    for (final buffer in _buffers) {
+      // String buffers hold a native UTF-8 allocation per element from the
+      // last fill; release those before freeing the buffer itself.
+      _pushFn.cleanupBuffer(buffer.buffer, _channelCount);
+      buffer.free();
+    }
   }
 
   @override
@@ -914,13 +1030,14 @@ final class InletWorker extends IsolateWorker {
           await _handleAddInlet(message as AddInletMessage);
           break;
         case IsolateMessageType.removeInlet:
-          _handleRemoveInlet(message as RemoveInletMessage);
+          await _handleRemoveInlet(message as RemoveInletMessage);
           break;
         case IsolateMessageType.sample:
         case IsolateMessageType.data:
         case IsolateMessageType.recreateOutlet:
         case IsolateMessageType.initialized:
         case IsolateMessageType.requestResponse:
+        case IsolateMessageType.bufferReleased:
           // Not applicable for inlet workers
           break;
       }
@@ -965,9 +1082,7 @@ final class InletWorker extends IsolateWorker {
           }
           return;
         }
-        await inletsLock.synchronized(() async {
-          _pollInletsWorker();
-        });
+        await inletsLock.synchronized(_pollInletsWorker);
         if (buffer.isNotEmpty) {
           await bufferLock.synchronized(() {
             if (buffer.isNotEmpty) {
@@ -976,6 +1091,8 @@ final class InletWorker extends IsolateWorker {
             }
           });
         }
+        // Rate-limited internally (only refreshes every few seconds).
+        _updateTimeCorrections();
       });
     }
   }
@@ -1079,7 +1196,10 @@ final class InletWorker extends IsolateWorker {
     } catch (e) {
       logger.severe('Error destroying inlets: $e');
     }
-    // receivePort.close();
+    // Stop forwarding logs and release the port so the isolate can exit
+    // naturally (the response below still goes out on mainSendPort).
+    Log.sendPort = null;
+    receivePort.close();
   }
 
   Future<void> _handleAddInlet(AddInletMessage message) async {
@@ -1090,27 +1210,30 @@ final class InletWorker extends IsolateWorker {
       message.address,
       config.dataType,
     );
-    inletAddRemoveLock.synchronized(() {
+    await inletAddRemoveLock.synchronized(() {
       inlets.add(newInlet);
       timeCorrections.add(0.0);
     });
   }
 
-  void _handleRemoveInlet(RemoveInletMessage message) {
-    inletAddRemoveLock.synchronized(() {
-      int? index;
-      inlets.whereIndexed((i, inlet) {
-        if (inlet.streamInfo.streamInfo.address == message.address) {
-          index = i;
-          return true;
-        }
-        return false;
-      });
-      if (index != null) {
-        inlets[index!].destroy();
-        inlets.removeAt(index!);
-        timeCorrections.removeAt(index!);
+  Future<void> _handleRemoveInlet(RemoveInletMessage message) async {
+    await inletAddRemoveLock.synchronized(() async {
+      final index = inlets.indexWhere(
+        (inlet) => inlet.streamInfo.streamInfo.address == message.address,
+      );
+      if (index == -1) {
+        logger.warning(
+          'No inlet found for address ${message.address} in stream ${config.streamId}',
+        );
+        return;
       }
+      try {
+        await inlets[index].destroy();
+      } catch (e) {
+        logger.warning('Error destroying removed inlet: $e');
+      }
+      inlets.removeAt(index);
+      timeCorrections.removeAt(index);
     });
   }
 
@@ -1141,27 +1264,33 @@ final class InletWorker extends IsolateWorker {
     });
   }
 
-  // Inlet-specific polling using member variables instead of parameters
-  Future<void> _pollInletsWorker() async {
-    int index = 0;
-    for (final inlet in inlets) {
+  /// Upper bound of samples drained per inlet per tick so one noisy inlet
+  /// can't starve the others or the flush.
+  static const int _maxSamplesPerInletPerTick = 100;
+
+  // Inlet-specific polling using member variables instead of parameters.
+  // Fully synchronous: runs to completion without yielding, so buffer access
+  // needs no lock here (flush sites still serialize via bufferLock).
+  void _pollInletsWorker() {
+    for (int i = 0; i < inlets.length; i++) {
+      final inlet = inlets[i];
       try {
-        final sample = inlet.pullSampleSync(timeout: 0.0);
+        // Drain the inlet instead of taking a single sample, otherwise a
+        // producer faster than the poll rate builds an ever-growing backlog.
+        for (int n = 0; n < _maxSamplesPerInletPerTick; n++) {
+          final sample = inlet.pullSampleSync(timeout: 0.0);
+          if (sample.isEmpty) break;
 
-        if (sample.isNotEmpty) {
-          final message = IsolateDataMessage(
-            streamId: config.streamId,
-            messageId: generateUid(),
-            timestamp: DateTime.now(),
-            data: sample.data,
-            sourceId: inlet.streamInfo.sourceId,
-            lslTimestamp: sample.timestamp,
-            lslTimeCorrection: timeCorrections[index++],
+          buffer.add(
+            IsolateDataMessage(
+              streamId: config.streamId,
+              timestamp: DateTime.now(),
+              data: sample.data,
+              sourceId: inlet.streamInfo.sourceId,
+              lslTimestamp: sample.timestamp,
+              lslTimeCorrection: timeCorrections[i],
+            ),
           );
-
-          await bufferLock.synchronized(() {
-            buffer.add(message);
-          });
         }
       } catch (e) {
         logger.severe('Error polling inlet: $e');
@@ -1182,11 +1311,9 @@ final class InletWorker extends IsolateWorker {
           return state; // Skip polling if not running
         }
 
-        inletsLock.synchronized(() async {
-          await _pollInletsWorker();
-        });
+        await inletsLock.synchronized(_pollInletsWorker);
 
-        bufferLock.synchronized(() {
+        await bufferLock.synchronized(() {
           if (buffer.isNotEmpty) {
             config.mainSendPort.send(IsolateDataMessageList.from(buffer));
             buffer.clear();
@@ -1274,6 +1401,7 @@ final class OutletWorker extends IsolateWorker {
         case IsolateMessageType.removeInlet:
         case IsolateMessageType.initialized:
         case IsolateMessageType.requestResponse:
+        case IsolateMessageType.bufferReleased:
           // Not applicable for outlet workers
           break;
       }
@@ -1345,14 +1473,23 @@ final class OutletWorker extends IsolateWorker {
     if (completer != null && !completer!.isCompleted) {
       completer?.complete();
     }
+    // We own the streaminfo (see _recreateOutlet) - the main isolate only
+    // passed its address, so it must be freed here or it leaks.
+    outlet.streamInfo.destroy();
     await outlet.destroy();
-    // receivePort.close();
     logger.info('Destroyed outlet for stream ${config.streamId}');
+    // Stop forwarding logs and release the port so the isolate can exit
+    // naturally (the response below still goes out on mainSendPort).
+    Log.sendPort = null;
+    receivePort.close();
   }
 
   void _handleData(DataMessage message) {
     if (running && !paused) {
       outlet.pushSamplePointerSync(message.payload);
     }
+    // Always recycle the buffer, even when the sample was dropped
+    // (paused/stopped), or the pool on the main isolate drains permanently.
+    config.mainSendPort.send(BufferReleasedMessage(message.bufferIndex));
   }
 }

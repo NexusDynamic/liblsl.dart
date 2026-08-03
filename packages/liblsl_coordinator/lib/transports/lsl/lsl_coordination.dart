@@ -24,6 +24,7 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
   late final LSLTransport _transport;
   late final CoordinationController _controller;
   final Map<String, LSLDataStream> _dataStreams = {};
+  StreamSubscription<StreamLifecycleEvent>? _lifecycleSubscription;
 
   /// Single event stream for all coordination events.
   ///
@@ -71,7 +72,7 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
 
   void _setupStreamCommandHandlers() {
     // Handle all stream lifecycle events through the unified event stream
-    events.streamLifecycle.listen((event) async {
+    _lifecycleSubscription = events.streamLifecycle.listen((event) async {
       switch (event) {
         case StreamCreateEvent e:
           await _handleStreamCreate(e);
@@ -249,36 +250,12 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
     if (targetPhase.contains(currentPhase)) {
       return;
     }
-
-    final completer = Completer<void>();
-    late StreamSubscription subscription;
-    Timer? timeoutTimer;
-
-    subscription = events.phaseChanges.listen((event) {
-      if (targetPhase.contains(event.phase)) {
-        timeoutTimer?.cancel();
-        subscription.cancel();
-        if (!completer.isCompleted) {
-          completer.complete();
-        }
-      }
-    });
-
-    if (timeout != null) {
-      timeoutTimer = Timer(timeout, () {
-        logger.warning(
-          'Timeout waiting for phase $targetPhase after ${timeout.inSeconds}s (current: $currentPhase)',
-        );
-        subscription.cancel();
-        if (!completer.isCompleted) {
-          completer.completeError(
-            TimeoutException('Timeout waiting for phase $targetPhase', timeout),
-          );
-        }
-      });
-    }
-
-    return completer.future;
+    await waitForEvent<PhaseChangedEvent>(
+      events.phaseChanges,
+      (event) => targetPhase.contains(event.phase),
+      timeout: timeout,
+      description: 'phase $targetPhase (current: $currentPhase)',
+    );
   }
 
   /// Create a data stream with automatic setup
@@ -425,51 +402,29 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
       'Waiting for ${expectedNodeUIds.length} participants to be ready for stream $streamName: $expectedNodeUIds',
     );
 
-    final completer = Completer<void>();
-    StreamSubscription<StreamReadyEvent>? subscription;
-
-    // Set up timeout
-    final timer = Timer(timeout, () {
-      if (!completer.isCompleted) {
-        final missingNodes = expectedNodeUIds.difference(readyNodes);
-        logger.severe(
-          'Timeout waiting for participants to be ready for stream $streamName. Missing: $missingNodes',
-        );
-        completer.completeError(
-          TimeoutException(
-            'Timeout waiting for participants to be ready for stream $streamName. Missing nodes: $missingNodes',
-            timeout,
-          ),
-        );
-      }
-    });
-
-    // Listen for streamReady events
-    subscription = events.streamReady.listen((event) {
-      if (event.streamName == streamName &&
-          expectedNodeUIds.contains(event.fromNodeUId)) {
-        readyNodes.add(event.fromNodeUId);
-        logger.info(
-          'Participant ${event.fromNodeUId} ready for stream $streamName (${readyNodes.length}/${expectedNodeUIds.length})',
-        );
-
-        // Check if all participants are ready
-        if (readyNodes.length == expectedNodeUIds.length) {
-          logger.info(
-            'All ${expectedNodeUIds.length} participants ready for stream $streamName',
-          );
-          if (!completer.isCompleted) {
-            completer.complete();
-          }
-        }
-      }
-    });
-
     try {
-      await completer.future;
-    } finally {
-      timer.cancel();
-      await subscription.cancel();
+      await waitForEvent<StreamReadyEvent>(events.streamReady, (event) {
+        if (event.streamName == streamName &&
+            expectedNodeUIds.contains(event.fromNodeUId)) {
+          readyNodes.add(event.fromNodeUId);
+          logger.info(
+            'Participant ${event.fromNodeUId} ready for stream $streamName (${readyNodes.length}/${expectedNodeUIds.length})',
+          );
+        }
+        return readyNodes.length == expectedNodeUIds.length;
+      }, timeout: timeout);
+      logger.info(
+        'All ${expectedNodeUIds.length} participants ready for stream $streamName',
+      );
+    } on TimeoutException {
+      final missingNodes = expectedNodeUIds.difference(readyNodes);
+      logger.severe(
+        'Timeout waiting for participants to be ready for stream $streamName. Missing: $missingNodes',
+      );
+      throw TimeoutException(
+        'Timeout waiting for participants to be ready for stream $streamName. Missing nodes: $missingNodes',
+        timeout,
+      );
     }
   }
 
@@ -610,13 +565,13 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
   }
 
   Future<void> sendUserMessage(
-    String messageId,
+    String messageType,
     String description, [
     Map<String, dynamic>? payload,
     String? parentMessageId,
   ]) async {
     await _controller.sendUserMessage(
-      messageId,
+      messageType,
       description,
       payload ?? {},
       parentMessageId: parentMessageId,
@@ -630,66 +585,30 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
   // Convenience method for common coordination patterns
   Future<void> waitForMinNodes(int minNodes, {Duration? timeout}) async {
     if (connectedNodes.length >= minNodes) return;
-
-    final completer = Completer<void>();
-    late StreamSubscription subscription;
-    Timer? timeoutTimer;
-
-    subscription = events.nodeJoined.listen((_) {
-      if (connectedNodes.length >= minNodes) {
-        timeoutTimer?.cancel();
-        subscription.cancel();
-        if (!completer.isCompleted) {
-          completer.complete();
-        }
-      }
-    });
-
-    if (timeout != null) {
-      timeoutTimer = Timer(timeout, () {
-        subscription.cancel();
-        if (!completer.isCompleted) {
-          completer.completeError(
-            TimeoutException('Timeout waiting for minimum nodes', timeout),
-          );
-        }
-      });
-    }
-
-    return completer.future;
+    await waitForEvent<NodeJoinedEvent>(
+      events.nodeJoined,
+      (_) => connectedNodes.length >= minNodes,
+      timeout: timeout,
+      description: 'minimum of $minNodes nodes',
+    );
   }
 
-  /// Wait for a specific user message
-  Future<UserCoordinationEvent> waitForUserMessage(
-    String messageId, {
+  /// Wait for a user message of the given [messageType] (the first positional
+  /// argument passed to [sendUserMessage] on the sending node).
+  ///
+  /// Matches messages from either direction: coordinator broadcasts
+  /// ([UserCoordinationEvent]) and participant-to-coordinator messages
+  /// ([UserParticipantEvent]).
+  Future<UserMessageEvent> waitForUserMessage(
+    String messageType, {
     Duration? timeout,
-  }) async {
-    final completer = Completer<UserCoordinationEvent>();
-    late StreamSubscription subscription;
-    Timer? timeoutTimer;
-
-    subscription = events.userCoordinationMessages.listen((event) {
-      if (event.messageId == messageId) {
-        timeoutTimer?.cancel();
-        subscription.cancel();
-        if (!completer.isCompleted) {
-          completer.complete(event);
-        }
-      }
-    });
-
-    if (timeout != null) {
-      timeoutTimer = Timer(timeout, () {
-        subscription.cancel();
-        if (!completer.isCompleted) {
-          completer.completeError(
-            TimeoutException('Timeout waiting for message $messageId', timeout),
-          );
-        }
-      });
-    }
-
-    return completer.future;
+  }) {
+    return waitForEvent<UserMessageEvent>(
+      events.userMessages,
+      (event) => event.messageType == messageType,
+      timeout: timeout,
+      description: 'user message $messageType',
+    );
   }
 
   @override
@@ -707,10 +626,11 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
     }
     _dataStreams.clear();
 
-    // Dispose controller (handles cleanup and leaving messages)
+    // Dispose the controller first: it still needs the transport-managed
+    // discovery resource and the coordination stream to announce leaving.
     logger.finest('Leaving coordination session...');
-    await _transport.dispose();
     await _controller.dispose();
+    await _transport.dispose();
 
     logger.info('Left coordination session');
   }
@@ -721,6 +641,8 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
     if (joined) {
       await leave();
     }
+    await _lifecycleSubscription?.cancel();
+    _lifecycleSubscription = null;
     await super.dispose();
 
     logger.finest('Disposed LSL Coordination Session');

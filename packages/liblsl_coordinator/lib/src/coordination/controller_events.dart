@@ -74,6 +74,23 @@ final class NodeLeftEvent extends NodeEvent {
   });
 }
 
+/// Emitted (coordinator side) when a node's join request is rejected.
+///
+/// Carries only the UID because the rejected node never became a [Node]
+/// in the topology.
+final class NodeJoinRejectedEvent extends ControllerEvent {
+  final String rejectedNodeUId;
+  final String reason;
+
+  NodeJoinRejectedEvent({
+    required this.rejectedNodeUId,
+    required this.reason,
+    required super.fromNodeUId,
+    super.messageId,
+    super.parentMessageId,
+  });
+}
+
 // =============================================================================
 // Stream Lifecycle Events
 // =============================================================================
@@ -272,6 +289,10 @@ extension ControllerEventStreamExtensions on Stream<ControllerEvent> {
 
   /// Filter to node left events only.
   Stream<NodeLeftEvent> get nodeLeft => _ofType<NodeLeftEvent>();
+
+  /// Filter to node join rejection events only (coordinator side).
+  Stream<NodeJoinRejectedEvent> get nodeJoinRejected =>
+      _ofType<NodeJoinRejectedEvent>();
 
   /// Filter to all stream lifecycle events.
   Stream<StreamLifecycleEvent> get streamLifecycle =>

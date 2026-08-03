@@ -428,21 +428,11 @@ class LslDiscovery extends LSLResource implements IPausable, IResourceManager {
       if (disposed) return;
       await super.dispose();
 
-      // Close event controller
+      // Close event controller. Not awaited: the single subscriber has been
+      // cancelled by the controller at this point, so close()'s future would
+      // never complete.
       logger.finest('Closing discovery event controller');
-      // TODO: investigate every stream close with timeout
-      // it's happening too often indicating that there are listeners not being
-      // properly disposed
-
-      // if (!_eventController.isClosed) {
-      //   // await events.drain();
-      //   // await _eventController.close().timeout(
-      //   //   const Duration(seconds: 2),
-      //   //   onTimeout: () {
-      //   //     logger.warning('Timeout while closing discovery event controller');
-      //   //   },
-      //   // );
-      // }
+      unawaited(_eventController.close());
 
       // Ensure no discovery is in progress so we can safely clear the stream
       // infos

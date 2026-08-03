@@ -332,9 +332,10 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
 
   StreamSubscription? _outgoingSubscription;
   StreamSubscription? _incomingSubscription;
+  Timer? _directPollTimer;
 
   // State
-  bool _created = true;
+  bool _created = false;
   bool _disposed = false;
   bool _started = false;
   IResourceManager? _manager;
@@ -357,51 +358,20 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
     if (_created) return;
     if (_disposed) throw StateError('Cannot create disposed stream');
 
-    // No isolate setup needed here - isolates are created per stream operation
-
-    // // Create outlet
-    // final streamInfo = await LSLStreamInfoHelper.createStreamInfo(
-    //   config: config,
-    //   sessionConfig: streamSessionConfig,
-    //   node: streamNode,
-    // );
-
-    // // Setup outlet based on isolate usage
-    // if (useIsolates) {
-    //   // Create outlet isolate instance
-    //   _outletIsolate = IsolateStreamManager.createOutletIsolate(
-    //     streamId: id,
-    //     dataType: config.dataType,
-    //     useBusyWaitInlets: useBusyWaitInlets,
-    //     useBusyWaitOutlets: useBusyWaitOutlets,
-    //     pollingInterval: _getPollingInterval(),
-    //     outletAddress: streamInfo.streamInfo.address,
-    //     channelCount: config.channels,
-    //     sampleRate: config.sampleRate,
-    //   );
-    //   await _outletIsolate!.create();
-    //   // Don't create outlet in main thread when using isolates
-    //   _outletResource = null;
-    // } else {
-    //   // When not using isolates: create outlet in main thread
-    //   _outletResource = await lslTransport.createOutlet(streamInfo: streamInfo);
-    // }
-
+    // No isolate setup needed here - isolates and outlet/inlet wiring are
+    // created per stream operation (createOutlet / addInlet).
     _created = true;
-
-    // Start processing outbox
-    _startOutboxProcessing();
   }
 
   Duration _getPollingInterval() {
-    if (useBusyWaitOutlets) {
-      // For busy-wait, use microsecond precision based on sample rate
-      final microsecondsPerSample = (1000000 / config.sampleRate).round();
-      return Duration(microseconds: microsecondsPerSample);
-    } else {
-      // For coordination streams, use reasonable polling interval
-      return Duration(milliseconds: 10);
+    // Poll at the sample period, but never slower than 10ms (receive latency
+    // is bounded by the poll interval) and never faster than the mode can
+    // sustain: busy-wait handles sub-millisecond cadence, timers do not.
+    final microsecondsPerSample = (1000000 / config.sampleRate).round();
+    if (useBusyWaitInlets || useBusyWaitOutlets) {
+      return Duration(microseconds: microsecondsPerSample.clamp(100, 10000));
     }
+    return Duration(microseconds: microsecondsPerSample.clamp(1000, 10000));
   }
 
   @override
@@ -544,7 +514,12 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
     Duration resolveTimeout = const Duration(seconds: 5),
   }) async {
     if (_disposed) return;
-    if (hasInletForSource(node.uId)) {
+    // Inlets are keyed by full source ID (name//role//uId//id), not node uId.
+    final expectedSourceId = LSLStreamInfoHelper.generateSourceID(
+      config,
+      node: node,
+    );
+    if (hasInletForSource(expectedSourceId)) {
       logger.finer('Inlet for node ${node.id} (${node.uId}) already exists');
       return;
     }
@@ -641,6 +616,9 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
     // Stop the stream first
     await stop();
 
+    _directPollTimer?.cancel();
+    _directPollTimer = null;
+
     if (_inletIsolate != null) {
       await _incomingSubscription?.cancel();
       _incomingSubscription = null;
@@ -659,7 +637,8 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
 
   void _startDirectPolling() {
     // For non-isolate mode, use regular timers
-    Timer.periodic(_getPollingInterval(), (_) async {
+    _directPollTimer?.cancel();
+    _directPollTimer = Timer.periodic(_getPollingInterval(), (_) async {
       if (!_started || paused) return;
 
       for (final inletResource in _inletResources) {
@@ -673,26 +652,6 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
           }
         } catch (e) {
           logger.warning('Error polling inlet: $e');
-        }
-      }
-    });
-  }
-
-  void _startOutboxProcessing() {
-    _outgoingSubscription = _outgoingController.stream.listen((message) async {
-      if (!_started || paused) return;
-
-      final sampleData = _createSampleFromMessage(message);
-
-      if (useIsolates && _outletIsolate != null) {
-        // Send through isolate
-        await _outletIsolate!.sendData(sampleData);
-      } else if (_outletResource != null) {
-        // Direct send
-        try {
-          _outletResource!.outlet.pushSample(sampleData);
-        } catch (e) {
-          logger.warning('Failed to send message: $e');
         }
       }
     });
@@ -757,22 +716,11 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
     logger.finest('Disposing message controllers for stream ${config.name}');
     await _outgoingSubscription?.cancel();
     await _incomingSubscription?.cancel();
-    // await _incomingController.close().timeout(
-    //   Duration(seconds: 2),
-    //   onTimeout: () {
-    //     logger.warning(
-    //       'Timeout closing incoming controller for ${config.name}, forcing close',
-    //     );
-    //   },
-    // );
-    // await _outgoingController.close().timeout(
-    //   Duration(seconds: 2),
-    //   onTimeout: () {
-    //     logger.warning(
-    //       'Timeout closing outgoing controller for ${config.name}, forcing close',
-    //     );
-    //   },
-    // );
+    // Subscriptions are cancelled, so close() must not be awaited: its future
+    // only completes once a listener drains the stream, which will never
+    // happen now. unawaited close still releases the controller.
+    unawaited(_incomingController.close());
+    unawaited(_outgoingController.close());
 
     // Dispose LSL resources
     _outletResource?.dispose();
@@ -875,7 +823,11 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
       ) async {
         if (!_disposed && _outletIsolate != null) {
           final sampleData = _createSampleFromMessage(message);
-          await _outletIsolate!.sendData(sampleData);
+          try {
+            await _outletIsolate!.sendData(sampleData);
+          } catch (e) {
+            logger.warning('Failed to send message on ${config.name}: $e');
+          }
         }
       });
       await _outletIsolate!.start();
@@ -935,8 +887,14 @@ class LSLDataStream extends DataStream<DataStreamConfig, IMessage>
   @override
   String get description => 'High-precision data stream for ${config.name}';
 
-  /// Send typed data based on stream configuration
-  void sendData(Iterable<dynamic> data) {
+  /// Send typed data based on stream configuration.
+  ///
+  /// The returned future completes once the sample has been handed to the
+  /// outlet isolate. Awaiting it is optional but provides backpressure: when
+  /// all pooled send buffers are in flight the future only completes after
+  /// one frees up. Send failures are logged, not thrown, so fire-and-forget
+  /// callers stay safe.
+  Future<void> sendData(Iterable<dynamic> data) {
     if (!started) throw StateError('Stream not started');
 
     if (data.length != config.channels) {
@@ -950,11 +908,13 @@ class LSLDataStream extends DataStream<DataStreamConfig, IMessage>
 
     // Send directly through outlet or isolate
     if (useIsolates && _outletIsolate != null) {
-      // logger.severe("Sending data through isolate: $data");
-      _outletIsolate!.sendData(iData);
+      return _outletIsolate!.sendData(iData).catchError((Object e) {
+        logger.warning('Failed to send data on ${config.name}: $e');
+      });
     } else if (_outletResource != null) {
       _outletResource!.outlet.pushSample(iData);
     }
+    return Future.value();
   }
 
   @override
@@ -965,7 +925,8 @@ class LSLDataStream extends DataStream<DataStreamConfig, IMessage>
     _streamNode = newNode;
   }
 
-  void sendDataTyped<T>(Iterable<T> data) {
+  /// Typed variant of [sendData]; see there for await/backpressure semantics.
+  Future<void> sendDataTyped<T>(Iterable<T> data) {
     if (!started) throw StateError('Stream not started');
 
     if (data.length != config.channels) {
@@ -978,10 +939,13 @@ class LSLDataStream extends DataStream<DataStreamConfig, IMessage>
 
     // Send directly through outlet or isolate
     if (useIsolates && _outletIsolate != null) {
-      _outletIsolate!.sendData(IList(data));
+      return _outletIsolate!.sendData(IList(data)).catchError((Object e) {
+        logger.warning('Failed to send data on ${config.name}: $e');
+      });
     } else if (_outletResource != null) {
       _outletResource!.outlet.pushSample(IList(data));
     }
+    return Future.value();
   }
 
   void _validateDataType(Iterable<dynamic> data) {
@@ -1016,87 +980,61 @@ class LSLDataStream extends DataStream<DataStreamConfig, IMessage>
 
   @override
   IMessage? _createMessageFromIsolateData(IsolateDataMessage data) {
-    // Create appropriate message based on data type
-    //logger.severe("Creating message from isolate data: $data");
-    switch (config.dataType) {
-      case StreamDataType.float32:
-      case StreamDataType.double64:
-        if (data.data.every((v) => v is num)) {
-          return MessageFactory.double64Message(
-              data: data.data as IList<double>,
-              channels: config.channels,
-              timestamp: data.timestamp,
-            )
-            ..setMetadata('lsl_timestamp', data.lslTimestamp)
-            ..setMetadata('lsl_time_correction', data.lslTimeCorrection)
-            ..setMetadata('received_at', DateTime.now().toIso8601String());
-        }
-        break;
-      case StreamDataType.int8:
-        if (data.data.every((v) => v is int)) {
-          return MessageFactory.int8Message(
-              data: data.data as IList<int>,
-              channels: config.channels,
-              timestamp: data.timestamp,
-            )
-            ..setMetadata('lsl_timestamp', data.lslTimestamp)
-            ..setMetadata('lsl_time_correction', data.lslTimeCorrection)
-            ..setMetadata('received_at', DateTime.now().toIso8601String());
-        }
-        break;
-      case StreamDataType.int16:
-        if (data.data.every((v) => v is int)) {
-          return MessageFactory.int16Message(
-              data: data.data as IList<int>,
-              channels: config.channels,
-              timestamp: data.timestamp,
-            )
-            ..setMetadata('lsl_timestamp', data.lslTimestamp)
-            ..setMetadata('lsl_time_correction', data.lslTimeCorrection)
-            ..setMetadata('received_at', DateTime.now().toIso8601String());
-        }
-        break;
-      case StreamDataType.int32:
-        if (data.data.every((v) => v is int)) {
-          return MessageFactory.int32Message(
-              data: data.data as IList<int>,
-              channels: config.channels,
-              timestamp: data.timestamp,
-            )
-            ..setMetadata('lsl_timestamp', data.lslTimestamp)
-            ..setMetadata('lsl_time_correction', data.lslTimeCorrection)
-            ..setMetadata('received_at', DateTime.now().toIso8601String());
-        }
-        break;
-      case StreamDataType.int64:
-        if (data.data.every((v) => v is int)) {
-          return MessageFactory.int64Message(
-              data: data.data as IList<int>,
-              channels: config.channels,
-              timestamp: data.timestamp,
-            )
-            ..setMetadata('lsl_timestamp', data.lslTimestamp)
-            ..setMetadata('lsl_time_correction', data.lslTimeCorrection)
-            ..setMetadata('received_at', DateTime.now().toIso8601String());
-        }
-        break;
-      case StreamDataType.string:
-        if (data.data.every((v) => v is String)) {
-          return MessageFactory.stringMessage(
-              data: data.data as IList<String>,
-              channels: config.channels,
-              timestamp: data.timestamp,
-            )
-            ..setMetadata('lsl_timestamp', data.lslTimestamp)
-            ..setMetadata('lsl_time_correction', data.lslTimeCorrection)
-            ..setMetadata('received_at', DateTime.now().toIso8601String());
-        }
-        break;
+    // The isolate's inlets are created with config.dataType, so the payload
+    // list type is already correct - no per-sample element scan needed.
+    // Metadata holds raw values (double / DateTime), not formatted strings;
+    // format at the consumer if needed.
+    try {
+      final Message message;
+      switch (config.dataType) {
+        case StreamDataType.float32:
+        case StreamDataType.double64:
+          message = MessageFactory.double64Message(
+            data: data.data as IList<double>,
+            channels: config.channels,
+            timestamp: data.timestamp,
+          );
+        case StreamDataType.int8:
+          message = MessageFactory.int8Message(
+            data: data.data as IList<int>,
+            channels: config.channels,
+            timestamp: data.timestamp,
+          );
+        case StreamDataType.int16:
+          message = MessageFactory.int16Message(
+            data: data.data as IList<int>,
+            channels: config.channels,
+            timestamp: data.timestamp,
+          );
+        case StreamDataType.int32:
+          message = MessageFactory.int32Message(
+            data: data.data as IList<int>,
+            channels: config.channels,
+            timestamp: data.timestamp,
+          );
+        case StreamDataType.int64:
+          message = MessageFactory.int64Message(
+            data: data.data as IList<int>,
+            channels: config.channels,
+            timestamp: data.timestamp,
+          );
+        case StreamDataType.string:
+          message = MessageFactory.stringMessage(
+            data: data.data as IList<String>,
+            channels: config.channels,
+            timestamp: data.timestamp,
+          );
+      }
+      return message
+        ..setMetadata('lsl_timestamp', data.lslTimestamp)
+        ..setMetadata('lsl_time_correction', data.lslTimeCorrection)
+        ..setMetadata('received_at', DateTime.now());
+    } catch (e) {
+      logger.severe(
+        'Failed to create ${config.dataType} message from isolate data: $e',
+      );
+      return null;
     }
-    logger.severe(
-      'Failed to create message from isolate data: incompatible types in ${data.data}',
-    );
-    return null;
   }
 
   @override
@@ -1105,7 +1043,6 @@ class LSLDataStream extends DataStream<DataStreamConfig, IMessage>
     return _createMessageFromIsolateData(
       IsolateDataMessage(
         streamId: id,
-        messageId: generateUid(),
         timestamp: DateTime.now(),
         data: sample.data,
         lslTimestamp: sample.timestamp,
@@ -1226,7 +1163,7 @@ class LSLCoordinationStream
         )
         ..setMetadata('lsl_timestamp', data.lslTimestamp)
         ..setMetadata('lsl_time_correction', data.lslTimeCorrection)
-        ..setMetadata('received_at', DateTime.now().toIso8601String());
+        ..setMetadata('received_at', DateTime.now());
     }
     return null;
   }

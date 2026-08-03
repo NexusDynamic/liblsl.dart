@@ -221,6 +221,13 @@ class CoordinatorMessageHandler extends CoordinationMessageHandler {
     );
 
     await sendMessage(rejectMessage);
+    _eventController.add(
+      NodeJoinRejectedEvent(
+        rejectedNodeUId: nodeUId,
+        reason: reason,
+        fromNodeUId: thisNode.uId,
+      ),
+    );
     logger.info('Rejected join from node $nodeUId: $reason');
   }
 

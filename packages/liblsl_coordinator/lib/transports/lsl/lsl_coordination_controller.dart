@@ -334,9 +334,13 @@ class CoordinationController {
     );
 
     // Forward handler events to the unified event stream
-    _handlerEventSubscription = _coordinatorHandler!.events.listen(
-      _eventController.add,
-    );
+    _handlerEventSubscription = _coordinatorHandler!.events.listen((event) {
+      _eventController.add(event);
+      if (event is NodeJoinRejectedEvent) {
+        // Allow the node to be offered a join again if capacity frees up.
+        _pendingJoinNodeUIds.remove(event.rejectedNodeUId);
+      }
+    });
 
     // Start heartbeat
     _startHeartbeat();
