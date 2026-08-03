@@ -1,12 +1,15 @@
 import 'dart:ffi';
+import 'dart:typed_data';
 
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:liblsl/lsl.dart';
 import 'package:liblsl/native_liblsl.dart';
+import 'package:liblsl/src/ffi/bindings_ex.dart';
 import 'package:liblsl/src/ffi/mem.dart';
 import 'package:liblsl/src/lsl/base.dart';
 import 'package:liblsl/src/lsl/isolate_manager.dart';
 import 'package:liblsl/src/lsl/lsl_io_mixin.dart';
+import 'package:liblsl/src/util/chunk_buffer.dart';
 
 /// A unified LSL inlet that supports both isolated and direct execution modes.
 ///
@@ -65,13 +68,35 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// Default is [LSL_FOREVER], which means it will wait indefinitely.
   final double createTimeout;
 
+  /// Transport flags applied at creation via `lsl_create_inlet_ex`.
+  ///
+  /// An empty set (the default) uses the legacy `lsl_create_inlet` call and
+  /// changes no behavior. See [LSLOutlet.transportOptions] for the
+  /// [LSLTransportOptions.syncBlocking] semantics; the buffer-size flags
+  /// change the unit of [maxBuffer] (samples or thousandths).
+  final Set<LSLTransportOptions> transportOptions;
+
   /// Reusable buffer for pulling samples.
-  late final LSLReusableBuffer _buffer;
+  /// Null until [create]/[createFromPointer] has set up the pull buffer, so
+  /// [destroy] stays safe when creation failed part-way.
+  LSLReusableBuffer? _buffer;
+
+  LSLReusableBuffer get _bufferBang =>
+      _buffer ?? (throw LSLException('Inlet buffer not initialized'));
 
   /// Pull function for converting raw data to Dart types.
   /// This is initialized based on the [streamInfo] type.
   /// It provides methods to create reusable buffers and pull samples.
   late final LSLPullSample _pullFn;
+
+  /// Chunk pull function; resolved lazily on the first chunk pull.
+  LSLPullChunk? _pullChunkFn;
+
+  /// Reusable native chunk buffer; lazily allocated on first chunk pull.
+  LSLChunkBuffer? _chunkBuffer;
+
+  /// Guards the shared chunk buffer against concurrent isolated chunk ops.
+  bool _chunkOpInFlight = false;
 
   /// Whether the inlet is created using isolates or direct FFI calls.
   @override
@@ -150,6 +175,7 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
     this.chunkSize = 0,
     this.recover = true,
     this.createTimeout = LSL_FOREVER,
+    this.transportOptions = const {},
     bool useIsolates = true,
   }) : _useIsolates = useIsolates;
 
@@ -167,6 +193,7 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// **See also:** [destroy] to clean up resources
   @override
   Future<LSLInlet<T>> create() async {
+    LSLOutlet.validateTransportOptions(transportOptions, streamInfo);
     super.create();
     _managed = true;
     // Create the inlet based on the execution mode
@@ -201,7 +228,10 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
     }
     _inlet = null;
     _isolateManager = null;
-    _buffer.free();
+    _buffer?.free();
+    _buffer = null;
+    _chunkBuffer?.free();
+    _chunkBuffer = null;
   }
 
   /// Pulls a sample from the inlet.
@@ -245,6 +275,84 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   LSLSample<T> pullSampleSync({double timeout = 0.0}) =>
       requireDirect(() => _pullSampleDirect(timeout));
 
+  /// Pulls a chunk of buffered samples from the inlet.
+  ///
+  /// **Parameters:**
+  /// - [maxSamples]: Upper bound on samples returned per call (default: 512).
+  /// - [timeout]: Only applies while the buffer is empty — once at least one
+  ///   sample is available the call returns immediately with everything
+  ///   buffered (up to [maxSamples]).
+  ///
+  /// **Returns:** An [LSLChunk] with one list per sample and one timestamp
+  /// per sample; empty if nothing arrived within [timeout].
+  ///
+  /// **See also:** [pullChunkSync], [pullChunkTyped]
+  Future<LSLChunk<T>> pullChunk({int maxSamples = 512, double timeout = 0.0}) =>
+      _useIsolates
+      ? _pullChunkIsolated(maxSamples, timeout)
+      : Future.value(_pullChunkDirect(maxSamples, timeout));
+
+  /// Synchronously pulls a chunk of buffered samples.
+  ///
+  /// **Direct mode only** - throws [LSLException] if `useIsolates: true`.
+  /// See [pullChunk] for parameter semantics.
+  LSLChunk<T> pullChunkSync({int maxSamples = 512, double timeout = 0.0}) =>
+      requireDirect(() => _pullChunkDirect(maxSamples, timeout));
+
+  /// Pulls a chunk as flat [TypedData] (fast path).
+  ///
+  /// The returned [LSLChunkTyped.data] is a fresh typed list matching the
+  /// stream's channel format (`sampleCount * channelCount` values,
+  /// sample-major); it remains valid after later pulls. Not available for
+  /// string streams ([UnsupportedError]). See [pullChunk] for semantics.
+  Future<LSLChunkTyped> pullChunkTyped({
+    int maxSamples = 512,
+    double timeout = 0.0,
+  }) => _useIsolates
+      ? _pullChunkTypedIsolated(maxSamples, timeout)
+      : Future.value(_pullChunkTypedDirect(maxSamples, timeout));
+
+  /// Synchronously pulls a chunk as flat [TypedData].
+  ///
+  /// **Direct mode only** - throws [LSLException] if `useIsolates: true`.
+  /// See [pullChunkTyped].
+  LSLChunkTyped pullChunkTypedSync({
+    int maxSamples = 512,
+    double timeout = 0.0,
+  }) => requireDirect(() => _pullChunkTypedDirect(maxSamples, timeout));
+
+  /// Pulls a chunk and returns raw pointers into the reusable buffer
+  /// (zero-copy escape hatch).
+  ///
+  /// **Direct mode only.** The pointers are valid until the next chunk pull
+  /// on this inlet or its destruction. For string streams the data buffer
+  /// holds `char*` entries owned by liblsl — the caller must release each
+  /// with `lsl_destroy_string`.
+  LSLChunkPointer pullChunkPointerSync({
+    int maxSamples = 512,
+    double timeout = 0.0,
+  }) => requireDirect(() {
+    final pullFn = _ensurePullChunkFn();
+    final buf = _ensureChunkBuffer(maxSamples);
+    final channels = streamInfo.channelCount;
+    final elements = pullFn.pullInto(
+      _inletBang,
+      buf.data,
+      buf.timestamps,
+      maxSamples,
+      channels,
+      timeout,
+      buf.ec,
+    );
+    return LSLChunkPointer(
+      buf.data.address,
+      buf.timestamps.address,
+      elements ~/ channels,
+      channels,
+      buf.ec.value,
+    );
+  });
+
   /// Gets the time correction for the inlet.
   /// **Parameters:**
   /// - [timeout]: Maximum wait time in seconds (default: 5.0)
@@ -281,9 +389,9 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// **Returns:** Number of samples dropped during flush.
   Future<int> flush() => _useIsolates
       ? _flushIsolated()
-      : Future.value(lsl_inlet_flush(_inletBang));
+      : Future.value(lslInletFlushFast(_inletBang));
 
-  int flushSync() => requireDirect(() => lsl_inlet_flush(_inletBang));
+  int flushSync() => requireDirect(() => lslInletFlushFast(_inletBang));
 
   /// Checks how many samples are available in the inlet's buffer.
   /// **Execution:**
@@ -296,7 +404,7 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// or 0 if no samples are available.
   Future<int> samplesAvailable() => _useIsolates
       ? _samplesAvailableIsolated()
-      : Future.value(lsl_samples_available(_inletBang));
+      : Future.value(lslSamplesAvailableFast(_inletBang));
 
   /// Synchronously checks how many samples are available in the inlet's buffer.
   /// **Direct mode only** - throws [LSLException] if `useIsolates: true`.
@@ -305,7 +413,7 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// supports it, otherwise, 1 if there is at least one sample available,
   /// or 0 if no samples are available.
   int samplesAvailableSync() =>
-      requireDirect(() => lsl_samples_available(_inletBang));
+      requireDirect(() => lslSamplesAvailableFast(_inletBang));
 
   /// Creates an inlet from an existing lsl_inlet pointer.
   /// **Parameters:**
@@ -345,22 +453,34 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// **Throws:** [LSLException] if inlet creation fails.
   Future<LSLInlet<T>> _createDirect() async {
     setupPullBuffer();
-    // Create the inlet using FFI
-    _inlet = lsl_create_inlet(
-      streamInfo.streamInfo,
-      maxBuffer,
-      chunkSize,
-      recover ? 1 : 0,
-    );
-    if (_inlet == null) {
+    // Create the inlet using FFI; the legacy call is kept for an empty
+    // option set so default behavior is byte-for-byte unchanged.
+    _inlet = transportOptions.isEmpty
+        ? lsl_create_inlet(
+            streamInfo.streamInfo,
+            maxBuffer,
+            chunkSize,
+            recover ? 1 : 0,
+          )
+        : lslCreateInletFlags(
+            streamInfo.streamInfo,
+            maxBuffer,
+            chunkSize,
+            recover ? 1 : 0,
+            transportOptions.nativeFlags,
+          );
+    if (_inlet == null || _inletBang.isNullPointer) {
       throw LSLException('Failed to create inlet');
     }
 
-    lsl_open_stream(_inletBang, createTimeout, _buffer.ec);
-    final result = _buffer.ec.value;
+    lsl_open_stream(_inletBang, createTimeout, _bufferBang.ec);
+    final result = _bufferBang.ec.value;
     if (result != 0) {
-      lsl_destroy_inlet(_inletBang);
-      _buffer.free();
+      final failedInlet = _inletBang;
+      // Null out first so a later destroy() cannot touch the freed inlet.
+      _inlet = null;
+      lsl_destroy_inlet(failedInlet);
+      _bufferBang.free();
       throw LSLException('Error opening inlet: $result');
     }
 
@@ -388,11 +508,12 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
         'maxChunkLength': chunkSize,
         'recover': recover,
         'timeout': createTimeout,
+        'transportFlags': transportOptions.nativeFlags,
       }),
     );
 
     if (!response.success) {
-      _buffer.free();
+      _bufferBang.free();
       throw LSLException('Error creating inlet: ${response.error}');
     }
 
@@ -411,8 +532,8 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
     final response = await _isolateManagerBang.sendMessage(
       LSLMessage(LSLMessageType.pullSample, {
         'timeout': timeout,
-        'pointerAddr': _buffer.buffer.address,
-        'ecPointerAddr': _buffer.ec.address,
+        'pointerAddr': _bufferBang.buffer.address,
+        'ecPointerAddr': _bufferBang.ec.address,
         'channelCount': streamInfo.channelCount,
       }),
     );
@@ -436,11 +557,11 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// **Note:** This method is only available when `useIsolates: false`.
   LSLSample<T> _pullSampleDirect(double timeout) {
     final LSLSamplePointer samplePointer = _pullFn.pullSampleIntoSync(
-      _buffer.buffer,
+      _bufferBang.buffer,
       _inletBang,
       streamInfo.channelCount,
       timeout,
-      _buffer.ec,
+      _bufferBang.ec,
     );
     final sample = _processSampleResponse(
       samplePointer.timestamp,
@@ -461,12 +582,155 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// **Note:** This method is only available when `useIsolates: false`.
   LSLSamplePointer pullSamplePointerSync({double timeout = 0.0}) {
     return _pullFn.pullSampleIntoSync(
-      _buffer.buffer,
+      _bufferBang.buffer,
       _inletBang,
       streamInfo.channelCount,
       timeout,
-      _buffer.ec,
+      _bufferBang.ec,
     );
+  }
+
+  /// Resolves the chunk pull function for this stream's channel format.
+  LSLPullChunk _ensurePullChunkFn() =>
+      _pullChunkFn ??= LSLMapper().streamPullChunk(streamInfo);
+
+  /// Lazily allocates/grows the reusable chunk buffer.
+  LSLChunkBuffer _ensureChunkBuffer(int samples) {
+    final pullFn = _ensurePullChunkFn();
+    final buf = _chunkBuffer ??= LSLChunkBuffer(
+      streamInfo.channelCount,
+      pullFn.allocBuffer,
+    );
+    buf.ensureCapacity(samples);
+    return buf;
+  }
+
+  LSLChunk<T> _pullChunkDirect(int maxSamples, double timeout) {
+    final pullFn = _ensurePullChunkFn();
+    final buf = _ensureChunkBuffer(maxSamples);
+    final channels = streamInfo.channelCount;
+    final elements = pullFn.pullInto(
+      _inletBang,
+      buf.data,
+      buf.timestamps,
+      maxSamples,
+      channels,
+      timeout,
+      buf.ec,
+    );
+    return _chunkFromBuffer(pullFn, buf, elements ~/ channels);
+  }
+
+  LSLChunkTyped _pullChunkTypedDirect(int maxSamples, double timeout) {
+    final pullFn = _ensurePullChunkFn();
+    final buf = _ensureChunkBuffer(maxSamples);
+    final channels = streamInfo.channelCount;
+    final elements = pullFn.pullInto(
+      _inletBang,
+      buf.data,
+      buf.timestamps,
+      maxSamples,
+      channels,
+      timeout,
+      buf.ec,
+    );
+    return _chunkTypedFromBuffer(pullFn, buf, elements ~/ channels);
+  }
+
+  LSLChunk<T> _chunkFromBuffer(
+    LSLPullChunk pullFn,
+    LSLChunkBuffer buf,
+    int sampleCount,
+  ) {
+    final errorCode = buf.ec.value;
+    if (sampleCount == 0) {
+      return LSLChunk<T>(const [], const [], errorCode);
+    }
+    final channels = streamInfo.channelCount;
+    final samples =
+        pullFn.bufferToLists(buf.data, sampleCount, channels) as List<List<T>>;
+    final timestamps = List<double>.generate(
+      sampleCount,
+      (i) => buf.timestamps[i],
+      growable: false,
+    );
+    return LSLChunk<T>(samples, timestamps, errorCode);
+  }
+
+  LSLChunkTyped _chunkTypedFromBuffer(
+    LSLPullChunk pullFn,
+    LSLChunkBuffer buf,
+    int sampleCount,
+  ) {
+    final errorCode = buf.ec.value;
+    final channels = streamInfo.channelCount;
+    if (sampleCount == 0) {
+      return LSLChunkTyped(
+        pullFn.bufferToTypedData(buf.data, 0),
+        Float64List(0),
+        0,
+        channels,
+        errorCode,
+      );
+    }
+    final data = pullFn.bufferToTypedData(buf.data, sampleCount * channels);
+    final timestamps = Float64List.fromList(
+      buf.timestamps.asTypedList(sampleCount),
+    );
+    return LSLChunkTyped(data, timestamps, sampleCount, channels, errorCode);
+  }
+
+  Future<LSLChunk<T>> _pullChunkIsolated(int maxSamples, double timeout) async {
+    final pullFn = _ensurePullChunkFn();
+    final buf = _ensureChunkBuffer(maxSamples);
+    final sampleCount = await _sendPullChunkMessage(buf, maxSamples, timeout);
+    return _chunkFromBuffer(pullFn, buf, sampleCount);
+  }
+
+  Future<LSLChunkTyped> _pullChunkTypedIsolated(
+    int maxSamples,
+    double timeout,
+  ) async {
+    final pullFn = _ensurePullChunkFn();
+    final buf = _ensureChunkBuffer(maxSamples);
+    final sampleCount = await _sendPullChunkMessage(buf, maxSamples, timeout);
+    return _chunkTypedFromBuffer(pullFn, buf, sampleCount);
+  }
+
+  /// Asks the worker isolate to pull into the shared chunk buffer; returns
+  /// the number of samples pulled.
+  ///
+  /// The request/response protocol guarantees the worker is done writing
+  /// before the buffer is read here; [_chunkOpInFlight] turns concurrent
+  /// misuse into an error instead of silent data corruption.
+  Future<int> _sendPullChunkMessage(
+    LSLChunkBuffer buf,
+    int maxSamples,
+    double timeout,
+  ) async {
+    if (_chunkOpInFlight) {
+      throw LSLException('Concurrent chunk operation on the same inlet');
+    }
+    _chunkOpInFlight = true;
+    try {
+      final response = await _isolateManagerBang.sendMessage(
+        LSLMessage(LSLMessageType.pullChunk, {
+          'dataPointerAddr': buf.data.address,
+          'tsPointerAddr': buf.timestamps.address,
+          'ecPointerAddr': buf.ec.address,
+          'maxSamples': maxSamples,
+          'timeout': timeout,
+        }),
+        timeoutSeconds: timeout + 30,
+      );
+      if (!response.success) {
+        throw LSLException('Error pulling chunk: ${response.error}');
+      }
+      final elements = response.result as int;
+      return elements ~/ streamInfo.channelCount;
+    } finally {
+      _chunkOpInFlight = false;
+    }
   }
 
   /// Flushes the inlet's buffer in isolated mode.
@@ -499,7 +763,7 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
     final response = await _isolateManagerBang.sendMessage(
       LSLMessage(LSLMessageType.timeCorrection, {
         'timeout': timeout,
-        'ecPointerAddr': _buffer.ec.address,
+        'ecPointerAddr': _bufferBang.ec.address,
       }),
     );
 
@@ -519,8 +783,12 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// **Returns:** Time correction in seconds.
   /// **Throws:** [LSLException] if getting time correction fails.
   double _getTimeCorrectionDirect(double timeout) {
-    final timeCorrection = lsl_time_correction(_inletBang, timeout, _buffer.ec);
-    final result = _buffer.ec.value;
+    final timeCorrection = lsl_time_correction(
+      _inletBang,
+      timeout,
+      _bufferBang.ec,
+    );
+    final result = _bufferBang.ec.value;
     if (result != 0) {
       throw LSLException('Error getting time correction: $result');
     }
@@ -556,8 +824,12 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// **Throws:** [LSLException] if getting full info fails.
   /// **Note:** This method is only available when `useIsolates: false`.
   LSLStreamInfoWithMetadata _getFullInfoDirect(double timeout) {
-    final fullStreamInfo = lsl_get_fullinfo(_inletBang, timeout, _buffer.ec);
-    final int errorCode = _buffer.ec.value;
+    final fullStreamInfo = lsl_get_fullinfo(
+      _inletBang,
+      timeout,
+      _bufferBang.ec,
+    );
+    final int errorCode = _bufferBang.ec.value;
 
     if (errorCode == 0 && !fullStreamInfo.isNullPointer) {
       // Replace the streamInfo with the full version
@@ -594,7 +866,7 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
     }
 
     final sampleData =
-        _pullFn.bufferToList(_buffer.buffer, streamInfo.channelCount)
+        _pullFn.bufferToList(_bufferBang.buffer, streamInfo.channelCount)
             as IList<T>;
     return LSLSample<T>(sampleData, timestamp, errorCode);
   }

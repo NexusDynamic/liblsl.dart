@@ -2,8 +2,10 @@ import 'dart:async';
 import 'dart:ffi';
 
 import 'package:liblsl/native_liblsl.dart';
+import 'package:liblsl/src/ffi/bindings_ex.dart';
 import 'package:liblsl/src/ffi/mem.dart';
 import 'package:liblsl/src/lsl/exception.dart';
+import 'package:liblsl/src/lsl/pull_chunk.dart';
 import 'package:liblsl/src/lsl/pull_sample.dart';
 import 'package:liblsl/src/lsl/sample.dart';
 import 'package:liblsl/src/lsl/stream_info.dart';
@@ -11,7 +13,6 @@ import 'package:liblsl/src/lsl/helper.dart';
 import 'package:liblsl/src/lsl/structs.dart';
 import 'package:liblsl/src/lsl/isolate_manager.dart';
 import 'package:liblsl/src/meta/todo.dart';
-import 'package:meta/meta.dart';
 
 /// Implementation of inlet functionality for the isolate
 class LSLInletIsolate extends LSLIsolateWorkerBase {
@@ -19,6 +20,9 @@ class LSLInletIsolate extends LSLIsolateWorkerBase {
   LSLStreamInfo? _streamInfo;
   late final LSLPullSample _pullFn;
   late final bool _isStreamInfoOwner;
+
+  /// Resolved lazily on the first chunk pull.
+  LSLPullChunk? _pullChunkFn;
 
   final Map<LSLMessageType, FutureOr Function(Map<String, dynamic>)> _handlers =
       {};
@@ -38,7 +42,7 @@ class LSLInletIsolate extends LSLIsolateWorkerBase {
     _handlers[LSLMessageType.timeCorrection] = _timeCorrection;
     _handlers[LSLMessageType.samplesAvailable] = _samplesAvailable;
     _handlers[LSLMessageType.destroy] = _destroy;
-    _handlers[LSLMessageType.pullChunk] = pullChunk;
+    _handlers[LSLMessageType.pullChunk] = _pullChunk;
     _handlers[LSLMessageType.getFullInfo] = (Map<String, dynamic> data) async {
       if (_inlet == null) {
         throw LSLException('Inlet not created');
@@ -70,9 +74,28 @@ class LSLInletIsolate extends LSLIsolateWorkerBase {
     }
   }
 
-  @protected
-  /// Not yet implemented.
-  external Future<dynamic> pullChunk(Map<String, dynamic> data);
+  /// Pulls a chunk into the main isolate's shared native buffers.
+  ///
+  /// The main isolate owns the buffers and awaits this response before
+  /// reading them, so writing here is race-free. Returns the number of data
+  /// elements pulled (`samples * channels`).
+  Future<int> _pullChunk(Map<String, dynamic> data) async {
+    if (_inlet == null || _streamInfo == null) {
+      throw LSLException('Inlet not created');
+    }
+    final pullChunkFn = _pullChunkFn ??= LSLMapper().streamPullChunk(
+      _streamInfo!,
+    );
+    return pullChunkFn.pullInto(
+      _inlet!,
+      Pointer<NativeType>.fromAddress(data['dataPointerAddr'] as int),
+      Pointer<Double>.fromAddress(data['tsPointerAddr'] as int),
+      data['maxSamples'] as int,
+      _streamInfo!.channelCount,
+      data['timeout'] as double,
+      Pointer<Int32>.fromAddress(data['ecPointerAddr'] as int),
+    );
+  }
 
   /// Creates an inlet for the specified stream info.
   /// The [data] parameter contains the necessary information to create the
@@ -110,14 +133,23 @@ class LSLInletIsolate extends LSLIsolateWorkerBase {
     _pullFn = LSLMapper().streamPull(_streamInfo!);
 
     // Create the inlet
-    _inlet = lsl_create_inlet(
-      _streamInfo!.streamInfo,
-      data['maxBufferSize'] as int,
-      data['maxChunkLength'] as int,
-      data['recover'] as bool ? 1 : 0,
-    );
+    final transportFlags = data['transportFlags'] as int? ?? 0;
+    _inlet = transportFlags == 0
+        ? lsl_create_inlet(
+            _streamInfo!.streamInfo,
+            data['maxBufferSize'] as int,
+            data['maxChunkLength'] as int,
+            data['recover'] as bool ? 1 : 0,
+          )
+        : lslCreateInletFlags(
+            _streamInfo!.streamInfo,
+            data['maxBufferSize'] as int,
+            data['maxChunkLength'] as int,
+            data['recover'] as bool ? 1 : 0,
+            transportFlags,
+          );
 
-    if (_inlet == null) {
+    if (_inlet == null || _inlet!.isNullPointer) {
       throw LSLException('Error creating inlet');
     }
 

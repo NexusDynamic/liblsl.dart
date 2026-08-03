@@ -44,13 +44,16 @@ abstract class LSLPullSample<T extends NativeType, D> {
     double timeout,
   ) {
     final Pointer<Int32> ec = allocate<Int32>();
-    final double timestamp = _pullFn(inlet, buffer, channels, timeout, ec);
-    final int errorCode = ec.value;
-    if (LSLObj.error(errorCode)) {
-      return LSLSamplePointer<T>(timestamp, errorCode, 0);
+    try {
+      final double timestamp = _pullFn(inlet, buffer, channels, timeout, ec);
+      final int errorCode = ec.value;
+      if (LSLObj.error(errorCode)) {
+        return LSLSamplePointer<T>(timestamp, errorCode, 0);
+      }
+      return LSLSamplePointer<T>(timestamp, errorCode, buffer.address);
+    } finally {
+      ec.free();
     }
-    ec.free();
-    return LSLSamplePointer<T>(timestamp, errorCode, buffer.address);
   }
 
   /// Pulls a sample into the provided reusable buffer.
@@ -79,6 +82,7 @@ abstract class LSLPullSample<T extends NativeType, D> {
     return LSLSamplePointer<T>(timestamp, errorCode, buffer.address);
   }
 
+  @pragma('vm:prefer-inline')
   LSLSamplePointer<T> pullSampleIntoSync(
     Pointer<T> buffer,
     lsl_inlet inlet,
@@ -109,19 +113,20 @@ abstract class LSLPullSample<T extends NativeType, D> {
     double timeout,
   ) {
     final Pointer<Int32> ec = allocate<Int32>();
-    final double timestamp = _pullFn(inlet, buffer, channels, timeout, ec);
-    final int errorCode = ec.value;
-    if (LSLObj.error(errorCode)) {
-      return LSLSample<D>(IList(), timestamp, errorCode);
-    }
-    ec.free();
-    if (timestamp > 0) {
+    try {
+      final double timestamp = _pullFn(inlet, buffer, channels, timeout, ec);
+      final int errorCode = ec.value;
+      if (LSLObj.error(errorCode) || timestamp <= 0) {
+        return LSLSample<D>(IList(), timestamp, errorCode);
+      }
       final IList<D> result = bufferToList(buffer, channels);
-      buffer.free();
       return LSLSample<D>(result, timestamp, errorCode);
+    } finally {
+      ec.free();
+      if (!buffer.isNullPointer) {
+        buffer.free();
+      }
     }
-    buffer.free();
-    return LSLSample<D>(IList(), timestamp, errorCode);
   }
 
   @mustBeOverridden
@@ -296,11 +301,17 @@ class LSLPullSampleString extends LSLPullSample<Pointer<Char>, String> {
   @override
   IList<String> bufferToList(Pointer<Pointer<Char>> buffer, int channels) {
     return IList<String>(
-      List<String>.generate(
-        channels,
-        (index) => buffer[index].cast<Utf8>().toDartString(),
-        growable: false,
-      ),
+      List<String>.generate(channels, (index) {
+        final Pointer<Char> str = buffer[index];
+        if (str.isNullPointer) {
+          return '';
+        }
+        final String value = str.cast<Utf8>().toDartString();
+        // liblsl allocates the returned strings; the client must release them.
+        lsl_destroy_string(str);
+        buffer[index] = nullPtr<Char>();
+        return value;
+      }, growable: false),
     );
   }
 

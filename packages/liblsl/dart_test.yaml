@@ -1,4 +1,6 @@
 tags:
   performance:
     timeout: 10m
+  benchmark:
+    timeout: 15m
   flaky:

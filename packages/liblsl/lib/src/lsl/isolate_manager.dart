@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:isolate';
 import 'dart:ffi' show NativeType;
-import 'dart:math' show Random;
 
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:liblsl/src/lsl/isolated_inlet.dart';
@@ -35,8 +34,12 @@ class LSLMessage {
   LSLMessage(this.type, this.data, {String? id})
     : id = id ?? _generateMessageId();
 
+  /// Monotonic counter; cheaper than DateTime+Random and collision-free
+  /// within an isolate (ids only need to be unique per manager).
+  static int _messageCounter = 0;
+
   static String _generateMessageId() {
-    return '${DateTime.now().millisecondsSinceEpoch}_${Random().nextInt(1000000)}';
+    return (_messageCounter++).toString();
   }
 
   Map<String, dynamic> toMap() {
@@ -201,8 +204,15 @@ abstract class LSLIsolateManagerBase {
   /// Get the isolate entry point function - to be implemented by subclasses
   void Function(Object) getIsolateEntryPoint();
 
-  /// Send a message to the isolate
-  Future<LSLResponse> sendMessage(LSLMessage message) async {
+  /// Send a message to the isolate.
+  ///
+  /// [timeoutSeconds] bounds how long to wait for the worker's response;
+  /// raise it for operations that legitimately block longer (e.g. pulls with
+  /// long timeouts or sync/blocking-transport pushes).
+  Future<LSLResponse> sendMessage(
+    LSLMessage message, {
+    double timeoutSeconds = 30,
+  }) async {
     if (!_initialization.isCompleted) {
       await init();
     }
@@ -214,15 +224,19 @@ abstract class LSLIsolateManagerBase {
     final completer = Completer<LSLResponse>();
     _pendingRequests[message.id] = completer;
 
-    // Add timeout to prevent hanging forever
-    Timer(Duration(seconds: 30), () {
-      final pendingCompleter = _pendingRequests.remove(message.id);
-      if (pendingCompleter != null && !pendingCompleter.isCompleted) {
-        pendingCompleter.complete(
-          LSLResponse.error(message.id, 'Request timeout'),
-        );
-      }
-    });
+    // Bound the wait to prevent hanging forever
+    final timer = Timer(
+      Duration(milliseconds: (timeoutSeconds * 1000).round()),
+      () {
+        final pendingCompleter = _pendingRequests.remove(message.id);
+        if (pendingCompleter != null && !pendingCompleter.isCompleted) {
+          pendingCompleter.complete(
+            LSLResponse.error(message.id, 'Request timeout'),
+          );
+        }
+      },
+    );
+    completer.future.whenComplete(timer.cancel);
 
     _sendPort!.send(message.toMap());
     return completer.future;

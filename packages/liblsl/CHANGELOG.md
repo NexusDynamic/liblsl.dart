@@ -1,3 +1,54 @@
+# 0.14.0+0
+
+## New features
+
+- Sync/blocking transport support: `LSL.createOutlet`/`LSL.createInlet` (and
+  the `LSLOutlet`/`LSLInlet` constructors) accept
+  `transportOptions: Set<LSLTransportOptions>`, wired to
+  `lsl_create_outlet_ex`/`lsl_create_inlet_ex`. `syncBlocking` enables
+  zero-copy blocking socket writes (not available for string streams —
+  `ArgumentError` at creation); `bufsizeInSamples`/`bufsizeInThousandths`
+  change the unit of `maxBuffer`.
+- Chunked transfer API on outlets and inlets, in both direct and isolate
+  modes: `pushChunk`/`pushChunkSync` (`List<List<T>>`),
+  `pushChunkTyped`/`pushChunkTypedSync` (flat `TypedData` fast path, single
+  memmove), `pullChunk`/`pullChunkSync`, `pullChunkTyped`/
+  `pullChunkTypedSync`, and the zero-copy `pullChunkPointerSync`. Chunk
+  results are returned as `LSLChunk<T>`/`LSLChunkTyped`/`LSLChunkPointer`
+  with per-sample timestamps; per-sample timestamps can also be supplied on
+  push. String streams support list-form `pullChunk` only.
+- Standalone benchmark suite (`benchmark/`) comparing
+  direct/isolate/sync-blocking transports for sample and chunk operations,
+  with p50/p95/p99 latency, throughput, loss, and RSS metrics; a new
+  `Benchmark` GitHub workflow stores results per push/tag via
+  github-action-benchmark on `gh-pages` and attaches them to releases.
+
+## Fixes
+
+- Fixed native memory leaks on string streams: pushed samples leaked one
+  UTF-8 copy per channel per push, and pulled samples never released the
+  liblsl-allocated strings (`lsl_destroy_string`).
+- Fixed `ec`/buffer leaks on error paths in `LSLPullSample.pullSample`/
+  `createSample`.
+- Fixed a use-after-free crash when an inlet's `lsl_open_stream` failed at
+  creation and the inlet was later destroyed.
+- `destroy()` is now safe and idempotent after partially failed creation
+  (no more `LateInitializationError`/double free); `LSLReusableBuffer.free()`
+  is idempotent.
+- Isolate managers no longer leak a 30 s `Timer` per message; the response
+  timeout is cancelled on completion and is now configurable.
+- `LSL.createOutlet` default `chunkSize` corrected from `1` to `0`
+  (liblsl semantics: one chunk per push), matching the `LSLOutlet` default.
+
+## Performance
+
+- Hot push paths no longer wrap data in `IList`;
+  `LSLPushSample.listToBuffer` now takes `Iterable<dynamic>` (minor
+  signature change for direct users of the push classes).
+- `lsl_local_clock`, `lsl_have_consumers`, `lsl_samples_available`, and
+  `lsl_inlet_flush` now use `isLeaf` FFI calls; buffer converters are
+  inline-hinted; chunk TypedData copies compile to memmove.
+
 # 0.13.2+0
 
 - Zenodo DOI: [10.5281/zenodo.20340248](https://doi.org/10.5281/zenodo.20340248)

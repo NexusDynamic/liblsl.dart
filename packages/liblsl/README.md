@@ -181,6 +181,84 @@ outlet.destroy();
 
 ```
 
+### Chunked transfer
+
+When throughput matters more than per-sample latency, push and pull whole
+blocks of samples with one native call. Both a convenience list form and a
+flat typed-data fast path (single memmove, no per-element conversion) are
+available:
+
+```dart
+// List form: one List per sample, channelCount values each.
+await outlet.pushChunk([
+  [1.0, 2.0],
+  [3.0, 4.0],
+]);
+
+// Typed fast path: flat, sample-major (Float32List for float32 streams,
+// Int16List for int16, ...). Optional per-sample timestamps.
+final data = Float32List.fromList([1.0, 2.0, 3.0, 4.0]);
+await outlet.pushChunkTyped(data);
+
+// Pulling: returns everything buffered (up to maxSamples); the timeout only
+// applies while the buffer is empty.
+final chunk = await inlet.pullChunk(maxSamples: 512);
+print('${chunk.sampleCount} samples, first ts ${chunk.timestamps.firstOrNull}');
+
+final typed = await inlet.pullChunkTyped(maxSamples: 512);
+final Float32List flat = typed.data as Float32List;
+```
+
+In direct mode (`useIsolates: false`) the `*Sync` variants
+(`pushChunkSync`, `pullChunkTypedSync`, and the zero-copy
+`pullChunkPointerSync`) skip all async overhead. String streams support
+`pullChunk` only — chunked pushes need fixed-size samples.
+
+### Transport options (sync/blocking transfer, buffer units)
+
+Outlets and inlets accept a set of `LSLTransportOptions` applied at
+creation:
+
+```dart
+final outlet = await LSL.createOutlet(
+  streamInfo: info,
+  transportOptions: {LSLTransportOptions.syncBlocking},
+);
+
+final inlet = await LSL.createInlet<double>(
+  streamInfo: streams[0],
+  // maxBuffer now means samples, not seconds:
+  maxBuffer: 1000,
+  transportOptions: {
+    LSLTransportOptions.bufsizeInSamples,
+    LSLTransportOptions.syncBlocking,
+  },
+);
+```
+
+`syncBlocking` switches the outlet to zero-copy blocking socket writes:
+every push hands the buffer directly to each connected consumer and only
+returns once the OS has accepted the data for all of them. This reduces CPU
+usage and latency jitter for high-bandwidth streams, but:
+
+- each push blocks for as long as the slowest consumer needs (in direct
+  mode this stalls the calling isolate);
+- it is **not** compatible with string-format streams (an `ArgumentError`
+  is thrown at creation);
+- only one thread/isolate may push at a time;
+- `bufsizeInSamples` / `bufsizeInThousandths` change the unit of
+  `maxBuffer` (they are mutually exclusive).
+
+### Benchmarking
+
+A standalone benchmark suite compares the transport modes and operations —
+see [benchmark/README.md](./benchmark/README.md). CI tracks results per
+commit and release on the `gh-pages` branch.
+
+```sh
+dart run benchmark/bin/liblsl_benchmark.dart --smoke
+```
+
 ## Direct FFI usage
 
 If you want to use the FFI directly, you can do so by importing the `native_liblsl.dart` file.

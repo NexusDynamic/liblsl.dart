@@ -1,6 +1,8 @@
 import 'dart:ffi';
 import 'package:liblsl/src/lsl/exception.dart';
+import 'package:liblsl/src/lsl/pull_chunk.dart';
 import 'package:liblsl/src/lsl/pull_sample.dart';
+import 'package:liblsl/src/lsl/push_chunk.dart';
 import 'package:liblsl/src/lsl/push_sample.dart';
 import 'package:liblsl/src/lsl/stream_info.dart';
 import 'package:liblsl/src/lsl/structs.dart';
@@ -65,5 +67,54 @@ class LSLMapper {
     } else {
       throw LSLException('Unsupported channel format: $channelFormat');
     }
+  }
+
+  /// Map of [StreamInfo.channelFormat] to [LSLPushChunk].
+  /// String/undefined streams have no chunk push (variable-size samples).
+  static final Map<LSLChannelFormat, LSLPushChunk> _pushChunkMap = {
+    LSLChannelFormat.float32: LSLPushChunkFloat(),
+    LSLChannelFormat.double64: LSLPushChunkDouble(),
+    LSLChannelFormat.int8: LSLPushChunkInt8(),
+    LSLChannelFormat.int16: LSLPushChunkInt16(),
+    LSLChannelFormat.int32: LSLPushChunkInt32(),
+    LSLChannelFormat.int64: LSLPushChunkInt64(),
+  };
+
+  /// Map of [StreamInfo.channelFormat] to [LSLPullChunk].
+  static final Map<LSLChannelFormat, LSLPullChunk> _pullChunkMap = {
+    LSLChannelFormat.float32: LSLPullChunkFloat(),
+    LSLChannelFormat.double64: LSLPullChunkDouble(),
+    LSLChannelFormat.int8: LSLPullChunkInt8(),
+    LSLChannelFormat.int16: LSLPullChunkInt16(),
+    LSLChannelFormat.int32: LSLPullChunkInt32(),
+    LSLChannelFormat.int64: LSLPullChunkInt64(),
+    LSLChannelFormat.string: LSLPullChunkString(),
+  };
+
+  /// Gets the [LSLPushChunk] for the given [LSLStreamInfo].
+  /// **Throws:** [LSLException] for string/undefined formats.
+  LSLPushChunk streamPushChunk(LSLStreamInfo streamInfo) {
+    final LSLChannelFormat channelFormat = streamInfo.channelFormat;
+    final pushChunk = _pushChunkMap[channelFormat];
+    if (pushChunk == null) {
+      throw LSLException(
+        'pushChunk is not supported for $channelFormat streams; '
+        'use pushSample instead',
+      );
+    }
+    return pushChunk;
+  }
+
+  /// Gets the [LSLPullChunk] for the given [LSLStreamInfo].
+  /// **Throws:** [LSLException] for the undefined format.
+  LSLPullChunk streamPullChunk(LSLStreamInfo streamInfo) {
+    final LSLChannelFormat channelFormat = streamInfo.channelFormat;
+    final pullChunk = _pullChunkMap[channelFormat];
+    if (pullChunk == null) {
+      throw LSLException(
+        'pullChunk is not supported for $channelFormat streams',
+      );
+    }
+    return pullChunk;
   }
 }

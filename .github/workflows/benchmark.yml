@@ -1,0 +1,65 @@
+name: Benchmark
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'liblsl-v*' ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  deployments: write
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+          cache-key: "flutter-:os:-:channel:-:version:-:arch:-main"
+          pub-cache-key: "flutter-pub-:os:-:channel:-:version:-:arch:-main"
+
+      - name: Install melos
+        run: dart pub global activate melos
+
+      - name: Bootstrap packages
+        run: melos bootstrap
+
+      - name: Run benchmark
+        working-directory: packages/liblsl
+        run: dart run benchmark/bin/liblsl_benchmark.dart --repeat 3 --out bench.json
+
+      - name: Store benchmark result
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          name: liblsl.dart benchmarks
+          tool: customSmallerIsBetter
+          output-file-path: packages/liblsl/bench.json
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          gh-pages-branch: gh-pages
+          benchmark-data-dir-path: dev/bench
+          # Shared runners are noisy: comment on regressions, never fail.
+          auto-push: ${{ github.ref == 'refs/heads/main' }}
+          alert-threshold: '150%'
+          comment-on-alert: true
+          fail-on-alert: false
+
+      - name: Upload benchmark artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results-${{ github.sha }}
+          path: packages/liblsl/bench.json
+
+      - name: Attach results to release
+        if: startsWith(github.ref, 'refs/tags/liblsl-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: packages/liblsl/bench.json

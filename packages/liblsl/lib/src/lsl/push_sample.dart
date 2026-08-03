@@ -1,5 +1,4 @@
 import 'dart:ffi';
-import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:ffi/ffi.dart' show Utf8, StringUtf8Pointer;
 import 'package:liblsl/native_liblsl.dart';
 import 'package:liblsl/src/util/reusable_buffer.dart';
@@ -34,7 +33,15 @@ abstract class LSLPushSample<T extends NativeType> {
   Pointer<T> allocBuffer(int channels);
 
   @mustBeOverridden
-  void listToBuffer(IList<dynamic> samples, Pointer<T> buffer);
+  void listToBuffer(Iterable<dynamic> samples, Pointer<T> buffer);
+
+  /// Frees any per-element allocations made by [listToBuffer].
+  ///
+  /// Most formats write values directly into [buffer] and need no cleanup;
+  /// only string samples allocate a native UTF-8 copy per element, which must
+  /// be released once the push call has returned (liblsl copies the data
+  /// before returning).
+  void cleanupBuffer(Pointer<T> buffer, int count) {}
 }
 
 /// Push sample for float32 data.
@@ -52,9 +59,11 @@ class LSLPushSampleFloat extends LSLPushSample<Float> {
   }
 
   @override
-  void listToBuffer(IList<dynamic> samples, Pointer<Float> buffer) {
-    for (int i = 0; i < samples.length; i++) {
-      buffer[i] = samples[i];
+  @pragma('vm:prefer-inline')
+  void listToBuffer(Iterable<dynamic> samples, Pointer<Float> buffer) {
+    int i = 0;
+    for (final value in samples) {
+      buffer[i++] = value;
     }
   }
 }
@@ -74,9 +83,11 @@ class LSLPushSampleDouble extends LSLPushSample<Double> {
   }
 
   @override
-  void listToBuffer(IList<dynamic> samples, Pointer<Double> buffer) {
-    for (int i = 0; i < samples.length; i++) {
-      buffer[i] = samples[i];
+  @pragma('vm:prefer-inline')
+  void listToBuffer(Iterable<dynamic> samples, Pointer<Double> buffer) {
+    int i = 0;
+    for (final value in samples) {
+      buffer[i++] = value;
     }
   }
 }
@@ -96,9 +107,11 @@ class LSLPushSampleInt8 extends LSLPushSample<Char> {
   }
 
   @override
-  void listToBuffer(IList<dynamic> samples, Pointer<Char> buffer) {
-    for (int i = 0; i < samples.length; i++) {
-      buffer[i] = samples[i];
+  @pragma('vm:prefer-inline')
+  void listToBuffer(Iterable<dynamic> samples, Pointer<Char> buffer) {
+    int i = 0;
+    for (final value in samples) {
+      buffer[i++] = value;
     }
   }
 }
@@ -118,9 +131,11 @@ class LSLPushSampleInt16 extends LSLPushSample<Int16> {
   }
 
   @override
-  void listToBuffer(IList<dynamic> samples, Pointer<Int16> buffer) {
-    for (int i = 0; i < samples.length; i++) {
-      buffer[i] = samples[i];
+  @pragma('vm:prefer-inline')
+  void listToBuffer(Iterable<dynamic> samples, Pointer<Int16> buffer) {
+    int i = 0;
+    for (final value in samples) {
+      buffer[i++] = value;
     }
   }
 }
@@ -140,9 +155,11 @@ class LSLPushSampleInt32 extends LSLPushSample<Int32> {
   }
 
   @override
-  void listToBuffer(IList<dynamic> samples, Pointer<Int32> buffer) {
-    for (int i = 0; i < samples.length; i++) {
-      buffer[i] = samples[i];
+  @pragma('vm:prefer-inline')
+  void listToBuffer(Iterable<dynamic> samples, Pointer<Int32> buffer) {
+    int i = 0;
+    for (final value in samples) {
+      buffer[i++] = value;
     }
   }
 }
@@ -162,9 +179,11 @@ class LSLPushSampleInt64 extends LSLPushSample<Int64> {
   }
 
   @override
-  void listToBuffer(IList<dynamic> samples, Pointer<Int64> buffer) {
-    for (int i = 0; i < samples.length; i++) {
-      buffer[i] = samples[i];
+  @pragma('vm:prefer-inline')
+  void listToBuffer(Iterable<dynamic> samples, Pointer<Int64> buffer) {
+    int i = 0;
+    for (final value in samples) {
+      buffer[i++] = value;
     }
   }
 }
@@ -180,16 +199,36 @@ class LSLPushSampleString extends LSLPushSample<Pointer<Char>> {
 
   @override
   Pointer<Pointer<Char>> allocBuffer(int channels) {
-    return allocate<Pointer<Char>>(channels);
+    final buffer = allocate<Pointer<Char>>(channels);
+    // malloc does not zero memory; cleanupBuffer must be able to distinguish
+    // "never written" entries from live allocations.
+    for (int i = 0; i < channels; i++) {
+      buffer[i] = nullPtr<Char>();
+    }
+    return buffer;
   }
 
   @override
-  void listToBuffer(IList<dynamic> samples, Pointer<Pointer<Char>> buffer) {
-    for (int i = 0; i < samples.length; i++) {
-      final Pointer<Utf8> utf8String = (samples[i] as String).toNativeUtf8(
+  @pragma('vm:prefer-inline')
+  void listToBuffer(Iterable<dynamic> samples, Pointer<Pointer<Char>> buffer) {
+    // Free any strings left from a previous fill that was never pushed.
+    cleanupBuffer(buffer, samples.length);
+    int i = 0;
+    for (final value in samples) {
+      final Pointer<Utf8> utf8String = (value as String).toNativeUtf8(
         allocator: allocate,
       );
-      buffer[i] = utf8String.cast<Char>();
+      buffer[i++] = utf8String.cast<Char>();
+    }
+  }
+
+  @override
+  void cleanupBuffer(Pointer<Pointer<Char>> buffer, int count) {
+    for (int i = 0; i < count; i++) {
+      if (!buffer[i].isNullPointer) {
+        buffer[i].free();
+        buffer[i] = nullPtr<Char>();
+      }
     }
   }
 }
@@ -209,7 +248,8 @@ class LSLPushSampleVoid extends LSLPushSample<Void> {
   }
 
   @override
-  void listToBuffer(IList<dynamic> samples, Pointer<Void> buffer) {
+  @pragma('vm:prefer-inline')
+  void listToBuffer(Iterable<dynamic> samples, Pointer<Void> buffer) {
     // No-op for void type
   }
 }

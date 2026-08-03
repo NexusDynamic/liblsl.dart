@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:liblsl/native_liblsl.dart';
+import 'package:liblsl/src/ffi/bindings_ex.dart';
 import 'package:liblsl/src/ffi/mem.dart';
 import 'package:liblsl/src/lsl/api_config.dart';
 import 'package:liblsl/src/lsl/exception.dart';
@@ -92,16 +93,26 @@ class LSL {
   /// Important: If you do not use isolates, you must ensure that you deal with
   /// the consequences of blocking operations which will block the main dart
   /// isolate.
+  ///
+  /// [transportOptions] applies transport flags at creation time, see
+  /// [LSLOutlet.transportOptions]. [LSLTransportOptions.syncBlocking] enables
+  /// zero-copy blocking socket writes: every push blocks until the data has
+  /// been handed to the OS for all connected consumers (lower CPU use for
+  /// high-bandwidth streams, higher per-push latency; incompatible with
+  /// string streams; push from only one thread at a time). The bufsize
+  /// options change the unit of [maxBuffer].
   static Future<LSLOutlet> createOutlet({
     required LSLStreamInfo streamInfo,
-    int chunkSize = 1,
+    int chunkSize = 0,
     int maxBuffer = 360,
+    Set<LSLTransportOptions> transportOptions = const {},
     bool useIsolates = true,
   }) async {
     final streamOutlet = LSLOutlet(
       streamInfo,
       chunkSize: chunkSize,
       maxBuffer: maxBuffer,
+      transportOptions: transportOptions,
       useIsolates: useIsolates,
     );
     await streamOutlet.create();
@@ -126,6 +137,11 @@ class LSL {
   /// Important: If you do not use isolates, you must ensure that you deal with
   /// the consequences of blocking operations which will block the main dart
   /// isolate.
+  ///
+  /// [transportOptions] applies transport flags at creation time, see
+  /// [LSLInlet.transportOptions]. The bufsize options change the unit of
+  /// [maxBuffer]; [LSLTransportOptions.syncBlocking] requests synchronous
+  /// transfer (incompatible with string streams).
   static Future<LSLInlet<T>> createInlet<T>({
     required LSLStreamInfo streamInfo,
     int maxBuffer = 360,
@@ -133,6 +149,7 @@ class LSL {
     bool recover = true,
     double createTimeout = LSL_FOREVER,
     bool includeMetadata = false,
+    Set<LSLTransportOptions> transportOptions = const {},
     bool useIsolates = true,
   }) async {
     if (!streamInfo.created) {
@@ -170,6 +187,7 @@ class LSL {
         chunkSize: chunkSize,
         recover: recover,
         createTimeout: createTimeout,
+        transportOptions: transportOptions,
         useIsolates: useIsolates,
       );
     } else if (dataType == int) {
@@ -179,6 +197,7 @@ class LSL {
         chunkSize: chunkSize,
         recover: recover,
         createTimeout: createTimeout,
+        transportOptions: transportOptions,
         useIsolates: useIsolates,
       );
     } else if (dataType == String) {
@@ -188,6 +207,7 @@ class LSL {
         chunkSize: chunkSize,
         recover: recover,
         createTimeout: createTimeout,
+        transportOptions: transportOptions,
         useIsolates: useIsolates,
       );
     } else {
@@ -451,7 +471,7 @@ class LSL {
   }
 
   /// Returns the local clock time, used to calculate offsets.
-  static double localClock() => lsl_local_clock();
+  static double localClock() => lslLocalClockFast();
 
   /// Returns the version of the LSL library.
   static String libraryInfo() {

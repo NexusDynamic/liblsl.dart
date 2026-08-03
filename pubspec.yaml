@@ -3,17 +3,25 @@ publish_to: none
 homepage: https://zeyus.com/
 repository: https://github.com/NexusDynamic/liblsl.dart
 environment:
-  sdk: ^3.9.0
+  sdk: ^3.12.2
   flutter: ^3.27.1
 workspace:
-  - packages/liblsl
+  # - packages/liblsl
   - packages/liblsl_test
   - packages/liblsl_coordinator
   - packages/liblsl_timing
   - packages/liblsl_analysis
 dev_dependencies:
-  melos: ^7.0.0
+  melos: ^8.2.2
 
+# for now, this is required
+# native_toolchain_c requires a higher
+# meta version, melos requires a higher cli_util
+# and test_api is incompatible between the two versions of test and flutter_test.
+dependency_overrides:
+  cli_util: ^0.5.2
+  test_api: ^0.7.13
+  meta: ^1.19.0
 
 melos:
   packages:
@@ -47,7 +55,7 @@ melos:
       exec: dart format . --set-exit-if-changed
       description: Run `dart format` checks for all packages.
     test:select:
-      exec: flutter test --exclude-tags "performance"
+      exec: flutter test --exclude-tags "performance,benchmark"
       packageFilters:
         dirExists: test
         ignore:

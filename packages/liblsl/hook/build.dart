@@ -54,7 +54,7 @@ void main(List<String> args) async {
   await build(args, (input, output) async {
     if (input.config.buildCodeAssets) {
       // This needs to be manually copied from CMakeLists.txt.
-      const String libLSLVersion = '1.17.5';
+      const String libLSLVersion = '1.18.0.b2 ';
       const String libLSLBranch = '9f0b6122';
       const String libLSLPath = 'src/liblsl-$libLSLBranch';
       const String pugixmlPath = 'src/pugixml';

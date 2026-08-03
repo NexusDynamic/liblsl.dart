@@ -176,3 +176,60 @@ enum LSLChannelFormat {
     }
   }
 }
+
+/// This enum has flags that are used for inlets and outlets
+enum LSLTransportOptions {
+  /// Keep legacy behavior: max_buffered / max_buflen is in seconds; use asynch transfer.
+  legacy(lsl_transport_options_t.transp_default),
+
+  /// The supplied max_buf value is in samples.
+  bufsizeInSamples(lsl_transport_options_t.transp_bufsize_samples),
+
+  /// The supplied max_buf should be scaled by 0.001.
+  bufsizeInThousandths(lsl_transport_options_t.transp_bufsize_thousandths),
+
+  /// Use synchronous (blocking) socket writes for zero-copy data transfer.
+  /// When enabled, push_sample/push_chunk write the caller's buffer directly to every
+  /// connected consumer and block until the data has been handed to the OS for all of them.
+  /// Reduces CPU usage for high-bandwidth streams at the cost of increased call latency.
+  /// Notes:
+  /// - Not compatible with string-format streams (variable-size samples).
+  /// - Single-producer: push from only one thread at a time (the sync path is unsynchronized).
+  /// - The pushthrough flag is ignored; every push sends immediately (no internal buffering).
+  syncBlocking(lsl_transport_options_t.transp_sync_blocking);
+
+  final lsl_transport_options_t _nativeType;
+
+  lsl_transport_options_t get nativeType => _nativeType;
+  int get value => nativeType.value;
+
+  /// Private constructor to associate the enum value with its native type.
+  const LSLTransportOptions(this._nativeType);
+
+  /// Converts a native lsl_transport_options_t value to the corresponding LSLTransportOptions enum value.
+  static LSLTransportOptions fromNative(lsl_transport_options_t native) {
+    return LSLTransportOptions.values.firstWhere(
+      (e) => e.nativeType == native,
+      orElse: () => throw ArgumentError(
+        'No matching LSLTransportOptions for native value: $native',
+      ),
+    );
+  }
+
+  /// Converts an integer value to the corresponding LSLTransportOptions enum value.
+  static LSLTransportOptions fromValue(int value) {
+    return LSLTransportOptions.values.firstWhere(
+      (e) => e.value == value,
+      orElse: () => throw ArgumentError(
+        'No matching LSLTransportOptions for value: $value',
+      ),
+    );
+  }
+}
+
+/// Combines a set of [LSLTransportOptions] into the bitwise-OR'd int that
+/// the `lsl_create_outlet_ex` / `lsl_create_inlet_ex` functions expect.
+extension LSLTransportOptionsFlags on Set<LSLTransportOptions> {
+  @pragma('vm:prefer-inline')
+  int get nativeFlags => fold(0, (acc, option) => acc | option.value);
+}
