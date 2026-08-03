@@ -139,7 +139,7 @@ Future<void> _runNode({
       ),
     );
 
-    // Set up comprehensive event listeners
+    // Set up event listeners
     _setupEventListeners(session, nodeId);
 
     // Track test state
@@ -209,7 +209,7 @@ Future<void> _runNode({
   }
 }
 
-/// Set up comprehensive event listeners for testing
+/// Set up event listeners for testing
 void _setupEventListeners(LSLCoordinationSession session, String nodeId) {
   // Phase changes
   session.events.phaseChanges.listen((event) {
@@ -232,7 +232,7 @@ void _setupEventListeners(LSLCoordinationSession session, String nodeId) {
   // User messages (coordination commands)
   session.events.userCoordinationMessages.listen((event) {
     logger.info(
-      '💬 $nodeId: User Message: ${event.messageId} - ${event.description}',
+      '💬 $nodeId: User Message: ${event.messageType} (${event.messageId}) - ${event.description}',
     );
     if (event.payload.isNotEmpty) {
       logger.info('   Payload: ${event.payload}');
@@ -455,9 +455,13 @@ Future<void> _runParticipantTestLogic(
   int messageReceivedCount = 0;
   StreamSubscription? inboxSubscription;
 
+  // Wait for the test duration or until test completes
+  bool testCompleted = false;
+  final testCompleter = Completer<void>();
+
   // Listen for test commands
   session.events.userCoordinationMessages.listen((event) async {
-    switch (event.messageId) {
+    switch (event.messageType) {
       case 'start_test_phase':
         final phase = event.payload['phase'] as int;
         intensity = event.payload['intensity'] as String;
@@ -489,12 +493,25 @@ Future<void> _runParticipantTestLogic(
         break;
 
       case 'end_test':
+        if (!testCompleted) {
+          testCompleted = true;
+          testCompleter.complete();
+        }
         logger.info('🏁 $nodeId: Test ended by coordinator');
         logger.info('   $nodeId: FINAL message count: $messageReceivedCount');
         dataTimer?.cancel();
         inboxSubscription?.cancel();
         final duration = event.payload['total_duration'];
         logger.info('   Total test duration: ${duration}s');
+        break;
+
+      default:
+        logger.warning(
+          '💬 $nodeId: Received unknown command: ${event.messageType} (${event.messageId}) - ${event.description}',
+        );
+        if (event.payload.isNotEmpty) {
+          logger.info('   Payload: ${event.payload}');
+        }
         break;
     }
   });
@@ -560,18 +577,6 @@ Future<void> _runParticipantTestLogic(
   logger.info(
     '⏳ $nodeId: Participant ready, waiting for coordinator commands...',
   );
-
-  // Wait for the test duration or until test completes
-  bool testCompleted = false;
-  final testCompleter = Completer<void>();
-
-  // Listen for test completion
-  session.events.userCoordinationMessages.listen((event) {
-    if (event.messageId == 'end_test' && !testCompleted) {
-      testCompleted = true;
-      testCompleter.complete();
-    }
-  });
 
   // Wait for test completion or timeout
   try {
