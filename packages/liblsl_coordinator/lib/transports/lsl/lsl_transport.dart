@@ -304,7 +304,6 @@ class LSLTransport<T extends LSLTransportConfig> extends LSLResource
     required NetworkStreamConfig streamConfig,
     required CoordinationConfig coordinationConfig,
     required String id,
-    String? predicate,
     IResourceManager? manager,
   }) async {
     _ensureCreated();
@@ -312,7 +311,6 @@ class LSLTransport<T extends LSLTransportConfig> extends LSLResource
       streamConfig: streamConfig,
       coordinationConfig: coordinationConfig,
       id: id,
-      predicate: predicate,
       manager: manager ?? this,
     );
     await discovery.create();

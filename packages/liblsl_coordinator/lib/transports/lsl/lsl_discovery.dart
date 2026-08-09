@@ -2,136 +2,184 @@ import 'dart:async';
 
 import 'package:liblsl_coordinator/liblsl_coordinator.dart';
 import 'package:liblsl_coordinator/transports/lsl.dart';
-// import 'package:synchronized/extension.dart';
 import 'package:synchronized/synchronized.dart';
 
-/// Discovery events for stream resolution
-class DiscoveryEvent extends CoordinationEvent {
-  DiscoveryEvent({
-    required super.id,
-    required super.description,
-    String? name,
-    super.timestamp,
-    super.metadata,
-  }) : super(name: name ?? 'discovery-event-$id');
-}
-
 extension StreamDestroyMapExtension on Map<String, StreamInfoResource> {
-  /// Destroys all StreamInfo resources in the map
-  void destroy() {
-    for (var resource in values) {
-      resource.dispose();
+  /// Disposes every resource in the map that discovery still owns.
+  ///
+  /// Resources that have been taken by a caller are skipped — freeing those
+  /// would leave the new owner holding a dangling native pointer.
+  void destroyOwned() {
+    for (final resource in values) {
+      if (resource.ownedByDiscovery) resource.dispose();
     }
   }
 
-  /// Adds all the stream infos and wraps them in StreamInfoResources
+  /// Wraps and stores [streamInfos].
   void addAllStreamInfos(
     List<LSLStreamInfo> streamInfos, {
-    IResourceManager? manager,
+    required LslDiscovery manager,
+    required String sessionName,
   }) {
-    for (var info in streamInfos) {
-      final resource = StreamInfoResource(streamInfo: info, manager: manager);
+    for (final info in streamInfos) {
+      final resource = StreamInfoResource(
+        streamInfo: info,
+        manager: manager,
+        sessionName: sessionName,
+      );
       this[resource.id] = resource;
     }
   }
 }
 
-class StreamInfoResource extends LSLResource {
-  final LSLStreamInfo streamInfo;
-
-  StreamInfoResource({required this.streamInfo, super.manager})
-    : super(id: 'stream-info') {
+/// A peer discovered over LSL, together with the native `lsl_streaminfo` needed
+/// to open an inlet to it.
+///
+/// Implements [PeerHandle] so the coordination layer can consume it without
+/// knowing anything about LSL. See [PeerHandle] for why ownership transfer is
+/// explicit — for this transport the underlying resource is a native pointer
+/// that continuous discovery frees on its next cycle.
+class StreamInfoResource extends LSLResource implements PeerHandle {
+  StreamInfoResource({
+    required this.streamInfo,
+    required this.sessionName,
+    super.manager,
+  }) : super(id: 'stream-info') {
     create();
   }
+
+  final LSLStreamInfo streamInfo;
+
+  /// Session this resource was discovered under; used as a fallback when the
+  /// peer's stream metadata does not carry one.
+  final String sessionName;
+
+  PeerDescriptor? _descriptor;
+  bool _taken = false;
 
   @override
   String get id => 'lsl-streaminfo-${streamInfo.uid ?? streamInfo.streamName}';
 
   @override
   String? get description =>
-      'LSL StreamInfo Resource for ${streamInfo.streamName} (id: ${streamInfo.uid})';
+      'LSL StreamInfo Resource for ${streamInfo.streamName} '
+      '(id: ${streamInfo.uid})';
+
+  /// The peer this stream belongs to.
+  ///
+  /// Built lazily: it requires serialising and parsing the stream's XML
+  /// metadata, and most discovered streams are filtered out or already known,
+  /// so paying that per stream per discovery cycle would be wasteful.
+  @override
+  PeerDescriptor get descriptor =>
+      _descriptor ??= _buildDescriptor(streamInfo, sessionName);
+
+  @override
+  Object? get rawUnsafe => streamInfo;
+
+  @override
+  bool get ownedByDiscovery => !_taken && manager != null;
+
+  @override
+  bool get taken => _taken;
+
+  @override
+  void take() {
+    if (disposed) {
+      throw StateError('Cannot take a disposed peer handle ($id)');
+    }
+    if (_taken) {
+      throw StateError(
+        'Peer handle $id has already been taken; ownership can only transfer '
+        'once',
+      );
+    }
+    _taken = true;
+    // Detach from discovery so its next cycle cannot free the streamInfo out
+    // from under the new owner.
+    manager?.releaseResource<StreamInfoResource>(id);
+  }
 
   @override
   Future<void> create() async {
     await super.create();
-    // No additional creation needed for StreamInfo
   }
 
   @override
   Future<void> dispose() async {
+    if (disposed) return;
     streamInfo.destroy();
     await super.dispose();
   }
 
-  static List<StreamInfoResource> fromStreamInfos(
-    List<LSLStreamInfo> streamInfos, {
-    IResourceManager? manager,
-  }) {
-    return streamInfos
-        .map((info) {
-          final r = StreamInfoResource(streamInfo: info, manager: manager);
-          manager?.manageResource<StreamInfoResource>(r);
-          return r;
-        })
-        .toList(growable: false);
+  /// Reads the fields the LSL transport publishes into the stream's `desc`
+  /// element, and combines them with the positional `source_id` encoding.
+  static PeerDescriptor _buildDescriptor(
+    LSLStreamInfo info,
+    String sessionName,
+  ) {
+    final desc = _parseDescFields(info.toXml());
+    // `source_id` is authoritative for identity; desc fills in the rest.
+    // Fall back to desc if source_id is malformed rather than failing
+    // discovery outright, since a peer we cannot parse should be ignored, not
+    // fatal.
+    try {
+      final fromSourceId = PeerDescriptor.fromSourceId(
+        info.sourceId,
+        desc: {...desc, if (!desc.containsKey('session')) 'session': ''},
+      );
+      return fromSourceId.copyWith();
+    } on FormatException {
+      return PeerDescriptor(
+        streamName: info.streamName,
+        sessionName: desc['session'] ?? sessionName,
+        nodeId: desc[LSLStreamInfoHelper.nodeIdKey] ?? '',
+        nodeUId: desc[LSLStreamInfoHelper.nodeUIdKey] ?? info.sourceId,
+        nodeRole:
+            desc[LSLStreamInfoHelper.nodeRoleKey] ??
+            NodeCapability.none.shortString,
+        endpointId: info.sourceId,
+      );
+    }
+  }
+
+  /// Extracts `<key>value</key>` pairs from the stream's `desc` element.
+  ///
+  /// A regex rather than an XML parser: this runs at most once per discovered
+  /// stream, the document is machine-generated by
+  /// `LSLStreamInfoHelper.generateStreamInfo`, and the alternative is an XML
+  /// dependency in the hot path of a latency-sensitive library.
+  static Map<String, String> _parseDescFields(String xml) {
+    const keys = [
+      LSLStreamInfoHelper.sessionNameKey,
+      LSLStreamInfoHelper.nodeIdKey,
+      LSLStreamInfoHelper.nodeUIdKey,
+      LSLStreamInfoHelper.nodeRoleKey,
+      LSLStreamInfoHelper.nodeCapabilitiesKey,
+      LSLStreamInfoHelper.randomRollKey,
+      LSLStreamInfoHelper.nodeStartedAtKey,
+    ];
+    final result = <String, String>{};
+    for (final key in keys) {
+      final match = RegExp('<$key>(.*?)</$key>', dotAll: true).firstMatch(xml);
+      if (match != null) result[key] = match.group(1)!;
+    }
+    return result;
   }
 }
 
-class LSLDiscoveryEvent extends DiscoveryEvent {
-  final String predicate;
-
-  LSLDiscoveryEvent({
-    required this.predicate,
+/// LSL-backed [IDiscovery].
+///
+/// Compiles each [DiscoveryQuery] to an XPath predicate (the only query
+/// language LSL's resolver speaks) and re-resolves on a timer.
+class LslDiscovery extends LSLResource implements IDiscovery, IResourceManager {
+  LslDiscovery({
+    required this.streamConfig,
+    required this.coordinationConfig,
     required super.id,
-    required super.description,
-    String? name,
-    super.timestamp,
-    super.metadata,
-  }) : super(name: name ?? 'lsl-discovery-event');
-}
+    super.manager,
+  });
 
-/// Event fired when streams are discovered via continuous resolution
-class StreamDiscoveredEvent extends LSLDiscoveryEvent {
-  /// This is a list of key information from streamInfos so that the caller
-  /// can retrieve the full StreamInfo objects if needed from the discovery
-  /// instance
-  final List<StreamInfoResource> streams;
-
-  StreamDiscoveredEvent({
-    required this.streams,
-    required super.predicate,
-    String? name,
-    super.timestamp,
-    super.metadata,
-  }) : super(
-         id: 'stream_discovered_${DateTime.now().millisecondsSinceEpoch}',
-         description:
-             'Discovered ${streams.length} stream(s) matching predicate',
-         name: name ?? 'stream-discovered',
-       );
-}
-
-/// Event fired when discovery times out without finding streams
-class DiscoveryTimeoutEvent extends LSLDiscoveryEvent {
-  final Duration timeoutDuration;
-
-  DiscoveryTimeoutEvent({
-    required this.timeoutDuration,
-    required super.predicate,
-    String? name,
-    super.timestamp,
-    super.metadata,
-  }) : super(
-         id: 'discovery_timeout_${DateTime.now().millisecondsSinceEpoch}',
-         description:
-             'Discovery timed out after ${timeoutDuration.inSeconds}s for predicate',
-         name: name ?? 'discovery-timeout',
-       );
-}
-
-/// LSL-based discovery mechanism for network nodes with event-driven pattern
-class LslDiscovery extends LSLResource implements IPausable, IResourceManager {
-  /// Configuration for coordination
   final NetworkStreamConfig streamConfig;
   final CoordinationConfig coordinationConfig;
 
@@ -145,43 +193,36 @@ class LslDiscovery extends LSLResource implements IPausable, IResourceManager {
 
   final Map<String, StreamInfoResource> _discoveredStreams = {};
 
-  // Event-driven discovery
   final StreamController<DiscoveryEvent> _eventController =
       StreamController<DiscoveryEvent>();
+
+  @override
   Stream<DiscoveryEvent> get events => _eventController.stream;
 
-  // Mutable predicate for destroy/recreate pattern
+  DiscoveryQuery? _currentQuery;
   String? _currentPredicate;
-
   LSLStreamResolverContinuous? _resolver;
-
-  LslDiscovery({
-    required this.streamConfig,
-    required this.coordinationConfig,
-    required super.id,
-    String? predicate,
-    super.manager,
-  }) : _currentPredicate = predicate;
 
   @override
   String get id => 'lsl-discovery-${streamConfig.id}';
 
+  String get _sessionName => coordinationConfig.sessionConfig.name;
+
   @override
   void manageResource<R extends IResource>(R resource) {
-    if (resource is StreamInfoResource) {
-      resource.updateManager(this);
-      _discoveredStreams[resource.id] = resource;
-    } else {
+    if (resource is! StreamInfoResource) {
       throw ArgumentError(
-        'LSLDiscovery can only manage StreamInfoResource instances',
+        'LslDiscovery can only manage StreamInfoResource instances, '
+        'got ${resource.runtimeType}',
       );
     }
+    resource.updateManager(this);
+    _discoveredStreams[resource.id] = resource;
   }
 
   @override
   R releaseResource<R extends IResource>(String resourceUId) {
     final resource = _discoveredStreams.remove(resourceUId);
-
     if (resource == null) {
       throw ArgumentError('Resource with id $resourceUId not found');
     }
@@ -189,7 +230,6 @@ class LslDiscovery extends LSLResource implements IPausable, IResourceManager {
     return resource as R;
   }
 
-  /// Ensures that the resource is created before performing operations.
   void _ensureCreated() {
     if (!created || disposed) {
       throw StateError('Discovery resource is not created');
@@ -202,22 +242,23 @@ class LslDiscovery extends LSLResource implements IPausable, IResourceManager {
     await super.create();
   }
 
-  /// Start event-driven discovery with the given predicate and optional timeout
-  void startDiscovery({
-    required String predicate,
+  @override
+  void start({
+    required DiscoveryQuery query,
     Duration? timeout,
-    int? maxStreams,
+    int? maxPeers,
   }) {
     _ensureCreated();
+    final predicate = LslPredicateCompiler.compile(query);
 
-    // If predicate changed, destroy old resolver and create new one
     if (_currentPredicate != predicate || _resolver == null) {
-      stopDiscovery();
+      stop();
+      _currentQuery = query;
       _currentPredicate = predicate;
       logger.finest('Creating new resolver for predicate: $predicate');
       _resolver = LSLStreamResolverContinuousByPredicate(
         predicate: predicate,
-        maxStreams: maxStreams ?? coordinationConfig.topologyConfig.maxNodes,
+        maxStreams: maxPeers ?? coordinationConfig.topologyConfig.maxNodes,
         forgetAfter:
             coordinationConfig.sessionConfig.nodeTimeout.inMilliseconds /
             1000.0,
@@ -225,43 +266,19 @@ class LslDiscovery extends LSLResource implements IPausable, IResourceManager {
       _resolver!.create();
     }
 
-    // Set up timeout if specified
     if (timeout != null) {
       _timeoutTimer?.cancel();
       _timeoutTimer = Timer(timeout, () {
         if (disposed || !created) return;
-        _eventController.add(
-          DiscoveryTimeoutEvent(timeoutDuration: timeout, predicate: predicate),
-        );
+        _eventController.add(DiscoveryTimeoutEvent(query, timeout));
       });
     }
 
-    // Start continuous discovery
     _startContinuousDiscovery();
   }
 
-  /// no-op if no timeout is active
-  void cancelTimeout() {
-    _timeoutTimer?.cancel();
-    _timeoutTimer = null;
-  }
-
-  /// Starts continuous discovery that emits events when streams are found
-  Future<void> _startContinuousDiscovery() async {
-    if (_resolver == null) return;
-
-    _discoveryInterval?.cancel();
-    _discoveryInterval = Timer.periodic(
-      coordinationConfig.sessionConfig.discoveryInterval,
-      (timer) async {
-        if (_paused || disposed) return;
-        await _performContinuousDiscovery();
-      },
-    );
-    await _performContinuousDiscovery();
-  }
-
-  void stopDiscovery() {
+  @override
+  void stop() {
     logger.fine('Stopping discovery');
     _discoveryInterval?.cancel();
     _discoveryInterval = null;
@@ -271,12 +288,22 @@ class LslDiscovery extends LSLResource implements IPausable, IResourceManager {
     _resolver = null;
   }
 
-  /// Performs continuous discovery and emits events when streams are found
+  Future<void> _startContinuousDiscovery() async {
+    if (_resolver == null) return;
+
+    _discoveryInterval?.cancel();
+    _discoveryInterval = Timer.periodic(
+      coordinationConfig.sessionConfig.discoveryInterval,
+      (_) async {
+        if (_paused || disposed) return;
+        await _performContinuousDiscovery();
+      },
+    );
+    await _performContinuousDiscovery();
+  }
+
   Future<void> _performContinuousDiscovery() async {
-    if (_resolver == null ||
-        _currentPredicate == null ||
-        disposed ||
-        !created) {
+    if (_resolver == null || _currentQuery == null || disposed || !created) {
       return;
     }
 
@@ -284,39 +311,31 @@ class LslDiscovery extends LSLResource implements IPausable, IResourceManager {
       if (disposed || !created) return;
 
       try {
-        // Update internal list
-        _discoveredStreams.destroy();
+        // Free the previous cycle's resources — except any a caller has taken
+        // ownership of, which are no longer ours to free.
+        _discoveredStreams.destroyOwned();
         _discoveredStreams.clear();
 
         final newStreams = await _resolver!.resolve();
+        logger.finest('Resolver returned ${newStreams.length} stream(s)');
 
-        // Debug: Log what the resolver returned
-        logger.finest('Resolver returned ${newStreams.length} streams:');
-        for (int i = 0; i < newStreams.length; i++) {
-          logger.finest(
-            '  [$i] ${newStreams[i].streamName} sourceId=${newStreams[i].sourceId}',
-          );
-        }
+        _discoveredStreams.addAllStreamInfos(
+          newStreams,
+          manager: this,
+          sessionName: _sessionName,
+        );
 
-        // Update internal list
-        _discoveredStreams.addAllStreamInfos(newStreams, manager: this);
-
-        // Check if we found new streams
         if (newStreams.isNotEmpty) {
-          // Cancel timeout since we found streams
           _timeoutTimer?.cancel();
           _timeoutTimer = null;
-
-          // Emit discovery event
           _eventController.add(
-            StreamDiscoveredEvent(
-              streams: _discoveredStreams.values.toList(growable: false),
-              predicate: _currentPredicate!,
+            PeersDiscoveredEvent(
+              _currentQuery!,
+              _discoveredStreams.values.toList(growable: false),
             ),
           );
         }
       } catch (e) {
-        // Handle discovery errors gracefully
         logger.warning('Discovery error for predicate $_currentPredicate: $e');
       }
     });
@@ -338,74 +357,39 @@ class LslDiscovery extends LSLResource implements IPausable, IResourceManager {
     _startContinuousDiscovery();
   }
 
-  /// Gets the current list of discovered streams' resource UIDs
-  List<String> get discoveredStreams =>
-      List.unmodifiable(_discoveredStreams.keys);
-
-  /// Safely removes and returns streams matching the given filters.
-  /// This transfers ownership/responsibility for destroying the StreamInfos to the caller.
-  ///
-  /// [streamNameFilter] - Optional filter for stream name (supports prefix, suffix, exact match)
-  /// [sourceIdFilter] - Optional filter for source ID (supports prefix, suffix, exact match)
-  ///
-  /// Returns the matching streams and removes them from the internal list.
-  List<StreamInfoResource> takeMatching({
-    String? streamNameFilter,
-    String? sourceIdFilter,
-  }) {
-    final matching = <StreamInfoResource>[];
-    // convert to list to avoid concurrent modification issues
-    for (var entry in _discoveredStreams.entries.toList(growable: false)) {
-      final streamInfo = entry.value.streamInfo;
-      final matchesName =
-          streamNameFilter == null ||
-          _matchesFilter(streamInfo.streamName, streamNameFilter);
-      final matchesSourceId =
-          sourceIdFilter == null ||
-          _matchesFilter(streamInfo.sourceId, sourceIdFilter);
-
-      if (matchesName && matchesSourceId) {
-        // Ownership is transferred to caller
-        final resource = releaseResource<StreamInfoResource>(entry.key);
-        matching.add(resource);
-      }
-    }
-
-    return matching;
+  @override
+  Future<List<PeerHandle>> discoverOnce(
+    DiscoveryQuery query, {
+    Duration timeout = const Duration(seconds: 2),
+    int minPeers = 0,
+    int maxPeers = 10,
+  }) async {
+    final streamInfos = await discoverOnceByPredicate(
+      LslPredicateCompiler.compile(query),
+      timeout: timeout,
+      minStreams: minPeers,
+      maxStreams: maxPeers,
+    );
+    // Deliberately unmanaged: one-shot results belong to the caller, so
+    // `manager` is null and `take()` is a no-op on them.
+    return streamInfos
+        .map(
+          (info) =>
+              StreamInfoResource(streamInfo: info, sessionName: _sessionName),
+        )
+        .toList(growable: false);
   }
 
-  /// Helper method for string matching with prefix/suffix/exact support.
-  bool _matchesFilter(String value, String filter) {
-    if (filter.startsWith('*') && filter.endsWith('*')) {
-      // Contains match: "*text*"
-      final searchText = filter.substring(1, filter.length - 1);
-      return value.contains(searchText);
-    } else if (filter.startsWith('*')) {
-      // Suffix match: "*suffix"
-      final suffix = filter.substring(1);
-      return value.endsWith(suffix);
-    } else if (filter.endsWith('*')) {
-      // Prefix match: "prefix*"
-      final prefix = filter.substring(0, filter.length - 1);
-      return value.startsWith(prefix);
-    } else {
-      // Exact match
-      return value == filter;
-    }
-  }
-
-  /// Performs a one-time discovery and returns the matching streams.
-  /// IMPORTANT: The caller is responsible for destroying the returned StreamInfos.
-  /// this can be done with [LSLStreamInfo.destroy] or [List<LSLStreamInfo>.destroy]
+  /// One-shot resolve against a raw XPath predicate.
   ///
-  /// This method now runs in an isolate to avoid blocking the main thread.
+  /// Runs in an isolate so the blocking FFI resolve does not stall the event
+  /// loop. The caller owns the returned [LSLStreamInfo]s and must destroy them.
   static Future<List<LSLStreamInfo>> discoverOnceByPredicate(
     String predicate, {
     Duration timeout = const Duration(seconds: 2),
     int minStreams = 0,
     int maxStreams = 10,
   }) async {
-    // Use isolate to avoid blocking main thread
     final streams = await IsolateStreamManager.discoverOnceIsolated(
       predicate: predicate,
       timeout: timeout,
@@ -413,7 +397,8 @@ class LslDiscovery extends LSLResource implements IPausable, IResourceManager {
       maxStreams: maxStreams,
     );
     logger.finer(
-      'One-time discovery found ${streams.length} stream(s) for predicate: $predicate',
+      'One-time discovery found ${streams.length} stream(s) for predicate: '
+      '$predicate',
     );
     return streams;
   }
@@ -421,23 +406,19 @@ class LslDiscovery extends LSLResource implements IPausable, IResourceManager {
   @override
   Future<void> dispose() async {
     if (disposed) return;
-    // Clean up LSL discovery
     logger.fine('Disposing LSL discovery');
-    stopDiscovery();
+    stop();
     await _discoveryLock.synchronized(() async {
       if (disposed) return;
       await super.dispose();
 
-      // Close event controller. Not awaited: the single subscriber has been
-      // cancelled by the controller at this point, so close()'s future would
-      // never complete.
+      // Not awaited: the single subscriber has already been cancelled, so
+      // close()'s future would never complete.
       logger.finest('Closing discovery event controller');
       unawaited(_eventController.close());
 
-      // Ensure no discovery is in progress so we can safely clear the stream
-      // infos
       logger.finest('Destroying discovered streams');
-      _discoveredStreams.destroy();
+      _discoveredStreams.destroyOwned();
       _discoveredStreams.clear();
     });
   }

@@ -116,7 +116,9 @@ class CoordinationController {
       logger.warning(
         'This node is required to become coordinator based on capabilities, skipping election',
       );
-      _thisNode.setMetadata(LSLStreamInfoHelper.randomRollKey, '1.0');
+      // Must be the node-metadata key, not the LSL wire key: this used to
+      // write 'random_roll' while every reader looked for 'randomRoll'.
+      _thisNode.setMetadata(PeerMetadataKeys.randomRoll, '1.0');
       await _becomeCoordinator();
     } else {
       await _startElection(
@@ -130,47 +132,59 @@ class CoordinationController {
     logger.info('Starting coordinator election');
     _state.transitionTo(CoordinationPhase.electing);
 
-    final topologyConfig =
-        coordinationConfig.topologyConfig as HierarchicalTopologyConfig;
-    final strategy = topologyConfig.promotionStrategy;
+    // Not every TopologyConfig carries a promotion strategy; an unguarded
+    // cast here crashed election for any other topology type.
+    final topologyConfig = coordinationConfig.topologyConfig;
+    final strategy = topologyConfig is HierarchicalTopologyConfig
+        ? topologyConfig.promotionStrategy
+        : PromotionStrategyFirst();
     final isRandomStrategy = strategy is PromotionStrategyRandom;
 
     // Build election predicate
     final myRandomRoll = isRandomStrategy
-        ? double.parse(thisNode.metadata['randomRoll'] ?? '1.0')
+        ? double.tryParse(
+                thisNode.metadata[PeerMetadataKeys.randomRoll]?.toString() ??
+                    '',
+              ) ??
+              1.0
         : null;
     final myStartTime = !isRandomStrategy
-        ? thisNode.metadata['nodeStartedAt']
+        ? thisNode.metadata[PeerMetadataKeys.nodeStartedAt] as String?
         : null;
 
-    final electionPredicate = LSLStreamInfoHelper.generateElectionPredicate(
+    final electionQuery = PeerQueries.election(
       streamName: coordinationConfig.streamConfig.name,
       sessionName: coordinationConfig.sessionConfig.name,
-      excludeSourceIdPrefix: thisNode.id,
+      excludeNodeUId: thisNode.uId,
       isRandomStrategy: isRandomStrategy,
       myRandomRoll: myRandomRoll,
       myStartTime: myStartTime,
     );
 
-    logger.finest('Election predicate: $electionPredicate');
+    logger.finest('Election query: $electionQuery');
 
     try {
-      final streamInfos = await LslDiscovery.discoverOnceByPredicate(
-        electionPredicate,
+      final candidates = await _discovery.discoverOnce(
+        electionQuery,
         timeout:
             timeout ??
             coordinationConfig.sessionConfig.discoveryInterval *
                 2, // Shorter timeout
-        minStreams: 1,
-        maxStreams: 1,
+        minPeers: 1,
+        maxPeers: 1,
       );
 
-      if (streamInfos.isNotEmpty) {
-        // Found better candidate or coordinator - become participant
+      if (candidates.isNotEmpty) {
+        // Found better candidate or coordinator - become participant.
+        // The handles are one-shot and unmanaged; we only needed to know
+        // whether anything matched, so release them.
+        for (final candidate in candidates) {
+          await candidate.dispose();
+        }
         logger.info(
           'Election: Found existing coordinator or better candidate, becoming participant',
         );
-        await _becomeParticipant(streamInfos.first);
+        await _becomeParticipant();
       } else if (!_thisNode.capabilities.contains(NodeCapability.coordinator)) {
         throw StateError(
           'Election: No coordinator found but this node is not eligible to be coordinator',
@@ -227,7 +241,7 @@ class CoordinationController {
   }
 
   /// Become a participant
-  Future<void> _becomeParticipant(LSLStreamInfo coordinatorStream) async {
+  Future<void> _becomeParticipant() async {
     logger.finer('Becoming participant');
 
     // Update node role and recreate outlet
@@ -260,41 +274,35 @@ class CoordinationController {
     logger.finest(
       '[CONTROLLER-${thisNode.uId}] Connecting to coordinator: (maybe:? $coordinatorUId)',
     );
-    final predicate = LSLStreamInfoHelper.generatePredicate(
-      streamNamePrefix: coordinationConfig.streamConfig.name,
+    final query = PeerQueries.coordinator(
+      streamName: coordinationConfig.streamConfig.name,
       sessionName: coordinationConfig.sessionConfig.name,
-      nodeUId:
-          coordinatorUId, // if null, will match any coordinator - usually OK
-      nodeRole: NodeCapability.coordinator.shortString,
+      // If null, matches whichever node currently holds the role.
+      coordinatorUId: coordinatorUId,
     );
 
-    logger.finest(
-      'attempting to find the coordinator stream using predicate: $predicate',
-    );
+    logger.finest('attempting to find the coordinator stream: $query');
     // TODO: Timeouts all round...
-    final streamInfos = await LslDiscovery.discoverOnceByPredicate(
-      predicate,
+    final peers = await _discovery.discoverOnce(
+      query,
       timeout: coordinationConfig.sessionConfig.discoveryInterval * 10,
-      minStreams: 1,
-      maxStreams: 1,
+      minPeers: 1,
+      maxPeers: 1,
     );
 
-    if (streamInfos.isEmpty) {
+    if (peers.isEmpty) {
       logger.severe(
         '[CONTROLLER-${thisNode.uId}] Failed to find coordinator stream',
       );
       throw StateError('Failed to find coordinator stream');
     }
 
+    final coordinator = peers.first;
     logger.finer(
       '[CONTROLLER-${thisNode.uId}] Found coordinator stream, adding inlet...',
     );
     if (thisNode.uId != coordinatorUId) {
-      // parse streaminfo
-      final info = LSLStreamInfoHelper.parseSourceId(
-        streamInfos.first.sourceId,
-      );
-      final nodeUId = info[LSLStreamInfoHelper.nodeUIdKey]!;
+      final nodeUId = coordinator.descriptor.nodeUId;
       logger.fine(
         '[CONTROLLER-${thisNode.uId}] Connecting to coordinator stream of node $nodeUId as participant',
       );
@@ -306,15 +314,10 @@ class CoordinationController {
       );
     }
 
-    await _coordinationStream.addInlet(streamInfos.first);
-    final streamInfoXml = streamInfos.first.toXml();
-    // ip related info: `<hostname>`,`<v4address>`, `<v4data_port>`, `<v4service_port>`, `<v6address>`, `<v6data_port>`, `<v6service_port>`
-    // match with regex -> that way no need for XML libraries, this is just a one-off (once per coordination session)
-    final ipInfo = RegExp(
-      r'<(hostname|v[46]address|v[46]data_port|v[46]service_port)>(.*?)<\/\1>',
-    ).allMatches(streamInfoXml).map((m) => '${m.group(1)}: ${m.group(2)}').join(', ');
+    await _coordinationStream.addInlet(coordinator);
     logger.info(
-      '[CONTROLLER-${thisNode.uId}] Connected to coordinator stream successfully ($ipInfo)',
+      '[CONTROLLER-${thisNode.uId}] Connected to coordinator stream '
+      'successfully (${coordinator.descriptor})',
     );
   }
 
@@ -460,15 +463,13 @@ class CoordinationController {
     await _discoverySubscription?.cancel();
     _discoverySubscription = _discovery.events.listen((discoveryEvent) {
       if (_stopping) return;
-      if (discoveryEvent is StreamDiscoveredEvent) {
-        for (StreamInfoResource infoResource in discoveryEvent.streams) {
+      if (discoveryEvent is PeersDiscoveredEvent) {
+        for (final peer in discoveryEvent.peers) {
           try {
-            final info = LSLStreamInfoHelper.parseSourceId(
-              infoResource.streamInfo.sourceId,
-            );
-            final nodeUId = info[LSLStreamInfoHelper.nodeUIdKey]!;
-            final nodeId = info[LSLStreamInfoHelper.nodeIdKey]!;
-            final nodeRole = info[LSLStreamInfoHelper.nodeRoleKey]!;
+            final descriptor = peer.descriptor;
+            final nodeUId = descriptor.nodeUId;
+            final nodeId = descriptor.nodeId;
+            final nodeRole = descriptor.nodeRole;
             if (nodeUId == thisNode.uId) {
               // Ignore our own stream
               continue;
@@ -498,17 +499,14 @@ class CoordinationController {
             );
             final newNode = ParticipantNode(nodeConfig);
 
-            // Release resource from discovery manager BEFORE passing to addInlet.
-            // This prevents a use-after-free: without this, the next discovery
-            // cycle calls _discoveredStreams.destroy() which frees the C
-            // lsl_streaminfo pointer while addInlet may still be using it.
-            // Ownership of the LSLStreamInfo now transfers to
-            // _coordinationStream._inletStreamInfos, which frees it on dispose.
-            _discovery.releaseResource<StreamInfoResource>(infoResource.id);
+            // Ownership of the peer handle transfers to the stream inside
+            // addInlet, which calls take() before touching it. That closes the
+            // window in which the next discovery cycle could free the
+            // underlying resource out from under us.
             _pendingJoinNodeUIds.add(nodeUId);
 
             _coordinationStream
-                .addInlet(infoResource.streamInfo)
+                .addInlet(peer)
                 .then((_) {
                   logger.finest(
                     'Added inlet for discovered node $nodeId ($nodeUId), sending join offer',
@@ -534,8 +532,7 @@ class CoordinationController {
                 });
           } catch (e, st) {
             logger.severe(
-              'Error processing discovered stream '
-              '${infoResource.streamInfo.sourceId}: $e',
+              'Error processing discovered peer ${peer.descriptor}: $e',
               e,
               st,
             );
@@ -545,13 +542,13 @@ class CoordinationController {
         logger.severe('Unexpected discovery timeout event received');
       }
     });
-    final predicate = LSLStreamInfoHelper.generatePredicate(
-      streamNamePrefix: coordinationConfig.streamConfig.name,
-      sessionName: coordinationConfig.sessionConfig.name,
-      nodeRole: NodeCapability.participant.shortString,
-    );
 
-    _discovery.startDiscovery(predicate: predicate);
+    _discovery.start(
+      query: PeerQueries.participants(
+        streamName: coordinationConfig.streamConfig.name,
+        sessionName: coordinationConfig.sessionConfig.name,
+      ),
+    );
   }
 
   void _startNodeTimeoutCheck() {
@@ -706,7 +703,7 @@ class CoordinationController {
     logger.info('Disposing coordination controller');
     _heartbeatTimer?.cancel();
     _nodeTimeoutTimer?.cancel();
-    _discovery.stopDiscovery();
+    _discovery.stop();
     await _discoverySubscription?.cancel();
     await _stateEventSubscription?.cancel();
     await _handlerEventSubscription?.cancel();

@@ -55,14 +55,32 @@ melos:
       exec: dart format . --set-exit-if-changed
       description: Run `dart format` checks for all packages.
     test:select:
-      exec: flutter test --exclude-tags "performance,benchmark"
+      exec: flutter test --exclude-tags "performance,benchmark,lsl"
       packageFilters:
         dirExists: test
+        flutter: true
         ignore:
           # for now, this doesn't pass in the Dart VM
           # the app works when built in release mode
           - liblsl_test
-      description: Run `flutter test` for selected packages.
+      description: Run `flutter test` for selected Flutter packages.
+    test:dart:
+      exec: dart test --exclude-tags "performance,benchmark,lsl"
+      packageFilters:
+        dirExists: test
+        flutter: false
+      description: >-
+        Run `dart test` for pure-Dart packages. `lsl` is excluded because those
+        tests need a real LSL network stack on loopback; run `test:lsl` for those.
+    test:lsl:
+      exec: dart test --tags "lsl"
+      concurrency: 1
+      packageFilters:
+        dirExists: test
+        flutter: false
+      description: >-
+        Run LSL-backed integration tests serially. These bind loopback sockets and
+        are timing-sensitive, so they must not run concurrently with each other.
     test:performance:
       exec: flutter test --tags "performance"
       concurrency: 1
@@ -72,8 +90,10 @@ melos:
           - liblsl_test
       description: Run performance tests for selected packages (without concurrency).
     test:
-      run: melos run test:select --no-select
-      description: Run all Flutter tests in this project.
+      steps:
+        - test:select
+        - test:dart
+      description: Run all non-LSL tests in this project.
     upgrade: melos exec flutter pub upgrade
     coverage:
       steps:

@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [ main ]
   workflow_dispatch:
+  schedule:
+    # Nightly, for the LSL integration job only.
+    - cron: '0 3 * * *'
 
 jobs:
   test:
@@ -38,3 +41,32 @@ jobs:
 
       - name: Run tests
         run: melos run test
+
+  # LSL-backed integration tests bind loopback sockets and depend on multicast
+  # resolution timing, so they are kept out of the PR path. Run them on demand
+  # and nightly.
+  lsl-integration:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+          cache-key: "flutter-:os:-:channel:-:version:-:arch:-main"
+          pub-cache-key: "flutter-pub-:os:-:channel:-:version:-:arch:-main"
+
+      - name: Install melos
+        run: dart pub global activate melos
+
+      - name: Bootstrap packages
+        run: melos bootstrap
+
+      - name: Run LSL integration tests
+        run: melos run test:lsl

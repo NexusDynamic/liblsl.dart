@@ -124,7 +124,10 @@ class LSLStreamInfoHelper {
     rootElement.addChildValue(nodeIdKey, node.id);
     rootElement.addChildValue(
       nodeRoleKey,
-      node.getMetadata('role', defaultValue: 'none'),
+      node.getMetadata(
+        PeerMetadataKeys.role,
+        defaultValue: NodeCapability.none.shortString,
+      ),
     );
     rootElement.addChildValue(
       nodeCapabilitiesKey,
@@ -132,13 +135,13 @@ class LSLStreamInfoHelper {
     );
 
     // Add random roll if available
-    final randomRoll = node.getMetadata('randomRoll');
+    final randomRoll = node.getMetadata(PeerMetadataKeys.randomRoll);
     if (randomRoll != null) {
       rootElement.addChildValue(randomRollKey, randomRoll);
     }
 
     // Add node started time if available
-    final nodeStartedAt = node.getMetadata('nodeStartedAt');
+    final nodeStartedAt = node.getMetadata(PeerMetadataKeys.nodeStartedAt);
     if (nodeStartedAt != null) {
       rootElement.addChildValue(nodeStartedAtKey, nodeStartedAt);
     }
@@ -412,7 +415,30 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
 
   void updateNode(Node newNode);
 
-  Future<void> addInlet(LSLStreamInfo streamInfo) async {
+  /// Subscribes to a discovered peer.
+  ///
+  /// Takes ownership of [handle] before doing anything else. That is what
+  /// makes the transfer safe: continuous discovery frees the resources from
+  /// its previous cycle, and for LSL those are native `lsl_streaminfo`
+  /// pointers, so any window between "caller decides to use this handle" and
+  /// "discovery stops owning it" is a use-after-free waiting to happen.
+  Future<void> addInlet(PeerHandle handle) async {
+    if (_disposed) return;
+    if (!handle.taken) handle.take();
+
+    final streamInfo = handle.rawUnsafe;
+    if (streamInfo is! LSLStreamInfo) {
+      throw ArgumentError.value(
+        handle,
+        'handle',
+        'the LSL transport can only add inlets for LSL peer handles, got '
+            '${streamInfo.runtimeType}',
+      );
+    }
+    return _addInletForStreamInfo(streamInfo);
+  }
+
+  Future<void> _addInletForStreamInfo(LSLStreamInfo streamInfo) async {
     if (_disposed) return;
 
     if (hasInletForSource(streamInfo.sourceId)) {
@@ -501,7 +527,7 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
           'No matching stream info found for node ${node.id} (${node.uId})',
         ),
       );
-      await addInlet(matchingInfo);
+      await _addInletForStreamInfo(matchingInfo);
       logger.finest('Created resolved inlet for node ${node.id} (${node.uId})');
     }
   }
@@ -554,7 +580,7 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
       'INLET: ${config.name} - targeting sourceId: ${LSLStreamInfoHelper.generateSourceID(config, node: node)}, dataType: ${config.dataType}, channels: ${config.channels}, sampleRate: ${config.sampleRate}',
     );
 
-    await addInlet(streamInfo);
+    await _addInletForStreamInfo(streamInfo);
   }
 
   Future<void> start() async {

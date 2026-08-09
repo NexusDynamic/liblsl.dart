@@ -4,6 +4,33 @@ import 'package:meta/meta.dart';
 import 'package:collection/collection.dart';
 import 'dart:math';
 
+/// Keys for the node metadata the coordination layer itself reads.
+///
+/// These name entries in [Node.metadata] / [NodeConfig.metadata]. They are
+/// deliberately distinct from any transport's *wire* keys — the LSL transport,
+/// for instance, publishes the roll as `random_roll` in stream XML, and
+/// [PeerDescriptor] is the boundary that maps between the two.
+///
+/// Bare string literals here were the cause of a live defect: the
+/// skip-election path wrote `'random_roll'` into node metadata while every
+/// reader looked for `'randomRoll'`, so the value silently never arrived.
+abstract final class PeerMetadataKeys {
+  /// Tie-breaker for [PromotionStrategyRandom]. Lowest roll wins.
+  static const String randomRoll = 'randomRoll';
+
+  /// ISO-8601 start time, used by [PromotionStrategyFirst]. Earliest wins.
+  static const String nodeStartedAt = 'nodeStartedAt';
+
+  /// The node's current role, as [NodeCapability.shortString].
+  static const String role = 'role';
+
+  /// Comma-joined [NodeCapability] list.
+  static const String type = 'type';
+
+  /// ISO-8601 creation time.
+  static const String createdAt = 'createdAt';
+}
+
 /// Represents the type of a node in the network.
 /// Type, in this case means essentially the MAXIMUM privileges
 /// and capabilities of the node in the network.
@@ -269,8 +296,10 @@ class Node implements IConfigurable<NodeConfig>, IUniqueIdentity, IHasMetadata {
   @override
   String? get description => 'Node $name (id: $id)';
 
-  String get role =>
-      getMetadata('role', defaultValue: NodeCapability.none.shortString);
+  String get role => getMetadata(
+    PeerMetadataKeys.role,
+    defaultValue: NodeCapability.none.shortString,
+  );
 
   /// Configuration for the node.
   /// This is a [NodeConfig] object.
@@ -306,26 +335,35 @@ class Node implements IConfigurable<NodeConfig>, IUniqueIdentity, IHasMetadata {
     // Some metadata just needs to be set on creation
     // Some needs to be updated on promotion
     _lastSeen = DateTime.now();
-    setMetadata('type', config.capabilities.join(','));
-    if (!config.metadata.containsKey('randomRoll')) {
-      setMetadata('randomRoll', Random().nextDouble().toString());
+    setMetadata(PeerMetadataKeys.type, config.capabilities.join(','));
+    if (!config.metadata.containsKey(PeerMetadataKeys.randomRoll)) {
+      setMetadata(
+        PeerMetadataKeys.randomRoll,
+        Random().nextDouble().toString(),
+      );
     }
-    setMetadata('role', NodeCapability.none.shortString);
-    if (!config.metadata.containsKey('createdAt')) {
-      setMetadata('createdAt', _createdAt.toIso8601String());
+    setMetadata(PeerMetadataKeys.role, NodeCapability.none.shortString);
+    if (!config.metadata.containsKey(PeerMetadataKeys.createdAt)) {
+      setMetadata(PeerMetadataKeys.createdAt, _createdAt.toIso8601String());
     }
-    if (config.metadata.containsKey('nodeStartedAt')) {
+    if (config.metadata.containsKey(PeerMetadataKeys.nodeStartedAt)) {
       try {
         _nodeStartedAt = DateTime.parse(
-          config.metadata['nodeStartedAt'] as String,
+          config.metadata[PeerMetadataKeys.nodeStartedAt] as String,
         );
       } catch (_) {
         _nodeStartedAt = DateTime.now();
-        setMetadata('nodeStartedAt', _nodeStartedAt!.toIso8601String());
+        setMetadata(
+          PeerMetadataKeys.nodeStartedAt,
+          _nodeStartedAt!.toIso8601String(),
+        );
       }
     } else {
       _nodeStartedAt = DateTime.now();
-      setMetadata('nodeStartedAt', _nodeStartedAt!.toIso8601String());
+      setMetadata(
+        PeerMetadataKeys.nodeStartedAt,
+        _nodeStartedAt!.toIso8601String(),
+      );
     }
   }
 
@@ -499,7 +537,11 @@ class NodeFactory {
         final capability = NodeCapabilityStringExtension.fromString(role);
         switch (capability) {
           case NodeCapability.none:
-            return NullNode();
+            // Must keep the supplied config. Returning NullNode() here
+            // discarded it and generated a fresh uId, so any node serialised
+            // before promotion — every Node starts with role 'none' — came
+            // back from the wire as a different node entirely.
+            return Node(config);
           case NodeCapability.observer:
             return ObserverNode(config);
           case NodeCapability.participant:

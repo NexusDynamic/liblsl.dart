@@ -1,16 +1,11 @@
 # liblsl_test
 
-A new Flutter project.
+This is a simple GUI application for testing the liblsl packages.
 
-## Getting Started
+It runs on Linux, Windows, MacOS, Android and iOS.
 
-This project is a starting point for a Flutter application.
+It has an integration test to make sure the basic functionality works.
 
-A few resources to get you started if this is your first Flutter project:
+You will probably want to run this on multiple devices on the same network (Wired or LAN) to test multi-device streaming.
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+**Note: it might need some updating to work with the newest android permissions, I will get to it**
