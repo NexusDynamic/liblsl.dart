@@ -549,6 +549,32 @@ class LSLStreamInfo extends LSLObj {
   String toString() {
     return 'LSLStreamInfo[$uid]{streamName: $streamName, streamType: $streamType, channelCount: $channelCount, sampleRate: $sampleRate, channelFormat: $channelFormat, sourceId: $sourceId, host: $hostname}';
   }
+
+  @override
+  int get hashCode => Object.hash(
+    _streamInfo?.address,
+    streamName,
+    streamType,
+    channelCount,
+    sampleRate,
+    channelFormat,
+    sourceId,
+    uid,
+  );
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    if (other is! LSLStreamInfo) return false;
+    return _streamInfo?.address == other._streamInfo?.address &&
+        streamName == other.streamName &&
+        streamType == other.streamType &&
+        channelCount == other.channelCount &&
+        sampleRate == other.sampleRate &&
+        channelFormat == other.channelFormat &&
+        sourceId == other.sourceId &&
+        uid == other.uid;
+  }
 }
 
 /// Stream info with full metadata and description access.
@@ -666,5 +692,24 @@ class LSLStreamInfoWithMetadata extends LSLStreamInfo {
   @override
   String toString() {
     return 'LSLStreamInfoWithMetadata[$uid]{streamName: $streamName, streamType: $streamType, channelCount: $channelCount, sampleRate: $sampleRate, channelFormat: $channelFormat, sourceId: $sourceId, host: $hostname}';
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    _streamInfo?.address,
+    streamName,
+    streamType,
+    channelCount,
+    sampleRate,
+    channelFormat,
+    sourceId,
+    uid,
+  );
+
+  @override
+  operator ==(Object other) {
+    if (identical(this, other)) return true;
+    if (other is! LSLStreamInfoWithMetadata) return false;
+    return super == other;
   }
 }

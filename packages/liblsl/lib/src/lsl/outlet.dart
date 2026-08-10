@@ -799,6 +799,27 @@ class LSLOutlet extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   }
 
   @override
+  int get hashCode => Object.hash(
+    streamInfo,
+    chunkSize,
+    maxBuffer,
+    _useIsolates,
+    _outlet?.address,
+  );
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is LSLOutlet &&
+        other.runtimeType == runtimeType &&
+        other.streamInfo == streamInfo &&
+        other.chunkSize == chunkSize &&
+        other.maxBuffer == maxBuffer &&
+        other._useIsolates == _useIsolates &&
+        other._outlet?.address == _outlet?.address;
+  }
+
+  @override
   String toString() {
     return 'LSLOutlet{streamInfo: $streamInfo, chunkSize: $chunkSize, maxBuffer: $maxBuffer, useIsolates: $_useIsolates}';
   }

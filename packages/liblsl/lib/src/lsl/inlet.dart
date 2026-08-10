@@ -870,4 +870,30 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
             as IList<T>;
     return LSLSample<T>(sampleData, timestamp, errorCode);
   }
+
+  @override
+  int get hashCode => Object.hash(
+    _streamInfo,
+    _useIsolates,
+    maxBuffer,
+    chunkSize,
+    recover,
+    createTimeout,
+    transportOptions,
+    _inlet?.address,
+  );
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    if (other is! LSLInlet<T>) return false;
+    return _streamInfo == other._streamInfo &&
+        _useIsolates == other._useIsolates &&
+        maxBuffer == other.maxBuffer &&
+        chunkSize == other.chunkSize &&
+        recover == other.recover &&
+        createTimeout == other.createTimeout &&
+        transportOptions == other.transportOptions &&
+        _inlet?.address == other._inlet?.address;
+  }
 }
