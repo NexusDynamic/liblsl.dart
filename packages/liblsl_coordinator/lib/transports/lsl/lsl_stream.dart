@@ -326,6 +326,10 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
 
   // LSL resources
   OutletResource? _outletResource;
+
+  /// In-flight `createOutlet()`, so concurrent callers await one creation
+  /// instead of racing to build competing outlets.
+  Future<void>? _outletCreation;
   final List<InletResource> _inletResources = <InletResource>[];
   final List<LSLStreamInfo> _inletStreamInfos = <LSLStreamInfo>[];
 
@@ -501,64 +505,64 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
   }) async {
     if (nodes.isEmpty) return;
 
-    // Retry until every wanted node is found or the deadline passes.
-    //
-    // A single resolve is not enough. Producers come up independently: in
-    // `allNodes` mode each participant creates its outlet and then immediately
-    // resolves its peers, so one participant routinely looks for another that
-    // has not published yet. Resolving once and throwing made that a race the
-    // caller could not win — and it was only visible on LSL, because the
-    // in-memory and WebSocket transports already poll until the deadline.
-    // Never subscribe to our own outlet. LSL will happily connect a node to
-    // itself, which would deliver a node its own samples — the in-memory and
-    // WebSocket transports skip self, and a stream's participation mode is a
-    // property of the coordination layer, so all three must agree.
-    final wanted = {
-      for (final node in nodes)
-        if (node.uId != streamNode.uId) node.uId: node,
-    };
-    if (wanted.isEmpty) return;
+    // No self-exclusion. Whether a node consumes its own output is decided by
+    // StreamParticipationMode via getProducersForStream — allNodes,
+    // coordinatorOnly and sendAllReceiveCoordinator all include the local node
+    // — so the transport subscribes to exactly the producer set it is handed.
+    // liblsl connects an inlet to a local outlet without complaint.
+    final wanted = {for (final node in nodes) node.uId: node};
     final resolved = <String, LSLStreamInfo>{};
     final deadline = DateTime.now().add(resolveTimeout);
 
-    while (resolved.length < wanted.length) {
-      final remaining = deadline.difference(DateTime.now());
-      if (remaining <= Duration.zero) break;
+    // A continuous resolver, not a loop of one-shot resolves.
+    //
+    // Producers come up independently — in `allNodes` each participant
+    // publishes and then immediately looks for its peers, so one routinely
+    // searches for another that has not published yet. A single resolve loses
+    // that race, and repeating one-shot resolves is worse still: each spawns
+    // an isolate and restarts the resolver from cold, so no attempt runs long
+    // enough to see anything. A continuous resolver keeps polling in the C
+    // library and simply reports whatever it currently knows.
+    final resolver = LSLStreamResolverContinuousByPredicate(
+      predicate: LSLStreamInfoHelper.generatePredicate(
+        streamNamePrefix: config.name,
+        sessionName: streamSessionConfig.name,
+      ),
+      // Room for more publishers than we want: capping at wanted.length could
+      // return a set that happens to exclude the nodes being looked for.
+      maxStreams: wanted.length * 2,
+      forgetAfter: resolveTimeout.inMilliseconds / 1000.0,
+    );
+    resolver.create();
 
-      final streamInfos = await LslDiscovery.discoverOnceByPredicate(
-        LSLStreamInfoHelper.generatePredicate(
-          streamNamePrefix: config.name,
-          sessionName: streamSessionConfig.name,
-        ),
-        minStreams: wanted.length,
-        // Not capped at wanted.length: other publishers of this stream may be
-        // present, and capping could return a set that excludes the very nodes
-        // being looked for.
-        maxStreams: wanted.length * 2,
-        timeout: remaining < const Duration(milliseconds: 500)
-            ? remaining
-            : const Duration(milliseconds: 500),
-      );
-
-      for (final info in streamInfos) {
-        String? nodeUId;
-        try {
-          nodeUId = LSLStreamInfoHelper.parseSourceId(
-            info.sourceId,
-          )[LSLStreamInfoHelper.nodeUIdKey];
-        } on FormatException {
-          nodeUId = null;
+    try {
+      while (resolved.length < wanted.length &&
+          DateTime.now().isBefore(deadline)) {
+        for (final info in await resolver.resolve()) {
+          String? nodeUId;
+          try {
+            nodeUId = LSLStreamInfoHelper.parseSourceId(
+              info.sourceId,
+            )[LSLStreamInfoHelper.nodeUIdKey];
+          } on FormatException {
+            nodeUId = null;
+          }
+          // Each resolve hands back owned stream infos; anything not kept must
+          // be destroyed or the native handle leaks.
+          if (nodeUId != null &&
+              wanted.containsKey(nodeUId) &&
+              !resolved.containsKey(nodeUId)) {
+            resolved[nodeUId] = info;
+          } else {
+            info.destroy();
+          }
         }
-        // These are owned by us; anything we do not keep must be destroyed or
-        // the native handle leaks.
-        if (nodeUId != null &&
-            wanted.containsKey(nodeUId) &&
-            !resolved.containsKey(nodeUId)) {
-          resolved[nodeUId] = info;
-        } else {
-          info.destroy();
+        if (resolved.length < wanted.length) {
+          await Future<void>.delayed(const Duration(milliseconds: 50));
         }
       }
+    } finally {
+      resolver.destroy();
     }
 
     if (resolved.length < wanted.length) {
@@ -848,7 +852,25 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
   @override
   /// Create an outlet for this stream using the existing configuration
   /// No arguments needed - uses stream config and node metadata
-  Future<void> createOutlet() async {
+  Future<void> createOutlet() {
+    // Serialised on an in-flight future rather than a plain null check.
+    //
+    // The old guard tested `_outletIsolate != null` and then awaited before
+    // assigning it, so two concurrent calls both passed the check, both built
+    // an outlet, and the second overwrote the first. The overwritten outlet
+    // stayed published on the network with nothing referencing it — invisible
+    // to dispose(), and indistinguishable from a teardown leak — while the
+    // second listen on the single-subscription outgoing controller threw
+    // `Bad state: Stream has already been listened to`.
+    // On failure the latch is cleared so a later attempt can retry, rather
+    // than every subsequent call replaying a cached error.
+    return _outletCreation ??= _createOutlet().catchError((Object e) {
+      _outletCreation = null;
+      throw e;
+    });
+  }
+
+  Future<void> _createOutlet() async {
     if (_outletResource != null || _outletIsolate != null) {
       logger.fine('Outlet already exists for stream ${config.name}');
       return;
@@ -946,11 +968,10 @@ class LSLDataStream extends DataStream<DataStreamConfig, IMessage>
 
   LSLDataStream({
     required DataStreamConfig config,
-    required Node streamNode,
+    required this._streamNode,
     required this.streamSessionConfig,
     required this.lslTransport,
-  }) : _streamNode = streamNode,
-       super(config);
+  }) : super(config);
 
   @override
   String get name => 'LSL Data Stream ${config.name}';

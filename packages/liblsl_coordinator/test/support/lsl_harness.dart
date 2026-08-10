@@ -17,7 +17,6 @@ import 'package:liblsl_coordinator/liblsl_coordinator.dart';
 // from. That re-export is itself part of what couples callers to the LSL
 // backend; it is scheduled to be narrowed when the transport is split out.
 import 'package:liblsl_coordinator/transports/lsl.dart';
-import 'package:test/test.dart';
 
 /// Multicast group used by the coordination tests.
 ///
@@ -28,6 +27,8 @@ import 'package:test/test.dart';
 const String testMulticastGroup = '224.0.0.185';
 
 int _sessionCounter = 0;
+
+LSLApiConfig? _lslApiConfig;
 
 /// A session name unique to this process and call.
 ///
@@ -42,35 +43,36 @@ String uniqueSessionName([String prefix = 'CoordTest']) {
 /// Installs the process-global LSL configuration for a test file.
 ///
 /// Call once, at the top of `main()`, before any test body runs.
-void useLoopbackLsl() {
-  setUpAll(() {
-    LSL.setConfigContent(
-      LSLApiConfig(
-        // Pin everything to loopback so tests never touch a real network.
-        ipv6: IPv6Mode.disable,
-        resolveScope: ResolveScope.link,
-        listenAddress: '127.0.0.1',
-        addressesOverride: [testMulticastGroup],
-        knownPeers: ['127.0.0.1'],
-        // Scopes every stream this process creates at the liblsl level.
-        // `dart test` runs each test file in its own process, so a
-        // process-unique id keeps concurrent files from resolving each
-        // other's streams. Within a file, tests additionally use unique
-        // session/node/stream names — sessionId cannot vary per test because
-        // LSL.setConfigContent is process-global and read once.
-        sessionId: 'CoordTest_${DateTime.now().microsecondsSinceEpoch}',
-        portRange: 128,
-        // Silence the native logger; failures surface through Dart logging.
-        logLevel: -2,
-        // Aggressive RTTs: on loopback the default resolve timings dominate
-        // test runtime. Mirrors packages/liblsl/test/liblsl_resolver_test.dart.
-        unicastMinRTT: 0.1,
-        multicastMinRTT: 0.1,
-        // Tests are short; the watchdog would only add noise.
-        watchdogCheckInterval: 600.0,
-      ),
-    );
-  });
+void useLoopbackLsl({String Function()? sessionName}) {
+  _lslApiConfig = LSLApiConfig(
+    // Pin everything to loopback so tests never touch a real network.
+    ipv6: IPv6Mode.disable,
+    resolveScope: ResolveScope.link,
+    listenAddress: '127.0.0.1',
+    addressesOverride: [testMulticastGroup],
+    knownPeers: ['127.0.0.1'],
+    // Scopes every stream this process creates at the liblsl level.
+    // `dart test` runs each test file in its own process, so a
+    // process-unique id keeps concurrent files from resolving each
+    // other's streams. Within a file, tests additionally use unique
+    // session/node/stream names — sessionId cannot vary per test because
+    // LSL.setConfigContent is process-global and read once.
+    sessionId: 'CoordTest_${DateTime.now().microsecondsSinceEpoch}',
+    // Wide. Each test builds several nodes, each with outlets and inlets, and
+    // `dart test` runs files in separate processes one after another — so
+    // sockets from a finished file are still in TIME_WAIT while the next
+    // starts. A narrow range made later files fail to resolve peers, which
+    // looked like a coordination bug rather than exhausted ports.
+    portRange: 1024,
+    // Silence the native logger; failures surface through Dart logging.
+    logLevel: -2,
+    // Aggressive RTTs: on loopback the default resolve timings dominate
+    // test runtime. Mirrors packages/liblsl/test/liblsl_resolver_test.dart.
+    unicastMinRTT: 0.1,
+    multicastMinRTT: 0.1,
+    // Tests are short; the watchdog would only add noise.
+    watchdogCheckInterval: 600.0,
+  );
 }
 
 /// Session timings tuned for tests: several times faster than the defaults
@@ -123,10 +125,13 @@ CoordinationConfig testCoordinationConfig({
     maxNodes: maxNodes,
   ),
   streamConfig: CoordinationStreamConfig(
-    name: 'coordination',
+    name: 'coordination_$sessionName',
     sampleRate: 50.0,
   ),
-  transportConfig: LSLTransportConfig(coordinationFrequency: 50.0),
+  transportConfig: LSLTransportConfig(
+    lslApiConfig: _lslApiConfig,
+    coordinationFrequency: 50.0,
+  ),
 );
 
 /// Creates a node config with a fixed `randomRoll`, making election

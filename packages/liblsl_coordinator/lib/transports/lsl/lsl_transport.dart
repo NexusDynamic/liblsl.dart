@@ -28,7 +28,7 @@ class LSLTransportConfig implements ITransportConfig {
     LSLApiConfig? lslApiConfig,
     this.coordinationFrequency = 100.0,
   }) : super() {
-    this.lslApiConfig = lslApiConfig ?? LSLApiConfig(ipv6: IPv6Mode.disable);
+    this.lslApiConfig = lslApiConfig ?? LSLApiConfig();
   }
 
   @override

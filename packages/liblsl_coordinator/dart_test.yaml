@@ -1,6 +1,14 @@
+# `concurrency` cannot be set per tag — the test runner disallows it in nested
+# scopes — so the split lives in the melos scripts instead: everything except
+# `lsl` runs in parallel, then `lsl` runs on its own with --concurrency=1.
 tags:
   # Tests that need a real LSL network stack (loopback sockets, multicast
-  # resolution, FFI). Excluded from the default run; see `melos run test:lsl`.
+  # resolution, FFI).
+  #
+  # MUST run serially. Each spins up several sessions with isolates, sockets
+  # and machine-wide peer resolution, so concurrent files contend and fail for
+  # reasons unrelated to the code under test. Use `melos run test:lsl`, or
+  # `dart test --tags lsl --concurrency=1` directly.
   lsl:
     timeout: 2x
   # Multi-node tests that drive whole sessions rather than single units.

@@ -52,38 +52,16 @@ class _LslHarness extends ParticipationHarness {
   /// WebSocket transports satisfy the whole matrix; everything here is
   /// LSL-specific.
   @override
-  Map<StreamParticipationMode, String> get skippedModes => const {
-    // Genuine gaps, reproducible in isolation. With several nodes publishing
-    // the same stream name, the coordinator ends up with data from only some
-    // producers (allNodes) or none at all (sendAllReceiveCoordinator).
-    //
-    // Nothing exercised these before: example/multi_node_test.dart and
-    // benchmark/latency_bench.dart both use
-    // sendParticipantsReceiveCoordinator.
-    StreamParticipationMode.allNodes:
-        'multi-producer delivery is incomplete over LSL',
-    StreamParticipationMode.sendAllReceiveCoordinator:
-        'multi-producer delivery is incomplete over LSL',
-
-    // Unexplained, and worth chasing. This mode passes when run alone and
-    // fails only when another three-node test ran first in the same process.
-    // What has been ruled out: unique session/node/stream names per test (all
-    // applied), a longer teardown pause (5s does not help), and a throwing
-    // teardown (leave/dispose complete without error).
-    //
-    // That combination suggests LSL resources are not fully released even
-    // though disposal reports success — which would be a real leak in the
-    // coordinator's teardown rather than a test artefact, since liblsl itself
-    // handles hundreds of inlets and outlets in packages/liblsl's own
-    // performance tests.
-    //
-    // Skipped here rather than left red; the mode is covered end to end by
-    // coordination_flow_test.dart, which is why this is a suite-ordering
-    // problem and not a coverage hole.
-    StreamParticipationMode.sendParticipantsReceiveCoordinator:
-        'fails only after another 3-node test in the same process; suspected '
-        'incomplete LSL resource release on teardown — see harness comment',
-  };
+  // None. All five modes pass over LSL.
+  //
+  // They did not at first, and both causes were self-inflicted rather than
+  // LSL limitations: createInletsForNodes excluded the local node (so
+  // self-delivery never happened, breaking allNodes and
+  // sendAllReceiveCoordinator), and it retried with short one-shot resolves
+  // that each restarted the resolver from cold instead of using a continuous
+  // one.
+  @override
+  Map<StreamParticipationMode, String> get skippedModes => const {};
 
   @override
   Future<void> setUp() async {
