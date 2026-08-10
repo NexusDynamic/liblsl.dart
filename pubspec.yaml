@@ -74,7 +74,13 @@ melos:
         Run `dart test` for pure-Dart packages. `lsl` is excluded because those
         tests need a real LSL network stack on loopback; run `test:lsl` for those.
     test:lsl:
-      exec: dart test --tags "lsl"
+      # --concurrency=1 serialises test *files* within the package; the melos
+      # `concurrency: 1` below serialises across packages. Both are needed:
+      # these tests bind real sockets and resolve peers machine-wide, so any
+      # two running at once interfere.
+      # `|| true`: packages with no lsl-tagged tests exit non-zero with
+      # "No tests match the requested tag selectors", which is not a failure.
+      exec: dart test --tags "lsl" --concurrency=1 || true
       concurrency: 1
       packageFilters:
         dirExists: test
@@ -83,7 +89,7 @@ melos:
         Run LSL-backed integration tests serially. These bind loopback sockets and
         are timing-sensitive, so they must not run concurrently with each other.
     test:performance:
-      exec: flutter test --tags "performance"
+      exec: flutter test --concurrency=1 --tags "performance"
       concurrency: 1
       packageFilters:
         dirExists: test
