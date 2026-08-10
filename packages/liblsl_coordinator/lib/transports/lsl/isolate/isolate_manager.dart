@@ -624,7 +624,8 @@ final class StreamOutletIsolate extends StreamIsolate {
   final Lock _bufferLock = Lock();
   late final List<LSLReusableBuffer<NativeType>> _buffers;
   final ListQueue<int> _freeBuffers = ListQueue<int>(bufferPoolSize);
-  final ListQueue<Completer<void>> _bufferWaiters = ListQueue<Completer<void>>();
+  final ListQueue<Completer<void>> _bufferWaiters =
+      ListQueue<Completer<void>>();
 
   StreamOutletIsolate({
     required super.streamId,

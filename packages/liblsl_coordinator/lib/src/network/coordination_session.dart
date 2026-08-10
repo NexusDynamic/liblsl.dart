@@ -277,7 +277,6 @@ abstract class CoordinationSession
 
   @override
   @mustCallSuper
-  @mustBeOverridden
   FutureOr<void> create() async {
     if (_created) return;
     _created = true;
@@ -285,7 +284,6 @@ abstract class CoordinationSession
 
   @override
   @mustCallSuper
-  @mustBeOverridden
   FutureOr<void> dispose() async {
     if (_disposed) return;
     _disposed = true;
@@ -297,7 +295,6 @@ abstract class CoordinationSession
 
   @override
   @mustCallSuper
-  @mustBeOverridden
   FutureOr<void> initialize() async {
     if (_initialized) return;
     await create();
@@ -306,7 +303,6 @@ abstract class CoordinationSession
 
   @override
   @mustCallSuper
-  @mustBeOverridden
   FutureOr<void> join() async {
     if (_joined) return;
     _joined = true;
@@ -314,7 +310,6 @@ abstract class CoordinationSession
 
   @override
   @mustCallSuper
-  @mustBeOverridden
   FutureOr<void> leave() async {
     if (!_joined) return;
     _joined = false;
@@ -322,7 +317,6 @@ abstract class CoordinationSession
 
   @override
   @mustCallSuper
-  @mustBeOverridden
   FutureOr<void> pause() async {
     if (_paused) return;
     _paused = true;
@@ -330,7 +324,6 @@ abstract class CoordinationSession
 
   @override
   @mustCallSuper
-  @mustBeOverridden
   FutureOr<void> resume() async {
     if (!_paused) return;
     _paused = false;

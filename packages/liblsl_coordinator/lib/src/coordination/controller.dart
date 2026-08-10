@@ -1,22 +1,28 @@
 import 'dart:async';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
-import 'package:liblsl_coordinator/liblsl_coordinator.dart';
-import 'package:liblsl_coordinator/transports/lsl.dart';
+import 'package:liblsl_coordinator/framework.dart';
+import 'package:liblsl_coordinator/config.dart';
 
 /// Controls the coordination flow with clear phases and event-driven logic.
+///
+/// Owns election, the heartbeat and node-timeout timers, the discovery loop,
+/// and the coordinator/participant command API. None of that is
+/// transport-specific: it talks to an [ITransport], a [CoordinationStream] and
+/// an [IDiscovery], and the transport supplies whichever implementations it
+/// has.
 ///
 /// Emits all coordination events through a single [events] stream.
 /// Use the [ControllerEventStreamExtensions] for convenient filtering.
 class CoordinationController {
   final CoordinationConfig coordinationConfig;
-  final LSLTransport transport;
+  final ITransport transport;
   Node get thisNode => _thisNode;
   Node _thisNode;
   final CoordinationSession session;
 
   late final CoordinationState _state;
-  late final LSLCoordinationStream _coordinationStream;
-  late final LslDiscovery _discovery;
+  late final CoordinationStream _coordinationStream;
+  late final IDiscovery _discovery;
 
   bool _stopping = false;
 
@@ -81,7 +87,7 @@ class CoordinationController {
     logger.info('Initializing coordination controller');
 
     // Create coordination stream
-    final factory = LSLNetworkStreamFactory();
+    final factory = transport.streamFactory;
     _coordinationStream = await factory.createCoordinationStream(
       coordinationConfig.streamConfig,
       session, // We'll manage this ourselves

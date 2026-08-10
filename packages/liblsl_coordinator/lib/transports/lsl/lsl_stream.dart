@@ -874,7 +874,7 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
 /// LSL-based data stream implementation
 // ignore: missing_override_of_must_be_overridden
 class LSLDataStream extends DataStream<DataStreamConfig, IMessage>
-    with RuntimeTypeUID, LSLStreamMixin<DataStreamConfig, IMessage> {
+    with InstanceUID, LSLStreamMixin<DataStreamConfig, IMessage> {
   @override
   Node get streamNode => _streamNode;
   Node _streamNode;
@@ -1098,9 +1098,7 @@ class LSLNetworkStreamFactory
 // ignore: missing_override_of_must_be_overridden
 class LSLCoordinationStream
     extends CoordinationStream<CoordinationStreamConfig, StringMessage>
-    with
-        RuntimeTypeUID,
-        LSLStreamMixin<CoordinationStreamConfig, StringMessage> {
+    with InstanceUID, LSLStreamMixin<CoordinationStreamConfig, StringMessage> {
   @override
   Node get streamNode => _streamNode;
   Node _streamNode;

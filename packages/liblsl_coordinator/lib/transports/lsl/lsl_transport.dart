@@ -18,6 +18,9 @@ class LSLTransportConfig implements ITransportConfig {
   /// Frequency (in Hz) at which coordination messages are sent.
   final double coordinationFrequency;
 
+  @override
+  LSLTransport createTransport() => LSLTransport(config: this);
+
   /// Creates a new [LSLTransportConfig] with the given parameters.
   /// If [lslApiConfig] is not provided, a default configuration is used.
   /// The [coordinationFrequency] (Hz) must be greater than 0.
@@ -188,6 +191,9 @@ class LSLTransport<T extends LSLTransportConfig> extends LSLResource
   /// Managed resources (outlets, inlets, discovery instances, etc.)
   final Map<String, IResource> _resources = {};
 
+  @override
+  NetworkStreamFactory get streamFactory => LSLNetworkStreamFactory();
+
   /// Creates a new [LSLTransport] with the given [config].
   /// If no configuration is provided, a default configuration is used.
   LSLTransport({T? config})
@@ -300,6 +306,7 @@ class LSLTransport<T extends LSLTransportConfig> extends LSLResource
   }
 
   /// Creates a managed discovery resource
+  @override
   Future<LslDiscovery> createDiscovery({
     required NetworkStreamConfig streamConfig,
     required CoordinationConfig coordinationConfig,
@@ -348,40 +355,6 @@ class LSLTransport<T extends LSLTransportConfig> extends LSLResource
     _disposed = true;
     _created = false;
     _initialized = false;
-  }
-
-  @override
-  Future<NetworkStream> createStream(
-    NetworkStreamConfig streamConfig, {
-    CoordinationSession? coordinationSession,
-  }) async {
-    _ensureCreated();
-
-    if (coordinationSession == null) {
-      throw ArgumentError('CoordinationSession is required for LSL transport');
-    }
-
-    if (coordinationSession is! LSLCoordinationSession) {
-      throw ArgumentError(
-        'LSL transport requires LSLCoordinationSession, got ${coordinationSession.runtimeType}',
-      );
-    }
-
-    // Use the factory to create the appropriate stream type
-    final factory = LSLNetworkStreamFactory();
-
-    if (streamConfig is CoordinationStreamConfig) {
-      return await factory.createCoordinationStream(
-        streamConfig,
-        coordinationSession,
-      );
-    } else if (streamConfig is DataStreamConfig) {
-      return await factory.createDataStream(streamConfig, coordinationSession);
-    } else {
-      throw ArgumentError(
-        'Unknown stream config type: ${streamConfig.runtimeType}',
-      );
-    }
   }
 
   @override
