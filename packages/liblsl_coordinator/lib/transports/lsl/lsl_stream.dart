@@ -1095,7 +1095,6 @@ class LSLNetworkStreamFactory
 }
 
 /// LSL-based coordination stream with internal message polling
-// ignore: missing_override_of_must_be_overridden
 class LSLCoordinationStream
     extends CoordinationStream<CoordinationStreamConfig, StringMessage>
     with InstanceUID, LSLStreamMixin<CoordinationStreamConfig, StringMessage> {

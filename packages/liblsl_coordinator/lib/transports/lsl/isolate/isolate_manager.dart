@@ -512,7 +512,7 @@ sealed class StreamIsolate {
         _ready.complete();
       }
     } else if (message is LogRecord) {
-      Log.logIsolateMessage(message);
+      Log.replayRecord(message);
     }
     if (message is IsolateDataMessage) {
       // Handle single data sample
@@ -905,7 +905,7 @@ sealed class IsolateWorker {
   Future<void> start() async {
     receivePort = ReceivePort();
     config.mainSendPort.send(receivePort.sendPort);
-    Log.sendPort = config.mainSendPort;
+    Log.forwardTo(config.mainSendPort.send);
 
     logger.info('${_getWorkerName()} for stream ${config.streamId} started');
 
@@ -1199,7 +1199,7 @@ final class InletWorker extends IsolateWorker {
     }
     // Stop forwarding logs and release the port so the isolate can exit
     // naturally (the response below still goes out on mainSendPort).
-    Log.sendPort = null;
+    Log.forwardTo(null);
     receivePort.close();
   }
 
@@ -1481,7 +1481,7 @@ final class OutletWorker extends IsolateWorker {
     logger.info('Destroyed outlet for stream ${config.streamId}');
     // Stop forwarding logs and release the port so the isolate can exit
     // naturally (the response below still goes out on mainSendPort).
-    Log.sendPort = null;
+    Log.forwardTo(null);
     receivePort.close();
   }
 

@@ -482,16 +482,17 @@ abstract class NetworkStream<T extends NetworkStreamConfig, M extends IMessage>
     }
   }
 
-  @mustBeOverridden
+  // Not @mustBeOverridden: these are routinely supplied by a mixin
+  // (LSLStreamMixin, InMemoryStreamMixin) rather than by the concrete class,
+  // and the analyzer cannot see that, so the annotation only produced
+  // `// ignore` comments on every transport.
   FutureOr<void> sendMessage(M message) {
     throw UnimplementedError('sendMessage must be implemented by subclasses');
   }
 
-  @mustBeOverridden
   StreamSink<M> get outbox =>
       throw UnimplementedError('outbox must be implemented by subclasses');
 
-  @mustBeOverridden
   Stream<M> get inbox =>
       throw UnimplementedError('inbox must be implemented by subclasses');
 
@@ -588,7 +589,6 @@ abstract class CoordinationStream<
   CoordinationStream(super.config);
 
   @override
-  @mustBeOverridden
   FutureOr<void> sendMessage(M message) {
     // Default implementation does nothing.
     // Subclasses should override this method to provide actual functionality.
@@ -603,7 +603,6 @@ abstract class DataStream<T extends DataStreamConfig, M extends IMessage>
   DataStream(super.config, {super.producers, super.consumers});
 
   @override
-  @mustBeOverridden
   FutureOr<void> sendMessage(M message) {
     // Default implementation does nothing.
     // Subclasses should override this method to provide actual functionality.

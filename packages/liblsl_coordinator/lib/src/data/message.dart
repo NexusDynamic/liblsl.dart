@@ -36,10 +36,17 @@ abstract class MessageTypeMapping<T> implements IMessageType<T> {
 }
 
 abstract class IntMessageTypeMapping extends MessageTypeMapping<int> {
-  int get minValue;
-  int get maxValue;
-
   const IntMessageTypeMapping();
+
+  // `minValue`/`maxValue` used to be declared here and on every subclass, but
+  // nothing ever read them — the validators they existed for were never
+  // written. They were also a web blocker: `0x7FFFFFFFFFFFFFFF` cannot be
+  // represented in JavaScript, where Dart `int` is a double, so the file
+  // could not be compiled for the browser at all.
+  //
+  // If range validation is wanted later, it needs to be platform-honest
+  // (the web's safe-integer range is +/-2^53-1, not the int64 range) rather
+  // than a constant that silently means something different per platform.
 }
 
 /// implementation of a [IMessageType] for string data.
@@ -73,11 +80,6 @@ class Int8Mapping extends IntMessageTypeMapping {
   String get description => 'A message containing int8 data (-128 to 127)';
 
   const Int8Mapping({this.channels = 1});
-
-  @override
-  final int minValue = -0x80;
-  @override
-  final int maxValue = 0x7F;
 }
 
 /// Implementation of a [IMessageType] for int16 data.
@@ -93,11 +95,6 @@ class Int16Mapping extends IntMessageTypeMapping {
   @override
   String get description => 'A message containing int16 data';
   const Int16Mapping({this.channels = 1});
-
-  @override
-  final int minValue = -0x8000;
-  @override
-  final int maxValue = 0x7FFF;
 }
 
 /// Implementation of a [IMessageType] for int32 data.
@@ -113,11 +110,6 @@ class Int32Mapping extends IntMessageTypeMapping {
   @override
   String get description => 'A message containing int32 data';
   const Int32Mapping({this.channels = 1});
-
-  @override
-  final int minValue = -0x80000000;
-  @override
-  final int maxValue = 0x7FFFFFFF;
 }
 
 /// Implementation of a [IMessageType] for int64 data.
@@ -133,11 +125,6 @@ class Int64Mapping extends IntMessageTypeMapping {
   @override
   String get description => 'A message containing int64 data';
   const Int64Mapping({this.channels = 1});
-
-  @override
-  final int minValue = -0x8000000000000000;
-  @override
-  final int maxValue = 0x7FFFFFFFFFFFFFFF;
 }
 
 /// Implementation of a [IMessageType] for float32 data.
