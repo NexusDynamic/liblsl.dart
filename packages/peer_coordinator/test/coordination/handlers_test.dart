@@ -252,9 +252,11 @@ void main() {
         );
         await spy.settle();
 
-        expect(state.connectedNodes.map((n) => n.uId), [
-          'coord',
-        ], reason: 'a heartbeat is not an implicit join');
+        expect(
+          state.connectedNodes.map((n) => n.uId),
+          ['coord'],
+          reason: 'a heartbeat is not an implicit join',
+        );
         expect(spy.outgoing, isEmpty);
       });
 

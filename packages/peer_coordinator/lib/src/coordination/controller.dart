@@ -64,9 +64,9 @@ class CoordinationController {
   CoordinationController({
     required this.coordinationConfig,
     required this.transport,
-    required Node thisNode,
+    required this._thisNode,
     required this.session,
-  }) : _thisNode = thisNode {
+  }) {
     _state = CoordinationState();
     _setupStateListeners();
   }

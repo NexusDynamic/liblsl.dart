@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 import 'package:peer_coordinator/config.dart';
 import 'package:peer_coordinator/framework.dart';
+import 'package:synchronized/synchronized.dart';
 
 /// A coordination session, independent of any transport.
 ///
@@ -33,6 +34,7 @@ class PeerSession extends CoordinationSession with InstanceUID {
   final ITransport _transport;
   late final CoordinationController _controller;
   final Map<String, DataStream> _dataStreams = {};
+  final Lock _streamLock = Lock();
   StreamSubscription<StreamLifecycleEvent>? _lifecycleSubscription;
 
   /// Single event stream for all coordination events.
@@ -124,19 +126,21 @@ class PeerSession extends CoordinationSession with InstanceUID {
 
   Future<void> _handleStreamCreate(StreamCreateEvent event) async {
     // Create the stream but don't start it yet
-    if (!_dataStreams.containsKey(event.streamName)) {
+    final DataStream? stream = await _getDataStreamLocked(event.streamName);
+    if (stream == null) {
       await createDataStream(event.streamConfig);
     }
 
-    // Notify coordinator we're ready
-    await _controller.markStreamReady(event.streamName);
+    // Notify coordinator we're ready this is duplicated, createDataStream already
+    // marks stream ready
+    // await _controller.markStreamReady(event.streamName);
     logger.finest('Stream prepared and marked ready: ${event.streamName}');
   }
 
   Future<void> _handleStreamStart(StreamStartEvent event) async {
     logger.finest('Received start stream command: ${event.streamName}');
+    final DataStream? stream = await _getDataStreamLocked(event.streamName);
 
-    final stream = _dataStreams[event.streamName];
     if (stream != null) {
       if (!stream.started) {
         await stream.start();
@@ -153,18 +157,31 @@ class PeerSession extends CoordinationSession with InstanceUID {
     }
   }
 
+  Future<DataStream?> _getDataStreamLocked(String streamName) async {
+    return await _streamLock.synchronized(() {
+      return _dataStreams[streamName];
+    });
+  }
+
   Future<void> _handleStreamStop(StreamStopEvent event) async {
-    final stream = _dataStreams[event.streamName];
-    if (stream != null && stream.started) {
-      await stream.stop(); // Now just pauses polling, doesn't dispose
-      logger.info('PARTICIPANT Stopped stream: ${event.streamName}');
+    final DataStream? stream = await _getDataStreamLocked(event.streamName);
+
+    if (stream != null) {
+      if (stream.started) {
+        await stream.stop(); // Now just pauses polling, doesn't dispose
+        logger.info('PARTICIPANT Stopped stream: ${event.streamName}');
+      } else {
+        logger.warning(
+          'PARTICIPANT Requested stream is already stopped:  ${event.streamName}',
+        );
+      }
       // Notify coordinator we're ready
       await _controller.markStreamReady(event.streamName);
     }
   }
 
   Future<void> _handleStreamPause(StreamPauseEvent event) async {
-    final stream = _dataStreams[event.streamName];
+    final DataStream? stream = await _getDataStreamLocked(event.streamName);
     if (stream != null && stream.started && !stream.paused) {
       await stream.pauseStream();
       logger.info('PARTICIPANT Paused stream: ${event.streamName}');
@@ -174,7 +191,7 @@ class PeerSession extends CoordinationSession with InstanceUID {
   }
 
   Future<void> _handleStreamResume(StreamResumeEvent event) async {
-    final stream = _dataStreams[event.streamName];
+    final DataStream? stream = await _getDataStreamLocked(event.streamName);
     if (stream != null && stream.started && stream.paused) {
       await stream.resumeStream(flushBeforeResume: event.flushBeforeResume);
       logger.info(
@@ -186,7 +203,7 @@ class PeerSession extends CoordinationSession with InstanceUID {
   }
 
   Future<void> _handleStreamFlush(StreamFlushEvent event) async {
-    final stream = _dataStreams[event.streamName];
+    final DataStream? stream = await _getDataStreamLocked(event.streamName);
     if (stream != null && stream.started) {
       await stream.flushStreams();
       logger.info('PARTICIPANT Flushed stream: ${event.streamName}');
@@ -196,14 +213,16 @@ class PeerSession extends CoordinationSession with InstanceUID {
   }
 
   Future<void> _handleStreamDestroy(StreamDestroyEvent event) async {
-    final stream = _dataStreams[event.streamName];
-    if (stream != null) {
-      await stream.destroyStream();
-      _dataStreams.remove(event.streamName);
-      logger.info('PARTICIPANT Destroyed stream: ${event.streamName}');
-      // Notify coordinator we're ready
-      await _controller.markStreamReady(event.streamName);
-    }
+    await _streamLock.synchronized(() async {
+      final stream = _dataStreams[event.streamName];
+      if (stream != null) {
+        await stream.destroyStream();
+        _dataStreams.remove(event.streamName);
+        logger.info('PARTICIPANT Destroyed stream: ${event.streamName}');
+        // Notify coordinator we're ready
+        await _controller.markStreamReady(event.streamName);
+      }
+    });
   }
 
   @override
@@ -281,9 +300,30 @@ class PeerSession extends CoordinationSession with InstanceUID {
     );
   }
 
-  /// Create a data stream with automatic setup
+  /// Create a data stream with automatic setup.
+  ///
+  /// Idempotent: calling this twice for the same stream returns the existing
+  /// one without re-running any wiring.
+  ///
+  /// That guarantee is load-bearing. Participants build their streams
+  /// automatically when the coordinator's `createStream` command arrives, so
+  /// application code that also calls this — a reasonable thing to try after
+  /// seeing a `streamCreate` event — used to reach the setup path twice. The
+  /// second pass called `createOutlet()` on a stream that already had one,
+  /// which threw `Bad state: Stream has already been listened to` from inside
+  /// the transport and left the first outlet orphaned: still published on the
+  /// network, no longer reachable, and so never disposed. It looked exactly
+  /// like a teardown leak.
   Future<DataStream> createDataStream(DataStreamConfig config) async {
     if (!initialized) throw StateError('Session must be initialized');
+
+    final existing = await _getDataStreamLocked(config.name);
+    if (existing != null) {
+      logger.fine(
+        'Data stream already set up, returning it unchanged: ${config.name}',
+      );
+      return existing;
+    }
 
     final stream = await _createDataStream(config);
 
@@ -350,18 +390,20 @@ class PeerSession extends CoordinationSession with InstanceUID {
   }
 
   Future<DataStream> _createDataStream(DataStreamConfig config) async {
-    if (_dataStreams.containsKey(config.name)) {
-      logger.warning('Stream already exists, not recreating: ${config.name}');
-      return _dataStreams[config.name]!;
-    }
-    final factory = _transport.streamFactory;
-    final stream = await factory.createDataStream(config, this);
+    return await _streamLock.synchronized(() async {
+      if (_dataStreams.containsKey(config.name)) {
+        logger.warning('Stream already exists, not recreating: ${config.name}');
+        return _dataStreams[config.name]!;
+      }
+      final factory = _transport.streamFactory;
+      final stream = await factory.createDataStream(config, this);
 
-    await stream.create();
-    _dataStreams[config.name] = stream;
+      await stream.create();
+      _dataStreams[config.name] = stream;
 
-    logger.info('Created data stream: ${config.name}');
-    return stream;
+      logger.info('Created data stream: ${config.name}');
+      return stream;
+    });
   }
 
   Future<DataStream> getDataStream(String name) async {
@@ -383,7 +425,7 @@ class PeerSession extends CoordinationSession with InstanceUID {
   bool get isAcceptingNodes => _controller.isAcceptingNodes;
 
   Future<void> startStream(String streamName, {DateTime? startAt}) async {
-    final stream = _dataStreams[streamName];
+    final DataStream? stream = await _getDataStreamLocked(streamName);
     if (stream == null) {
       throw ArgumentError('Stream not found: $streamName');
     }
@@ -452,7 +494,7 @@ class PeerSession extends CoordinationSession with InstanceUID {
   }
 
   Future<Set<Node>> getProducersForStream(String streamName) async {
-    final stream = _dataStreams[streamName];
+    final DataStream? stream = await _getDataStreamLocked(streamName);
     if (stream == null) {
       throw ArgumentError('Stream not found: $streamName');
     }
@@ -483,7 +525,7 @@ class PeerSession extends CoordinationSession with InstanceUID {
   }
 
   Future<Set<Node>> getConsumersForStream(String streamName) async {
-    final stream = _dataStreams[streamName];
+    final DataStream? stream = await _getDataStreamLocked(streamName);
     if (stream == null) {
       throw ArgumentError('Stream not found: $streamName');
     }
@@ -518,7 +560,7 @@ class PeerSession extends CoordinationSession with InstanceUID {
     await _controller.pauseStream(streamName);
     // If coordinator, also handle local stream
     if (isCoordinator) {
-      final stream = _dataStreams[streamName];
+      final DataStream? stream = await _getDataStreamLocked(streamName);
       if (stream != null && stream.started && !stream.paused) {
         await stream.pauseStream();
         logger.info('COORDINATOR Paused stream: $streamName');
@@ -537,7 +579,7 @@ class PeerSession extends CoordinationSession with InstanceUID {
     );
     // If coordinator, also handle local stream
     if (isCoordinator) {
-      final stream = _dataStreams[streamName];
+      final DataStream? stream = await _getDataStreamLocked(streamName);
       if (stream != null && stream.started && stream.paused) {
         await stream.resumeStream(flushBeforeResume: flushBeforeResume);
         logger.info(
@@ -552,7 +594,7 @@ class PeerSession extends CoordinationSession with InstanceUID {
     await _controller.flushStream(streamName);
     // If coordinator, also handle local stream
     if (isCoordinator) {
-      final stream = _dataStreams[streamName];
+      final DataStream? stream = await _getDataStreamLocked(streamName);
       if (stream != null && stream.started) {
         await stream.flushStreams();
         logger.info('COORDINATOR Flushed stream: $streamName');
@@ -565,7 +607,7 @@ class PeerSession extends CoordinationSession with InstanceUID {
     await _controller.stopStream(streamName);
     // If coordinator, also handle local stream
     if (isCoordinator) {
-      final stream = _dataStreams[streamName];
+      final DataStream? stream = await _getDataStreamLocked(streamName);
       if (stream != null && stream.started) {
         await stream.stop(); // This now just pauses polling
         logger.info('COORDINATOR Stopped stream: $streamName');
@@ -577,13 +619,17 @@ class PeerSession extends CoordinationSession with InstanceUID {
   Future<void> destroyStream(String streamName) async {
     await _controller.destroyStream(streamName);
     // If coordinator, also handle local stream
+    // @TODO: remove some of the redundant isCoordinator checks
+    // the controller most likely will throw if the node is not a coordinator.
     if (isCoordinator) {
-      final stream = _dataStreams[streamName];
-      if (stream != null) {
-        await stream.destroyStream();
-        _dataStreams.remove(streamName);
-        logger.info('COORDINATOR Destroyed stream: $streamName');
-      }
+      await _streamLock.synchronized(() async {
+        final DataStream? stream = _dataStreams[streamName];
+        if (stream != null) {
+          await stream.destroyStream();
+          _dataStreams.remove(streamName);
+          logger.info('COORDINATOR Destroyed stream: $streamName');
+        }
+      });
     }
   }
 
@@ -634,6 +680,20 @@ class PeerSession extends CoordinationSession with InstanceUID {
     );
   }
 
+  Future<void> _disposeStreams() async {
+    // Dispose streams
+    await _streamLock.synchronized(() async {
+      logger.finest('Disposing ${_dataStreams.length} data streams...');
+      for (final stream in _dataStreams.values) {
+        if (stream.started) {
+          await stream.stop();
+        }
+        await stream.dispose();
+      }
+      _dataStreams.clear();
+    });
+  }
+
   @override
   Future<void> leave() async {
     if (!joined) {
@@ -641,14 +701,7 @@ class PeerSession extends CoordinationSession with InstanceUID {
       return;
     }
     await super.leave();
-
-    // Dispose streams
-    logger.finest('Disposing ${_dataStreams.length} data streams...');
-    for (final stream in _dataStreams.values) {
-      await stream.dispose();
-    }
-    _dataStreams.clear();
-
+    await _disposeStreams();
     // Dispose the controller first: it still needs the transport-managed
     // discovery resource and the coordination stream to announce leaving.
     logger.finest('Leaving coordination session...');
@@ -659,14 +712,13 @@ class PeerSession extends CoordinationSession with InstanceUID {
   }
 
   @override
-  // @TODO: not mix dispose and leave
   Future<void> dispose() async {
     if (joined) {
       await leave();
     }
+    await super.dispose();
     await _lifecycleSubscription?.cancel();
     _lifecycleSubscription = null;
-    await super.dispose();
 
     logger.finest('Disposed coordination session');
   }

@@ -92,6 +92,23 @@ class _Peer {
   Future<void> cancel() async => _inbox?.cancel();
 }
 
+/// Polls until [session] has [streamName], or [timeout] expires.
+Future<DataStream> _awaitDataStream(
+  PeerSession session,
+  String streamName,
+  Duration timeout,
+) async {
+  final deadline = DateTime.now().add(timeout);
+  while (true) {
+    try {
+      return await session.getDataStream(streamName);
+    } on ArgumentError {
+      if (!DateTime.now().isBefore(deadline)) rethrow;
+      await Future<void>.delayed(const Duration(milliseconds: 25));
+    }
+  }
+}
+
 /// Registers the participation-mode scenarios for [harness].
 void runParticipationScenarios(ParticipationHarness harness) {
   group('${harness.name} · participation modes', () {
@@ -209,33 +226,30 @@ void runParticipationScenarios(ParticipationHarness harness) {
 
       // Participants create their stream when told to; the coordinator's
       // createDataStream blocks until they report ready.
-      final participantStreams = <_Peer, Completer<DataStream>>{
-        for (final peer in peers.skip(1)) peer: Completer<DataStream>(),
-      };
-      final subscriptions = <StreamSubscription<void>>[];
-      for (final entry in participantStreams.entries) {
-        subscriptions.add(
-          entry.key.session.events.streamCreate.listen((event) async {
-            if (entry.value.isCompleted) return;
-            entry.value.complete(
-              await entry.key.session.createDataStream(event.streamConfig),
-            );
-          }),
-        );
-      }
+      final List<_Peer> participantStreams = peers
+          .skip(1)
+          .toList(growable: false);
 
       final coordinatorStream = await peers.first.session.createDataStream(
         config,
       );
       peers.first.listen(coordinatorStream);
 
-      for (final entry in participantStreams.entries) {
-        entry.key.listen(
-          await entry.value.future.timeout(const Duration(seconds: 10)),
+      await peers.first.session.startStream(streamName);
+
+      // Wait for each participant's stream to exist rather than assuming it.
+      //
+      // Participants build their streams automatically on the coordinator's
+      // createStream command, and for most modes the coordinator's
+      // createDataStream blocks until they report ready. coordinatorOnly is
+      // the exception: it skips the readiness barrier entirely (participants
+      // publish nothing, so there is nothing to wait for), which means their
+      // streams may not exist yet when control returns here.
+      for (final peer in participantStreams) {
+        peer.listen(
+          await _awaitDataStream(peer.session, streamName, harness.joinTimeout),
         );
       }
-
-      await peers.first.session.startStream(streamName);
       // Let the start command reach every node and their links come up.
       await Future<void>.delayed(harness.warmup);
 
@@ -253,10 +267,22 @@ void runParticipationScenarios(ParticipationHarness harness) {
         }
       }
 
+      // Let delivery land BEFORE tearing the stream down.
+      //
+      // stopStream stops the coordinator's own stream synchronously and only
+      // then broadcasts, and a stopped stream drops anything still in flight.
+      // Stopping first therefore discarded exactly the samples under test —
+      // which is why the coordinator saw nothing in every mode where it
+      // consumes, while coordinatorOnly (participants consuming, stopped
+      // later via the broadcast) still passed.
       await Future<void>.delayed(harness.settleTimeout);
-      for (final subscription in subscriptions) {
-        await subscription.cancel();
+
+      await peers.first.session.stopStream(streamName);
+      await peers.first.session.destroyStream(streamName);
+      for (final peer in participantStreams) {
+        await peer.cancel();
       }
+      peers.first.cancel();
     }
 
     /// Which node indices a peer received samples from. Channel 0 carries the
@@ -269,22 +295,28 @@ void runParticipationScenarios(ParticipationHarness harness) {
       return reason == null ? null : '${mode.name}: $reason';
     }
 
-    test('coordinatorOnly: only the coordinator publishes', () async {
-      await buildSession();
-      await exchange(StreamParticipationMode.coordinatorOnly);
+    test(
+      'coordinatorOnly: only the coordinator publishes',
+      () async {
+        await buildSession();
+        await exchange(StreamParticipationMode.coordinatorOnly);
 
-      final coordinator = peers[0];
-      expect(
-        coordinator.received,
-        isEmpty,
-        reason: 'the coordinator is the sole producer; it consumes nothing',
-      );
-      for (final participant in peers.skip(1)) {
-        expect(sendersSeenBy(participant), {
-          0,
-        }, reason: '${participant.label} should receive only the coordinator');
-      }
-    }, skip: skipFor(StreamParticipationMode.coordinatorOnly));
+        final coordinator = peers[0];
+        expect(
+          coordinator.received,
+          isEmpty,
+          reason: 'the coordinator is the sole producer; it consumes nothing',
+        );
+        for (final participant in peers.skip(1)) {
+          expect(
+            sendersSeenBy(participant),
+            {0},
+            reason: '${participant.label} should receive only the coordinator',
+          );
+        }
+      },
+      skip: skipFor(StreamParticipationMode.coordinatorOnly),
+    );
 
     test(
       'sendParticipantsReceiveCoordinator: participants publish, only the '
@@ -295,10 +327,11 @@ void runParticipationScenarios(ParticipationHarness harness) {
           StreamParticipationMode.sendParticipantsReceiveCoordinator,
         );
 
-        expect(sendersSeenBy(peers[0]), {
-          1,
-          2,
-        }, reason: 'the coordinator should receive from both participants');
+        expect(
+          sendersSeenBy(peers[0]),
+          {1, 2},
+          reason: 'the coordinator should receive from both participants',
+        );
         for (final participant in peers.skip(1)) {
           expect(
             participant.received,
@@ -310,36 +343,44 @@ void runParticipationScenarios(ParticipationHarness harness) {
       skip: skipFor(StreamParticipationMode.sendParticipantsReceiveCoordinator),
     );
 
-    test('allNodes: everyone publishes and everyone consumes', () async {
-      await buildSession();
-      await exchange(StreamParticipationMode.allNodes);
+    test(
+      'allNodes: everyone publishes and everyone consumes',
+      () async {
+        await buildSession();
+        await exchange(StreamParticipationMode.allNodes);
 
-      // Including itself: getProducersForStream and getConsumersForStream
-      // both return every connected node for this mode, so a node is one of
-      // its own producers. Whether that is wanted is a property of the mode,
-      // not of the transport — a transport that quietly dropped self-delivery
-      // would be overriding the mode.
-      for (var i = 0; i < peers.length; i++) {
-        expect(sendersSeenBy(peers[i]), {
-          0,
-          1,
-          2,
-        }, reason: '${peers[i].label} should receive from every node');
-      }
-    }, skip: skipFor(StreamParticipationMode.allNodes));
+        // Including itself: getProducersForStream and getConsumersForStream
+        // both return every connected node for this mode, so a node is one of
+        // its own producers. Whether that is wanted is a property of the mode,
+        // not of the transport — a transport that quietly dropped self-delivery
+        // would be overriding the mode.
+        for (var i = 0; i < peers.length; i++) {
+          expect(
+            sendersSeenBy(peers[i]),
+            {0, 1, 2},
+            reason: '${peers[i].label} should receive from every node',
+          );
+        }
+      },
+      skip: skipFor(StreamParticipationMode.allNodes),
+    );
 
-    test('sendAllReceiveCoordinator: everyone publishes', () async {
-      await buildSession();
-      await exchange(StreamParticipationMode.sendAllReceiveCoordinator);
+    test(
+      'sendAllReceiveCoordinator: everyone publishes',
+      () async {
+        await buildSession();
+        await exchange(StreamParticipationMode.sendAllReceiveCoordinator);
 
-      // Producers are all nodes, consumers are the coordinator alone, so the
-      // coordinator sees everyone — itself included.
-      expect(sendersSeenBy(peers[0]), {
-        0,
-        1,
-        2,
-      }, reason: 'the coordinator should receive from every producer');
-    }, skip: skipFor(StreamParticipationMode.sendAllReceiveCoordinator));
+        // Producers are all nodes, consumers are the coordinator alone, so the
+        // coordinator sees everyone — itself included.
+        expect(
+          sendersSeenBy(peers[0]),
+          {0, 1, 2},
+          reason: 'the coordinator should receive from every producer',
+        );
+      },
+      skip: skipFor(StreamParticipationMode.sendAllReceiveCoordinator),
+    );
 
     test('sendAllReceiveCoordinator ALSO delivers to participants '
         '(characterisation — see known issues)', () async {
