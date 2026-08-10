@@ -352,6 +352,7 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
   @override
   IResourceManager? get manager => _manager;
 
+  @override
   bool get started => _started;
 
   bool get running => !disposed && created && started && !paused;
@@ -379,22 +380,11 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
 
   @override
   void updateManager(IResourceManager? newManager) {
-    if (_disposed) {
-      throw StateError('Resource has been disposed');
-    }
-    if (_manager == newManager) {
-      logger.finest(
-        'Resource manager is already set to ${newManager?.name} (${newManager?.uId})',
-      );
-      return;
-    }
-    if (_manager != null && newManager != null) {
-      throw StateError(
-        'Resource is already managed by ${_manager!.name} (${_manager!.uId}) '
-        'please release it before assigning a new manager',
-      );
-    }
-    _manager = newManager;
+    _manager = resolveManagerUpdate(
+      current: _manager,
+      next: newManager,
+      disposed: _disposed,
+    );
   }
 
   /// Add inlet for receiving from another node
@@ -413,8 +403,10 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
     }
   }
 
+  @override
   void updateNode(Node newNode);
 
+  @override
   /// Subscribes to a discovered peer.
   ///
   /// Takes ownership of [handle] before doing anything else. That is what
@@ -502,7 +494,8 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
     // }
   }
 
-  Future<void> createResolvedInletsForStream(
+  @override
+  Future<void> createInletsForNodes(
     Iterable<Node> nodes, {
     Duration resolveTimeout = const Duration(seconds: 10),
   }) async {
@@ -583,6 +576,7 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
     await _addInletForStreamInfo(streamInfo);
   }
 
+  @override
   Future<void> start() async {
     if (_started) return;
     logger.info('Starting LSL stream ${config.name}');
@@ -601,19 +595,11 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
     }
   }
 
-  /// Pause the stream (stop polling but keep isolates alive)
-  Future<void> pauseStream() async {
-    if (!_started || paused) return;
-    await pause();
-  }
+  // pauseStream / resumeStream now come from NetworkStream: their bodies were
+  // pure state-machine logic with nothing LSL-specific in them.
 
-  /// Resume the stream with optional flushing
-  Future<void> resumeStream({bool flushBeforeResume = true}) async {
-    if (!_started || !paused) return;
-    await resume(flushBeforeResume: flushBeforeResume);
-  }
-
-  /// Flush inlet streams to clear pending messages
+  /// Flush inlet streams to clear pending messages.
+  @override
   Future<void> flushStreams() async {
     if (!_started) return;
     logger.info('Flushing LSL stream ${config.name}');
@@ -622,6 +608,7 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
     }
   }
 
+  @override
   Future<void> stop() async {
     if (!_started || disposed) return;
     _started = false;
@@ -633,7 +620,8 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
     }
   }
 
-  /// Dispose the stream (destroy isolates and resources) - replaces old stop functionality
+  /// Dispose the stream (destroy isolates and resources).
+  @override
   Future<void> destroyStream() async {
     if (disposed) return;
 
@@ -716,7 +704,7 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
   }
 
   @override
-  Future<void> resume({bool flushBeforeResume = true}) async {
+  Future<void> resumeWith({bool flushBeforeResume = true}) async {
     if (!paused) return;
 
     logger.info(
@@ -728,7 +716,7 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
     if (_inletIsolate != null) {
       await _inletIsolate!.resume(flushBeforeResume: flushBeforeResume);
     }
-    super.resume();
+    await super.resumeWith(flushBeforeResume: flushBeforeResume);
   }
 
   @override
@@ -764,6 +752,7 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
     _disposed = true;
   }
 
+  @override
   /// Call this if the stream configuration changes and you need to
   /// recreate the outlet with updated settings (so other nodes can see changes)
   /// Be careful, because it will cause issues if there are inlets connected
@@ -801,6 +790,7 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
     }
   }
 
+  @override
   /// Create an outlet for this stream using the existing configuration
   /// No arguments needed - uses stream config and node metadata
   Future<void> createOutlet() async {
@@ -913,6 +903,7 @@ class LSLDataStream extends DataStream<DataStreamConfig, IMessage>
   @override
   String get description => 'High-precision data stream for ${config.name}';
 
+  @override
   /// Send typed data based on stream configuration.
   ///
   /// The returned future completes once the sample has been handed to the
@@ -923,14 +914,9 @@ class LSLDataStream extends DataStream<DataStreamConfig, IMessage>
   Future<void> sendData(Iterable<dynamic> data) {
     if (!started) throw StateError('Stream not started');
 
-    if (data.length != config.channels) {
-      throw ArgumentError(
-        'Data length ${data.length} does not match channels ${config.channels}',
-      );
-    }
     final iData = IList<dynamic>(data);
-    // Validate data types
-    _validateDataType(iData);
+    // Checks both the channel count and the per-element types.
+    config.validateSample(iData);
 
     // Send directly through outlet or isolate
     if (useIsolates && _outletIsolate != null) {
@@ -951,17 +937,12 @@ class LSLDataStream extends DataStream<DataStreamConfig, IMessage>
     _streamNode = newNode;
   }
 
+  @override
   /// Typed variant of [sendData]; see there for await/backpressure semantics.
   Future<void> sendDataTyped<T>(Iterable<T> data) {
     if (!started) throw StateError('Stream not started');
 
-    if (data.length != config.channels) {
-      throw ArgumentError(
-        'Data length ${data.length} does not match channels ${config.channels}',
-      );
-    }
-    // Validate data types
-    _validateDataType(data);
+    config.validateSample(data);
 
     // Send directly through outlet or isolate
     if (useIsolates && _outletIsolate != null) {
@@ -972,36 +953,6 @@ class LSLDataStream extends DataStream<DataStreamConfig, IMessage>
       _outletResource!.outlet.pushSample(IList(data));
     }
     return Future.value();
-  }
-
-  void _validateDataType(Iterable<dynamic> data) {
-    for (final value in data) {
-      switch (config.dataType) {
-        case StreamDataType.float32:
-        case StreamDataType.double64:
-          if (value is! num) {
-            throw ArgumentError(
-              'Expected numeric value, got ${value.runtimeType}',
-            );
-          }
-          break;
-        case StreamDataType.int8:
-        case StreamDataType.int16:
-        case StreamDataType.int32:
-        case StreamDataType.int64:
-          if (value is! int) {
-            throw ArgumentError('Expected int value, got ${value.runtimeType}');
-          }
-          break;
-        case StreamDataType.string:
-          if (value is! String) {
-            throw ArgumentError(
-              'Expected String value, got ${value.runtimeType}',
-            );
-          }
-          break;
-      }
-    }
   }
 
   @override

@@ -294,7 +294,7 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
         logger.info(
           'All participants ready, creating inlets for producers: ${producers.map((e) => "${e.uId} ${e.role}").join(', ')}',
         );
-        await stream.createResolvedInletsForStream(producers);
+        await stream.createInletsForNodes(producers);
       }
 
       // Coordinator marks itself as ready
@@ -315,7 +315,7 @@ class LSLCoordinationSession extends CoordinationSession with RuntimeTypeUID {
           StreamParticipationMode.sendParticipantsReceiveCoordinator) {
         // Create inlets for all existing nodes
         final producers = await getProducersForStream(config.name);
-        await stream.createResolvedInletsForStream(producers);
+        await stream.createInletsForNodes(producers);
       }
       await _controller.markStreamReady(config.name);
       logger.info(

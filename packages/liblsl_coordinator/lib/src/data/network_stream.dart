@@ -163,6 +163,47 @@ class DataStreamConfig extends NetworkStreamConfig {
     TransportStreamConfig? transportConfig,
   }) : _transportConfig = transportConfig;
 
+  /// Checks that [data] is a valid sample for this stream.
+  ///
+  /// A sample is exactly [NetworkStreamConfig.channels] values whose runtime
+  /// types match [NetworkStreamConfig.dataType]. Transport-neutral, so every
+  /// backend rejects the same inputs with the same message instead of each
+  /// discovering the mismatch in its own way (or not at all).
+  ///
+  /// Throws [ArgumentError] describing the first problem found.
+  void validateSample(Iterable<dynamic> data) {
+    if (data.length != channels) {
+      throw ArgumentError(
+        'Data length ${data.length} does not match channels $channels '
+        'on stream "$name"',
+      );
+    }
+    for (final value in data) {
+      switch (dataType) {
+        case StreamDataType.float32:
+        case StreamDataType.double64:
+          if (value is! num) {
+            throw ArgumentError(
+              'Expected numeric value, got ${value.runtimeType}',
+            );
+          }
+        case StreamDataType.int8:
+        case StreamDataType.int16:
+        case StreamDataType.int32:
+        case StreamDataType.int64:
+          if (value is! int) {
+            throw ArgumentError('Expected int value, got ${value.runtimeType}');
+          }
+        case StreamDataType.string:
+          if (value is! String) {
+            throw ArgumentError(
+              'Expected String value, got ${value.runtimeType}',
+            );
+          }
+      }
+    }
+  }
+
   @override
   Map<String, dynamic> toMap() {
     final map = super.toMap();
@@ -453,6 +494,88 @@ abstract class NetworkStream<T extends NetworkStreamConfig, M extends IMessage>
   @mustBeOverridden
   Stream<M> get inbox =>
       throw UnimplementedError('inbox must be implemented by subclasses');
+
+  // ---------------------------------------------------------------------------
+  // Transport contract
+  //
+  // Everything below used to exist only on LSLStreamMixin, which meant every
+  // caller — the controller, the session, the stream-lifecycle handlers — had
+  // to hold a concrete LSL type to do anything useful. Declaring it here is
+  // what lets a second transport exist at all.
+  //
+  // The vocabulary is deliberately publish/subscribe rather than LSL's
+  // outlet/inlet: `createOutlet` means "start publishing this node's data" and
+  // `addInlet` means "subscribe to this peer".
+  // ---------------------------------------------------------------------------
+
+  /// Whether the stream is currently running.
+  bool get started;
+
+  /// Begins publishing and delivering. Idempotent.
+  Future<void> start();
+
+  /// Stops publishing and delivering, but keeps the stream usable.
+  Future<void> stop();
+
+  /// Creates this node's publishing endpoint.
+  Future<void> createOutlet();
+
+  /// Recreates the publishing endpoint to reflect a changed [Node].
+  ///
+  /// Required because a node's role is part of its published identity, and
+  /// election changes that role after the endpoint already exists.
+  Future<void> recreateOutlet();
+
+  /// Subscribes to a peer found by discovery.
+  ///
+  /// Implementations must take ownership of [handle] (see [PeerHandle.take])
+  /// before using it.
+  Future<void> addInlet(PeerHandle handle);
+
+  /// Subscribes to every node in [nodes], resolving their endpoints first.
+  Future<void> createInletsForNodes(
+    Iterable<Node> nodes, {
+    Duration resolveTimeout = const Duration(seconds: 10),
+  });
+
+  /// Replaces the [Node] this stream publishes as.
+  ///
+  /// Call [recreateOutlet] afterwards for the change to reach the network.
+  void updateNode(Node newNode);
+
+  /// Resumes, optionally discarding data buffered while paused.
+  ///
+  /// [resume] exists on [IPausable] with no parameters, and an override cannot
+  /// usefully widen it — callers holding the base type could never pass the
+  /// flag. So the parameterised form is its own method and [resume] delegates
+  /// here.
+  @mustCallSuper
+  Future<void> resumeWith({bool flushBeforeResume = true}) async {
+    _paused = false;
+  }
+
+  /// Discards anything buffered.
+  ///
+  /// Default is a no-op: only transports with their own buffering (LSL's
+  /// inlets) have anything to discard.
+  Future<void> flushStreams() async {}
+
+  /// Pauses, if running and not already paused.
+  Future<void> pauseStream() async {
+    if (!started || paused) return;
+    await pause();
+  }
+
+  /// Resumes, if running and paused.
+  Future<void> resumeStream({bool flushBeforeResume = true}) async {
+    if (!started || !paused) return;
+    await resumeWith(flushBeforeResume: flushBeforeResume);
+  }
+
+  /// Stops and releases the stream's endpoints.
+  Future<void> destroyStream() async {
+    await stop();
+  }
 }
 
 /// A coordination stream used for network coordination tasks.
@@ -486,6 +609,15 @@ abstract class DataStream<T extends DataStreamConfig, M extends IMessage>
     // Subclasses should override this method to provide actual functionality.
     throw UnimplementedError('sendMessage must be implemented by subclasses');
   }
+
+  /// Publishes one sample: exactly [NetworkStream.channelCount] values whose
+  /// runtime types match [NetworkStream.dataType].
+  ///
+  /// Validate with [DataStreamConfig.validateSample] before transmitting.
+  Future<void> sendData(Iterable<dynamic> data);
+
+  /// [sendData] for a statically known element type.
+  Future<void> sendDataTyped<S>(Iterable<S> data);
 }
 
 /// Creates network streams.
