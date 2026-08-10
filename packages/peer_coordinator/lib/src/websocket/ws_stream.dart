@@ -1,0 +1,449 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:peer_coordinator/framework.dart';
+import 'package:peer_coordinator/src/websocket/ws_connection.dart';
+import 'package:peer_coordinator/src/websocket/ws_discovery.dart';
+import 'package:peer_coordinator/src/websocket/ws_protocol.dart';
+
+/// Shared behaviour for WebSocket-backed streams.
+///
+/// Publishing is a frame to the hub; subscribing is a `subscribe` control
+/// frame that installs a route there. No isolate and no polling: unlike
+/// liblsl, a WebSocket is already non-blocking and event-driven.
+mixin WsStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
+    on NetworkStream<T, M> {
+  WsConnection get connection;
+  String get sessionName;
+  Node get streamNode;
+
+  final StreamController<M> _incoming = StreamController<M>.broadcast();
+  final StreamController<M> _outgoing = StreamController<M>();
+  StreamSubscription<WsInbound>? _inboundSubscription;
+  StreamSubscription<M>? _outgoingSubscription;
+
+  bool _created = false;
+  bool _disposed = false;
+  bool _started = false;
+  bool _publishing = false;
+  IResourceManager? _manager;
+
+  /// Hub slot for this stream's own endpoint, learned from `welcome`.
+  int? _slot;
+
+  /// Producers we are subscribed to, and their slots (for binary demuxing).
+  final Set<String> _subscribedProducers = {};
+  final Set<int> _subscribedSlots = {};
+
+  String get endpointId => descriptor.endpointId;
+
+  PeerDescriptor get descriptor => PeerDescriptor.forNode(
+    node: streamNode,
+    streamName: config.name,
+    sessionName: sessionName,
+  );
+
+  @override
+  bool get created => _created;
+
+  @override
+  bool get disposed => _disposed;
+
+  @override
+  bool get started => _started;
+
+  @override
+  IResourceManager? get manager => _manager;
+
+  @override
+  void updateManager(IResourceManager? newManager) {
+    _manager = resolveManagerUpdate(
+      current: _manager,
+      next: newManager,
+      disposed: _disposed,
+    );
+  }
+
+  @override
+  Stream<M> get inbox => _incoming.stream;
+
+  @override
+  StreamSink<M> get outbox => _outgoing.sink;
+
+  @override
+  Future<void> create() async {
+    if (_created) return;
+    if (_disposed) throw StateError('Cannot create a disposed stream');
+    _created = true;
+
+    // Claim a routing identity up front. A stream that only consumes never
+    // calls createOutlet, and without this the hub would have no way to
+    // deliver to it.
+    _slot = await connection.announce(descriptor, publish: false);
+    _inboundSubscription = connection.inbound.listen(_onInbound);
+    _outgoingSubscription = _outgoing.stream.listen((message) {
+      unawaited(Future.sync(() => sendMessage(message)));
+    });
+  }
+
+  void _onInbound(WsInbound inbound) {
+    if (_disposed || paused || !_started) return;
+    final payload = inbound.payload;
+
+    if (payload is Uint8List) {
+      // Binary sample. Only ours if it came from a producer we subscribed to.
+      if (!WsSampleFrame.isSample(payload)) return;
+      if (!_subscribedSlots.contains(WsSampleFrame.sourceSlotOf(payload))) {
+        return;
+      }
+      final message = decodeSample(payload);
+      if (message != null) _incoming.add(message);
+      return;
+    }
+
+    if (inbound.streamName != config.name) return;
+    if (!_subscribedProducers.contains(inbound.fromEndpointId)) return;
+    final message = decodeControlPayload(payload);
+    if (message != null) _incoming.add(message);
+  }
+
+  /// Builds a message from a binary sample frame. Null for streams that do
+  /// not carry samples.
+  M? decodeSample(Uint8List frame) => null;
+
+  /// Builds a message from a relayed JSON payload.
+  M? decodeControlPayload(Object payload);
+
+  @override
+  Future<void> createOutlet() async {
+    if (_disposed) return;
+    _publishing = true;
+    _slot = await connection.announce(descriptor);
+  }
+
+  @override
+  Future<void> recreateOutlet() async {
+    if (_disposed) return;
+    // Republish: the node's role is part of its descriptor and election
+    // changes it. The hub treats a repeat registration as an update.
+    _slot = await connection.announce(descriptor);
+    _publishing = true;
+  }
+
+  @override
+  Future<void> addInlet(PeerHandle handle) async {
+    if (_disposed) return;
+    if (!handle.taken) handle.take();
+
+    final producer = handle.descriptor.endpointId;
+    // Deliberately no self-check here. Whether a node consumes its own
+    // output is decided by StreamParticipationMode via
+    // PeerSession.getProducersForStream — allNodes, coordinatorOnly and
+    // sendAllReceiveCoordinator all legitimately include the local node — and
+    // `consumeCoordinationStreamAsCoordinator` has the coordinator subscribe
+    // to its own coordination stream on purpose. A transport that silently
+    // skipped self would override those decisions.
+    if (!_subscribedProducers.add(producer)) return;
+    if (handle is WsPeerHandle && handle.slot != null) {
+      _subscribedSlots.add(handle.slot!);
+    }
+
+    connection.subscribe(
+      streamName: config.name,
+      subscriberEndpointId: endpointId,
+      producerEndpointIds: [producer],
+    );
+    await handle.dispose();
+  }
+
+  @override
+  Future<void> createInletsForNodes(
+    Iterable<Node> nodes, {
+    Duration resolveTimeout = const Duration(seconds: 10),
+  }) async {
+    if (nodes.isEmpty) return;
+    final wanted = nodes.map((n) => n.uId).toSet();
+    final deadline = DateTime.now().add(resolveTimeout);
+
+    while (true) {
+      final found = await _resolvePublishers(wanted);
+      if (found.length >= wanted.length) {
+        for (final handle in found) {
+          await addInlet(handle);
+        }
+        return;
+      }
+      for (final handle in found) {
+        await handle.dispose();
+      }
+      if (!DateTime.now().isBefore(deadline)) {
+        throw StateError(
+          'Timed out resolving ${wanted.length} publisher(s) of '
+          '"${config.name}"; found ${found.length}',
+        );
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 25));
+    }
+  }
+
+  Future<List<WsPeerHandle>> _resolvePublishers(Set<String> wanted) async {
+    final query = PeerQueries.streamPublishers(
+      streamName: config.name,
+      sessionName: sessionName,
+    );
+    final completer = Completer<List<WsPeerHandle>>();
+    final qid = connection.query(query);
+    final subscription = connection.control.listen((frame) {
+      if (frame.type != WsControl.queryResult) return;
+      if (frame.payload['qid'] != qid) return;
+      if (completer.isCompleted) return;
+      completer.complete([
+        for (final entry in (frame.payload['peers'] as List))
+          if (wanted.contains(
+            ((entry as Map<String, dynamic>)['peer']
+                as Map<String, dynamic>)['nodeUId'],
+          ))
+            WsPeerHandle(
+              PeerDescriptor.fromJson(entry['peer'] as Map<String, dynamic>),
+              slot: entry['slot'] as int?,
+            ),
+      ]);
+    });
+    try {
+      return await completer.future.timeout(
+        const Duration(milliseconds: 500),
+        onTimeout: () => const [],
+      );
+    } finally {
+      await subscription.cancel();
+    }
+  }
+
+  @override
+  void updateNode(Node newNode) {
+    if (newNode.uId != streamNode.uId) {
+      throw ArgumentError('newNode must have the same uId');
+    }
+    setStreamNode(newNode);
+  }
+
+  void setStreamNode(Node node);
+
+  @override
+  Future<void> start() async {
+    if (_started || _disposed) return;
+    _started = true;
+  }
+
+  @override
+  Future<void> stop() async {
+    if (!_started || _disposed) return;
+    _started = false;
+    if (!paused) await pause();
+  }
+
+  @override
+  Future<void> destroyStream() async {
+    if (_disposed) return;
+    await stop();
+    _subscribedProducers.clear();
+    _subscribedSlots.clear();
+    _publishing = false;
+  }
+
+  @override
+  FutureOr<void> sendMessage(M message) {
+    if (_disposed || !_started || paused || !_publishing) return null;
+    connection.publishMessage(
+      streamName: config.name,
+      fromEndpointId: endpointId,
+      payload: encodeForWire(message),
+    );
+    return null;
+  }
+
+  /// JSON-encodable form of [message] for the control path.
+  Object encodeForWire(M message);
+
+  /// Publishes a sample using the binary framing.
+  void publishSample(List<Object?> channels) {
+    final slot = _slot;
+    if (slot == null || _disposed || !_started || paused) return;
+    connection.publishSample(
+      WsSampleFrame.encode(
+        dataType: config.dataType,
+        streamSlot: slot,
+        srcSlot: slot,
+        senderMicros: DateTime.now().microsecondsSinceEpoch.toDouble(),
+        channels: channels,
+      ),
+    );
+  }
+
+  @override
+  Future<void> dispose() async {
+    if (_disposed) return;
+    await destroyStream();
+    _disposed = true;
+    _created = false;
+    await _inboundSubscription?.cancel();
+    await _outgoingSubscription?.cancel();
+    unawaited(_incoming.close());
+    unawaited(_outgoing.close());
+  }
+}
+
+/// Coordination stream over a hub. Reliable, ordered, JSON.
+class WsCoordinationStream
+    extends CoordinationStream<CoordinationStreamConfig, StringMessage>
+    with InstanceUID, WsStreamMixin<CoordinationStreamConfig, StringMessage> {
+  WsCoordinationStream({
+    required CoordinationStreamConfig config,
+    required this.connection,
+    required this.sessionName,
+    required Node streamNode,
+  }) : _streamNode = streamNode,
+       super(config);
+
+  @override
+  final WsConnection connection;
+
+  @override
+  final String sessionName;
+
+  Node _streamNode;
+
+  @override
+  Node get streamNode => _streamNode;
+
+  @override
+  void setStreamNode(Node node) => _streamNode = node;
+
+  @override
+  String? get description =>
+      'WebSocket coordination stream "${config.name}" for ${_streamNode.id}';
+
+  @override
+  Object encodeForWire(StringMessage message) => message.data.first;
+
+  @override
+  StringMessage? decodeControlPayload(Object payload) {
+    if (payload is! String) return null;
+    return MessageFactory.stringMessage(data: IList([payload]), channels: 1);
+  }
+}
+
+/// Data stream over a hub.
+///
+/// Samples use the binary framing: data streams are the latency-critical path
+/// and their shape is fixed by the negotiated config, so JSON would be pure
+/// overhead on every sample.
+class WsDataStream extends DataStream<DataStreamConfig, IMessage>
+    with InstanceUID, WsStreamMixin<DataStreamConfig, IMessage> {
+  WsDataStream({
+    required DataStreamConfig config,
+    required this.connection,
+    required this.sessionName,
+    required Node streamNode,
+  }) : _streamNode = streamNode,
+       super(config);
+
+  @override
+  final WsConnection connection;
+
+  @override
+  final String sessionName;
+
+  Node _streamNode;
+
+  @override
+  Node get streamNode => _streamNode;
+
+  @override
+  void setStreamNode(Node node) => _streamNode = node;
+
+  @override
+  String? get description =>
+      'WebSocket data stream "${config.name}" for ${_streamNode.id}';
+
+  @override
+  Future<void> sendData(Iterable<dynamic> data) async {
+    if (!started) throw StateError('Stream not started');
+    config.validateSample(data);
+    publishSample(data.toList(growable: false));
+  }
+
+  @override
+  Future<void> sendDataTyped<S>(Iterable<S> data) async {
+    if (!started) throw StateError('Stream not started');
+    config.validateSample(data);
+    publishSample(data.toList(growable: false));
+  }
+
+  @override
+  IMessage? decodeSample(Uint8List frame) {
+    final channels = WsSampleFrame.decodeChannels(frame, config.channels);
+    final timestamp = DateTime.now();
+    switch (config.dataType) {
+      case StreamDataType.float32:
+      case StreamDataType.double64:
+        return MessageFactory.double64Message(
+          data: IList(channels.map((v) => (v! as num).toDouble())),
+          channels: config.channels,
+          timestamp: timestamp,
+        );
+      case StreamDataType.int8:
+      case StreamDataType.int16:
+      case StreamDataType.int32:
+      case StreamDataType.int64:
+        return MessageFactory.int64Message(
+          data: IList(channels.cast<int>()),
+          channels: config.channels,
+          timestamp: timestamp,
+        );
+      case StreamDataType.string:
+        return MessageFactory.stringMessage(
+          data: IList(channels.cast<String>()),
+          channels: config.channels,
+          timestamp: timestamp,
+        );
+    }
+  }
+
+  @override
+  Object encodeForWire(IMessage message) => jsonEncode(message.data.toList());
+
+  @override
+  IMessage? decodeControlPayload(Object payload) => null;
+}
+
+/// Builds WebSocket streams for a session.
+class WsNetworkStreamFactory extends NetworkStreamFactory {
+  WsNetworkStreamFactory(this.connection);
+
+  final WsConnection connection;
+
+  @override
+  Future<WsDataStream> createDataStream(
+    DataStreamConfig config,
+    CoordinationSession session,
+  ) async => WsDataStream(
+    config: config,
+    connection: connection,
+    sessionName: session.config.name,
+    streamNode: session.thisNode,
+  );
+
+  @override
+  Future<WsCoordinationStream> createCoordinationStream(
+    CoordinationStreamConfig config,
+    CoordinationSession session,
+  ) async => WsCoordinationStream(
+    config: config,
+    connection: connection,
+    sessionName: session.config.name,
+    streamNode: session.thisNode,
+  );
+}

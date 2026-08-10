@@ -16,6 +16,8 @@ environment:
 # Add regular dependencies here.
 dependencies:
   meta:
+  peer_coordinator:
+    path: ../peer_coordinator
   # liblsl: ^0.9.0
   liblsl:
     path: ../liblsl

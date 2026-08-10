@@ -42,6 +42,13 @@ jobs:
       - name: Run tests
         run: melos run test
 
+      # The transport-neutral core must stay compilable for the browser.
+      # Catches dart:io / dart:isolate / dart:ffi creeping into the core, and
+      # literals with no JavaScript representation.
+      - name: Check core is web-safe
+        working-directory: packages/peer_coordinator
+        run: dart compile js -o /tmp/web_check.js tool/web_safety_check.dart
+
   # LSL-backed integration tests bind loopback sockets and depend on multicast
   # resolution timing, so they are kept out of the PR path. Run them on demand
   # and nightly.

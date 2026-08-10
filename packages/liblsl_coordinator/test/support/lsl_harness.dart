@@ -52,6 +52,13 @@ void useLoopbackLsl() {
         listenAddress: '127.0.0.1',
         addressesOverride: [testMulticastGroup],
         knownPeers: ['127.0.0.1'],
+        // Scopes every stream this process creates at the liblsl level.
+        // `dart test` runs each test file in its own process, so a
+        // process-unique id keeps concurrent files from resolving each
+        // other's streams. Within a file, tests additionally use unique
+        // session/node/stream names — sessionId cannot vary per test because
+        // LSL.setConfigContent is process-global and read once.
+        sessionId: 'CoordTest_${DateTime.now().microsecondsSinceEpoch}',
         portRange: 128,
         // Silence the native logger; failures surface through Dart logging.
         logLevel: -2,

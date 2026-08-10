@@ -1,5 +1,7 @@
-export 'src/coordination/controller_events.dart';
-export 'src/coordination/coordinator_state.dart';
-export 'src/coordination/handlers.dart';
-export 'src/coordination/messages.dart';
-export 'src/coordination/controller.dart';
+/// Moved to `package:peer_coordinator/coordination.dart`.
+///
+/// Re-exported so existing imports keep working; prefer importing from
+/// `package:peer_coordinator` directly in new code.
+library;
+
+export 'package:peer_coordinator/coordination.dart';

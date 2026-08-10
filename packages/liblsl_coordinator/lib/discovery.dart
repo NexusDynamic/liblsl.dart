@@ -1,10 +1,7 @@
-/// Transport-neutral peer discovery.
+/// Moved to `package:peer_coordinator/discovery.dart`.
 ///
-/// A transport implements [IDiscovery] over whatever mechanism it has, and the
-/// coordination layer only ever speaks [DiscoveryQuery] and [PeerDescriptor].
+/// Re-exported so existing imports keep working; prefer importing from
+/// `package:peer_coordinator` directly in new code.
 library;
 
-export 'src/discovery/discovery.dart';
-export 'src/discovery/peer_descriptor.dart';
-export 'src/discovery/peer_queries.dart';
-export 'src/discovery/query.dart';
+export 'package:peer_coordinator/discovery.dart';

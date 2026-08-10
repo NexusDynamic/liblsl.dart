@@ -7,6 +7,7 @@ environment:
   flutter: ^3.27.1
 workspace:
   # - packages/liblsl
+  - packages/peer_coordinator
   - packages/liblsl_test
   - packages/liblsl_coordinator
   - packages/liblsl_timing

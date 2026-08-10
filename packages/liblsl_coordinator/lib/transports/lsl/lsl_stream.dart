@@ -500,27 +500,82 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
     Duration resolveTimeout = const Duration(seconds: 10),
   }) async {
     if (nodes.isEmpty) return;
-    final streamInfos = await LslDiscovery.discoverOnceByPredicate(
-      LSLStreamInfoHelper.generatePredicate(
-        streamNamePrefix: config.name,
-        sessionName: streamSessionConfig.name,
-      ),
-      minStreams: nodes.length,
-      maxStreams: nodes.length,
-      timeout: resolveTimeout,
-    );
 
-    for (final node in nodes) {
-      final matchingInfo = streamInfos.firstWhere(
-        (info) {
-          final parsedSource = LSLStreamInfoHelper.parseSourceId(info.sourceId);
-          return parsedSource[LSLStreamInfoHelper.nodeUIdKey] == node.uId;
-        },
-        orElse: () => throw StateError(
-          'No matching stream info found for node ${node.id} (${node.uId})',
+    // Retry until every wanted node is found or the deadline passes.
+    //
+    // A single resolve is not enough. Producers come up independently: in
+    // `allNodes` mode each participant creates its outlet and then immediately
+    // resolves its peers, so one participant routinely looks for another that
+    // has not published yet. Resolving once and throwing made that a race the
+    // caller could not win — and it was only visible on LSL, because the
+    // in-memory and WebSocket transports already poll until the deadline.
+    // Never subscribe to our own outlet. LSL will happily connect a node to
+    // itself, which would deliver a node its own samples — the in-memory and
+    // WebSocket transports skip self, and a stream's participation mode is a
+    // property of the coordination layer, so all three must agree.
+    final wanted = {
+      for (final node in nodes)
+        if (node.uId != streamNode.uId) node.uId: node,
+    };
+    if (wanted.isEmpty) return;
+    final resolved = <String, LSLStreamInfo>{};
+    final deadline = DateTime.now().add(resolveTimeout);
+
+    while (resolved.length < wanted.length) {
+      final remaining = deadline.difference(DateTime.now());
+      if (remaining <= Duration.zero) break;
+
+      final streamInfos = await LslDiscovery.discoverOnceByPredicate(
+        LSLStreamInfoHelper.generatePredicate(
+          streamNamePrefix: config.name,
+          sessionName: streamSessionConfig.name,
         ),
+        minStreams: wanted.length,
+        // Not capped at wanted.length: other publishers of this stream may be
+        // present, and capping could return a set that excludes the very nodes
+        // being looked for.
+        maxStreams: wanted.length * 2,
+        timeout: remaining < const Duration(milliseconds: 500)
+            ? remaining
+            : const Duration(milliseconds: 500),
       );
-      await _addInletForStreamInfo(matchingInfo);
+
+      for (final info in streamInfos) {
+        String? nodeUId;
+        try {
+          nodeUId = LSLStreamInfoHelper.parseSourceId(
+            info.sourceId,
+          )[LSLStreamInfoHelper.nodeUIdKey];
+        } on FormatException {
+          nodeUId = null;
+        }
+        // These are owned by us; anything we do not keep must be destroyed or
+        // the native handle leaks.
+        if (nodeUId != null &&
+            wanted.containsKey(nodeUId) &&
+            !resolved.containsKey(nodeUId)) {
+          resolved[nodeUId] = info;
+        } else {
+          info.destroy();
+        }
+      }
+    }
+
+    if (resolved.length < wanted.length) {
+      final missing = wanted.keys.where((uId) => !resolved.containsKey(uId));
+      for (final info in resolved.values) {
+        info.destroy();
+      }
+      throw StateError(
+        'Timed out resolving ${wanted.length} publisher(s) of '
+        '"${config.name}" after $resolveTimeout; '
+        'missing ${missing.join(', ')}',
+      );
+    }
+
+    for (final entry in resolved.entries) {
+      await _addInletForStreamInfo(entry.value);
+      final node = wanted[entry.key]!;
       logger.finest('Created resolved inlet for node ${node.id} (${node.uId})');
     }
   }

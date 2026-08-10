@@ -78,7 +78,8 @@ Future<String?> _runNode(
     channels: 2, // [sendTimeMicros, sequence]
     sampleRate: rateHz,
     dataType: StreamDataType.double64,
-    participationMode: StreamParticipationMode.sendParticipantsReceiveCoordinator,
+    participationMode:
+        StreamParticipationMode.sendParticipantsReceiveCoordinator,
   );
 
   final session = LSLCoordinationSession(
