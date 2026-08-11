@@ -4,7 +4,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 import 'package:liblsl_coordinator/liblsl_coordinator.dart';
-import 'package:liblsl_coordinator/transports/lsl.dart';
+// import 'package:liblsl_coordinator/transports/lsl.dart';
 import 'package:logging/logging.dart';
 import 'package:peer_coordinator/in_memory.dart';
 
