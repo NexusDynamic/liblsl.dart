@@ -6,11 +6,12 @@ import 'dart:math';
 import 'package:liblsl_coordinator/liblsl_coordinator.dart';
 import 'package:liblsl_coordinator/transports/lsl.dart';
 import 'package:logging/logging.dart';
+import 'package:peer_coordinator/in_memory.dart';
 
 /// Multi-node coordination test to verify election, joining, messaging, and stream management
 Future<void> main(List<String> args) async {
   // Configure logging
-  Logger.root.level = Level.ALL;
+  Logger.root.level = Level.INFO;
   Logger.root.onRecord.listen(Log.defaultPrinter);
 
   // Parse command line arguments
@@ -33,19 +34,20 @@ Future<void> main(List<String> args) async {
   );
   logger.info('');
   final sessionSuffix = Random().nextInt(10000);
-
+  final bus = InMemoryBus();
   // Start nodes concurrently with slight delays to test election
   final futures = <Future<void>>[];
-
+  final appId = "TestApp_${Random().nextInt(1000)}";
   for (int i = 0; i < nodeCount; i++) {
     futures.add(
       _runNode(
         sessionName: 'TestSession_$sessionSuffix',
         nodeId: 'Node_$i',
-        appId: 'TestApp_${Random().nextInt(1000)}',
+        appId: appId,
         maxNodes: maxNodes,
         delay: Duration(milliseconds: i * 500), // Stagger starts
         testDuration: testDuration,
+        bus: bus,
       ),
     );
   }
@@ -72,6 +74,7 @@ Future<void> _runNode({
   required int maxNodes,
   required Duration delay,
   required int testDuration,
+  InMemoryBus? bus,
 }) async {
   // Stagger the start times to test election
   if (delay > Duration.zero) {
@@ -95,6 +98,34 @@ Future<void> _runNode({
     );
 
     // Create coordination configuration
+    // final coordinationConfig = CoordinationConfig(
+    //   name: appId,
+    //   sessionConfig: sessionConfig,
+    //   topologyConfig: HierarchicalTopologyConfig(
+    //     promotionStrategy: PromotionStrategyRandom(),
+    //     maxNodes: maxNodes,
+    //   ),
+    //   streamConfig: CoordinationStreamConfig(
+    //     name: 'coordination',
+    //     sampleRate: 50.0,
+    //   ),
+    //   transportConfig: LSLTransportConfig(
+    //     // This LSL API config specifically restricts to IPv4 and local machine
+    //     // these wont go over the network
+    //     lslApiConfig: LSLApiConfig(
+    //       ipv6: IPv6Mode.disable,
+    //       portRange: 128,
+    //       logLevel: -2, // -2 Error only -> 9 is the most verbose
+    //       resolveScope: ResolveScope.link,
+    //       listenAddress: '127.0.0.1', // Use loopback for testing
+    //       addressesOverride: ['224.0.0.183'],
+    //       knownPeers: ['127.0.0.1'],
+    //     ),
+    //     coordinationFrequency: 50.0,
+    //   ),
+    // );
+    // Create coordination configuration
+
     final coordinationConfig = CoordinationConfig(
       name: appId,
       sessionConfig: sessionConfig,
@@ -106,20 +137,7 @@ Future<void> _runNode({
         name: 'coordination',
         sampleRate: 50.0,
       ),
-      transportConfig: LSLTransportConfig(
-        // This LSL API config specifically restricts to IPv4 and local machine
-        // these wont go over the network
-        lslApiConfig: LSLApiConfig(
-          ipv6: IPv6Mode.disable,
-          portRange: 128,
-          logLevel: -2, // -2 Error only -> 9 is the most verbose
-          resolveScope: ResolveScope.link,
-          listenAddress: '127.0.0.1', // Use loopback for testing
-          addressesOverride: ['224.0.0.183'],
-          knownPeers: ['127.0.0.1'],
-        ),
-        coordinationFrequency: 50.0,
-      ),
+      transportConfig: InMemoryTransportConfig(bus: bus ?? InMemoryBus()),
     );
 
     final dataStreamConfig = DataStreamConfig(
@@ -134,13 +152,18 @@ Future<void> _runNode({
     );
 
     // Create session using the new simplified API
-    final session = LSLCoordinationSession(
+    // final session = LSLCoordinationSession(
+    //   coordinationConfig,
+    //   thisNodeConfig: NodeConfigFactory().defaultConfig().copyWith(
+    //     name: nodeId,
+    //   ),
+    // );
+    final session = PeerSession.create(
       coordinationConfig,
       thisNodeConfig: NodeConfigFactory().defaultConfig().copyWith(
         name: nodeId,
       ),
     );
-
     // Set up event listeners
     _setupEventListeners(session, nodeId);
 
@@ -212,7 +235,7 @@ Future<void> _runNode({
 }
 
 /// Set up event listeners for testing
-void _setupEventListeners(LSLCoordinationSession session, String nodeId) {
+void _setupEventListeners(PeerSession session, String nodeId) {
   // Phase changes
   session.events.phaseChanges.listen((event) {
     logger.info('📊 $nodeId: Phase changed to ${event.phase}');
@@ -261,7 +284,7 @@ void _setupEventListeners(LSLCoordinationSession session, String nodeId) {
 
 /// Coordinator test logic - manages the test sequence
 Future<void> _runCoordinatorTestLogic(
-  LSLCoordinationSession session,
+  PeerSession session,
   String nodeId,
   int testDuration,
   int maxNodes,
@@ -289,7 +312,7 @@ Future<void> _runCoordinatorTestLogic(
   var elapsedTime = 0;
   int messageCount = 0;
   StreamSubscription? inboxSubscription;
-  LSLDataStream? dataStream;
+  DataStream? dataStream;
 
   for (final step in testSteps) {
     final delay = step['delay'] as int;
@@ -443,7 +466,7 @@ Future<void> _runCoordinatorTestLogic(
 
 /// Participant test logic - responds to coordinator commands
 Future<void> _runParticipantTestLogic(
-  LSLCoordinationSession session,
+  PeerSession session,
   String nodeId,
   int testDuration,
   DataStreamConfig streamConfig,
@@ -610,7 +633,7 @@ Future<void> _runParticipantTestLogic(
 Timer _startDataGeneration(
   String nodeId,
   int nodeIdHash,
-  LSLDataStream testStream,
+  DataStream testStream,
   int Function() getCurrentPhase,
   String Function() getIntensity,
   void Function() onSampleSent,
