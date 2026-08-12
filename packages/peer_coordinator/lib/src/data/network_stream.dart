@@ -463,6 +463,17 @@ abstract class NetworkStream<T extends NetworkStreamConfig, M extends IMessage>
   StreamSink<M> get outbox =>
       throw UnimplementedError('outbox must be implemented by subclasses');
 
+  /// Incoming messages from peers.
+  ///
+  /// Contract, uniform across transports: this is a **broadcast** stream. It
+  /// may be listened to, cancelled, and listened to again — which consumers
+  /// legitimately need across a stream stop/start cycle, since the stream
+  /// object itself is cached per name and survives the cycle. Being broadcast,
+  /// it buffers nothing: messages arriving with no listener are dropped.
+  ///
+  /// A stream is nevertheless expected to have exactly **one** consumer. Two
+  /// concurrent listeners almost always means a subscription was not cancelled
+  /// during teardown, and transports may log a warning when they see it.
   Stream<M> get inbox =>
       throw UnimplementedError('inbox must be implemented by subclasses');
 

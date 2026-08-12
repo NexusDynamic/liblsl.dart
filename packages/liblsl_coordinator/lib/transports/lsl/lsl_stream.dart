@@ -334,7 +334,16 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
   final List<LSLStreamInfo> _inletStreamInfos = <LSLStreamInfo>[];
 
   // Message handling
-  final StreamController<M> _incomingController = StreamController<M>();
+  //
+  // `inbox` is broadcast, matching the websocket and in-memory transports. It
+  // used to be single-subscription here alone, which made the same `inbox`
+  // getter mean two different things depending on transport: a consumer that
+  // cancelled and re-listened (e.g. across a stream stop/start cycle) got
+  // `Bad state: Stream has already been listened to` on LSL and worked
+  // everywhere else. Broadcast also removes the unbounded pre-listen buffering
+  // a plain controller does — inbound samples are pushed from the inlet
+  // isolate whether or not anything is listening.
+  final StreamController<M> _incomingController = StreamController<M>.broadcast();
   final StreamController<M> _outgoingController = StreamController<M>();
 
   StreamSubscription? _outgoingSubscription;
@@ -743,7 +752,23 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
   }
 
   @override
-  Stream<M> get inbox => _incomingController.stream;
+  Stream<M> get inbox {
+    // Broadcast supports many listeners, but in practice a stream has exactly
+    // one consumer and a second one means somebody failed to cancel on
+    // teardown. Say so rather than letting the leak hide behind broadcast's
+    // permissiveness — that leak is precisely what the old single-subscription
+    // controller turned into a crash.
+    //
+    // Heuristic: reading the getter is not the same as listening. Every caller
+    // in practice listens immediately, so a false positive costs one log line.
+    if (_incomingController.hasListener) {
+      logger.warning(
+        'inbox for stream ${config.name} already has a listener — the previous '
+        'subscription was probably never cancelled',
+      );
+    }
+    return _incomingController.stream;
+  }
 
   @override
   StreamSink<M> get outbox => _outgoingController.sink;
@@ -789,9 +814,11 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
     logger.finest('Disposing message controllers for stream ${config.name}');
     await _outgoingSubscription?.cancel();
     await _incomingSubscription?.cancel();
-    // Subscriptions are cancelled, so close() must not be awaited: its future
-    // only completes once a listener drains the stream, which will never
-    // happen now. unawaited close still releases the controller.
+    // _outgoingController is single-subscription, so its close() must not be
+    // awaited: the future only completes once a listener drains the stream,
+    // and the subscription was just cancelled. unawaited close still releases
+    // the controller. _incomingController is broadcast (close() completes
+    // promptly there) but is left unawaited for symmetry.
     unawaited(_incomingController.close());
     unawaited(_outgoingController.close());
 

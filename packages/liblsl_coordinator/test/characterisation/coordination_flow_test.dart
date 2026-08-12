@@ -320,6 +320,29 @@ void main() {
       expect(event.description, 'start phase 1');
       expect(event.payload['phase'], 1);
     });
+
+    test('inbox can be listened to again after cancelling', () async {
+      // The LSL transport used a single-subscription controller here while the
+      // websocket and in-memory transports were broadcast, so this exact
+      // sequence threw `Bad state: Stream has already been listened to` on LSL
+      // alone. It is not a contrived sequence: getDataStream returns the same
+      // cached object across a stream stop/start cycle, so any consumer that
+      // tears its subscription down and rebuilds it hits this.
+      final coordinator = makeNode('coord', randomRoll: 0.1);
+      await coordinator.initialize();
+      await coordinator.join();
+
+      final stream = await coordinator.session.createDataStream(
+        dataStreamConfig(),
+      );
+
+      final firstSub = stream.inbox.listen((_) {});
+      await firstSub.cancel();
+
+      late StreamSubscription<dynamic> secondSub;
+      expect(() => secondSub = stream.inbox.listen((_) {}), returnsNormally);
+      await secondSub.cancel();
+    });
   });
 
   group('teardown', () {

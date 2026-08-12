@@ -366,6 +366,66 @@ void main() {
     });
   });
 
+  group('inbox contract', () {
+    // DataStream.inbox is documented as broadcast across all transports. It was
+    // single-subscription on the LSL transport alone, so a consumer that
+    // cancelled and re-listened — which is exactly what a stream stop/start
+    // cycle forces, since getDataStream hands back the *same* cached object —
+    // crashed with `Bad state: Stream has already been listened to` on LSL and
+    // worked everywhere else. These tests pin the contract for the abstraction.
+    test('can be listened to again after cancelling', () async {
+      final coordinator = await joined('coord', randomRoll: 0.1);
+      final stream = await coordinator.createDataStream(dataConfig());
+
+      final firstSub = stream.inbox.listen((_) {});
+      await firstSub.cancel();
+
+      late StreamSubscription<dynamic> secondSub;
+      expect(() => secondSub = stream.inbox.listen((_) {}), returnsNormally);
+      await secondSub.cancel();
+    });
+
+    test('delivers to two concurrent listeners', () async {
+      final coordinator = await joined('coord', randomRoll: 0.1);
+      final producer = await joined('producer', randomRoll: 0.9);
+      await coordinator.waitForMinNodes(2, timeout: const Duration(seconds: 2));
+
+      final producerReady = Completer<DataStream>();
+      final producerSub = producer.events.streamStart.listen((event) async {
+        if (producerReady.isCompleted) return;
+        producerReady.complete(await producer.getDataStream(event.streamName));
+      });
+
+      final coordinatorStream = await coordinator.createDataStream(
+        dataConfig(),
+      );
+      var firstCount = 0;
+      var secondCount = 0;
+      final firstSub = coordinatorStream.inbox.listen((_) => firstCount++);
+      final secondSub = coordinatorStream.inbox.listen((_) => secondCount++);
+
+      await coordinator.startStream('TestData');
+      final producerStream = await producerReady.future.timeout(
+        const Duration(seconds: 3),
+      );
+      await producerStream.sendData([1.0, 2.0]);
+
+      final deadline = DateTime.now().add(const Duration(seconds: 3));
+      while ((firstCount == 0 || secondCount == 0) &&
+          DateTime.now().isBefore(deadline)) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+
+      expect(firstCount, greaterThan(0));
+      expect(secondCount, equals(firstCount));
+
+      await coordinator.stopStream('TestData');
+      await firstSub.cancel();
+      await secondSub.cancel();
+      await producerSub.cancel();
+    });
+  });
+
   group('teardown', () {
     test('a full lifecycle disposes without throwing', () async {
       final coordinator = await joined('coord', randomRoll: 0.1);
