@@ -2,18 +2,18 @@
   {
     "name": "directSync/pushSample/8ch@500Hz latency_p50",
     "unit": "us",
-    "value": 81.41299986164086,
+    "value": 293.12499100342393,
     "extra": "n=1499"
   },
   {
     "name": "directSync/pushSample/8ch@500Hz latency_p95",
     "unit": "us",
-    "value": 981.8219987209886
+    "value": 7278.2910137902945
   },
   {
     "name": "directSync/pushSample/8ch@500Hz latency_p99",
     "unit": "us",
-    "value": 1059.8269982438069
+    "value": 7927.791011752561
   },
   {
     "name": "directSync/pushSample/8ch@500Hz time_per_sample",
@@ -24,18 +24,18 @@
   {
     "name": "directSync/pushChunkTyped32/64ch@1000Hz latency_p50",
     "unit": "us",
-    "value": 10403.539999970235,
+    "value": 11623.58300643973,
     "extra": "n=2976"
   },
   {
     "name": "directSync/pushChunkTyped32/64ch@1000Hz latency_p95",
     "unit": "us",
-    "value": 19362.81899907044
+    "value": 25005.915988003835
   },
   {
     "name": "directSync/pushChunkTyped32/64ch@1000Hz latency_p99",
     "unit": "us",
-    "value": 20658.505000028526
+    "value": 27499.87499555573
   },
   {
     "name": "directSync/pushChunkTyped32/64ch@1000Hz time_per_sample",
@@ -46,18 +46,18 @@
   {
     "name": "directSyncBlocking/pushSample/8ch@500Hz latency_p50",
     "unit": "us",
-    "value": 95.38700032862835,
+    "value": 232.70800011232495,
     "extra": "n=1499"
   },
   {
     "name": "directSyncBlocking/pushSample/8ch@500Hz latency_p95",
     "unit": "us",
-    "value": 976.1900000739843
+    "value": 7227.666006656364
   },
   {
     "name": "directSyncBlocking/pushSample/8ch@500Hz latency_p99",
     "unit": "us",
-    "value": 1064.3630012054928
+    "value": 7860.040990635753
   },
   {
     "name": "directSyncBlocking/pushSample/8ch@500Hz time_per_sample",
@@ -68,18 +68,18 @@
   {
     "name": "directSyncBlocking/pushChunkTyped32/64ch@1000Hz latency_p50",
     "unit": "us",
-    "value": 10191.411998675903,
+    "value": 9824.540989939123,
     "extra": "n=2976"
   },
   {
     "name": "directSyncBlocking/pushChunkTyped32/64ch@1000Hz latency_p95",
     "unit": "us",
-    "value": 19152.848999510752
+    "value": 27005.74998743832
   },
   {
     "name": "directSyncBlocking/pushChunkTyped32/64ch@1000Hz latency_p99",
     "unit": "us",
-    "value": 20488.4580016369
+    "value": 29113.16600511782
   },
   {
     "name": "directSyncBlocking/pushChunkTyped32/64ch@1000Hz time_per_sample",
@@ -90,18 +90,18 @@
   {
     "name": "isolateAsync/pushSample/8ch@500Hz latency_p50",
     "unit": "us",
-    "value": 238.13000007066876,
+    "value": 482.8750097658485,
     "extra": "n=1499"
   },
   {
     "name": "isolateAsync/pushSample/8ch@500Hz latency_p95",
     "unit": "us",
-    "value": 1094.7260016109794
+    "value": 7544.583000708371
   },
   {
     "name": "isolateAsync/pushSample/8ch@500Hz latency_p99",
     "unit": "us",
-    "value": 1183.5680015792605
+    "value": 8155.12498957105
   },
   {
     "name": "isolateAsync/pushSample/8ch@500Hz time_per_sample",
@@ -112,18 +112,18 @@
   {
     "name": "isolateAsync/pushChunkTyped32/64ch@1000Hz latency_p50",
     "unit": "us",
-    "value": 10223.351000604453,
+    "value": 11043.625010643154,
     "extra": "n=2976"
   },
   {
     "name": "isolateAsync/pushChunkTyped32/64ch@1000Hz latency_p95",
     "unit": "us",
-    "value": 19525.05599911092
+    "value": 24453.624995658174
   },
   {
     "name": "isolateAsync/pushChunkTyped32/64ch@1000Hz latency_p99",
     "unit": "us",
-    "value": 21184.81800062
+    "value": 30603.749997681007
   },
   {
     "name": "isolateAsync/pushChunkTyped32/64ch@1000Hz time_per_sample",

@@ -108,7 +108,7 @@ You will also need the following configured in your `Info.plist` file:
 <plist version="1.0">
 <dict>
     <!-- ... other Info.plist nodes -->
-    <key>NSBonjourServices</key>
+  <key>NSBonjourServices</key>
 	<array>
 		<string>liblsl._tcp</string>
 		<string>liblsl._udp</string>
