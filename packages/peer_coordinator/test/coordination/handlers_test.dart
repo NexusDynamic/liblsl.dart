@@ -107,6 +107,10 @@ void main() {
         const expected = {
           CoordinationMessageType.heartbeat,
           CoordinationMessageType.connectionTest,
+          // The coordinator consumes replies too. Clock sync is per-inlet, and
+          // the coordinator holds an inlet from every participant, so it is the
+          // one probing them — which means it must handle their responses.
+          CoordinationMessageType.connectionTestResponse,
           CoordinationMessageType.joinRequest,
           CoordinationMessageType.nodeLeaving,
           CoordinationMessageType.streamReady,
@@ -421,6 +425,10 @@ void main() {
         CoordinationMessageType.heartbeat,
         CoordinationMessageType.joinOffer,
         CoordinationMessageType.connectionTestResponse,
+        // A participant answers connection tests too. Clock sync is per-inlet,
+        // and the coordinator holds an inlet from every participant, so it
+        // probes each of them — which means participants must respond.
+        CoordinationMessageType.connectionTest,
         CoordinationMessageType.streamReady,
         CoordinationMessageType.pauseStream,
         CoordinationMessageType.resumeStream,

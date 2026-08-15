@@ -185,6 +185,31 @@ and a WebSocket one (with a relay hub) that also runs in the browser.
 - **`LSLDataStream.sendData` and `sendDataTyped` now return `Future<void>`.**
   Awaiting is optional (existing fire-and-forget calls keep working) and gives
   backpressure when the send buffer pool is saturated.
+- **Clock-offset estimation for the WebSocket transport.** Two peers in separate
+  processes read monotonic clocks with unrelated epochs, so `MessageTiming.clockOffset`
+  used to be `null` over WebSocket and no transit time could be computed. An NTP-style
+  estimator modelled on liblsl's `time_receiver` now runs there, one per inlet (the
+  receiver estimates its producer's clock, as liblsl does), over the existing
+  `ConnectionTest` round trip. Tuned by `CoordinationSessionConfig.clockSyncConfig`,
+  which defaults to liblsl's `[tuning]` constants. Not run on LSL (native
+  `lsl_time_correction`) or in-memory (peers share a clock).
+  - `ConnectionTest`/`ConnectionTestResponse` gained `toNodeUId`, `waveId`,
+    `requestSenderClock` and `requestReceivedClock`, all optional and additive.
+  - **Both roles now answer connection tests and consume responses.** The previous
+    split — coordinator answers, participant listens — could not express per-inlet
+    probing. `CoordinatorMessageHandler.canHandle` gained `connectionTestResponse` and
+    `ParticipantMessageHandler.canHandle` gained `connectionTest`.
+  - A `ConnectionTestResponse` is now addressed to its requester, so the other
+    participants it is broadcast to ignore it instead of logging
+    `'Received unexpected connection test response'`.
+- **`MessageTiming.uncertainty`**: the error bound on `clockOffset`, as the full
+  round-trip time of the probe it came from — the true offset lies within
+  `±uncertainty/2`, exposed as `transitUncertaintySeconds`. Same conservative quantity
+  `lsl_time_correction_ex` reports. Null on LSL, which has no Dart wrapper for
+  `lsl_time_correction_ex` yet.
+- **WebSocket data samples now identify their sender by node uId** rather than by a
+  hub slot number, and carry the estimated offset, so a WS data stream's transit time
+  is measurable too.
 - **Message timing moved from the metadata map to a typed `MessageTiming`.**
   The `lsl_timestamp`, `lsl_time_correction`, `received_at` and `source_id`
   metadata keys are gone; read `message.timing` instead, whose fields are

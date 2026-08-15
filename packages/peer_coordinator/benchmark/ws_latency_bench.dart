@@ -43,6 +43,9 @@ Future<void> main(List<String> args) async {
   final hubUri = Uri.parse('ws://127.0.0.1:${hub.port}');
 
   final latencies = <int>[];
+  final syncedLatencies = <int>[];
+  final uncertainties = <int>[];
+  var untimed = 0;
   var received = 0;
   var sent = 0;
 
@@ -78,6 +81,21 @@ Future<void> main(List<String> args) async {
       final sentAt = (message.data[0]! as num).toInt();
       latencies.add(now - sentAt);
       received++;
+
+      // The measurement the library now provides on its own: the sender's
+      // clock, mapped into ours by the estimated offset. Unlike the wall-clock
+      // figure above it does not need the send time smuggled through a data
+      // channel, and it stays meaningful across machines.
+      final timing = message.timing;
+      final transit = timing?.transitMicros;
+      if (transit == null) {
+        // No accepted burst yet — reported, not silently averaged away.
+        untimed++;
+      } else {
+        syncedLatencies.add(transit);
+        final bound = timing!.uncertainty;
+        if (bound != null) uncertainties.add((bound * 1e6 / 2).round());
+      }
     });
 
     await coordinator.startStream('BenchData');
@@ -115,7 +133,16 @@ Future<void> main(List<String> args) async {
     await hub.close();
   }
 
-  _report(rateHz, seconds, sent, received, latencies);
+  _report(
+    rateHz,
+    seconds,
+    sent,
+    received,
+    latencies,
+    syncedLatencies,
+    uncertainties,
+    untimed,
+  );
 }
 
 PeerSession _session(String name, double randomRoll, Uri hubUri) =>
@@ -152,6 +179,9 @@ void _report(
   int sent,
   int received,
   List<int> latencies,
+  List<int> syncedLatencies,
+  List<int> uncertainties,
+  int untimed,
 ) {
   stdout.writeln('RESULT @ $rateHz Hz, ${seconds}s');
   stdout.writeln('  sent:     $sent');
@@ -160,13 +190,33 @@ void _report(
     stdout.writeln('  no samples received');
     return;
   }
-  latencies.sort();
-  int at(double q) =>
-      latencies[(latencies.length * q).clamp(0, latencies.length - 1).toInt()];
-  final mean = latencies.reduce((a, b) => a + b) ~/ latencies.length;
-  stdout.writeln('  latency (one-way, wall clock, µs):');
-  stdout.writeln(
-    '    min: ${latencies.first}  mean: $mean  p50: ${at(0.50)}  '
-    'p95: ${at(0.95)}  p99: ${at(0.99)}  max: ${latencies.last}',
+
+  void stats(String label, List<int> samples, {String suffix = ''}) {
+    if (samples.isEmpty) {
+      stdout.writeln('  $label:');
+      stdout.writeln('    (no samples)$suffix');
+      return;
+    }
+    final sorted = List<int>.from(samples)..sort();
+    int at(double q) =>
+        sorted[(sorted.length * q).clamp(0, sorted.length - 1).toInt()];
+    final mean = sorted.reduce((a, b) => a + b) ~/ sorted.length;
+    stdout.writeln('  $label:');
+    stdout.writeln(
+      '    min: ${sorted.first}  mean: $mean  p50: ${at(0.50)}  '
+      'p95: ${at(0.95)}  p99: ${at(0.99)}  max: ${sorted.last}$suffix',
+    );
+  }
+
+  // The clock-synced figure is the one that generalises: it uses the estimated
+  // offset between the two peers' monotonic clocks, so it stays meaningful when
+  // the peers are on different machines. The wall-clock figure below is only
+  // interpretable because both processes are on this host.
+  stats(
+    'latency (one-way, synced clocks, µs)',
+    syncedLatencies,
+    suffix: untimed > 0 ? '  [$untimed before first offset]' : '',
   );
+  stats('  ± bound on the above (µs)', uncertainties);
+  stats('latency (one-way, wall clock, µs) [loopback-only]', latencies);
 }

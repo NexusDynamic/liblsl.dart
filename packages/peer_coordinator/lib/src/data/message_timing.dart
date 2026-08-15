@@ -36,14 +36,27 @@ final class MessageTiming {
   /// isolate at pull time, so it excludes the isolate-port hop that follows.
   final double receivedClock;
 
-  /// How the transport identifies the sender: LSL's `source_id`, a WebSocket
-  /// slot id, and so on. Null if the transport does not distinguish senders.
+  /// Error bound on [clockOffset], in seconds, or null if not known.
+  ///
+  /// This is the **full** round-trip time of the probe the offset came from,
+  /// not half of it — the true offset lies within ±[uncertainty]/2. liblsl
+  /// reports the same conservative quantity through
+  /// `lsl_time_correction_ex`. Quoting a transit time without it implies a
+  /// precision the method does not have.
+  ///
+  /// Null on LSL for now: `lsl_time_correction_ex` exists in the generated
+  /// bindings but has no Dart wrapper yet.
+  final double? uncertainty;
+
+  /// How the transport identifies the sender: LSL's `source_id`, a peer's node
+  /// uId, and so on. Null if the transport does not distinguish senders.
   final String? sourceId;
 
   const MessageTiming({
     required this.receivedClock,
     this.sourceClock,
     this.clockOffset,
+    this.uncertainty,
     this.sourceId,
   });
 
@@ -76,16 +89,31 @@ final class MessageTiming {
     return seconds == null ? null : (seconds * 1e6).round();
   }
 
+  /// Half of [uncertainty] — the ± bound on [transitSeconds] — or null.
+  double? get transitUncertaintySeconds {
+    final bound = uncertainty;
+    return bound == null ? null : bound / 2;
+  }
+
   Map<String, dynamic> toMap() => {
     'sourceClock': sourceClock,
     'clockOffset': clockOffset,
+    'uncertainty': uncertainty,
     'receivedClock': receivedClock,
     'sourceId': sourceId,
   };
 
   @override
-  String toString() =>
-      'MessageTiming(sourceClock: $sourceClock, clockOffset: $clockOffset, '
-      'receivedClock: $receivedClock, sourceId: $sourceId, '
-      'transit: ${transitMicros}us)';
+  String toString() {
+    final transit = transitMicros;
+    final bound = transitUncertaintySeconds;
+    final transitText = transit == null
+        ? 'transit: unknown'
+        : bound == null
+        ? 'transit: ${transit}us'
+        : 'transit: ${transit}us ±${(bound * 1e6).toStringAsFixed(0)}us';
+    return 'MessageTiming(sourceClock: $sourceClock, '
+        'clockOffset: $clockOffset, receivedClock: $receivedClock, '
+        'sourceId: $sourceId, $transitText)';
+  }
 }

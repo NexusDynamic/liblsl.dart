@@ -35,7 +35,15 @@ mixin WsStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
 
   /// Producers we are subscribed to, and their slots (for binary demuxing).
   final Set<String> _subscribedProducers = {};
-  final Set<int> _subscribedSlots = {};
+
+  /// Hub slot -> the node uId that owns it, for producers we subscribed to.
+  ///
+  /// A map rather than a set of slots because a sample frame identifies its
+  /// producer only by slot, and a slot means nothing to a consumer trying to
+  /// look up that peer's clock offset or report who sent a sample. The uId is
+  /// already in hand on the [WsPeerHandle] at subscription time; it just used to
+  /// be discarded here.
+  final Map<int, String> _slotOwners = {};
 
   String get endpointId => descriptor.endpointId;
 
@@ -95,7 +103,7 @@ mixin WsStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
     if (payload is Uint8List) {
       // Binary sample. Only ours if it came from a producer we subscribed to.
       if (!WsSampleFrame.isSample(payload)) return;
-      if (!_subscribedSlots.contains(WsSampleFrame.sourceSlotOf(payload))) {
+      if (!_slotOwners.containsKey(WsSampleFrame.sourceSlotOf(payload))) {
         return;
       }
       final message = decodeSample(payload);
@@ -147,7 +155,7 @@ mixin WsStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
     // skipped self would override those decisions.
     if (!_subscribedProducers.add(producer)) return;
     if (handle is WsPeerHandle && handle.slot != null) {
-      _subscribedSlots.add(handle.slot!);
+      _slotOwners[handle.slot!] = handle.descriptor.nodeUId;
     }
 
     connection.subscribe(
@@ -249,7 +257,7 @@ mixin WsStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
     if (_disposed) return;
     await stop();
     _subscribedProducers.clear();
-    _subscribedSlots.clear();
+    _slotOwners.clear();
     _publishing = false;
   }
 
@@ -358,6 +366,7 @@ class WsDataStream extends DataStream<DataStreamConfig, IMessage>
     required this.connection,
     required this.sessionName,
     required Node streamNode,
+    this.clockOffsets,
   }) : _streamNode = streamNode,
        super(config);
 
@@ -366,6 +375,11 @@ class WsDataStream extends DataStream<DataStreamConfig, IMessage>
 
   @override
   final String sessionName;
+
+  /// Per-peer clock offsets, estimated on the coordination stream and shared
+  /// across every stream on this socket. Null when nothing is estimating them,
+  /// in which case samples arrive with an unknown offset.
+  final PeerClockOffsets? clockOffsets;
 
   Node _streamNode;
 
@@ -397,17 +411,21 @@ class WsDataStream extends DataStream<DataStreamConfig, IMessage>
   IMessage? decodeSample(Uint8List frame) {
     final channels = WsSampleFrame.decodeChannels(frame, config.channels);
     final timestamp = DateTime.now();
-    // The frame has carried the sender's clock all along at offset 6; it was
-    // simply never read back out, which left the WebSocket transport unable to
-    // say anything about latency.
+    // The frame carries the sender's clock at offset 6. Turning that into a
+    // transit time needs the sender's identity, which is why the subscription
+    // map keeps slot -> nodeUId: the offset is estimated per peer on the
+    // coordination stream, and this is where a data sample claims its share.
+    final peerUId = _slotOwners[WsSampleFrame.sourceSlotOf(frame)];
+    final offsets = clockOffsets;
     final timing = MessageTiming(
       sourceClock: WsSampleFrame.senderMicrosOf(frame) / 1e6,
-      // Unknown: the two peers' PeerClock epochs are unrelated, and nothing
-      // estimates the offset between them yet. Null keeps transitSeconds null
-      // rather than reporting the difference of two unrelated clocks.
-      clockOffset: null,
+      // Null until the estimator has accepted a burst for this peer, which
+      // keeps transitSeconds null rather than reporting the difference of two
+      // unrelated monotonic clocks.
+      clockOffset: offsets?.offsetFor(peerUId),
+      uncertainty: offsets?.uncertaintyFor(peerUId),
       receivedClock: PeerClock.now(),
-      sourceId: WsSampleFrame.sourceSlotOf(frame).toString(),
+      sourceId: peerUId,
     );
     switch (config.dataType) {
       case StreamDataType.float32:
@@ -447,9 +465,13 @@ class WsDataStream extends DataStream<DataStreamConfig, IMessage>
 
 /// Builds WebSocket streams for a session.
 class WsNetworkStreamFactory extends NetworkStreamFactory {
-  WsNetworkStreamFactory(this.connection);
+  WsNetworkStreamFactory(this.connection, {this.clockOffsets});
 
   final WsConnection connection;
+
+  /// Shared per-peer clock offsets, so a data stream can turn a sample's
+  /// producer slot into a real transit time.
+  final PeerClockOffsets? clockOffsets;
 
   @override
   Future<WsDataStream> createDataStream(
@@ -460,6 +482,7 @@ class WsNetworkStreamFactory extends NetworkStreamFactory {
     connection: connection,
     sessionName: session.config.name,
     streamNode: session.thisNode,
+    clockOffsets: clockOffsets,
   );
 
   @override

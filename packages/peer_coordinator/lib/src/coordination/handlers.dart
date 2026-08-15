@@ -23,8 +23,90 @@ abstract class CoordinationMessageHandler {
   bool canHandle(CoordinationMessageType type);
 }
 
+/// The connection-test round trip, shared by both roles.
+///
+/// Both a coordinator and a participant have to answer probes and consume
+/// replies, because clock sync is per-inlet: whoever *receives* from a peer
+/// probes it, and in this topology both roles receive. The two handlers used to
+/// split this asymmetrically — only the coordinator answered, only the
+/// participant listened — which no longer matches how it is used.
+///
+/// The responder half is deliberately stateless, mirroring liblsl, whose
+/// outlets answer time probes from the existing UDP server without tracking
+/// anything (`udp_server.cpp:152-168`).
+mixin ConnectionProbeMixin on CoordinationMessageHandler {
+  /// Called with replies that carry clock-probe timestamps, so the owner can
+  /// feed them to an estimator. Left null when clock sync is not running.
+  void Function(ConnectionTestResponseMessage reply)? onConnectionProbeReply;
+
+  /// Sends one clock probe to [peerUId].
+  ///
+  /// No completer and no retry: a probe that never comes back is simply one
+  /// fewer sample in the burst, which the minimum-probe gate already accounts
+  /// for. That is why this does not go through [confirmConnection], whose
+  /// 3x10s retry-to-a-bool semantics suit a once-per-join handshake and not
+  /// eight probes a second.
+  Future<void> sendConnectionProbe(
+    String peerUId,
+    int waveId,
+    int probeIndex,
+  ) async {
+    await sendMessage(
+      ConnectionTestMessage(
+        fromNodeUId: thisNode.uId,
+        testId: 'clocksync_${thisNode.uId}_${waveId}_$probeIndex',
+        toNodeUId: peerUId,
+        waveId: waveId,
+      ),
+    );
+  }
+
+  /// Answers a connection test, echoing back what the requester needs to close
+  /// an NTP quadruple.
+  ///
+  /// `t0` and `t1` are echoed rather than remembered by the requester — liblsl
+  /// does the same, writing the requester's send time straight back into the
+  /// reply. `t2` needs no field of its own: the reply is stamped with this
+  /// node's clock at transmit by the controller, and `t3` is stamped on
+  /// arrival, so the requester recovers both from the reply's own timing.
+  Future<void> respondToConnectionTest(ConnectionTestMessage message) async {
+    if (!message.addressedTo(thisNode.uId)) return;
+    if (message.fromNodeUId == thisNode.uId) return;
+
+    // finest, not info: a clock-sync burst is 8 of these every couple of
+    // seconds per peer, which at info level buries every other log line.
+    logger.finest(
+      'Answering connection test ${message.testId} from ${message.fromNodeUId}',
+    );
+
+    await sendMessage(
+      ConnectionTestResponseMessage(
+        fromNodeUId: thisNode.uId,
+        testId: message.testId,
+        confirmed: true,
+        toNodeUId: message.fromNodeUId,
+        waveId: message.waveId,
+        requestSenderClock: message.senderClock,
+        requestReceivedClock: message.transportTiming?.receivedClock,
+      ),
+    );
+  }
+
+  /// Filters a reply to this node and hands clock probes to the estimator.
+  ///
+  /// Returns false if the reply was addressed to another peer — the coordinator
+  /// broadcasts to every participant, so most replies a participant sees in a
+  /// multi-node session are not its own.
+  bool routeConnectionTestResponse(ConnectionTestResponseMessage message) {
+    if (!message.addressedTo(thisNode.uId)) return false;
+    if (message.isClockProbe) onConnectionProbeReply?.call(message);
+    return true;
+  }
+}
+
 /// Handles coordination when this node is the coordinator
-class CoordinatorMessageHandler extends CoordinationMessageHandler {
+class CoordinatorMessageHandler extends CoordinationMessageHandler
+    with ConnectionProbeMixin {
   /// Stream for outgoing coordination messages (to be sent over the network).
   final StreamController<CoordinationMessage> _outgoingController =
       StreamController<CoordinationMessage>();
@@ -54,6 +136,9 @@ class CoordinatorMessageHandler extends CoordinationMessageHandler {
         {
           CoordinationMessageType.heartbeat,
           CoordinationMessageType.connectionTest,
+          // The coordinator probes each participant it has an inlet from, so it
+          // consumes replies too — this used to be participant-only.
+          CoordinationMessageType.connectionTestResponse,
           CoordinationMessageType.joinRequest,
           CoordinationMessageType.nodeLeaving,
           CoordinationMessageType.streamReady,
@@ -68,7 +153,11 @@ class CoordinatorMessageHandler extends CoordinationMessageHandler {
       case CoordinationMessageType.heartbeat:
         await _handleHeartbeat(message as HeartbeatMessage);
       case CoordinationMessageType.connectionTest:
-        await _handleConnectionTest(message as ConnectionTestMessage);
+        await respondToConnectionTest(message as ConnectionTestMessage);
+      case CoordinationMessageType.connectionTestResponse:
+        routeConnectionTestResponse(
+          message as ConnectionTestResponseMessage,
+        );
       case CoordinationMessageType.joinRequest:
         await _handleJoinRequest(message as JoinRequestMessage);
       case CoordinationMessageType.nodeLeaving:
@@ -179,22 +268,6 @@ class CoordinatorMessageHandler extends CoordinationMessageHandler {
 
     // Accept the join
     await _acceptJoin(message);
-  }
-
-  Future<void> _handleConnectionTest(ConnectionTestMessage message) async {
-    logger.info(
-      'Received connection test ${message.testId} from ${message.fromNodeUId}',
-    );
-
-    // Send response immediately to confirm bidirectional communication
-    final response = ConnectionTestResponseMessage(
-      fromNodeUId: thisNode.uId,
-      testId: message.testId,
-      confirmed: true,
-    );
-
-    await sendMessage(response);
-    logger.info('Sent connection test response for ${message.testId}');
   }
 
   Future<void> _acceptJoin(JoinRequestMessage request) async {
@@ -372,7 +445,8 @@ class CoordinatorMessageHandler extends CoordinationMessageHandler {
 }
 
 /// Handles coordination when this node is a participant
-class ParticipantMessageHandler extends CoordinationMessageHandler {
+class ParticipantMessageHandler extends CoordinationMessageHandler
+    with ConnectionProbeMixin {
   /// Stream for outgoing coordination messages (to be sent over the network).
   final StreamController<CoordinationMessage> _outgoingController =
       StreamController<CoordinationMessage>();
@@ -412,6 +486,9 @@ class ParticipantMessageHandler extends CoordinationMessageHandler {
           CoordinationMessageType.heartbeat,
           CoordinationMessageType.joinOffer,
           CoordinationMessageType.connectionTestResponse,
+          // The coordinator probes participants for clock sync, so a
+          // participant has to answer — this used to be coordinator-only.
+          CoordinationMessageType.connectionTest,
           CoordinationMessageType.streamReady,
           CoordinationMessageType.pauseStream,
           CoordinationMessageType.resumeStream,
@@ -428,6 +505,9 @@ class ParticipantMessageHandler extends CoordinationMessageHandler {
       CoordinationMessageType.joinReject,
       CoordinationMessageType.joinOffer,
       CoordinationMessageType.connectionTestResponse,
+      // Answered pre-ready: the coordinator adds its inlet — and so starts
+      // probing — during discovery, well before this node reaches ready.
+      CoordinationMessageType.connectionTest,
       CoordinationMessageType.heartbeat,
       CoordinationMessageType.topologyUpdate,
     }.contains(message.type);
@@ -476,6 +556,8 @@ class ParticipantMessageHandler extends CoordinationMessageHandler {
         await _handleConnectionTestResponse(
           message as ConnectionTestResponseMessage,
         );
+      case CoordinationMessageType.connectionTest:
+        await respondToConnectionTest(message as ConnectionTestMessage);
       default:
         logger.warning(
           'Participant cannot handle message type: ${message.type}',
@@ -687,14 +769,20 @@ class ParticipantMessageHandler extends CoordinationMessageHandler {
   Future<void> _handleConnectionTestResponse(
     ConnectionTestResponseMessage message,
   ) async {
-    logger.info(
-      'Received connection test response for ${message.testId}: ${message.confirmed}',
-    );
+    // Filters replies addressed to another peer and forwards clock probes to
+    // the estimator. Returns false when this reply was not ours.
+    if (!routeConnectionTestResponse(message)) return;
 
     final completer = _pendingConnectionTests.remove(message.testId);
     if (completer != null && !completer.isCompleted) {
+      logger.info(
+        'Received connection test response for ${message.testId}: '
+        '${message.confirmed}',
+      );
       completer.complete(message.confirmed);
-    } else if (completer == null) {
+    } else if (completer == null && !message.isClockProbe) {
+      // Clock probes have no completer by design, so only a non-probe reply
+      // with nothing waiting on it is genuinely unexpected.
       logger.warning(
         'Received unexpected connection test response: ${message.testId}',
       );

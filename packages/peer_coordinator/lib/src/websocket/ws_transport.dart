@@ -93,6 +93,17 @@ class WebSocketTransport extends ManagedResource
   /// The socket this node holds to the hub.
   WsConnection get connection => _connection;
 
+  /// Peer clock offsets for this process.
+  ///
+  /// Non-null here and nowhere else: LSL has native per-inlet corrections and
+  /// the in-memory transport's peers share a clock, but two WebSocket peers
+  /// read monotonic clocks with unrelated epochs, so the difference has to be
+  /// estimated. Owned by the transport rather than by a stream because it
+  /// describes the peer *process* — every stream on this socket reads the same
+  /// table. `ClockSyncService`, driven by the coordination controller, fills it.
+  @override
+  final PeerClockOffsets clockOffsets = PeerClockOffsets();
+
   final Map<String, IResource> _resources = {};
   bool _initialized = false;
 
@@ -114,7 +125,8 @@ class WebSocketTransport extends ManagedResource
   }
 
   @override
-  NetworkStreamFactory get streamFactory => WsNetworkStreamFactory(_connection);
+  NetworkStreamFactory get streamFactory =>
+      WsNetworkStreamFactory(_connection, clockOffsets: clockOffsets);
 
   @override
   Future<IDiscovery> createDiscovery({

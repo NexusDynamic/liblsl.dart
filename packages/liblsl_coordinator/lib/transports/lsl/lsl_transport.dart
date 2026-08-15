@@ -194,6 +194,13 @@ class LSLTransport<T extends LSLTransportConfig> extends LSLResource
   @override
   NetworkStreamFactory get streamFactory => LSLNetworkStreamFactory();
 
+  // Null: liblsl already runs a time_receiver per inlet and reports the result
+  // through lsl_time_correction, which the inlet isolate caches and attaches to
+  // every sample. A second estimator here would duplicate it, less accurately
+  // and over the coordination stream instead of LSL's dedicated UDP service.
+  @override
+  PeerClockOffsets? get clockOffsets => null;
+
   /// Creates a new [LSLTransport] with the given [config].
   /// If no configuration is provided, a default configuration is used.
   LSLTransport({T? config})

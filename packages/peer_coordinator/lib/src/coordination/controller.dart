@@ -35,6 +35,10 @@ class CoordinationController {
 
   Timer? _heartbeatTimer;
   Timer? _nodeTimeoutTimer;
+
+  /// Estimates each peer's clock offset, or null when the transport does not
+  /// need it. See [_clockSyncNeeded].
+  ClockSyncService? _clockSync;
   StreamSubscription? _coordinationSubscription;
   StreamSubscription? _handlerSubscription;
   StreamSubscription? _handlerEventSubscription;
@@ -78,6 +82,12 @@ class CoordinationController {
       // Clean up pending join tracking when a node successfully joins
       if (event is NodeJoinedEvent) {
         _pendingJoinNodeUIds.remove(event.node.uId);
+      }
+      // Every removal path funnels through here — voluntary leave, topology
+      // update and the timeout sweep all go via state.removeNode — so this is
+      // the one place that catches them all.
+      if (event is NodeLeftEvent) {
+        _untrackPeerClock(event.node.uId);
       }
     });
   }
@@ -227,7 +237,7 @@ class CoordinationController {
       state: _state,
       thisNode: coordinatorNode,
       sessionConfig: coordinationConfig.sessionConfig,
-    );
+    )..onConnectionProbeReply = _onConnectionProbeReply;
 
     // Start coordinator services
     await _startCoordinatorServices();
@@ -264,7 +274,7 @@ class CoordinationController {
       state: _state,
       thisNode: participantNode,
       sessionConfig: coordinationConfig.sessionConfig,
-    );
+    )..onConnectionProbeReply = _onConnectionProbeReply;
 
     // Connect to coordinator
     await _connectToCoordinator();
@@ -320,7 +330,11 @@ class CoordinationController {
       );
     }
 
+    final coordinatorNodeUId = coordinator.descriptor.nodeUId;
     await _coordinationStream.addInlet(coordinator);
+    // One inlet, one estimator — the receiver estimates its producer's clock,
+    // exactly as liblsl runs a time_receiver per inlet.
+    _trackPeerClock(coordinatorNodeUId);
     logger.info(
       '[CONTROLLER-${thisNode.uId}] Connected to coordinator stream '
       'successfully (${coordinator.descriptor})',
@@ -451,17 +465,121 @@ class CoordinationController {
     }
     final senderClock = coordMessage.senderClock;
     if (senderClock == null) return transportTiming;
+
+    // Zero only when both ends demonstrably read the same clock; otherwise the
+    // estimator's value if it has one, else whatever the transport knows —
+    // which for a cross-process transport with no estimate yet is null, so
+    // transitSeconds stays null rather than reporting the difference of two
+    // unrelated monotonic clocks.
+    final double? clockOffset;
+    final double? uncertainty;
+    if (_coordinationStream.sharesSenderClockDomain) {
+      clockOffset = 0.0;
+      uncertainty = 0.0;
+    } else {
+      final peer = coordMessage.fromNodeUId;
+      clockOffset =
+          _clockSync?.offsets.offsetFor(peer) ?? transportTiming?.clockOffset;
+      uncertainty =
+          _clockSync?.offsets.uncertaintyFor(peer) ??
+          transportTiming?.uncertainty;
+    }
+
     return MessageTiming(
       sourceClock: senderClock,
-      // Zero only when both ends demonstrably read the same clock. Otherwise
-      // whatever the transport knows, which for a cross-process transport with
-      // no offset estimator is null — so transitSeconds stays null rather than
-      // reporting the difference of two unrelated monotonic clocks.
-      clockOffset: _coordinationStream.sharesSenderClockDomain
-          ? 0.0
-          : transportTiming?.clockOffset,
+      clockOffset: clockOffset,
+      uncertainty: uncertainty,
       receivedClock: transportTiming?.receivedClock ?? PeerClock.now(),
       sourceId: transportTiming?.sourceId ?? coordMessage.fromNodeUId,
+    );
+  }
+
+  /// Whether this transport needs a clock-offset estimate at all.
+  ///
+  /// LSL carries the sender's own clock and has real native corrections; the
+  /// in-memory transport shares one clock, so its offset is a known zero.
+  /// Neither should pay for probe traffic. That leaves the WebSocket transport,
+  /// where the two peers' monotonic epochs are unrelated and nothing else
+  /// reconciles them.
+  bool get _clockSyncNeeded =>
+      !_coordinationStream.carriesSenderClock &&
+      !_coordinationStream.sharesSenderClockDomain;
+
+  /// Per-peer clock offsets, or null when this transport does not estimate
+  /// them. Shared with the transport so data streams read the same table.
+  PeerClockOffsets? get clockOffsets => _clockSync?.offsets;
+
+  void _startClockSync() {
+    if (_clockSync != null || !_clockSyncNeeded) return;
+
+    final config = coordinationConfig.sessionConfig.clockSyncConfig;
+    _clockSync = ClockSyncService(
+      config: config,
+      offsets: transport.clockOffsets ?? PeerClockOffsets(),
+      sendProbe: (peerUId, waveId, probeIndex) {
+        if (_stopping) return;
+        final handler = _activeHandler;
+        if (handler == null) return;
+        // Fire and forget: a probe that fails to send is one fewer sample in
+        // the burst, which the minimum-probe gate already handles.
+        unawaited(
+          handler
+              .sendConnectionProbe(peerUId, waveId, probeIndex)
+              .catchError((Object e) {
+                logger.finer('Clock probe to $peerUId failed to send: $e');
+              }),
+        );
+      },
+    );
+    logger.fine(
+      '[CONTROLLER-${thisNode.uId}] Clock sync enabled '
+      '(${config.timeProbeCount} probes every ${config.timeUpdateInterval})',
+    );
+  }
+
+  /// Whichever handler is currently live. Probes go out through it because the
+  /// role can flip mid-session and the estimators outlive the flip.
+  ConnectionProbeMixin? get _activeHandler =>
+      _state.isCoordinator ? _coordinatorHandler : _participantHandler;
+
+  /// Begins probing a peer we have just taken an inlet from.
+  ///
+  /// Called at every `addInlet` site, which is what makes this per-inlet in the
+  /// same sense liblsl means it: the receiver estimates, one estimator per
+  /// producer it reads.
+  void _trackPeerClock(String peerUId) {
+    if (peerUId == thisNode.uId) return; // never probe ourselves
+    _startClockSync();
+    _clockSync?.trackPeer(peerUId);
+  }
+
+  /// Stops probing a peer whose inlet has gone away. A stale offset for a
+  /// departed peer is worse than no offset.
+  void _untrackPeerClock(String peerUId) => _clockSync?.untrackPeer(peerUId);
+
+  /// Feeds a probe reply to the estimator, closing the NTP quadruple.
+  ///
+  /// `t0`/`t1` were echoed by the responder; `t2` is the reply's own sender
+  /// stamp and `t3` its arrival stamp, both already on [MessageTiming] by the
+  /// time a handler sees the message.
+  void _onConnectionProbeReply(ConnectionTestResponseMessage reply) {
+    final clockSync = _clockSync;
+    if (clockSync == null) return;
+
+    final t0 = reply.requestSenderClock;
+    final t1 = reply.requestReceivedClock;
+    final t2 = reply.senderClock;
+    final t3 = reply.transportTiming?.receivedClock;
+    final waveId = reply.waveId;
+    if (t0 == null || t1 == null || t2 == null || t3 == null ||
+        waveId == null) {
+      return;
+    }
+
+    clockSync.recordReply(
+      reply.fromNodeUId,
+      waveId,
+      ClockProbeSample(t0: t0, t1: t1, t2: t2, t3: t3),
     );
   }
 
@@ -562,6 +680,9 @@ class CoordinationController {
                   logger.finest(
                     'Added inlet for discovered node $nodeId ($nodeUId), sending join offer',
                   );
+                  // Per inlet: the coordinator reads from this participant, so
+                  // it estimates this participant's clock.
+                  _trackPeerClock(nodeUId);
                   if (!_state.canAcceptNodes) {
                     logger.warning(
                       'Not accepting new nodes, skipping join offer to $nodeId ($nodeUId)',
@@ -618,6 +739,8 @@ class CoordinationController {
           if (nodeUId == thisNode.uId) continue;
           logger.warning('Node $nodeUId timed out');
           _state.removeNode(nodeUId);
+          // A stale offset for a departed peer is worse than no offset.
+          _untrackPeerClock(nodeUId);
           // Broadcast topology update will happen automatically via state listener
           _coordinatorHandler!.broadcastTopologyUpdate();
         }
@@ -754,6 +877,11 @@ class CoordinationController {
     logger.info('Disposing coordination controller');
     _heartbeatTimer?.cancel();
     _nodeTimeoutTimer?.cancel();
+    // Cancels every in-flight probe and aggregation timer; a burst leaves up to
+    // timeProbeCount + 1 of them pending, and the teardown-leak tests will
+    // notice if any survives.
+    _clockSync?.dispose();
+    _clockSync = null;
     _discovery.stop();
     await _discoverySubscription?.cancel();
     await _stateEventSubscription?.cancel();

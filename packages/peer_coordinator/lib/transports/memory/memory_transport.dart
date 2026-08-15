@@ -81,6 +81,12 @@ class InMemoryTransport extends ManagedResource
   @override
   NetworkStreamFactory get streamFactory => InMemoryNetworkStreamFactory(bus);
 
+  // Null: both "peers" are objects in one process reading one PeerClock, so
+  // there is no offset to estimate — it is a known zero, reported through
+  // NetworkStream.sharesSenderClockDomain instead.
+  @override
+  PeerClockOffsets? get clockOffsets => null;
+
   @override
   Future<IDiscovery> createDiscovery({
     required NetworkStreamConfig streamConfig,

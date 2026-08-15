@@ -44,6 +44,14 @@ class CoordinationSessionConfig implements IConfig {
 
   final bool consumeCoordinationStreamAsCoordinator;
 
+  /// Tuning for peer clock-offset estimation.
+  ///
+  /// Only consulted by transports that need it — currently WebSocket. Defaults
+  /// mirror liblsl's `[tuning]` section; raise [ClockSyncConfig.timeUpdateInterval]
+  /// or lower [ClockSyncConfig.timeProbeCount] if the probe traffic is too
+  /// costly for a large session, at the price of a staler estimate.
+  final ClockSyncConfig clockSyncConfig;
+
   CoordinationSessionConfig({
     required this.name,
     this.maxNodes = 10,
@@ -52,6 +60,7 @@ class CoordinationSessionConfig implements IConfig {
     this.discoveryInterval = const Duration(seconds: 10),
     this.nodeTimeout = const Duration(seconds: 15),
     this.consumeCoordinationStreamAsCoordinator = true,
+    this.clockSyncConfig = const ClockSyncConfig(),
   }) {
     validate(throwOnError: true);
   }
@@ -99,6 +108,7 @@ class CoordinationSessionConfig implements IConfig {
       }
       return false;
     }
+    if (!clockSyncConfig.validate(throwOnError: throwOnError)) return false;
     return true;
   }
 
@@ -113,6 +123,13 @@ class CoordinationSessionConfig implements IConfig {
       'nodeTimeout': nodeTimeout.inMilliseconds,
       'consumeCoordinationStreamAsCoordinator':
           consumeCoordinationStreamAsCoordinator,
+      'clockSync': {
+        'timeUpdateInterval': clockSyncConfig.timeUpdateInterval.inMilliseconds,
+        'timeProbeCount': clockSyncConfig.timeProbeCount,
+        'timeProbeInterval': clockSyncConfig.timeProbeInterval.inMilliseconds,
+        'timeProbeMaxRtt': clockSyncConfig.timeProbeMaxRtt.inMilliseconds,
+        'timeUpdateMinProbes': clockSyncConfig.timeUpdateMinProbes,
+      },
     };
   }
 

@@ -123,14 +123,35 @@ abstract class CoordinationMessage {
 class ConnectionTestMessage extends CoordinationMessage {
   final String testId;
 
+  /// The peer this test is addressed to, or null to accept any responder.
+  ///
+  /// Coordination traffic has no addressing of its own: a participant's message
+  /// reaches only the coordinator, but anything the *coordinator* sends is
+  /// broadcast to every participant. Without a target, one coordinator-initiated
+  /// probe would be answered by every participant at once.
+  final String? toNodeUId;
+
+  /// Identifies the clock-sync burst this probe belongs to, or null if this is
+  /// an ordinary connection test rather than a clock probe.
+  ///
+  /// Replies quoting a wave that is no longer in flight are stale and dropped —
+  /// see [PeerClockEstimator.addSample].
+  final int? waveId;
+
   ConnectionTestMessage({
     required super.fromNodeUId,
     required this.testId,
+    this.toNodeUId,
+    this.waveId,
     super.messageId,
     super.parentMessageId,
     super.timestamp,
     super.metadata,
   }) : super(type: CoordinationMessageType.connectionTest);
+
+  /// Whether this message is meant for [nodeUId].
+  bool addressedTo(String nodeUId) =>
+      toNodeUId == null || toNodeUId == nodeUId;
 
   @override
   Map<String, dynamic> toMap() => {
@@ -140,6 +161,8 @@ class ConnectionTestMessage extends CoordinationMessage {
     'parentMessageId': parentMessageId,
     'timestamp': timestamp.toIso8601String(),
     'testId': testId,
+    if (toNodeUId != null) 'toNodeUId': toNodeUId,
+    if (waveId != null) 'waveId': waveId,
     'metadata': metadata,
   };
 
@@ -147,6 +170,8 @@ class ConnectionTestMessage extends CoordinationMessage {
       ConnectionTestMessage(
         fromNodeUId: map['fromNodeUId'],
         testId: map['testId'],
+        toNodeUId: map['toNodeUId'] as String?,
+        waveId: (map['waveId'] as num?)?.toInt(),
         messageId: map['messageId'],
         parentMessageId: map['parentMessageId'],
         timestamp: DateTime.parse(map['timestamp']),
@@ -158,15 +183,48 @@ class ConnectionTestResponseMessage extends CoordinationMessage {
   final String testId;
   final bool confirmed;
 
+  /// The peer that sent the request, so the other participants this was
+  /// broadcast to can ignore it. See [ConnectionTestMessage.toNodeUId].
+  final String? toNodeUId;
+
+  /// Echoed from the request. Null for a plain connection test.
+  final int? waveId;
+
+  /// `t0` — the requester's clock when it put the request on the wire, echoed
+  /// back verbatim.
+  ///
+  /// Echoing it rather than having the requester remember it mirrors liblsl,
+  /// whose responder writes `t0` straight back into the reply
+  /// (`udp_server.cpp:160-163`), and spares the requester a per-probe table
+  /// keyed on send time.
+  final double? requestSenderClock;
+
+  /// `t1` — the responder's clock when the request arrived.
+  final double? requestReceivedClock;
+
   ConnectionTestResponseMessage({
     required super.fromNodeUId,
     required this.testId,
     required this.confirmed,
+    this.toNodeUId,
+    this.waveId,
+    this.requestSenderClock,
+    this.requestReceivedClock,
     super.messageId,
     super.parentMessageId,
     super.timestamp,
     super.metadata,
   }) : super(type: CoordinationMessageType.connectionTestResponse);
+
+  /// Whether this message is meant for [nodeUId].
+  bool addressedTo(String nodeUId) =>
+      toNodeUId == null || toNodeUId == nodeUId;
+
+  /// Whether this reply carries the timestamps a clock probe needs.
+  bool get isClockProbe =>
+      waveId != null &&
+      requestSenderClock != null &&
+      requestReceivedClock != null;
 
   @override
   Map<String, dynamic> toMap() => {
@@ -177,6 +235,11 @@ class ConnectionTestResponseMessage extends CoordinationMessage {
     'timestamp': timestamp.toIso8601String(),
     'testId': testId,
     'confirmed': confirmed,
+    if (toNodeUId != null) 'toNodeUId': toNodeUId,
+    if (waveId != null) 'waveId': waveId,
+    if (requestSenderClock != null) 'requestSenderClock': requestSenderClock,
+    if (requestReceivedClock != null)
+      'requestReceivedClock': requestReceivedClock,
     'metadata': metadata,
   };
 
@@ -185,6 +248,10 @@ class ConnectionTestResponseMessage extends CoordinationMessage {
         fromNodeUId: map['fromNodeUId'],
         testId: map['testId'],
         confirmed: map['confirmed'] ?? false,
+        toNodeUId: map['toNodeUId'] as String?,
+        waveId: (map['waveId'] as num?)?.toInt(),
+        requestSenderClock: (map['requestSenderClock'] as num?)?.toDouble(),
+        requestReceivedClock: (map['requestReceivedClock'] as num?)?.toDouble(),
         messageId: map['messageId'],
         parentMessageId: map['parentMessageId'],
         timestamp: DateTime.parse(map['timestamp']),

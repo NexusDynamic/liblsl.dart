@@ -45,4 +45,17 @@ abstract interface class ITransport<T extends ITransportConfig>
     required CoordinationConfig coordinationConfig,
     required String id,
   });
+
+  /// Per-peer clock offsets for this process, or null if this transport does
+  /// not need them.
+  ///
+  /// An offset is a property of the peer *process*, not of any one stream, so
+  /// there is one table per transport and every stream on it — coordination and
+  /// data alike — reads the same entries.
+  ///
+  /// Null for LSL, which has native `lsl_time_correction` per inlet, and for
+  /// the in-memory transport, whose peers share a clock so the offset is a
+  /// known zero. Non-null for WebSocket, where the peers' monotonic epochs are
+  /// unrelated and [ClockSyncService] fills this in.
+  PeerClockOffsets? get clockOffsets;
 }
