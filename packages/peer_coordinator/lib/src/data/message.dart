@@ -194,6 +194,8 @@ class Message<D, M extends MessageTypeMapping<D>, T extends MessageType<D, M>>
   @override
   final DateTime timestamp;
   @override
+  final MessageTiming? timing;
+  @override
   Map<String, dynamic> get metadata => UnmodifiableMapView(_metadata);
 
   final Map<String, dynamic> _metadata = {};
@@ -215,12 +217,15 @@ class Message<D, M extends MessageTypeMapping<D>, T extends MessageType<D, M>>
   /// The [uId] parameter is optional and will be generated if not provided.
   /// The [timestamp] parameter is optional and will be set to the current time
   /// if not provided.
+  /// The [timing] parameter is set by transports on the receive path; messages
+  /// constructed locally leave it null.
   Message({
     String? uId,
     required this.messageType,
     required this.data,
     required M mapping,
     DateTime? timestamp,
+    this.timing,
   }) : _mapping = mapping,
        uId = uId ??= generateUid(),
        timestamp = timestamp ?? DateTime.now() {
@@ -260,6 +265,7 @@ class Message<D, M extends MessageTypeMapping<D>, T extends MessageType<D, M>>
       'data': data,
       'timestamp': timestamp.toIso8601String(),
       'metadata': metadata,
+      if (timing != null) 'timing': timing!.toMap(),
     };
   }
 }
@@ -310,8 +316,9 @@ class MessageFactory {
     required IList<String> data,
     int channels = 1,
     DateTime? timestamp,
+    MessageTiming? timing,
   }) {
-    final mapping = StringMapping(channels: channels);
+    final mapping =StringMapping(channels: channels);
     final messageType = MessageType<String, StringMapping>(mapping);
     return StringMessage(
       uId: uId,
@@ -319,6 +326,7 @@ class MessageFactory {
       messageType: messageType,
       mapping: mapping,
       timestamp: timestamp,
+      timing: timing,
     );
   }
 
@@ -334,8 +342,9 @@ class MessageFactory {
     required IList<int> data,
     int channels = 1,
     DateTime? timestamp,
+    MessageTiming? timing,
   }) {
-    final mapping = Int8Mapping(channels: channels);
+    final mapping =Int8Mapping(channels: channels);
     final type = MessageType<int, Int8Mapping>(mapping);
     return Int8Message(
       uId: uId,
@@ -343,6 +352,7 @@ class MessageFactory {
       messageType: type,
       mapping: mapping,
       timestamp: timestamp,
+      timing: timing,
     );
   }
 
@@ -358,8 +368,9 @@ class MessageFactory {
     required IList<int> data,
     int channels = 1,
     DateTime? timestamp,
+    MessageTiming? timing,
   }) {
-    final mapping = Int16Mapping(channels: channels);
+    final mapping =Int16Mapping(channels: channels);
     final type = MessageType<int, Int16Mapping>(mapping);
     return Int16Message(
       uId: uId,
@@ -367,6 +378,7 @@ class MessageFactory {
       messageType: type,
       mapping: mapping,
       timestamp: timestamp,
+      timing: timing,
     );
   }
 
@@ -382,8 +394,9 @@ class MessageFactory {
     required IList<int> data,
     int channels = 1,
     DateTime? timestamp,
+    MessageTiming? timing,
   }) {
-    final mapping = Int32Mapping(channels: channels);
+    final mapping =Int32Mapping(channels: channels);
     final type = MessageType<int, Int32Mapping>(mapping);
     return Int32Message(
       uId: uId,
@@ -391,6 +404,7 @@ class MessageFactory {
       messageType: type,
       mapping: mapping,
       timestamp: timestamp,
+      timing: timing,
     );
   }
 
@@ -407,8 +421,9 @@ class MessageFactory {
     required IList<int> data,
     int channels = 1,
     DateTime? timestamp,
+    MessageTiming? timing,
   }) {
-    final mapping = Int64Mapping(channels: channels);
+    final mapping =Int64Mapping(channels: channels);
     final type = MessageType<int, Int64Mapping>(mapping);
     return Int64Message(
       uId: uId,
@@ -416,6 +431,7 @@ class MessageFactory {
       messageType: type,
       mapping: mapping,
       timestamp: timestamp,
+      timing: timing,
     );
   }
 
@@ -431,8 +447,9 @@ class MessageFactory {
     required IList<double> data,
     int channels = 1,
     DateTime? timestamp,
+    MessageTiming? timing,
   }) {
-    final mapping = Float32Mapping(channels: channels);
+    final mapping =Float32Mapping(channels: channels);
     final type = MessageType<double, Float32Mapping>(mapping);
     return Float32Message(
       uId: uId,
@@ -440,6 +457,7 @@ class MessageFactory {
       messageType: type,
       mapping: mapping,
       timestamp: timestamp,
+      timing: timing,
     );
   }
 
@@ -455,8 +473,9 @@ class MessageFactory {
     required IList<double> data,
     int channels = 1,
     DateTime? timestamp,
+    MessageTiming? timing,
   }) {
-    final mapping = Double64Mapping(channels: channels);
+    final mapping =Double64Mapping(channels: channels);
     final type = MessageType<double, Double64Mapping>(mapping);
     return Double64Message(
       uId: uId,
@@ -464,6 +483,7 @@ class MessageFactory {
       messageType: type,
       mapping: mapping,
       timestamp: timestamp,
+      timing: timing,
     );
   }
 }

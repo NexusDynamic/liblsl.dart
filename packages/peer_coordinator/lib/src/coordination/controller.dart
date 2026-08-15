@@ -394,6 +394,12 @@ class CoordinationController {
       final CoordinationMessage coordMessage;
       try {
         coordMessage = CoordinationMessage.fromJson(message.data.first);
+        // Carry the transport's timing across the decode. Without this the
+        // StringMessage — and everything the transport measured about the trip
+        // it just made — goes out of scope here, which is why coordination
+        // traffic used to be invisible to latency characterisation even though
+        // the transport had already timed it.
+        coordMessage.transportTiming = _timingFor(message, coordMessage);
       } catch (e) {
         logger.severe(
           '[CONTROLLER-${thisNode.uId}] Invalid coordination message JSON: $e\nRaw message data: ${message.data}',
@@ -430,8 +436,47 @@ class CoordinationController {
     }
   }
 
+  /// Resolves the timing to attach to a decoded coordination message.
+  ///
+  /// Prefers what the transport measured. When the transport has no sender
+  /// clock of its own, it stamped one into the envelope on the way out (see
+  /// [_sendMessage]), so recover it here and pair it with a local reading.
+  MessageTiming? _timingFor(
+    StringMessage message,
+    CoordinationMessage coordMessage,
+  ) {
+    final transportTiming = message.timing;
+    if (transportTiming != null && transportTiming.sourceClock != null) {
+      return transportTiming;
+    }
+    final senderClock = coordMessage.senderClock;
+    if (senderClock == null) return transportTiming;
+    return MessageTiming(
+      sourceClock: senderClock,
+      // Zero only when both ends demonstrably read the same clock. Otherwise
+      // whatever the transport knows, which for a cross-process transport with
+      // no offset estimator is null — so transitSeconds stays null rather than
+      // reporting the difference of two unrelated monotonic clocks.
+      clockOffset: _coordinationStream.sharesSenderClockDomain
+          ? 0.0
+          : transportTiming?.clockOffset,
+      receivedClock: transportTiming?.receivedClock ?? PeerClock.now(),
+      sourceId: transportTiming?.sourceId ?? coordMessage.fromNodeUId,
+    );
+  }
+
   Future<void> _sendMessage(CoordinationMessage message) async {
     logger.finest('[CONTROLLER-${thisNode.uId}] Sending ${message.type}');
+    // Stamped at transmit rather than at construction: messages queue in the
+    // handler's outgoing controller between the two, and the point of the
+    // stamp is to time the wire, not the queue.
+    //
+    // Skipped for transports that already put a sender clock on the wire — an
+    // LSL sample's timestamp is the sender's `lsl_local_clock()` reading, and a
+    // second, weaker stamp beside it would only be something to disagree with.
+    if (!_coordinationStream.carriesSenderClock) {
+      message.metadata[CoordinationMessage.senderClockKey] = PeerClock.now();
+    }
     final stringMessage = MessageFactory.stringMessage(
       data: IList([message.toJson()]),
       channels: 1,

@@ -13,11 +13,21 @@ sealed class ControllerEvent {
   final String messageId;
   final String? parentMessageId;
 
+  /// How long this event's message took to reach us, as the transport measured
+  /// it — see [MessageTiming].
+  ///
+  /// Null for events the local node generated itself (phase changes, node
+  /// timeouts) and for transports that cannot supply timing. It is deliberately
+  /// available on *every* coordination event: characterising a session means
+  /// measuring the low-rate control traffic too, not only the data streams.
+  final MessageTiming? timing;
+
   ControllerEvent({
     required this.fromNodeUId,
     DateTime? timestamp,
     String? messageId,
     this.parentMessageId,
+    this.timing,
   }) : timestamp = timestamp ?? DateTime.now(),
        messageId = messageId ?? generateUid();
 }
@@ -35,6 +45,7 @@ final class PhaseChangedEvent extends ControllerEvent {
     required super.fromNodeUId,
     super.messageId,
     super.parentMessageId,
+    super.timing,
   });
 }
 
@@ -51,6 +62,7 @@ sealed class NodeEvent extends ControllerEvent {
     required super.fromNodeUId,
     super.messageId,
     super.parentMessageId,
+    super.timing,
   });
 }
 
@@ -61,6 +73,7 @@ final class NodeJoinedEvent extends NodeEvent {
     required super.fromNodeUId,
     super.messageId,
     super.parentMessageId,
+    super.timing,
   });
 }
 
@@ -71,6 +84,7 @@ final class NodeLeftEvent extends NodeEvent {
     required super.fromNodeUId,
     super.messageId,
     super.parentMessageId,
+    super.timing,
   });
 }
 
@@ -88,6 +102,7 @@ final class NodeJoinRejectedEvent extends ControllerEvent {
     required super.fromNodeUId,
     super.messageId,
     super.parentMessageId,
+    super.timing,
   });
 }
 
@@ -105,6 +120,7 @@ sealed class StreamLifecycleEvent extends ControllerEvent {
     super.timestamp,
     super.messageId,
     super.parentMessageId,
+    super.timing,
   });
 }
 
@@ -119,6 +135,7 @@ final class StreamCreateEvent extends StreamLifecycleEvent {
     super.timestamp,
     super.messageId,
     super.parentMessageId,
+    super.timing,
   });
 }
 
@@ -135,6 +152,7 @@ final class StreamStartEvent extends StreamLifecycleEvent {
     super.timestamp,
     super.messageId,
     super.parentMessageId,
+    super.timing,
   });
 }
 
@@ -146,6 +164,7 @@ final class StreamReadyEvent extends StreamLifecycleEvent {
     super.timestamp,
     super.messageId,
     super.parentMessageId,
+    super.timing,
   });
 }
 
@@ -157,6 +176,7 @@ final class StreamStopEvent extends StreamLifecycleEvent {
     super.timestamp,
     super.messageId,
     super.parentMessageId,
+    super.timing,
   });
 }
 
@@ -168,6 +188,7 @@ final class StreamPauseEvent extends StreamLifecycleEvent {
     super.timestamp,
     super.messageId,
     super.parentMessageId,
+    super.timing,
   });
 }
 
@@ -182,6 +203,7 @@ final class StreamResumeEvent extends StreamLifecycleEvent {
     super.timestamp,
     super.messageId,
     super.parentMessageId,
+    super.timing,
   });
 }
 
@@ -193,6 +215,7 @@ final class StreamFlushEvent extends StreamLifecycleEvent {
     super.timestamp,
     super.messageId,
     super.parentMessageId,
+    super.timing,
   });
 }
 
@@ -204,6 +227,7 @@ final class StreamDestroyEvent extends StreamLifecycleEvent {
     super.timestamp,
     super.messageId,
     super.parentMessageId,
+    super.timing,
   });
 }
 
@@ -225,6 +249,7 @@ sealed class UserMessageEvent extends ControllerEvent {
     super.messageId,
     super.parentMessageId,
     super.timestamp,
+    super.timing,
   });
 }
 
@@ -238,6 +263,7 @@ final class UserCoordinationEvent extends UserMessageEvent {
     super.messageId,
     super.parentMessageId,
     super.timestamp,
+    super.timing,
   });
 }
 
@@ -251,6 +277,7 @@ final class UserParticipantEvent extends UserMessageEvent {
     super.messageId,
     super.parentMessageId,
     super.timestamp,
+    super.timing,
   });
 }
 
@@ -268,6 +295,7 @@ final class ConfigUpdateEvent extends ControllerEvent {
     super.messageId,
     super.parentMessageId,
     super.timestamp,
+    super.timing,
   });
 }
 

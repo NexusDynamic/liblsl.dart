@@ -82,6 +82,7 @@ class CoordinatorMessageHandler extends CoordinationMessageHandler {
             messageType: userMessage.messageType,
             messageId: userMessage.messageId,
             parentMessageId: message.parentMessageId,
+            timing: message.transportTiming,
             description: userMessage.description,
             payload: userMessage.payload,
             fromNodeUId: userMessage.fromNodeUId,
@@ -98,6 +99,7 @@ class CoordinatorMessageHandler extends CoordinationMessageHandler {
             payload: userMessage.payload,
             fromNodeUId: userMessage.fromNodeUId,
             parentMessageId: userMessage.parentMessageId,
+            timing: userMessage.transportTiming,
             timestamp: userMessage.timestamp,
           ),
         );
@@ -143,6 +145,7 @@ class CoordinatorMessageHandler extends CoordinationMessageHandler {
         timestamp: message.timestamp,
         messageId: message.messageId,
         parentMessageId: message.parentMessageId,
+        timing: message.transportTiming,
       ),
     );
   }
@@ -568,6 +571,7 @@ class ParticipantMessageHandler extends CoordinationMessageHandler {
         timestamp: message.timestamp,
         messageId: message.messageId,
         parentMessageId: message.parentMessageId,
+        timing: message.transportTiming,
       ),
     );
   }
@@ -583,6 +587,7 @@ class ParticipantMessageHandler extends CoordinationMessageHandler {
         timestamp: message.timestamp,
         messageId: message.messageId,
         parentMessageId: message.parentMessageId,
+        timing: message.transportTiming,
       ),
     );
   }
@@ -598,6 +603,7 @@ class ParticipantMessageHandler extends CoordinationMessageHandler {
         timestamp: message.timestamp,
         messageId: message.messageId,
         parentMessageId: message.parentMessageId,
+        timing: message.transportTiming,
       ),
     );
   }
@@ -611,6 +617,7 @@ class ParticipantMessageHandler extends CoordinationMessageHandler {
         timestamp: message.timestamp,
         messageId: message.messageId,
         parentMessageId: message.parentMessageId,
+        timing: message.transportTiming,
       ),
     );
   }
@@ -628,6 +635,7 @@ class ParticipantMessageHandler extends CoordinationMessageHandler {
         timestamp: message.timestamp,
         messageId: message.messageId,
         parentMessageId: message.parentMessageId,
+        timing: message.transportTiming,
       ),
     );
   }
@@ -641,6 +649,7 @@ class ParticipantMessageHandler extends CoordinationMessageHandler {
         timestamp: message.timestamp,
         messageId: message.messageId,
         parentMessageId: message.parentMessageId,
+        timing: message.transportTiming,
       ),
     );
   }
@@ -769,6 +778,7 @@ class ParticipantMessageHandler extends CoordinationMessageHandler {
         timestamp: message.timestamp,
         messageId: message.messageId,
         parentMessageId: message.parentMessageId,
+        timing: message.transportTiming,
       ),
     );
   }
@@ -783,6 +793,7 @@ class ParticipantMessageHandler extends CoordinationMessageHandler {
         timestamp: message.timestamp,
         messageId: message.messageId,
         parentMessageId: message.parentMessageId,
+        timing: message.transportTiming,
       ),
     );
   }
@@ -796,6 +807,7 @@ class ParticipantMessageHandler extends CoordinationMessageHandler {
         timestamp: message.timestamp,
         messageId: message.messageId,
         parentMessageId: message.parentMessageId,
+        timing: message.transportTiming,
       ),
     );
   }
@@ -809,6 +821,7 @@ class ParticipantMessageHandler extends CoordinationMessageHandler {
         timestamp: message.timestamp,
         messageId: message.messageId,
         parentMessageId: message.parentMessageId,
+        timing: message.transportTiming,
       ),
     );
   }

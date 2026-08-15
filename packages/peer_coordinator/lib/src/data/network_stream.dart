@@ -477,6 +477,28 @@ abstract class NetworkStream<T extends NetworkStreamConfig, M extends IMessage>
   Stream<M> get inbox =>
       throw UnimplementedError('inbox must be implemented by subclasses');
 
+  /// Whether this transport already puts the sender's clock on the wire.
+  ///
+  /// LSL does: every sample carries the sending machine's `lsl_local_clock()`
+  /// reading, which is what [MessageTiming.sourceClock] reports. Transports that
+  /// return false get a [PeerClock] reading stamped into the message envelope by
+  /// the layer above, so a receiver has *something* to compare against — but a
+  /// transport that has its own, better sender clock must say so, or the two
+  /// stamps disagree and the weaker one wins.
+  bool get carriesSenderClock => false;
+
+  /// Whether both ends of this stream read the same [PeerClock].
+  ///
+  /// True only for the in-memory transport, where "both peers" are objects in
+  /// one process. It means a sender's clock reading needs no correction to be
+  /// comparable with a local one — [MessageTiming.clockOffset] is a known zero
+  /// rather than an unknown null, so transit times are exact.
+  ///
+  /// Any transport that crosses a process boundary must leave this false: two
+  /// processes' monotonic clocks have unrelated epochs, and pretending
+  /// otherwise yields a confident, meaningless number.
+  bool get sharesSenderClockDomain => false;
+
   // ---------------------------------------------------------------------------
   // Transport contract
   //

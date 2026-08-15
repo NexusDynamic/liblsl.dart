@@ -185,10 +185,13 @@ and a WebSocket one (with a relay hub) that also runs in the browser.
 - **`LSLDataStream.sendData` and `sendDataTyped` now return `Future<void>`.**
   Awaiting is optional (existing fire-and-forget calls keep working) and gives
   backpressure when the send buffer pool is saturated.
-- **Message metadata now holds raw values instead of strings**: `received_at`
-  is a `DateTime` (was an ISO-8601 `String`); `lsl_timestamp` and
-  `lsl_time_correction` remain `double`. Consumers reading `received_at` as a
-  `String` must call `.toIso8601String()` themselves.
+- **Message timing moved from the metadata map to a typed `MessageTiming`.**
+  The `lsl_timestamp`, `lsl_time_correction`, `received_at` and `source_id`
+  metadata keys are gone; read `message.timing` instead, whose fields are
+  `sourceClock`, `clockOffset`, `receivedClock` and `sourceId`, with
+  `transitSeconds` / `transitMicros` doing the clock-domain arithmetic for you.
+  Nothing in the wild could have depended on the old keys — nothing read them
+  and the values never reached a coordination-message consumer (see below).
 - `LSLCoordinationSession.waitForUserMessage` now matches on the message
   *type* (the first argument to `sendUserMessage`) rather than an
   auto-generated message ID, which no caller could know — the method was

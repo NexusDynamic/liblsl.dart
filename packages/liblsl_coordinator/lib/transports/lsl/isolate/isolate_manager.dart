@@ -241,6 +241,13 @@ final class IsolateDataMessage {
   final double? lslTimestamp;
   final double? lslTimeCorrection;
 
+  /// `lsl_local_clock()` on *this* machine when the sample was pulled.
+  ///
+  /// Captured inside the inlet isolate so it excludes the isolate-port hop that
+  /// follows, and shares a clock domain with [lslTimestamp] once
+  /// [lslTimeCorrection] has been added to the latter.
+  final double? localClock;
+
   const IsolateDataMessage({
     required this.streamId,
     required this.timestamp,
@@ -248,6 +255,7 @@ final class IsolateDataMessage {
     this.sourceId,
     this.lslTimestamp,
     this.lslTimeCorrection,
+    this.localClock,
   });
 
   Map<String, dynamic> toMap() => {
@@ -257,6 +265,7 @@ final class IsolateDataMessage {
     'sourceId': sourceId,
     'lslTimestamp': lslTimestamp,
     'lslTimeCorrection': lslTimeCorrection,
+    'localClock': localClock,
   };
 
   factory IsolateDataMessage.fromMap(Map<String, dynamic> map) {
@@ -267,6 +276,7 @@ final class IsolateDataMessage {
       sourceId: map['sourceId'] as String?,
       lslTimestamp: map['lslTimestamp'] as double?,
       lslTimeCorrection: map['lslTimeCorrection'] as double?,
+      localClock: map['localClock'] as double?,
     );
   }
 }
@@ -934,7 +944,13 @@ final class InletWorker extends IsolateWorker {
 
   /// List of time corrections for each inlet (fragile, needs to be exactly
   /// the same length as inlets)
-  late final List<double> timeCorrections;
+  ///
+  /// `null` means "no estimate yet" — a freshly added inlet has not completed
+  /// its first `lsl_time_correction` round trip. That is deliberately distinct
+  /// from a known offset of `0.0`: reporting zero would make a receiver compute
+  /// a plausible-looking but wrong transit time for the first few seconds of
+  /// every new peer.
+  late final List<double?> timeCorrections;
 
   /// Lock for inlet operations
   late final Lock inletsLock;
@@ -984,7 +1000,7 @@ final class InletWorker extends IsolateWorker {
       '[${config.debugName}] Initializing inlet worker for stream ${config.streamId}',
     );
     inlets = await IsolateStreamManager._createInlets(config);
-    timeCorrections = List<double>.filled(inlets.length, 0.0, growable: true);
+    timeCorrections = List<double?>.filled(inlets.length, null, growable: true);
     inletsLock = Lock();
     timeCorrectionsLock = Lock();
     inletAddRemoveLock = MultiLock(locks: [inletsLock, timeCorrectionsLock]);
@@ -1213,8 +1229,18 @@ final class InletWorker extends IsolateWorker {
     );
     await inletAddRemoveLock.synchronized(() {
       inlets.add(newInlet);
-      timeCorrections.add(0.0);
+      // Null, not 0.0: this inlet has no clock-offset estimate yet.
+      timeCorrections.add(null);
     });
+    // Get the new peer an offset now rather than making it wait out the rest of
+    // the 5 s refresh window with unusable timing on every sample it delivers.
+    //
+    // Deliberately not awaited: the caller's response is sent once this method
+    // returns, so awaiting would put lsl_time_correction's first-call cost
+    // (milliseconds normally, up to the 1 s timeout on a lossy link) directly
+    // on the peer-admission path. Until the estimate lands the correction stays
+    // null, which reports "transit unknown" rather than a wrong number.
+    unawaited(_updateTimeCorrections(0));
   }
 
   Future<void> _handleRemoveInlet(RemoveInletMessage message) async {
@@ -1248,17 +1274,26 @@ final class InletWorker extends IsolateWorker {
               minTimeSinceLastUpdate) {
         return; // Limit updates to every 5 seconds
       }
+      // Keep the inlet index attached to each pending correction. These inlets
+      // are created with `useIsolates: false`, so `getTimeCorrection` runs the
+      // FFI call synchronously *before* returning its future — a throw lands
+      // here rather than in the future. Collecting bare futures therefore left
+      // the results list shorter than `inlets` whenever one failed, and the
+      // positional write-back then assigned every subsequent inlet's correction
+      // to the wrong inlet.
+      final List<int> indices = [];
       final List<Future<double>> futures = [];
       for (int i = 0; i < inlets.length; i++) {
         try {
           futures.add(inlets[i].getTimeCorrection(timeout: 1.0));
+          indices.add(i);
         } catch (e) {
-          logger.warning('Error updating time correction: $e');
+          logger.warning('Error updating time correction for inlet $i: $e');
         }
       }
       final results = await Future.wait(futures);
       for (int i = 0; i < results.length; i++) {
-        timeCorrections[i] = results[i];
+        timeCorrections[indices[i]] = results[i];
       }
       logger.finer('Updated time corrections for stream ${config.streamId}');
       lastTimeCorrectionUpdate.reset();
@@ -1273,6 +1308,14 @@ final class InletWorker extends IsolateWorker {
   // Fully synchronous: runs to completion without yielding, so buffer access
   // needs no lock here (flush sites still serialize via bufferLock).
   void _pollInletsWorker() {
+    // Both clock reads are hoisted out of the drain loop: this method runs to
+    // completion without yielding, so every sample it takes belongs to the same
+    // tick, and one reading per tick describes them all. Previously
+    // `DateTime.now()` ran once per sample, so this is a net reduction in
+    // syscalls on the hot path, not an addition.
+    final tickWallClock = DateTime.now();
+    final tickLocalClock = LSL.localClock();
+
     for (int i = 0; i < inlets.length; i++) {
       final inlet = inlets[i];
       try {
@@ -1285,11 +1328,12 @@ final class InletWorker extends IsolateWorker {
           buffer.add(
             IsolateDataMessage(
               streamId: config.streamId,
-              timestamp: DateTime.now(),
+              timestamp: tickWallClock,
               data: sample.data,
               sourceId: inlet.streamInfo.sourceId,
               lslTimestamp: sample.timestamp,
               lslTimeCorrection: timeCorrections[i],
+              localClock: tickLocalClock,
             ),
           );
         }

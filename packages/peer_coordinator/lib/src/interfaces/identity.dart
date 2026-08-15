@@ -4,11 +4,18 @@ import 'package:uuid/rng.dart';
 import 'package:uuid/uuid.dart';
 export 'package:uuid/uuid.dart';
 
+/// Shared generator for [generateUid].
+///
+/// Hoisted out of the function body because every received message calls
+/// [generateUid], and constructing a `Uuid`, `GlobalOptions` and `MathRNG` per
+/// call put three throwaway allocations on the hot receive path.
+final Uuid _uuid = Uuid(goptions: GlobalOptions(MathRNG()));
+
 /// The default function to generate a unique ID.
 /// Uses the [Uuid] package to generate a version 4 UUID.
 /// This is a convenience function and [Uuid] is re-exported for direct use
 /// if needed.
-String generateUid() => Uuid(goptions: GlobalOptions(MathRNG())).v4();
+String generateUid() => _uuid.v4();
 
 /// Basic identity interface
 abstract interface class IIdentity {

@@ -34,6 +34,25 @@ abstract class CoordinationMessage {
   final DateTime timestamp;
   final Map<String, dynamic> metadata;
 
+  /// Transport-observed timing for the message this was decoded from.
+  ///
+  /// Deliberately *not* part of [toMap]/[fromMap]: it describes the trip this
+  /// message just made, so it is filled in on receipt rather than carried on
+  /// the wire. Mutable so the controller can attach it at the decode site
+  /// without every message subclass having to thread it through its factory.
+  ///
+  /// Null on locally-constructed (outgoing) messages.
+  MessageTiming? transportTiming;
+
+  /// The sender's [PeerClock] reading, in the sender's own clock domain, for
+  /// transports that do not put a sender clock on the wire themselves.
+  ///
+  /// Stored in [metadata] so it round-trips through the existing wire format
+  /// with no protocol change. See [NetworkStream.carriesSenderClock].
+  static const String senderClockKey = 'sender_clock';
+
+  double? get senderClock => (metadata[senderClockKey] as num?)?.toDouble();
+
   CoordinationMessage({
     required this.type,
     required this.fromNodeUId,

@@ -19,4 +19,12 @@ abstract interface class IMessage<T extends IMessageType>
 
   /// The data associated with the message
   IList get data;
+
+  /// Transport-observed timing for this message, or null when the transport
+  /// could not supply it (or the message has not been over a wire at all).
+  ///
+  /// Unlike [timestamp], which is a local wall-clock reading, this carries the
+  /// sender's clock and the offset needed to interpret it, so a receiver can
+  /// characterise the actual network transit. See [MessageTiming].
+  MessageTiming? get timing;
 }

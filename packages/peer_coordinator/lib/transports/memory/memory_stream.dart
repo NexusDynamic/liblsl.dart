@@ -29,6 +29,12 @@ mixin InMemoryStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
   /// The subscriptions this stream has taken out, so they can be torn down.
   final Set<String> _subscribedProducers = {};
 
+  // Both "peers" are objects in one process, reading one PeerClock, so a
+  // sender's reading is directly comparable with a local one. This is what
+  // makes end-to-end timing exercisable in tests without LSL or a socket.
+  @override
+  bool get sharesSenderClockDomain => true;
+
   /// This stream's identity on the bus.
   String get endpointId => descriptor.endpointId;
 
@@ -77,6 +83,14 @@ mixin InMemoryStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
     });
   }
 
+  // Note on timing: the bus hands the receiver the sender's own message object,
+  // with no copy and no serialisation boundary, so there is nowhere to stamp a
+  // receive time without rebuilding the message and giving up that zero-copy
+  // property. Coordination messages carry the sender's clock inside their JSON
+  // payload instead (see CoordinationMessage.senderClockKey), which the
+  // controller pairs with a local reading and a known-zero offset. Data-stream
+  // messages therefore arrive with `timing == null` here — there is no wire to
+  // characterise in-process anyway.
   void _onEnvelope(BusEnvelope envelope) {
     if (_disposed || paused || !_started) return;
     final payload = envelope.payload;

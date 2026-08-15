@@ -276,7 +276,10 @@ mixin WsStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
         dataType: config.dataType,
         streamSlot: slot,
         srcSlot: slot,
-        senderMicros: DateTime.now().microsecondsSinceEpoch.toDouble(),
+        // PeerClock, not DateTime.now(): the receiver reads this to measure
+        // transit, and a wall clock can be stepped by NTP mid-session, which
+        // would surface as a latency spike that never happened.
+        senderMicros: PeerClock.nowMicros().toDouble(),
         channels: channels,
       ),
     );
@@ -331,7 +334,15 @@ class WsCoordinationStream
   @override
   StringMessage? decodeControlPayload(Object payload) {
     if (payload is! String) return null;
-    return MessageFactory.stringMessage(data: IList([payload]), channels: 1);
+    return MessageFactory.stringMessage(
+      data: IList([payload]),
+      channels: 1,
+      // Only the local half. The control path is JSON with no envelope to hang
+      // a sender clock on, so the sender stamps one inside the coordination
+      // payload instead and the controller pairs the two up. See
+      // CoordinationMessage.senderClockKey.
+      timing: MessageTiming(receivedClock: PeerClock.now()),
+    );
   }
 }
 
@@ -386,6 +397,18 @@ class WsDataStream extends DataStream<DataStreamConfig, IMessage>
   IMessage? decodeSample(Uint8List frame) {
     final channels = WsSampleFrame.decodeChannels(frame, config.channels);
     final timestamp = DateTime.now();
+    // The frame has carried the sender's clock all along at offset 6; it was
+    // simply never read back out, which left the WebSocket transport unable to
+    // say anything about latency.
+    final timing = MessageTiming(
+      sourceClock: WsSampleFrame.senderMicrosOf(frame) / 1e6,
+      // Unknown: the two peers' PeerClock epochs are unrelated, and nothing
+      // estimates the offset between them yet. Null keeps transitSeconds null
+      // rather than reporting the difference of two unrelated clocks.
+      clockOffset: null,
+      receivedClock: PeerClock.now(),
+      sourceId: WsSampleFrame.sourceSlotOf(frame).toString(),
+    );
     switch (config.dataType) {
       case StreamDataType.float32:
       case StreamDataType.double64:
@@ -393,6 +416,7 @@ class WsDataStream extends DataStream<DataStreamConfig, IMessage>
           data: IList(channels.map((v) => (v! as num).toDouble())),
           channels: config.channels,
           timestamp: timestamp,
+          timing: timing,
         );
       case StreamDataType.int8:
       case StreamDataType.int16:
@@ -402,12 +426,14 @@ class WsDataStream extends DataStream<DataStreamConfig, IMessage>
           data: IList(channels.cast<int>()),
           channels: config.channels,
           timestamp: timestamp,
+          timing: timing,
         );
       case StreamDataType.string:
         return MessageFactory.stringMessage(
           data: IList(channels.cast<String>()),
           channels: config.channels,
           timestamp: timestamp,
+          timing: timing,
         );
     }
   }
