@@ -1,0 +1,18 @@
+# Lints for the peer_coordinator example app.
+#
+# The excludes keep `melos run analyze` (which runs `dart analyze .` in every
+# package) from walking the generated platform folders.
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  exclude:
+    - build/**
+    - android/**
+    - ios/**
+    - linux/**
+    - macos/**
+    - web/**
+    - windows/**
+
+linter:
+  rules:

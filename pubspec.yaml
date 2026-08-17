@@ -8,6 +8,7 @@ environment:
 workspace:
   # - packages/liblsl
   - packages/peer_coordinator
+  - packages/peer_coordinator/example
   - packages/liblsl_test
   - packages/liblsl_coordinator
   - packages/liblsl_timing

@@ -1,0 +1,31 @@
+name: peer_coordinator_example
+description: >-
+  A multi-device chat app demonstrating peer_coordinator: election, membership
+  and the user-message channel over the WebSocket transport.
+publish_to: 'none'
+homepage: https://zeyus.com/
+repository: https://github.com/NexusDynamic/liblsl.dart
+issue_tracker: https://github.com/NexusDynamic/liblsl.dart/issues
+
+resolution: workspace
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.12.2
+
+dependencies:
+  peer_coordinator:
+    path: ../
+  flutter:
+    sdk: flutter
+  logging: ^1.3.0
+  cupertino_icons: ^1.0.8
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
