@@ -116,6 +116,11 @@ void main() {
           CoordinationMessageType.streamReady,
           CoordinationMessageType.userMessage,
           CoordinationMessageType.userParticipantMessage,
+          // Claimed but not acted on: the coordinator is the only sender of
+          // these, so one arriving here is its own broadcast coming back when
+          // consumeCoordinationStreamAsCoordinator is on. Claiming it keeps the
+          // controller from logging "no handler" for every one.
+          CoordinationMessageType.sessionEnd,
         };
         for (final type in CoordinationMessageType.values) {
           expect(
@@ -434,6 +439,9 @@ void main() {
         CoordinationMessageType.resumeStream,
         CoordinationMessageType.flushStream,
         CoordinationMessageType.destroyStream,
+        // The coordinator telling this node the session is over. Handled in any
+        // phase, unlike the stream commands.
+        CoordinationMessageType.sessionEnd,
       };
       for (final type in CoordinationMessageType.values) {
         expect(

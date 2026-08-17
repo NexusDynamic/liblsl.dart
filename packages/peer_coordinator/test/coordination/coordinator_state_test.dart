@@ -240,17 +240,62 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 5));
       expect(state.getStaleNodes(Duration.zero), isEmpty);
     });
+
+    test('removeNode clears a heartbeat for a node that never joined', () async {
+      // The clear used to sit inside the "was it in connectedNodes?" branch, so
+      // an entry with no matching node survived every removal and getStaleNodes
+      // re-reported it on every tick — each report re-broadcasting the topology.
+      state.updateNodeHeartbeat('ghost');
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      expect(state.getStaleNodes(Duration.zero), contains('ghost'));
+
+      state.removeNode('ghost');
+      expect(state.getStaleNodes(Duration.zero), isEmpty);
+    });
+
+    test('isStale reports on one node without scanning the table', () async {
+      state.updateNodeHeartbeat('coord');
+      expect(state.isStale('coord', const Duration(seconds: 10)), isFalse);
+
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(state.isStale('coord', const Duration(milliseconds: 10)), isTrue);
+    });
+
+    test('an untracked node is unknown, not stale', () {
+      // A participant seeds its coordinator's entry when it connects, so "no
+      // entry" means the relationship has not started — reporting that as stale
+      // would end sessions during election.
+      expect(state.isStale('never-heard-of', Duration.zero), isFalse);
+    });
+
+    test('clearNodes empties the topology and emits one event per node',
+        () async {
+      state.addNode(participant('a'));
+      state.addNode(participant('b'));
+      final events = <ControllerEvent>[];
+      final sub = state.events.listen(events.add);
+
+      state.clearNodes();
+      await pumpEventQueue();
+
+      expect(state.connectedNodes, isEmpty);
+      expect(
+        events.whereType<NodeLeftEvent>().map((e) => e.node.uId),
+        unorderedEquals(['a', 'b']),
+      );
+      expect(state.getStaleNodes(Duration.zero), isEmpty);
+      await sub.cancel();
+    });
   });
 
   group('known issues (characterisation — these pin current behaviour)', () {
     test('updateNodeHeartbeat tracks nodes that never joined', () async {
       // There is no membership check, so a heartbeat from an unknown node
       // creates an entry that getStaleNodes will later report. The controller
-      // then calls state.removeNode(uId) for it, which is a no-op because the
-      // node is not in _connectedNodes — but the heartbeat entry is removed,
-      // so it does not accumulate. Harmless today; worth knowing before the
-      // WebSocket transport starts reporting peers the coordinator never
-      // accepted.
+      // then calls state.removeNode(uId) for it, which emits nothing because the
+      // node is not in _connectedNodes, but does clear the heartbeat entry — see
+      // 'removeNode clears a heartbeat for a node that never joined', which is
+      // what keeps these from accumulating.
       state.updateNodeHeartbeat('ghost');
       await Future<void>.delayed(const Duration(milliseconds: 5));
 

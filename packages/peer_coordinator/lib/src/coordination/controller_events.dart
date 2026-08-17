@@ -49,6 +49,39 @@ final class PhaseChangedEvent extends ControllerEvent {
   });
 }
 
+/// Emitted when this node's coordination session has ended.
+///
+/// Every path that loses the coordinator funnels through here — a coordinator
+/// that announced its departure, one that stopped answering, one whose transport
+/// endpoint vanished, and an eviction — so an application only has to listen in
+/// one place. What the session does *next* is
+/// [CoordinationSessionConfig.coordinatorLossPolicy]; this event is emitted
+/// under every policy, including [CoordinatorLossPolicy.remainOpen].
+///
+/// Under [CoordinatorLossPolicy.reelect] this fires for the old session and the
+/// node then carries on into a new one, so treat it as "the coordinator changed
+/// under me", not necessarily as "stop".
+final class SessionEndedEvent extends ControllerEvent {
+  final SessionEndReason reason;
+
+  /// The coordinator that went away, if this node knew which one it was.
+  final String? coordinatorUId;
+
+  /// What the session is doing about it.
+  final CoordinatorLossPolicy policy;
+
+  SessionEndedEvent({
+    required this.reason,
+    required this.policy,
+    this.coordinatorUId,
+    required super.fromNodeUId,
+    super.messageId,
+    super.parentMessageId,
+    super.timestamp,
+    super.timing,
+  });
+}
+
 // =============================================================================
 // Node Events
 // =============================================================================
@@ -311,6 +344,9 @@ extension ControllerEventStreamExtensions on Stream<ControllerEvent> {
 
   /// Filter to phase change events only.
   Stream<PhaseChangedEvent> get phaseChanges => _ofType<PhaseChangedEvent>();
+
+  /// Filter to session-ended events only.
+  Stream<SessionEndedEvent> get sessionEnded => _ofType<SessionEndedEvent>();
 
   /// Filter to node joined events only.
   Stream<NodeJoinedEvent> get nodeJoined => _ofType<NodeJoinedEvent>();

@@ -4,6 +4,53 @@ import 'package:peer_coordinator/framework.dart';
 import 'package:peer_coordinator/config.dart';
 import 'package:meta/meta.dart';
 
+/// What a node does when the coordinator goes away.
+///
+/// "Goes away" covers both a coordinator that announced its departure and one
+/// that simply stopped answering — see [SessionEndReason] for which happened.
+///
+/// This is deliberately a policy rather than a fixed behaviour: a research
+/// paradigm whose coordinator drives the trial usually wants the run to end
+/// (there is nothing to salvage), while a long-lived service wants the
+/// survivors to carry on between themselves.
+enum CoordinatorLossPolicy {
+  /// The session is over. Stop the timers, drop the topology, emit
+  /// [SessionEndedEvent], and refuse further sends. The application decides
+  /// whether to build a fresh session.
+  endSession,
+
+  /// The survivors re-run the election and rebuild the session between
+  /// themselves. Whichever node wins re-announces the coordinator role and the
+  /// others re-join it.
+  reelect,
+
+  /// Do nothing beyond emitting [SessionEndedEvent].
+  ///
+  /// The pre-existing behaviour, kept as an escape hatch. Only sound if the
+  /// application drives recovery itself off the event: nothing else in the
+  /// session will notice that the coordinator is gone, so heartbeats and
+  /// messages keep going out to a stream nobody consumes.
+  remainOpen,
+}
+
+/// Why a session ended, as carried by [SessionEndedEvent] and
+/// [SessionEndMessage].
+enum SessionEndReason {
+  /// The coordinator announced its own departure. A clean stop.
+  coordinatorLeft,
+
+  /// The coordinator stopped sending heartbeats for longer than
+  /// [CoordinationSessionConfig.nodeTimeout].
+  coordinatorTimedOut,
+
+  /// The transport reported that the coordinator's endpoint is gone — a closed
+  /// socket, say — before any timeout could elapse.
+  coordinatorTransportLost,
+
+  /// The coordinator evicted this node from the session.
+  evicted,
+}
+
 class CoordinationSessionConfig implements IConfig {
   @override
   String get id => 'coordination-${hashCode.toString()}';
@@ -52,6 +99,15 @@ class CoordinationSessionConfig implements IConfig {
   /// costly for a large session, at the price of a staler estimate.
   final ClockSyncConfig clockSyncConfig;
 
+  /// What this node does if the coordinator goes away.
+  ///
+  /// Defaults to [CoordinatorLossPolicy.endSession]: a session with no
+  /// coordinator has no membership authority and no stream lifecycle, so
+  /// carrying on is not a well-defined state. Pass
+  /// [CoordinatorLossPolicy.reelect] to have the survivors continue between
+  /// themselves.
+  final CoordinatorLossPolicy coordinatorLossPolicy;
+
   CoordinationSessionConfig({
     required this.name,
     this.maxNodes = 10,
@@ -61,6 +117,7 @@ class CoordinationSessionConfig implements IConfig {
     this.nodeTimeout = const Duration(seconds: 15),
     this.consumeCoordinationStreamAsCoordinator = true,
     this.clockSyncConfig = const ClockSyncConfig(),
+    this.coordinatorLossPolicy = CoordinatorLossPolicy.endSession,
   }) {
     validate(throwOnError: true);
   }
@@ -123,6 +180,7 @@ class CoordinationSessionConfig implements IConfig {
       'nodeTimeout': nodeTimeout.inMilliseconds,
       'consumeCoordinationStreamAsCoordinator':
           consumeCoordinationStreamAsCoordinator,
+      'coordinatorLossPolicy': coordinatorLossPolicy.name,
       'clockSync': {
         'timeUpdateInterval': clockSyncConfig.timeUpdateInterval.inMilliseconds,
         'timeProbeCount': clockSyncConfig.timeProbeCount,
@@ -139,7 +197,8 @@ class CoordinationSessionConfig implements IConfig {
         'minNodes: $minNodes, heartbeatInterval: $heartbeatInterval, '
         'discoveryInterval: $discoveryInterval, nodeTimeout: $nodeTimeout, '
         'consumeCoordinationStreamAsCoordinator: '
-        '$consumeCoordinationStreamAsCoordinator)';
+        '$consumeCoordinationStreamAsCoordinator, '
+        'coordinatorLossPolicy: ${coordinatorLossPolicy.name})';
   }
 
   @override
@@ -151,6 +210,8 @@ class CoordinationSessionConfig implements IConfig {
     Duration? discoveryInterval,
     Duration? nodeTimeout,
     bool? consumeCoordinationStreamAsCoordinator,
+    ClockSyncConfig? clockSyncConfig,
+    CoordinatorLossPolicy? coordinatorLossPolicy,
   }) {
     return CoordinationSessionConfig(
       name: name ?? this.name,
@@ -162,6 +223,11 @@ class CoordinationSessionConfig implements IConfig {
       consumeCoordinationStreamAsCoordinator:
           consumeCoordinationStreamAsCoordinator ??
           this.consumeCoordinationStreamAsCoordinator,
+      // Both used to be dropped here, silently resetting a tuned session to the
+      // defaults on any copyWith.
+      clockSyncConfig: clockSyncConfig ?? this.clockSyncConfig,
+      coordinatorLossPolicy:
+          coordinatorLossPolicy ?? this.coordinatorLossPolicy,
     );
   }
 
@@ -180,9 +246,12 @@ class CoordinationSessionConfig implements IConfig {
   @override
   bool operator ==(Object other) {
     if (identical(this, other)) return true;
+    // Deliberately not comparing [id]: it is derived from [hashCode], which is
+    // derived from these fields, so reading it here recursed — id -> hashCode ->
+    // id -> ... -> stack overflow — and was redundant with comparing the fields
+    // themselves anyway.
     return other is CoordinationSessionConfig &&
         other.runtimeType == runtimeType &&
-        other.id == id &&
         other.name == name &&
         other.maxNodes == maxNodes &&
         other.minNodes == minNodes &&
@@ -190,19 +259,23 @@ class CoordinationSessionConfig implements IConfig {
         other.discoveryInterval == discoveryInterval &&
         other.nodeTimeout == nodeTimeout &&
         other.consumeCoordinationStreamAsCoordinator ==
-            consumeCoordinationStreamAsCoordinator;
+            consumeCoordinationStreamAsCoordinator &&
+        other.coordinatorLossPolicy == coordinatorLossPolicy;
   }
 
   @override
   int get hashCode {
-    return id.hashCode ^
-        name.hashCode ^
+    // [id] is `'coordination-$hashCode'`, so hashing it here was infinite
+    // recursion: any call to hashCode or == on this config overflowed the stack.
+    // Nothing called them, which is why it went unnoticed.
+    return name.hashCode ^
         maxNodes.hashCode ^
         minNodes.hashCode ^
         heartbeatInterval.hashCode ^
         discoveryInterval.hashCode ^
         nodeTimeout.hashCode ^
-        consumeCoordinationStreamAsCoordinator.hashCode;
+        consumeCoordinationStreamAsCoordinator.hashCode ^
+        coordinatorLossPolicy.hashCode;
   }
 }
 
@@ -222,7 +295,16 @@ class CoordinationSessionConfigFactory
       heartbeatInterval: Duration(
         milliseconds: map['heartbeatInterval'] ?? 5000,
       ),
+      discoveryInterval: Duration(
+        milliseconds: map['discoveryInterval'] ?? 10000,
+      ),
       nodeTimeout: Duration(milliseconds: map['nodeTimeout'] ?? 15000),
+      consumeCoordinationStreamAsCoordinator:
+          map['consumeCoordinationStreamAsCoordinator'] ?? true,
+      coordinatorLossPolicy: CoordinatorLossPolicy.values
+              .where((p) => p.name == map['coordinatorLossPolicy'])
+              .firstOrNull ??
+          CoordinatorLossPolicy.endSession,
     );
   }
 }

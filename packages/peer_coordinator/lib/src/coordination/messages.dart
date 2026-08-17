@@ -23,6 +23,7 @@ enum CoordinationMessageType {
   userParticipantMessage,
   configUpdate,
   nodeLeaving,
+  sessionEnd,
 }
 
 /// Base class for coordination messages with type safety
@@ -112,6 +113,8 @@ abstract class CoordinationMessage {
         return ConfigUpdateMessage.fromMap(map);
       case CoordinationMessageType.nodeLeaving:
         return NodeLeavingMessage.fromMap(map);
+      case CoordinationMessageType.sessionEnd:
+        return SessionEndMessage.fromMap(map);
       case CoordinationMessageType.joinOffer:
         return JoinOfferMessage.fromMap(map);
     }
@@ -936,6 +939,67 @@ class NodeLeavingMessage extends CoordinationMessage {
       NodeLeavingMessage(
         fromNodeUId: map['fromNodeUId'],
         leavingNodeUId: map['leavingNodeUId'],
+        timestamp: DateTime.parse(map['timestamp']),
+        messageId: map['messageId'],
+        parentMessageId: map['parentMessageId'],
+        metadata: Map<String, dynamic>.from(map['metadata'] ?? {}),
+      );
+}
+
+/// The coordinator telling nodes that the session is over for them.
+///
+/// The counterpart to [NodeLeavingMessage]: that one is a participant saying "I
+/// am going", this one is the coordinator saying "we are done". Without it a
+/// coordinator's departure is indistinguishable from a network stall, and the
+/// survivors have to wait out [CoordinationSessionConfig.nodeTimeout] to find
+/// out.
+///
+/// [targetNodeUId] narrows it to one node — used for eviction, since coordination
+/// traffic has no addressing of its own and a coordinator's message reaches
+/// everyone. Null means the whole session.
+class SessionEndMessage extends CoordinationMessage {
+  final SessionEndReason reason;
+
+  /// The node this applies to, or null for every node in the session.
+  final String? targetNodeUId;
+
+  SessionEndMessage({
+    required super.fromNodeUId,
+    required this.reason,
+    this.targetNodeUId,
+    super.messageId,
+    super.parentMessageId,
+    super.timestamp,
+    super.metadata,
+  }) : super(type: CoordinationMessageType.sessionEnd);
+
+  /// Whether [nodeUId] should act on this message.
+  bool addressedTo(String nodeUId) =>
+      targetNodeUId == null || targetNodeUId == nodeUId;
+
+  @override
+  Map<String, dynamic> toMap() => {
+    'type': type.name,
+    'fromNodeUId': fromNodeUId,
+    'timestamp': timestamp.toIso8601String(),
+    'messageId': messageId,
+    'parentMessageId': parentMessageId,
+    'reason': reason.name,
+    'targetNodeUId': targetNodeUId,
+    'metadata': metadata,
+  };
+
+  factory SessionEndMessage.fromMap(Map<String, dynamic> map) =>
+      SessionEndMessage(
+        fromNodeUId: map['fromNodeUId'],
+        // An unrecognised reason still ends the session — the reason is
+        // informational, and refusing to decode would leave the node hanging.
+        reason:
+            SessionEndReason.values
+                .where((r) => r.name == map['reason'])
+                .firstOrNull ??
+            SessionEndReason.coordinatorLeft,
+        targetNodeUId: map['targetNodeUId'],
         timestamp: DateTime.parse(map['timestamp']),
         messageId: map['messageId'],
         parentMessageId: map['parentMessageId'],

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:peer_coordinator/framework.dart';
 import 'package:peer_coordinator/config.dart';
@@ -25,6 +26,13 @@ class CoordinationController {
   late final IDiscovery _discovery;
 
   bool _stopping = false;
+
+  /// Guards against handling the same coordinator loss twice — the heartbeat
+  /// timeout and an announced departure can both fire for one event.
+  bool _handlingCoordinatorLoss = false;
+
+  /// Why this session ended, for the error a later send throws. Null while live.
+  SessionEndReason? _endReason;
 
   /// Tracks node UIDs with a pending inlet creation or join offer in progress,
   /// to prevent duplicate addInlet/sendJoinOffer calls every discovery cycle.
@@ -179,8 +187,14 @@ class CoordinationController {
 
     logger.finest('Election query: $electionQuery');
 
+    // Only the discovery call is caught here. Setting up a role used to be
+    // inside the same try, so a participant that could not reach its coordinator
+    // fell through to "become coordinator" — which in a re-election is how two
+    // survivors both promote themselves and split the session in half. A failure
+    // to *join* is now the caller's problem to retry.
+    final List<PeerHandle> candidates;
     try {
-      final candidates = await _discovery.discoverOnce(
+      candidates = await _discovery.discoverOnce(
         electionQuery,
         timeout:
             timeout ??
@@ -189,31 +203,32 @@ class CoordinationController {
         minPeers: 1,
         maxPeers: 1,
       );
-
-      if (candidates.isNotEmpty) {
-        // Found better candidate or coordinator - become participant.
-        // The handles are one-shot and unmanaged; we only needed to know
-        // whether anything matched, so release them.
-        for (final candidate in candidates) {
-          await candidate.dispose();
-        }
-        logger.info(
-          'Election: Found existing coordinator or better candidate, becoming participant',
-        );
-        await _becomeParticipant();
-      } else if (!_thisNode.capabilities.contains(NodeCapability.coordinator)) {
-        throw StateError(
-          'Election: No coordinator found but this node is not eligible to be coordinator',
-        );
-      } else {
-        // No better candidates - become coordinator
-        logger.info(
-          'Election: No existing coordinator or better candidate found, becoming coordinator',
-        );
-        await _becomeCoordinator();
-      }
     } catch (e) {
       logger.warning('Election discovery failed, becoming coordinator: $e');
+      await _becomeCoordinator();
+      return;
+    }
+
+    if (candidates.isNotEmpty) {
+      // Found better candidate or coordinator - become participant.
+      // The handles are one-shot and unmanaged; we only needed to know
+      // whether anything matched, so release them.
+      for (final candidate in candidates) {
+        await candidate.dispose();
+      }
+      logger.info(
+        'Election: Found existing coordinator or better candidate, becoming participant',
+      );
+      await _becomeParticipant();
+    } else if (!_thisNode.capabilities.contains(NodeCapability.coordinator)) {
+      throw StateError(
+        'Election: No coordinator found but this node is not eligible to be coordinator',
+      );
+    } else {
+      // No better candidates - become coordinator
+      logger.info(
+        'Election: No existing coordinator or better candidate found, becoming coordinator',
+      );
       await _becomeCoordinator();
     }
   }
@@ -274,7 +289,10 @@ class CoordinationController {
       state: _state,
       thisNode: participantNode,
       sessionConfig: coordinationConfig.sessionConfig,
-    )..onConnectionProbeReply = _onConnectionProbeReply;
+    )
+      ..onConnectionProbeReply = _onConnectionProbeReply
+      ..onSessionEnd = (message) =>
+          unawaited(_onCoordinatorLost(message.reason));
 
     // Connect to coordinator
     await _connectToCoordinator();
@@ -324,6 +342,12 @@ class CoordinationController {
       );
       // set coordinator UId in state
       _state.becomeParticipant(nodeUId);
+      // Seed the coordinator's liveness clock at the moment the relationship
+      // begins. Without this there is no _lastHeartbeats entry for it — only
+      // addNode creates one, and the coordinator is not in this node's
+      // connectedNodes — so a coordinator that died before its first heartbeat
+      // would never be seen as stale.
+      _state.updateNodeHeartbeat(nodeUId);
     } else {
       logger.fine(
         '[CONTROLLER-${thisNode.uId}] Connected to own coordinator stream (self-coordination)',
@@ -401,6 +425,10 @@ class CoordinationController {
 
     // Start heartbeat
     _startHeartbeat();
+
+    // Watch the coordinator's heartbeat, so its going away is noticed rather
+    // than waited on forever.
+    _startNodeTimeoutCheck();
   }
 
   Future<void> _handleIncomingMessage(StringMessage message) async {
@@ -723,30 +751,273 @@ class CoordinationController {
     );
   }
 
+  /// Starts the liveness sweep, for either role.
+  ///
+  /// Both roles need one, and they watch opposite directions: a coordinator
+  /// evicts participants that go silent, a participant notices that its
+  /// coordinator has. This used to return early for participants, which is why
+  /// losing a coordinator was silent — the node kept heartbeating and sending
+  /// into a stream nobody consumed, with nothing to ever notice.
   void _startNodeTimeoutCheck() {
-    if (!_state.isCoordinator) return;
-
     _nodeTimeoutTimer?.cancel();
-    _nodeTimeoutTimer = Timer.periodic(
-      Duration(
-        seconds: coordinationConfig.sessionConfig.nodeTimeout.inSeconds ~/ 2,
+    final nodeTimeout = coordinationConfig.sessionConfig.nodeTimeout;
+    // Half the timeout. Computed in microseconds because
+    // `Duration(seconds: nodeTimeout.inSeconds ~/ 2)` truncates to *zero* for any
+    // timeout under two seconds — and a zero-duration periodic timer fires every
+    // event-loop turn. The example's tests use 400ms.
+    final period = Duration(microseconds: nodeTimeout.inMicroseconds ~/ 2);
+    _nodeTimeoutTimer = Timer.periodic(period, (_) {
+      if (_stopping) return;
+      if (_state.isCoordinator) {
+        _sweepStaleNodes(nodeTimeout);
+      } else {
+        _checkCoordinatorLiveness(nodeTimeout);
+      }
+    });
+  }
+
+  /// Coordinator side: drop participants that have gone silent.
+  void _sweepStaleNodes(Duration nodeTimeout) {
+    final staleNodes = _state.getStaleNodes(nodeTimeout);
+    for (final nodeUId in staleNodes) {
+      if (nodeUId == thisNode.uId) continue;
+      logger.warning('Node $nodeUId timed out');
+      // Best effort, and deliberately before the removal so the topology update
+      // that follows is the last word: tell the node it is out, so it can stop
+      // now rather than waiting out its own timer. It may well be unreachable —
+      // that is why it is being evicted — so failure here is not interesting.
+      unawaited(
+        _coordinatorHandler!
+            .broadcastSessionEnd(
+              SessionEndReason.evicted,
+              targetNodeUId: nodeUId,
+            )
+            .catchError((Object e) {
+              logger.finer('Failed to notify evicted node $nodeUId: $e');
+            }),
+      );
+      _state.removeNode(nodeUId);
+      // A stale offset for a departed peer is worse than no offset.
+      _untrackPeerClock(nodeUId);
+      // Broadcast topology update will happen automatically via state listener
+      _coordinatorHandler!.broadcastTopologyUpdate();
+    }
+  }
+
+  /// Participant side: notice that the coordinator has gone silent.
+  void _checkCoordinatorLiveness(Duration nodeTimeout) {
+    final coordinatorUId = _state.coordinatorUId;
+    // No coordinator recorded yet (still electing or joining), or we are our own
+    // coordinator, in which case there is nothing to watch.
+    if (coordinatorUId == null || coordinatorUId == thisNode.uId) return;
+    if (!_state.isStale(coordinatorUId, nodeTimeout)) return;
+
+    logger.warning(
+      'Coordinator $coordinatorUId has been silent for more than $nodeTimeout',
+    );
+    unawaited(_onCoordinatorLost(SessionEndReason.coordinatorTimedOut));
+  }
+
+  // ===========================================================================
+  // Coordinator loss
+  // ===========================================================================
+
+  /// Whether this session has ended and must not send anything further.
+  bool get sessionEnded => _state.phase == CoordinationPhase.ended;
+
+  /// Why the session ended, or null while it is live.
+  SessionEndReason? get endReason => _endReason;
+
+  /// Throws if the session is no longer able to send.
+  ///
+  /// The point is that a send after the coordinator has gone *fails loudly*
+  /// instead of vanishing: a participant used to be able to keep publishing into
+  /// a stream with no consumer indefinitely, with nothing to tell it or its
+  /// application otherwise.
+  void _ensureLive(String action) {
+    if (_state.phase == CoordinationPhase.ended) {
+      throw StateError(
+        'Cannot $action: the coordination session has ended '
+        '(${_endReason?.name ?? 'unknown reason'})',
+      );
+    }
+    if (_state.phase == CoordinationPhase.disposing) {
+      throw StateError('Cannot $action: the coordination session is disposing');
+    }
+  }
+
+  /// The single funnel for "the coordinator is gone", whichever way we found out.
+  ///
+  /// What happens next is [CoordinationSessionConfig.coordinatorLossPolicy]; a
+  /// [SessionEndedEvent] is emitted under every policy so an application has one
+  /// place to listen regardless.
+  Future<void> _onCoordinatorLost(SessionEndReason reason) async {
+    // A timeout and an announced departure can both fire for the same event, and
+    // the timer keeps ticking while an async policy runs.
+    if (_handlingCoordinatorLoss || _stopping) return;
+    if (_state.phase == CoordinationPhase.ended ||
+        _state.phase == CoordinationPhase.disposing) {
+      return;
+    }
+    _handlingCoordinatorLoss = true;
+
+    final policy = coordinationConfig.sessionConfig.coordinatorLossPolicy;
+    final lostCoordinatorUId = _state.coordinatorUId;
+    logger.warning(
+      '[CONTROLLER-${thisNode.uId}] Coordinator lost '
+      '(${reason.name}); policy: ${policy.name}',
+    );
+
+    try {
+      switch (policy) {
+        case CoordinatorLossPolicy.remainOpen:
+          _emitSessionEnded(reason, policy, lostCoordinatorUId);
+        case CoordinatorLossPolicy.endSession:
+          // Torn down before the event, so a listener that reacts by sending gets
+          // the StateError rather than a silent no-op.
+          await _endSession(reason);
+          _emitSessionEnded(reason, policy, lostCoordinatorUId);
+        case CoordinatorLossPolicy.reelect:
+          await _teardownRole();
+          _emitSessionEnded(reason, policy, lostCoordinatorUId);
+          // Not awaited: this is called from a message handler or a timer tick,
+          // and a re-election takes discovery timeouts to complete.
+          unawaited(_reelect());
+      }
+    } finally {
+      _handlingCoordinatorLoss = false;
+    }
+  }
+
+  void _emitSessionEnded(
+    SessionEndReason reason,
+    CoordinatorLossPolicy policy,
+    String? coordinatorUId,
+  ) {
+    if (_eventController.isClosed) return;
+    _eventController.add(
+      SessionEndedEvent(
+        reason: reason,
+        policy: policy,
+        coordinatorUId: coordinatorUId,
+        fromNodeUId: coordinatorUId ?? thisNode.uId,
       ),
-      (_) {
-        final staleNodes = _state.getStaleNodes(
-          coordinationConfig.sessionConfig.nodeTimeout,
-        );
-        for (final nodeUId in staleNodes) {
-          if (nodeUId == thisNode.uId) continue;
-          logger.warning('Node $nodeUId timed out');
-          _state.removeNode(nodeUId);
-          // A stale offset for a departed peer is worse than no offset.
-          _untrackPeerClock(nodeUId);
-          // Broadcast topology update will happen automatically via state listener
-          _coordinatorHandler!.broadcastTopologyUpdate();
-        }
-      },
     );
   }
+
+  /// Stops this node coordinating or participating, without tearing down the
+  /// transport — the application owns that, through `PeerSession.leave()`.
+  Future<void> _endSession(SessionEndReason reason) async {
+    _endReason = reason;
+    // Silences the heartbeat and the discovery callbacks in one flag, the same
+    // way dispose does.
+    _stopping = true;
+    _heartbeatTimer?.cancel();
+    _heartbeatTimer = null;
+    _nodeTimeoutTimer?.cancel();
+    _nodeTimeoutTimer = null;
+    _clockSync?.dispose();
+    _clockSync = null;
+    _discovery.stop();
+    await _discoverySubscription?.cancel();
+    _discoverySubscription = null;
+    _pendingJoinNodeUIds.clear();
+    _state.clearNodes();
+    _state.transitionTo(CoordinationPhase.ended);
+  }
+
+  /// Drops this node's role — timers, handlers, subscriptions, topology — while
+  /// leaving the coordination stream and the transport up, so a new role can be
+  /// established over the same connection.
+  Future<void> _teardownRole() async {
+    _heartbeatTimer?.cancel();
+    _heartbeatTimer = null;
+    _nodeTimeoutTimer?.cancel();
+    _nodeTimeoutTimer = null;
+    _discovery.stop();
+    await _discoverySubscription?.cancel();
+    _discoverySubscription = null;
+    await _coordinationSubscription?.cancel();
+    _coordinationSubscription = null;
+    await _handlerSubscription?.cancel();
+    _handlerSubscription = null;
+    await _handlerEventSubscription?.cancel();
+    _handlerEventSubscription = null;
+    _coordinatorHandler?.dispose();
+    _coordinatorHandler = null;
+    _participantHandler?.dispose();
+    _participantHandler = null;
+    _pendingJoinNodeUIds.clear();
+    // Clears the clock estimators too, via NodeLeftEvent — the peer set is about
+    // to change and a stale offset is worse than none.
+    _state.clearNodes();
+  }
+
+  /// Re-runs the election among the survivors.
+  ///
+  /// The inlet to the departed coordinator is left in place: there is no
+  /// remove-inlet in the stream contract, and it is inert — nothing arrives on
+  /// it. The new coordinator publishes under a different endpoint, so
+  /// [_connectToCoordinator] installs a fresh subscription rather than colliding
+  /// with the dead one.
+  Future<void> _reelect() async {
+    const maxAttempts = 5;
+    for (var attempt = 1; attempt <= maxAttempts; attempt++) {
+      if (_stopping || _state.phase == CoordinationPhase.ended) return;
+
+      // Jittered, and before the first attempt as well: every survivor notices
+      // the loss at roughly the same moment, and going straight into discovery in
+      // lockstep is how they all fail to find each other's new role.
+      await Future<void>.delayed(_reelectBackoff(attempt));
+      if (_stopping || _state.phase == CoordinationPhase.ended) return;
+
+      try {
+        // A fresh election, which also means a fresh discovery query. That
+        // matters on a relay transport, where live query results are only pushed
+        // when the matching set *grows*: the survivors were already reported
+        // under the old query id and would never be reported again.
+        await _startElection();
+        logger.info(
+          '[CONTROLLER-${thisNode.uId}] Re-election complete as '
+          '${_state.isCoordinator ? 'COORDINATOR' : 'PARTICIPANT'}',
+        );
+        return;
+      } catch (e) {
+        logger.warning(
+          '[CONTROLLER-${thisNode.uId}] Re-election attempt '
+          '$attempt/$maxAttempts failed: $e',
+        );
+        await _teardownRole();
+      }
+    }
+
+    logger.severe(
+      '[CONTROLLER-${thisNode.uId}] Re-election failed after $maxAttempts '
+      'attempts; ending the session',
+    );
+    await _endSession(SessionEndReason.coordinatorTimedOut);
+    _emitSessionEnded(
+      SessionEndReason.coordinatorTimedOut,
+      CoordinatorLossPolicy.reelect,
+      null,
+    );
+  }
+
+  /// Exponential-ish backoff with jitter, capped at the discovery interval.
+  Duration _reelectBackoff(int attempt) {
+    final base = coordinationConfig.sessionConfig.heartbeatInterval;
+    final scaled = base * attempt;
+    final capped = scaled > coordinationConfig.sessionConfig.discoveryInterval
+        ? coordinationConfig.sessionConfig.discoveryInterval
+        : scaled;
+    // Full jitter over the window, so two survivors with identical config do not
+    // wake at the same instant.
+    return Duration(
+      microseconds: _random.nextInt(max(1, capped.inMicroseconds)),
+    );
+  }
+
+  static final Random _random = Random();
 
   // Public coordinator methods
   Future<void> pauseAcceptingNodes() async {
@@ -766,6 +1037,7 @@ class CoordinationController {
   bool get isAcceptingNodes => _coordinatorHandler?.isAcceptingNodes ?? false;
 
   Future<void> createStream(String streamName, DataStreamConfig config) async {
+    _ensureLive('create a stream');
     if (!_state.isCoordinator) {
       throw StateError('Only coordinator can create streams');
     }
@@ -777,6 +1049,7 @@ class CoordinationController {
     DataStreamConfig config, {
     DateTime? startAt,
   }) async {
+    _ensureLive('start a stream');
     if (!_state.isCoordinator) {
       throw StateError('Only coordinator can start streams');
     }
@@ -842,6 +1115,7 @@ class CoordinationController {
     Map<String, dynamic> payload, {
     String? parentMessageId,
   }) async {
+    _ensureLive('send a user message');
     if (!_state.isCoordinator) {
       // @TODO: Implement properly
       await _participantHandler!.sendMessage(
@@ -870,8 +1144,54 @@ class CoordinationController {
     await _coordinatorHandler!.broadcastConfig(config);
   }
 
+  /// Announces this node's departure and waits for it to reach the wire.
+  ///
+  /// Sent through [_sendMessage] directly rather than through a handler's
+  /// outgoing queue: that queue is drained by a stream listener on a microtask,
+  /// so `await handler.announceLeaving()` returned before anything had been
+  /// written, and the stream teardown that follows raced it away —
+  /// `WsStreamMixin.sendMessage` silently drops once disposed. That is why leave
+  /// notices went missing.
+  Future<void> _announceDeparture() async {
+    // Nothing to announce: either the session already ended under us, or we never
+    // took a role.
+    if (_state.phase == CoordinationPhase.ended) return;
+
+    final CoordinationMessage message;
+    if (_state.isCoordinator) {
+      if (_coordinatorHandler == null) return;
+      // The counterpart to a participant's leave notice. Without it, every
+      // survivor has to wait out nodeTimeout to discover that the session is
+      // over.
+      message = SessionEndMessage(
+        fromNodeUId: thisNode.uId,
+        reason: SessionEndReason.coordinatorLeft,
+      );
+    } else if (_participantHandler != null) {
+      message = NodeLeavingMessage(
+        fromNodeUId: thisNode.uId,
+        leavingNodeUId: thisNode.uId,
+      );
+    } else {
+      return;
+    }
+
+    try {
+      logger.info('Announcing departure (${message.type.name})');
+      await _sendMessage(message);
+      // One turn of the event loop, so a transport that fans out on a microtask
+      // (the in-memory bus) has handed the frame on before we tear down.
+      await Future<void>.delayed(Duration.zero);
+    } catch (e) {
+      logger.warning('Failed to announce departure: $e');
+    }
+  }
+
   /// Dispose and cleanup
   Future<void> dispose() async {
+    // Before the phase moves to disposing, because sendMessage on the stream is
+    // gated on the stream's own state and this is the last chance to speak.
+    await _announceDeparture();
     _state.transitionTo(CoordinationPhase.disposing);
     _stopping = true;
     logger.info('Disposing coordination controller');
@@ -886,14 +1206,8 @@ class CoordinationController {
     await _discoverySubscription?.cancel();
     await _stateEventSubscription?.cancel();
     await _handlerEventSubscription?.cancel();
-    if (!_state.isCoordinator && _participantHandler != null) {
-      try {
-        logger.info('Announcing leaving to coordinator');
-        await _participantHandler!.announceLeaving();
-      } catch (e) {
-        logger.warning('Failed to announce leaving: $e');
-      }
-    }
+    // The departure notice went out in _announceDeparture, before the phase
+    // change — it used to be enqueued here and disposed away a line later.
     await _coordinationStream.dispose();
     _coordinatorHandler?.dispose();
     _participantHandler?.dispose();

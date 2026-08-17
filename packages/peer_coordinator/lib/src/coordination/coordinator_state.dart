@@ -27,6 +27,11 @@ enum CoordinationPhase {
   /// Paused/suspended
   paused,
 
+  /// The session is over — the coordinator went away and
+  /// [CoordinatorLossPolicy.endSession] applied. Terminal: this node sends
+  /// nothing further and does not re-join. The application may still dispose it.
+  ended,
+
   /// Shutting down
   disposing,
 }
@@ -104,16 +109,45 @@ class CoordinationState {
 
   void removeNode(String nodeUId) {
     final node = _connectedNodes.where((n) => n.uId == nodeUId).firstOrNull;
+    // Unconditionally, and outside the null check: a UId can have a heartbeat
+    // entry without ever having joined (the coordinator on a participant, or a
+    // node that heartbeated before its join request landed). Leaving the entry
+    // behind meant getStaleNodes re-reported it on every tick forever, and each
+    // report re-broadcast the topology.
+    _lastHeartbeats.remove(nodeUId);
     if (node != null) {
       _connectedNodes.removeWhere((n) => n.uId == nodeUId);
-      _lastHeartbeats.remove(nodeUId);
       _eventController.add(NodeLeftEvent(node: node, fromNodeUId: nodeUId));
     }
+  }
+
+  /// Drops the whole topology, one [NodeLeftEvent] at a time.
+  ///
+  /// For ending a session: the roster is no longer meaningful, and emitting per
+  /// node rather than clearing silently keeps every listener — application
+  /// rosters and the clock-offset table alike — consistent with the same events
+  /// they already handle.
+  void clearNodes() {
+    for (final uId in _connectedNodes.map((n) => n.uId).toList()) {
+      removeNode(uId);
+    }
+    _lastHeartbeats.clear();
   }
 
   void updateNodeHeartbeat(String nodeUId) {
     logger.finest('Heartbeat received from $nodeUId');
     _lastHeartbeats[nodeUId] = DateTime.now();
+  }
+
+  /// Whether [nodeUId] has been silent for longer than [timeout].
+  ///
+  /// False when there is no entry at all: a node we have never heard from is not
+  /// "stale", it is unknown, and the callers that care seed an entry when the
+  /// relationship begins.
+  bool isStale(String nodeUId, Duration timeout) {
+    final last = _lastHeartbeats[nodeUId];
+    if (last == null) return false;
+    return last.isBefore(DateTime.now().subtract(timeout));
   }
 
   List<String> getStaleNodes(Duration timeout) {

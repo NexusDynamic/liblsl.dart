@@ -144,6 +144,10 @@ class CoordinatorMessageHandler extends CoordinationMessageHandler
           CoordinationMessageType.streamReady,
           CoordinationMessageType.userMessage,
           CoordinationMessageType.userParticipantMessage,
+          // Not acted on — see handleMessage. Claimed so the controller does not
+          // log "no handler" for the coordinator's own echo of its own broadcast
+          // when consumeCoordinationStreamAsCoordinator is on.
+          CoordinationMessageType.sessionEnd,
         }.contains(type);
   }
 
@@ -162,6 +166,11 @@ class CoordinatorMessageHandler extends CoordinationMessageHandler
         await _handleJoinRequest(message as JoinRequestMessage);
       case CoordinationMessageType.nodeLeaving:
         await _handleNodeLeaving(message as NodeLeavingMessage);
+      case CoordinationMessageType.sessionEnd:
+        // Only this node sends these, and it is the authority on the session
+        // ending, so there is nothing to act on. Reaching here means our own
+        // broadcast came back to us.
+        logger.finest('Ignoring own sessionEnd echo');
       case CoordinationMessageType.streamReady:
         await _handleStreamReady(message as StreamReadyMessage);
       case CoordinationMessageType.userMessage:
@@ -311,6 +320,28 @@ class CoordinatorMessageHandler extends CoordinationMessageHandler
     state.removeNode(message.leavingNodeUId);
     await broadcastTopologyUpdate();
     logger.info('Node ${message.leavingNodeUId} left the session');
+  }
+
+  /// Tells the session it is over.
+  ///
+  /// With [targetNodeUId] set it applies to that node alone, which is how an
+  /// eviction is delivered: coordination traffic has no addressing of its own, so
+  /// the narrowing is in the message and every other node ignores it.
+  Future<void> broadcastSessionEnd(
+    SessionEndReason reason, {
+    String? targetNodeUId,
+  }) async {
+    logger.info(
+      'Announcing session end (${reason.name})'
+      '${targetNodeUId == null ? '' : ' to $targetNodeUId'}',
+    );
+    await sendMessage(
+      SessionEndMessage(
+        fromNodeUId: thisNode.uId,
+        reason: reason,
+        targetNodeUId: targetNodeUId,
+      ),
+    );
   }
 
   Future<void> broadcastTopologyUpdate() async {
@@ -465,6 +496,14 @@ class ParticipantMessageHandler extends CoordinationMessageHandler
   /// Single event stream for all participant handler events.
   Stream<ControllerEvent> get events => _eventController.stream;
 
+  /// Called when the coordinator says the session is over.
+  ///
+  /// A callback rather than an event on [events], because the controller has to
+  /// *act* on this — stop timers, drop the topology, maybe re-elect — and it owns
+  /// all of that. It emits the public [SessionEndedEvent] itself once it knows
+  /// which policy applied.
+  void Function(SessionEndMessage message)? onSessionEnd;
+
   ParticipantMessageHandler({
     required super.state,
     required super.thisNode,
@@ -494,6 +533,7 @@ class ParticipantMessageHandler extends CoordinationMessageHandler
           CoordinationMessageType.resumeStream,
           CoordinationMessageType.flushStream,
           CoordinationMessageType.destroyStream,
+          CoordinationMessageType.sessionEnd,
         }.contains(type);
   }
 
@@ -510,6 +550,10 @@ class ParticipantMessageHandler extends CoordinationMessageHandler
       CoordinationMessageType.connectionTest,
       CoordinationMessageType.heartbeat,
       CoordinationMessageType.topologyUpdate,
+      // Acted on in any phase. A node that never reached ready — still
+      // handshaking, or rejected — is exactly the one that most needs to be told
+      // the session is over, rather than being left to time out.
+      CoordinationMessageType.sessionEnd,
     }.contains(message.type);
 
     // Only handle non-coordination messages if we're in ready state
@@ -558,6 +602,8 @@ class ParticipantMessageHandler extends CoordinationMessageHandler
         );
       case CoordinationMessageType.connectionTest:
         await respondToConnectionTest(message as ConnectionTestMessage);
+      case CoordinationMessageType.sessionEnd:
+        _handleSessionEnd(message as SessionEndMessage);
       default:
         logger.warning(
           'Participant cannot handle message type: ${message.type}',
@@ -620,6 +666,31 @@ class ParticipantMessageHandler extends CoordinationMessageHandler
       // We've been rejected
       throw StateError('Join rejected: ${message.reason}');
     }
+  }
+
+  void _handleSessionEnd(SessionEndMessage message) {
+    if (!message.addressedTo(thisNode.uId)) {
+      logger.finest(
+        'sessionEnd addressed to ${message.targetNodeUId}, not this node',
+      );
+      return;
+    }
+    // Only the coordinator ends a session. Anything else claiming to is either a
+    // stale message from a node that used to hold the role or a stray on a
+    // shared transport, and acting on it would let any peer close the room.
+    final coordinatorUId = state.coordinatorUId;
+    if (coordinatorUId != null && message.fromNodeUId != coordinatorUId) {
+      logger.warning(
+        'Ignoring sessionEnd from ${message.fromNodeUId}: '
+        'coordinator is $coordinatorUId',
+      );
+      return;
+    }
+    logger.info(
+      'Coordinator ${message.fromNodeUId} ended the session '
+      '(${message.reason.name})',
+    );
+    onSessionEnd?.call(message);
   }
 
   Future<void> _handleTopologyUpdate(TopologyUpdateMessage message) async {
