@@ -31,8 +31,12 @@ void main() {
   final session = PeerSession.create(config);
 
   // Reference the WebSocket transport so it is genuinely in the closure.
+  // Also pulls the auth handshake into the closure, which is the point: the
+  // HMAC lives in `package:crypto` and the nonce in `dart:math`, both of which
+  // compile to JavaScript, so a browser node can authenticate like any other.
   final wsConfig = WebSocketTransportConfig(
     hubUri: Uri.parse('ws://example.invalid:8080'),
+    credentials: HubCredentials(session: 'web_check', secret: 'not-a-secret'),
   );
 
   print(

@@ -11,12 +11,14 @@ library;
 import 'dart:async';
 
 import 'package:peer_coordinator/hub.dart';
+import 'package:peer_coordinator/testing.dart';
 import 'package:peer_coordinator/peer_coordinator.dart';
 import 'package:test/test.dart';
 import 'package:webrtc_coordinator/testing.dart';
 import 'package:webrtc_coordinator/transports/webrtc.dart';
 
 void main() {
+  late TestHub testHub;
   late CoordinationHub hub;
   late FakeRtcBus bus;
   late String runId;
@@ -26,7 +28,8 @@ void main() {
   var runCounter = 0;
 
   setUp(() async {
-    hub = await CoordinationHub.serve();
+    testHub = await startTestHub();
+    hub = testHub.hub;
     bus = FakeRtcBus();
     runId = '${DateTime.now().microsecondsSinceEpoch}-${runCounter++}';
     sessionName = 'RtcSession-$runId';
@@ -48,7 +51,7 @@ void main() {
       }
     }
     sessions = [];
-    await hub.close();
+    await testHub.close();
   });
 
   CoordinationConfig configFor({
@@ -71,7 +74,8 @@ void main() {
     ),
     streamConfig: CoordinationStreamConfig(name: coordinationStreamName),
     transportConfig: RtcTransportConfig(
-      hubUri: Uri.parse('ws://127.0.0.1:${hub.port}'),
+      hubUri: testHub.uri,
+      credentials: testHub.credentials,
       adapterFactory: (selfNodeUId) =>
           FakeRtcPeerAdapter(selfKey: selfNodeUId, bus: bus),
       dataOrdered: dataOrdered,

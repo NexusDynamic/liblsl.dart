@@ -267,9 +267,8 @@ class InMemoryCoordinationStream
     required CoordinationStreamConfig config,
     required this.bus,
     required this.sessionName,
-    required Node streamNode,
-  }) : _streamNode = streamNode,
-       super(config);
+    required this._streamNode,
+  }) : super(config);
 
   @override
   final InMemoryBus bus;
@@ -297,9 +296,8 @@ class InMemoryDataStream extends DataStream<DataStreamConfig, IMessage>
     required DataStreamConfig config,
     required this.bus,
     required this.sessionName,
-    required Node streamNode,
-  }) : _streamNode = streamNode,
-       super(config);
+    required this._streamNode,
+  }) : super(config);
 
   @override
   final InMemoryBus bus;

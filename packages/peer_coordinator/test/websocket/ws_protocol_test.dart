@@ -83,19 +83,25 @@ void main() {
     });
 
     test('the previous protocol version is rejected', () {
-      // v2 added the signal frame, v3 the unsubscribe frame. Decode refuses
-      // anything it does not fully understand rather than guessing, so a hub
-      // and its clients have to be deployed together — this is the test that
-      // says so out loud.
-      expect(wsProtocolVersion, 3);
-      expect(
-        () => WsFrame.decode('{"v":1,"t":"hello","p":{}}'),
-        throwsFormatException,
-      );
-      expect(
-        () => WsFrame.decode('{"v":2,"t":"hello","p":{}}'),
-        throwsFormatException,
-      );
+      // v2 added the signal frame, v3 the unsubscribe frame, v4 the
+      // authentication handshake. Decode refuses anything it does not fully
+      // understand rather than guessing, so a hub and its clients have to be
+      // deployed together — this is the test that says so out loud.
+      //
+      // v4 matters more than its predecessors: a v3 client would happily talk
+      // to a v3 hub that never asks it to authenticate, so refusing the old
+      // version is what stops a stale build from reaching an unauthenticated
+      // relay it can actually use.
+      expect(wsProtocolVersion, 4);
+      for (var version = 1; version < wsProtocolVersion; version++) {
+        expect(
+          () => WsFrame.decode('{"v":$version,"t":"hello","p":{}}'),
+          throwsFormatException,
+          reason:
+              'v$version must not be accepted by a v$wsProtocolVersion '
+              'build',
+        );
+      }
     });
 
     test('an unsubscribe frame round-trips', () {

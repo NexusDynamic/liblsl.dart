@@ -22,6 +22,22 @@ abstract interface class ITransportConfig implements IConfig {
   ITransport createTransport();
 }
 
+/// A transport that must prove an identity to something remote.
+///
+/// Opt-in rather than part of [ITransport]: only a relay-backed transport has
+/// anyone to authenticate *to*. LSL peers announce themselves on the local
+/// network and the in-memory bus is inside one process, so neither has a
+/// credential to present.
+///
+/// [PeerSession] sets [localNodeUId] before initialising the transport, because
+/// a hub binds every endpoint a connection claims to the node that
+/// authenticated on it — without the identity up front, a peer could claim an
+/// endpoint id belonging to a node that has not registered yet.
+abstract interface class IAuthenticatedTransport {
+  /// The node identity this transport authenticates with.
+  set localNodeUId(String nodeUId);
+}
+
 /// Interface for all transport implementations.
 ///
 /// Transports are [IResourceManager]s because they are what actually own the

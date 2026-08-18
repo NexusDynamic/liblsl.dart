@@ -1,0 +1,26 @@
+# TLS and the public edge. The hub speaks plain ws:// and never terminates TLS
+# itself, so this is what makes wss:// possible.
+#
+# {$HUB_DOMAIN} comes from .env. Use `localhost` for a local trial: Caddy issues
+# its own certificate for it, which browsers accept once you trust Caddy's root
+# (`docker compose exec caddy caddy trust`), and which Dart VM clients accept
+# with the root added to the system store.
+{$HUB_DOMAIN} {
+	# Caddy proxies WebSocket upgrades transparently; no special config needed.
+	reverse_proxy hub:8080 {
+		# So a hub log line can be attributed to a machine. The hub does not act
+		# on this — it is diagnostic only, and a client can forge it, which is
+		# why nothing security-relevant depends on it.
+		header_up X-Forwarded-For {remote_host}
+	}
+
+	# NOTE: neither Caddy nor nginx caps WebSocket *frame* size — request-body
+	# limits stop applying once a connection is upgraded. The frame cap is
+	# enforced inside the hub (--max-frame-bytes), not here. What a proxy does
+	# add is TLS, a real certificate, and a place to rate-limit connections.
+
+	log {
+		output stdout
+		format console
+	}
+}

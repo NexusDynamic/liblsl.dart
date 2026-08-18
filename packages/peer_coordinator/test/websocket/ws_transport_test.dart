@@ -10,18 +10,20 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:peer_coordinator/hub.dart';
+import 'package:peer_coordinator/testing.dart';
 import 'package:peer_coordinator/peer_coordinator.dart';
-import 'package:peer_coordinator/websocket.dart';
 import 'package:test/test.dart';
 
 void main() {
+  late TestHub testHub;
   late CoordinationHub hub;
   late Uri hubUri;
   late List<PeerSession> sessions;
 
   setUp(() async {
-    hub = await CoordinationHub.serve();
-    hubUri = Uri.parse('ws://127.0.0.1:${hub.port}');
+    testHub = await startTestHub(session: 'WsSession');
+    hub = testHub.hub;
+    hubUri = testHub.uri;
     sessions = [];
   });
 
@@ -37,7 +39,7 @@ void main() {
       } catch (_) {}
     }
     sessions = [];
-    await hub.close();
+    await testHub.close();
   });
 
   CoordinationConfig configFor({int maxNodes = 3}) => CoordinationConfig(
@@ -56,7 +58,7 @@ void main() {
       maxNodes: maxNodes,
     ),
     streamConfig: CoordinationStreamConfig(name: 'coordination'),
-    transportConfig: WebSocketTransportConfig(hubUri: hubUri),
+    transportConfig: testHub.transportConfig(),
   );
 
   /// Lower roll wins the election.
@@ -92,8 +94,7 @@ void main() {
     });
 
     test('accepts a connection and assigns a slot', () async {
-      final connection = WsConnection(hubUri);
-      await connection.connect();
+      final connection = await testHub.connect('uid-1');
 
       final slot = await connection.announce(
         PeerDescriptor(
@@ -207,8 +208,7 @@ void main() {
 
   group('disconnection', () {
     test('the hub drops a peer when its socket closes', () async {
-      final connection = WsConnection(hubUri);
-      await connection.connect();
+      final connection = await testHub.connect('uid-1');
       await connection.announce(
         PeerDescriptor(
           streamName: 'coordination',

@@ -47,9 +47,8 @@ IResourceManager? resolveManagerUpdate({
 /// being released, so there is never a moment where two owners both believe
 /// they may free the underlying resource.
 class ManagedResource with InstanceUID implements IResource {
-  /// Creates a resource with the given [id] and optional initial [manager].
-  ManagedResource({required this.id, IResourceManager? manager})
-    : _manager = manager;
+  /// Creates a resource with the given [id] and optional initial [_manager].
+  ManagedResource({required this.id, this._manager});
 
   @override
   final String id;

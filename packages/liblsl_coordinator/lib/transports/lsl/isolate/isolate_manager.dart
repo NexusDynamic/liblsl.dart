@@ -643,14 +643,11 @@ final class StreamOutletIsolate extends StreamIsolate {
     required super.useBusyWaitInlets,
     required super.useBusyWaitOutlets,
     required super.pollingInterval,
-    required int outletAddress,
-    required int channelCount,
-    required double sampleRate,
+    required this._outletAddress,
+    required this._channelCount,
+    required this._sampleRate,
     String? isolateDebugName,
-  }) : _outletAddress = outletAddress,
-       _channelCount = channelCount,
-       _sampleRate = sampleRate,
-       super(
+  }) : super(
          isolateDebugName: isolateDebugName ?? 'StreamOutletIsolate-$streamId',
        ) {
     _pushFn = LSLMapper().pushSampleMap[_dataTypeToChannelFormat(dataType)]!;

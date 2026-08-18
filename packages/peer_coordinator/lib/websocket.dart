@@ -9,8 +9,11 @@
 /// client-side, exactly as they are over LSL.
 library;
 
+export 'src/websocket/ws_auth.dart' show HubCloseCode, HubCredentials;
 export 'src/websocket/ws_connection.dart'
     show WsConnection, WsInbound, WsSignal;
+export 'src/websocket/ws_limits.dart'
+    show HubConnectionException, WsFrameTooLargeException, WsLimits;
 export 'src/websocket/ws_discovery.dart' show WsDiscovery, WsPeerHandle;
 export 'src/websocket/ws_protocol.dart'
     show WsControl, WsFrame, WsSampleFrame, wsProtocolVersion;

@@ -6,7 +6,7 @@
 @Tags(['integration'])
 library;
 
-import 'package:peer_coordinator/hub.dart';
+import 'package:peer_coordinator/testing.dart';
 import 'package:peer_coordinator/websocket.dart';
 import 'package:peer_coordinator/peer_coordinator.dart';
 import 'package:test/test.dart';
@@ -14,9 +14,8 @@ import 'package:webrtc_coordinator/testing.dart';
 import 'package:webrtc_coordinator/transports/webrtc.dart';
 
 void main() {
-  late CoordinationHub hub;
-  late Uri hubUri;
   late FakeRtcBus bus;
+  late TestHub testHub;
   late List<WsConnection> connections;
   late List<RtcMesh> meshes;
 
@@ -24,8 +23,7 @@ void main() {
   const coordinationStream = 'coordination-test';
 
   setUp(() async {
-    hub = await CoordinationHub.serve();
-    hubUri = Uri.parse('ws://127.0.0.1:${hub.port}');
+    testHub = await startTestHub(session: sessionName);
     bus = FakeRtcBus();
     connections = [];
     meshes = [];
@@ -38,7 +36,7 @@ void main() {
     for (final connection in connections) {
       await connection.close();
     }
-    await hub.close();
+    await testHub.close();
   });
 
   /// A connected hub client with an announced signalling endpoint, plus a mesh.
@@ -46,8 +44,7 @@ void main() {
     String nodeUId, {
     Duration connectTimeout = const Duration(seconds: 15),
   }) async {
-    final connection = WsConnection(hubUri);
-    await connection.connect();
+    final connection = await testHub.connect(nodeUId);
     connections.add(connection);
 
     // The mesh signals as this endpoint, so the hub must agree it owns it.
@@ -139,8 +136,7 @@ void main() {
         // 'bbb' is a bare hub client, not a mesh, so its `open` signal can be
         // timed by hand rather than left to arrive whenever its own dial gets
         // round to it. On a device the two sides are never in step either.
-        final bbb = WsConnection(hubUri);
-        await bbb.connect();
+        final bbb = await testHub.connect('bbb');
         connections.add(bbb);
         await bbb.announce(
           PeerDescriptor(
@@ -205,8 +201,7 @@ void main() {
         final adapterZ = bus.adapterFor('zzz')!;
         expect(z.connectedPeers, isEmpty);
 
-        final bbb = WsConnection(hubUri);
-        await bbb.connect();
+        final bbb = await testHub.connect('bbb');
         connections.add(bbb);
         await bbb.announce(
           PeerDescriptor(
@@ -291,8 +286,7 @@ void main() {
       final a = await peer('aaa');
       // 'zzz' has a hub endpoint so the signal is deliverable, but no mesh
       // behind it, so no answer ever comes.
-      final connection = WsConnection(hubUri);
-      await connection.connect();
+      final connection = await testHub.connect('zzz');
       connections.add(connection);
       await connection.announce(
         PeerDescriptor(

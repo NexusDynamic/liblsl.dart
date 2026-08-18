@@ -51,6 +51,15 @@ class _ConnectPageState extends State<ConnectPage> {
   final _hubController = TextEditingController(text: 'ws://127.0.0.1:8080');
   final _roomController = TextEditingController(text: 'lounge');
 
+  /// The hub's session name and shared secret.
+  ///
+  /// Both are set when the hub starts, and everyone joining needs the same
+  /// pair. The secret is the whole access boundary — it is never sent over the
+  /// wire (it is an HMAC key), but anyone holding it is a full member of the
+  /// session, so it is shared like a door key, not like a username.
+  final _sessionController = TextEditingController(text: 'lounge-session');
+  final _secretController = TextEditingController();
+
   /// STUN servers for the direct transport, whitespace or comma separated.
   ///
   /// Empty by default, and that is the interesting default: with no ICE
@@ -69,6 +78,8 @@ class _ConnectPageState extends State<ConnectPage> {
     _nameController.dispose();
     _hubController.dispose();
     _roomController.dispose();
+    _sessionController.dispose();
+    _secretController.dispose();
     _stunController.dispose();
     super.dispose();
   }
@@ -113,13 +124,25 @@ class _ConnectPageState extends State<ConnectPage> {
   /// — the whole point of the abstraction — so switching medium changes
   /// nothing else here.
   ITransportConfig _transportConfig(Uri hubUri) => switch (_transport) {
-    _Transport.relay => WebSocketTransportConfig(hubUri: hubUri),
+    _Transport.relay => WebSocketTransportConfig(
+      hubUri: hubUri,
+      credentials: _credentials(),
+    ),
     _Transport.direct => RtcTransportConfig(
       hubUri: hubUri,
+      // Needed on this transport too: the hub never carries the data, but it
+      // does carry discovery and the offer/answer exchange that sets the
+      // direct connection up.
+      credentials: _credentials(),
       adapterFactory: flutterWebrtcAdapterFactory,
       iceServers: _iceServers(),
     ),
   };
+
+  HubCredentials _credentials() => HubCredentials(
+    session: _sessionController.text.trim(),
+    secret: _secretController.text,
+  );
 
   /// The STUN field, in the `{'urls': ...}` form `RtcTransportConfig` wants.
   ///
@@ -230,6 +253,32 @@ class _ConnectPageState extends State<ConnectPage> {
                     ),
                     validator: _validateHubUri,
                   ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: _sessionController,
+                    textInputAction: TextInputAction.next,
+                    decoration: const InputDecoration(
+                      labelText: 'Session',
+                      helperText: 'Must match the hub\'s --session',
+                      border: OutlineInputBorder(),
+                    ),
+                    validator: (value) =>
+                        (value?.trim().isEmpty ?? true) ? 'Required' : null,
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: _secretController,
+                    textInputAction: TextInputAction.next,
+                    obscureText: true,
+                    autofillHints: const [AutofillHints.password],
+                    decoration: const InputDecoration(
+                      labelText: 'Session secret',
+                      helperText: 'Shared with everyone in the session',
+                      border: OutlineInputBorder(),
+                    ),
+                    validator: (value) =>
+                        (value?.isEmpty ?? true) ? 'Required' : null,
+                  ),
                   if (_transport == _Transport.direct) ...[
                     const SizedBox(height: 16),
                     TextFormField(
@@ -288,9 +337,20 @@ class _ConnectPageState extends State<ConnectPage> {
                   Text('Start a hub first:', style: theme.textTheme.labelLarge),
                   const SizedBox(height: 8),
                   SelectableText(
-                    'dart run peer_coordinator:hub --host 0.0.0.0 --port 8080',
+                    'dart run peer_coordinator:hub \\\n'
+                    '  --session lounge-session --secret-file ./hub.secret',
                     style: theme.textTheme.bodySmall?.copyWith(
                       fontFamily: 'monospace',
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'The hub binds loopback by default. To reach it from '
+                    'another machine, put it behind the reverse proxy in '
+                    'peer_coordinator/deploy/ and connect to wss:// — do not '
+                    'expose the hub port directly.',
+                    style: theme.textTheme.bodySmall?.copyWith(
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
                   ),

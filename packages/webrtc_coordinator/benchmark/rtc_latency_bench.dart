@@ -45,8 +45,14 @@ Future<void> main(List<String> args) async {
 
   stdout.writeln('Latency benchmark: $rateHz Hz for ${seconds}s\n');
 
-  final hub = await CoordinationHub.serve();
-  final hubUri = Uri.parse('ws://127.0.0.1:${hub.port}');
+  // A throwaway credential for a loopback hub. The handshake is one round trip
+  // at connect time and nothing per frame, so it is outside what is measured.
+  final credentials = HubCredentials(
+    session: 'BenchSession',
+    secret: 'benchmark-secret',
+  );
+  final hub = await CoordinationHub.serve(credentials: credentials);
+  final hubUri = hub.uri;
 
   try {
     final relay = await _run(
@@ -55,7 +61,8 @@ Future<void> main(List<String> args) async {
       rateHz: rateHz,
       seconds: seconds,
       run: 'ws',
-      transportConfig: (_) => WebSocketTransportConfig(hubUri: hubUri),
+      transportConfig: (_) =>
+          WebSocketTransportConfig(hubUri: hubUri, credentials: credentials),
     );
     relay.report(rateHz, seconds);
 
@@ -70,6 +77,7 @@ Future<void> main(List<String> args) async {
       run: 'rtc',
       transportConfig: (_) => RtcTransportConfig(
         hubUri: hubUri,
+        credentials: credentials,
         adapterFactory: (selfNodeUId) =>
             FakeRtcPeerAdapter(selfKey: selfNodeUId, bus: bus),
       ),

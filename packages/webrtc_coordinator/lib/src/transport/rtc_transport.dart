@@ -21,6 +21,7 @@ typedef RtcAdapterFactory = RtcPeerAdapter Function(String selfNodeUId);
 class RtcTransportConfig implements ITransportConfig {
   RtcTransportConfig({
     required this.hubUri,
+    required this.credentials,
     required this.adapterFactory,
     this.iceServers = const [],
     this.connectTimeout = const Duration(seconds: 10),
@@ -37,6 +38,13 @@ class RtcTransportConfig implements ITransportConfig {
   /// have never met cannot exchange an offer over the connection the offer is
   /// for.
   final Uri hubUri;
+
+  /// The session name and shared secret the signalling hub admits peers with.
+  ///
+  /// Required even though the hub never sees this transport's data: discovery
+  /// and the offer/answer exchange still go through it, and an unauthenticated
+  /// peer on the hub could redirect either.
+  final HubCredentials credentials;
 
   /// Builds the [RtcPeerAdapter] this node dials with.
   ///
@@ -121,6 +129,7 @@ class RtcTransportConfig implements ITransportConfig {
   @override
   RtcTransportConfig copyWith({
     Uri? hubUri,
+    HubCredentials? credentials,
     RtcAdapterFactory? adapterFactory,
     List<Map<String, Object?>>? iceServers,
     Duration? connectTimeout,
@@ -129,6 +138,7 @@ class RtcTransportConfig implements ITransportConfig {
     int? dataMaxRetransmits,
   }) => RtcTransportConfig(
     hubUri: hubUri ?? this.hubUri,
+    credentials: credentials ?? this.credentials,
     adapterFactory: adapterFactory ?? this.adapterFactory,
     iceServers: iceServers ?? this.iceServers,
     connectTimeout: connectTimeout ?? this.connectTimeout,
@@ -147,6 +157,9 @@ class RtcTransportConfig implements ITransportConfig {
   Map<String, dynamic> toMap() => {
     'type': 'webrtc',
     'hubUri': hubUri.toString(),
+    // The session name is useful in a log; the secret that admits a peer to it
+    // is not, so it never appears here.
+    'session': credentials.session,
     'iceServers': iceServers,
     'connectTimeoutMs': connectTimeout.inMilliseconds,
     'channelTimeoutMs': channelTimeout.inMilliseconds,
@@ -159,6 +172,8 @@ class RtcTransportConfig implements ITransportConfig {
       identical(this, other) ||
       other is RtcTransportConfig &&
           other.hubUri == hubUri &&
+          other.credentials.session == credentials.session &&
+          other.credentials.secret == credentials.secret &&
           other.adapterFactory == adapterFactory &&
           other.connectTimeout == connectTimeout &&
           other.channelTimeout == channelTimeout &&
@@ -169,6 +184,8 @@ class RtcTransportConfig implements ITransportConfig {
   @override
   int get hashCode => Object.hash(
     hubUri,
+    credentials.session,
+    credentials.secret,
     adapterFactory,
     connectTimeout,
     channelTimeout,
@@ -204,9 +221,15 @@ class RtcTransportConfig implements ITransportConfig {
 /// Web-safe: nothing here touches `dart:io`. The plugin binding that does is in
 /// `webrtc_coordinator_flutter`, behind [RtcAdapterFactory].
 class RtcTransport extends ManagedResource
-    implements ITransport<RtcTransportConfig>, IResourceManager {
+    implements
+        ITransport<RtcTransportConfig>,
+        IAuthenticatedTransport,
+        IResourceManager {
   RtcTransport(this.config)
-    : _connection = WsConnection(config.hubUri),
+    : _connection = WsConnection(
+        config.hubUri,
+        credentials: config.credentials,
+      ),
       super(id: 'rtc_transport');
 
   @override
@@ -226,6 +249,7 @@ class RtcTransport extends ManagedResource
   final PeerClockOffsets clockOffsets = PeerClockOffsets();
 
   final Map<String, IResource> _resources = {};
+  String? _localNodeUId;
   RtcMesh? _mesh;
   RtcNetworkStreamFactory? _streamFactory;
   bool _initialized = false;
@@ -243,11 +267,27 @@ class RtcTransport extends ManagedResource
   /// The mesh, once a session has built one. Null before the first stream.
   RtcMesh? get mesh => _mesh;
 
+  /// Set by [PeerSession] before [initialize].
+  ///
+  /// The hub ties every endpoint — including this node's signalling address —
+  /// to the identity that authenticated, so it has to be known before the
+  /// socket connects.
+  @override
+  set localNodeUId(String nodeUId) => _localNodeUId = nodeUId;
+
   @override
   Future<void> initialize() async {
     if (_initialized) return;
     config.validate(throwOnError: true);
-    await _connection.connect(timeout: config.connectTimeout);
+    final nodeUId = _localNodeUId;
+    if (nodeUId == null) {
+      throw StateError(
+        'RtcTransport has no node identity. It is set by PeerSession before '
+        'initialize(); a transport driven directly must set localNodeUId '
+        'first.',
+      );
+    }
+    await _connection.connect(timeout: config.connectTimeout, nodeUId: nodeUId);
     _initialized = true;
   }
 

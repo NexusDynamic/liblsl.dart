@@ -1,0 +1,2 @@
+# Holds the session secret and the admin token.
+.env

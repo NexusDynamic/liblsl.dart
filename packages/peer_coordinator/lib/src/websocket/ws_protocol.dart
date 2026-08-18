@@ -5,15 +5,35 @@ import 'package:peer_coordinator/framework.dart';
 
 /// Wire protocol version. Bumped on any incompatible framing change.
 ///
-/// 2 added [WsControl.signal]; 3 added [WsControl.unsubscribe].
+/// 2 added [WsControl.signal]; 3 added [WsControl.unsubscribe]; 4 added the
+/// authentication handshake ([WsControl.challenge], [WsControl.auth],
+/// [WsControl.authOk]), which every connection must complete before any other
+/// frame is honoured.
 /// [WsFrame.decode] rejects both unknown versions and unknown frame types, so a
 /// hub and its clients must be deployed together.
-const int wsProtocolVersion = 3;
+const int wsProtocolVersion = 4;
 
 /// Control-frame types.
 ///
 /// Control traffic is JSON text; data samples use the binary frame below.
 enum WsControl {
+  /// hub -> client: a single-use nonce, sent the instant the socket opens.
+  ///
+  /// The first frame of every connection. The client answers with [auth]; the
+  /// hub honours nothing else until it has.
+  challenge,
+
+  /// client -> hub: proof of the shared secret, answering a [challenge].
+  ///
+  /// Carries `session`, `epoch`, `nodeUId` and `proof`. The secret itself never
+  /// travels — `proof` is an HMAC over the nonce, so the handshake is safe even
+  /// on plain `ws://` and a captured proof cannot be replayed on another
+  /// connection or in another session epoch.
+  auth,
+
+  /// hub -> client: authenticated. Only now do other frames mean anything.
+  authOk,
+
   /// client -> hub: "here is who I am". Carries a [PeerDescriptor].
   hello,
 

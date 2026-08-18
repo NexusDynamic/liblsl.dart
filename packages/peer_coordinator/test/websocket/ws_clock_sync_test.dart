@@ -13,20 +13,18 @@ library;
 
 import 'dart:async';
 
-import 'package:peer_coordinator/hub.dart';
+import 'package:peer_coordinator/testing.dart';
 import 'package:peer_coordinator/in_memory.dart';
 import 'package:peer_coordinator/peer_coordinator.dart';
 import 'package:peer_coordinator/websocket.dart';
 import 'package:test/test.dart';
 
 void main() {
-  late CoordinationHub hub;
-  late Uri hubUri;
+  late TestHub testHub;
   late List<PeerSession> sessions;
 
   setUp(() async {
-    hub = await CoordinationHub.serve();
-    hubUri = Uri.parse('ws://127.0.0.1:${hub.port}');
+    testHub = await startTestHub(session: 'ClockSyncSession');
     sessions = [];
   });
 
@@ -42,7 +40,7 @@ void main() {
       } catch (_) {}
     }
     sessions = [];
-    await hub.close();
+    await testHub.close();
   });
 
   // Bursts far faster than liblsl's 2s default, so a test does not spend
@@ -86,10 +84,7 @@ void main() {
     ITransportConfig? transportConfig,
   }) async {
     final session = PeerSession.create(
-      configFor(
-        transportConfig:
-            transportConfig ?? WebSocketTransportConfig(hubUri: hubUri),
-      ),
+      configFor(transportConfig: transportConfig ?? testHub.transportConfig()),
       thisNodeConfig: NodeConfig(
         name: name,
         id: name,

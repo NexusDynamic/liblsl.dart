@@ -15,12 +15,24 @@ which ships with the package:
 
 ```sh
 cd packages/peer_coordinator
-dart run peer_coordinator:hub --host 0.0.0.0 --port 8080
+dart run peer_coordinator:hub --generate-secret          # once, note it down
+dart run peer_coordinator:hub --session lounge-session --secret '<that secret>'
 ```
 
-`--host 0.0.0.0` is what lets phones and other machines reach it; the default
-binds to loopback only. The hub is role-blind — it forwards frames and tracks
-who is connected, and knows nothing about election, membership or streams.
+The hub is role-blind — it forwards frames and tracks who is connected, and
+knows nothing about election, membership or streams. What it does enforce is
+entry: every peer proves knowledge of the shared secret before the hub honours
+a single frame, so the session name and secret go in the app's connect form
+alongside the hub URL.
+
+`--secret` is fine on your own machine but is visible in the process list; use
+`--secret-file` or the `HUB_SECRET` environment variable anywhere else.
+
+**Reaching it from another device.** The hub binds loopback by default. On a
+trusted LAN, `--host 0.0.0.0` is enough to let phones reach it. Over the
+internet, do not expose the hub's port — it speaks `ws://`, not `wss://`. Put
+it behind the reverse proxy in [`../deploy/`](../deploy/README.md) and connect
+to `wss://your-domain`, which is two commands and gets you a real certificate.
 
 **2. Start the app**, once per participant:
 

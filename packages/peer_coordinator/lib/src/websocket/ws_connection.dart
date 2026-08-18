@@ -1,7 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:peer_coordinator/framework.dart';
+import 'package:peer_coordinator/src/websocket/ws_auth.dart';
+import 'package:peer_coordinator/src/websocket/ws_limits.dart';
 import 'package:peer_coordinator/src/websocket/ws_protocol.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
@@ -55,12 +58,39 @@ class WsSignal {
 /// sockets on the VM and the browser's `WebSocket` on the web. That is what
 /// lets this file stay in the web-safe part of the package.
 class WsConnection {
-  WsConnection(this.hubUri);
+  WsConnection(
+    this.hubUri, {
+    required this.credentials,
+    this.maxFrameBytes = WsLimits.defaultMaxFrameBytes,
+  });
 
   final Uri hubUri;
 
+  /// The session name and shared secret this connection authenticates with.
+  ///
+  /// The secret is used as an HMAC key and never sent, so it is safe on plain
+  /// `ws://` — though the session's *traffic* is not, which is what the reverse
+  /// proxy in `deploy/` is for.
+  final HubCredentials credentials;
+
+  /// Largest frame this connection will send, in bytes.
+  ///
+  /// Checked locally so an over-size frame fails here, with a stack trace
+  /// pointing at the caller, instead of being killed at the hub as a protocol
+  /// error several layers away from the cause.
+  final int maxFrameBytes;
+
   WebSocketChannel? _channel;
   StreamSubscription<dynamic>? _subscription;
+
+  /// Completes when the hub answers the challenge, or completes with error.
+  Completer<void>? _authenticated;
+
+  /// The session epoch the hub admitted this connection into.
+  int? _epoch;
+
+  /// Why the hub hung up, once it has.
+  HubConnectionException? _closedBy;
 
   final StreamController<WsInbound> _inbound =
       StreamController<WsInbound>.broadcast();
@@ -92,11 +122,36 @@ class WsConnection {
 
   bool get isConnected => _channel != null && !_closed;
 
-  Future<void> connect({Duration timeout = const Duration(seconds: 10)}) async {
+  /// The session generation the hub admitted this connection into.
+  ///
+  /// Null before the handshake completes. A hub that has since ended and
+  /// reopened its session is at a higher epoch, and this connection's
+  /// credentials no longer work — which is the point.
+  int? get epoch => _epoch;
+
+  /// Why the hub closed this connection, if it did and said so.
+  ///
+  /// Lets a caller tell "wrong secret" ([HubCloseCode.unauthorized]) from "the
+  /// session is over" ([HubCloseCode.sessionClosed]) from an ordinary network
+  /// drop, which decides whether retrying is pointless or the only sane move.
+  HubConnectionException? get closedBy => _closedBy;
+
+  /// Opens the socket and completes the authentication handshake.
+  ///
+  /// The hub sends a challenge the instant the socket opens and honours nothing
+  /// else until it is answered, so this does not return until the hub has said
+  /// `authOk` — a caller that gets a future back can assume the connection is
+  /// usable. Throws [HubConnectionException] if the hub refuses.
+  Future<void> connect({
+    Duration timeout = const Duration(seconds: 10),
+    required String nodeUId,
+  }) async {
     if (_channel != null) return;
     final channel = WebSocketChannel.connect(hubUri);
     await channel.ready.timeout(timeout);
     _channel = channel;
+    _nodeUId = nodeUId;
+    final authenticated = _authenticated = Completer<void>();
 
     _subscription = channel.stream.listen(
       _onData,
@@ -106,7 +161,62 @@ class WsConnection {
         _onClosed();
       },
     );
-    logger.fine('Connected to hub at $hubUri');
+
+    // The handshake shares the connect timeout: a hub that accepts the socket
+    // and then says nothing is no more usable than one that never accepted it.
+    await authenticated.future.timeout(
+      timeout,
+      onTimeout: () {
+        unawaited(close());
+        throw const HubConnectionException(
+          null,
+          'hub did not complete the authentication handshake',
+        );
+      },
+    );
+    logger.fine('Connected to hub at $hubUri as $nodeUId (epoch $_epoch)');
+  }
+
+  String? _nodeUId;
+
+  /// Answers the hub's challenge.
+  void _respondToChallenge(WsFrame frame) {
+    final nonce = frame.payload['nonce'] as String?;
+    final nodeUId = _nodeUId;
+    if (nonce == null || nodeUId == null) {
+      _failAuth(
+        const HubConnectionException(null, 'malformed challenge from hub'),
+      );
+      return;
+    }
+    // The hub names its current epoch in the challenge, so the proof is bound
+    // to the generation actually being joined rather than to a guess. A proof
+    // captured from an earlier generation names an epoch the hub has moved past
+    // and is refused.
+    final epoch = frame.payload['epoch'] as int? ?? 1;
+    _epoch = epoch;
+    _send(
+      WsFrame(WsControl.auth, {
+        'session': credentials.session,
+        'epoch': epoch,
+        'nodeUId': nodeUId,
+        'proof': HubCredentials.computeProof(
+          secret: credentials.secret,
+          nonce: nonce,
+          session: credentials.session,
+          epoch: epoch,
+          nodeUId: nodeUId,
+        ),
+      }).encode(),
+    );
+  }
+
+  void _failAuth(HubConnectionException error) {
+    _closedBy = error;
+    final completer = _authenticated;
+    if (completer != null && !completer.isCompleted) {
+      completer.completeError(error);
+    }
   }
 
   void _onData(dynamic data) {
@@ -119,6 +229,12 @@ class WsConnection {
         return;
       }
       switch (frame.type) {
+        case WsControl.challenge:
+          _respondToChallenge(frame);
+        case WsControl.authOk:
+          _epoch = frame.payload['epoch'] as int? ?? _epoch;
+          final completer = _authenticated;
+          if (completer != null && !completer.isCompleted) completer.complete();
         case WsControl.welcome:
           final endpointId = frame.payload['endpointId'] as String;
           final slot = frame.payload['slot'] as int;
@@ -168,6 +284,26 @@ class WsConnection {
   void _onClosed() {
     if (_closed) return;
     _closed = true;
+    // Recorded before the completers are failed, so a caller that catches the
+    // connect error can ask *why* rather than guessing at a bare socket close.
+    final code = _channel?.closeCode;
+    if (code != null) {
+      _closedBy = HubConnectionException(code, _channel?.closeReason);
+      logger.fine('Hub closed the connection: $_closedBy');
+    }
+    // Only meaningful while the handshake is outstanding; a normal close after
+    // a successful connect is not an auth failure and must not be recorded as
+    // one.
+    final authenticating = _authenticated;
+    if (authenticating != null && !authenticating.isCompleted) {
+      _failAuth(
+        _closedBy ??
+            const HubConnectionException(
+              null,
+              'connection closed during the handshake',
+            ),
+      );
+    }
     for (final completer in _pendingSlots.values) {
       if (!completer.isCompleted) {
         completer.completeError(StateError('Connection closed'));
@@ -277,10 +413,38 @@ class WsConnection {
   void _send(Object data) {
     final channel = _channel;
     if (channel == null || _closed) return;
+    _checkFrameSize(data);
     try {
       channel.sink.add(data);
     } catch (e) {
       logger.warning('Failed to send on $hubUri: $e');
+    }
+  }
+
+  /// Refuses to send a frame the hub would reject anyway.
+  ///
+  /// The hub caps inbound frames and kills the connection on a violation, which
+  /// is a terrible way to learn that a data stream was configured with too many
+  /// channels. Failing here instead puts the error at the call site.
+  ///
+  /// On the sample hot path this is one `lengthInBytes` read. For control text
+  /// it is a comparison in the common case: UTF-8 cannot expand a string beyond
+  /// four bytes per code unit, so anything under a quarter of the cap is
+  /// provably fine and only a genuinely large frame pays for an exact count.
+  void _checkFrameSize(Object data) {
+    final int bytes;
+    if (data is TypedData) {
+      bytes = data.lengthInBytes;
+    } else if (data is List<int>) {
+      bytes = data.length;
+    } else if (data is String) {
+      if (data.length <= maxFrameBytes ~/ 4) return;
+      bytes = utf8.encode(data).length;
+    } else {
+      return;
+    }
+    if (bytes > maxFrameBytes) {
+      throw WsFrameTooLargeException(bytes: bytes, limit: maxFrameBytes);
     }
   }
 

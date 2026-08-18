@@ -339,9 +339,8 @@ class WsCoordinationStream
     required CoordinationStreamConfig config,
     required this.connection,
     required this.sessionName,
-    required Node streamNode,
-  }) : _streamNode = streamNode,
-       super(config);
+    required this._streamNode,
+  }) : super(config);
 
   @override
   final WsConnection connection;
@@ -390,10 +389,9 @@ class WsDataStream extends DataStream<DataStreamConfig, IMessage>
     required DataStreamConfig config,
     required this.connection,
     required this.sessionName,
-    required Node streamNode,
+    required this._streamNode,
     this.clockOffsets,
-  }) : _streamNode = streamNode,
-       super(config);
+  }) : super(config);
 
   @override
   final WsConnection connection;

@@ -10,19 +10,17 @@ library;
 
 import 'dart:async';
 
-import 'package:peer_coordinator/hub.dart';
+import 'package:peer_coordinator/testing.dart';
 import 'package:peer_coordinator/peer_coordinator.dart';
 import 'package:peer_coordinator/websocket.dart';
 import 'package:test/test.dart';
 
 void main() {
-  late CoordinationHub hub;
-  late Uri hubUri;
+  late TestHub testHub;
   late List<WsConnection> connections;
 
   setUp(() async {
-    hub = await CoordinationHub.serve();
-    hubUri = Uri.parse('ws://127.0.0.1:${hub.port}');
+    testHub = await startTestHub(session: 'SignalSession');
     connections = [];
   });
 
@@ -31,14 +29,13 @@ void main() {
       await connection.close();
     }
     connections = [];
-    await hub.close();
+    await testHub.close();
   });
 
   /// A connected node with one announced endpoint, as a stream would announce it.
   Future<WsConnection> peer(String nodeUId) async {
-    final connection = WsConnection(hubUri);
+    final connection = await testHub.connect(nodeUId);
     connections.add(connection);
-    await connection.connect();
     await connection.announce(
       PeerDescriptor.forNode(
         streamName: 'coordination',

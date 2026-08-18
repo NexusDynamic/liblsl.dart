@@ -2,7 +2,9 @@ import 'dart:async';
 
 import 'package:peer_coordinator/config.dart';
 import 'package:peer_coordinator/framework.dart';
+import 'package:peer_coordinator/src/websocket/ws_auth.dart';
 import 'package:peer_coordinator/src/websocket/ws_connection.dart';
+import 'package:peer_coordinator/src/websocket/ws_limits.dart';
 import 'package:peer_coordinator/src/websocket/ws_discovery.dart';
 import 'package:peer_coordinator/src/websocket/ws_stream.dart';
 
@@ -10,13 +12,30 @@ import 'package:peer_coordinator/src/websocket/ws_stream.dart';
 class WebSocketTransportConfig implements ITransportConfig {
   WebSocketTransportConfig({
     required this.hubUri,
+    required this.credentials,
     this.connectTimeout = const Duration(seconds: 10),
+    this.maxFrameBytes = WsLimits.defaultMaxFrameBytes,
   });
 
   /// Where the relay hub is listening, e.g. `ws://127.0.0.1:8080`.
+  ///
+  /// Use `wss://` for anything off the local machine. The hub never terminates
+  /// TLS itself — see `deploy/` for the reverse-proxy stack that does.
   final Uri hubUri;
 
+  /// The session name and shared secret the hub admits peers with.
+  ///
+  /// Required, not optional: a hub does not accept anonymous peers, so a config
+  /// without a credential could only ever fail to connect.
+  final HubCredentials credentials;
+
   final Duration connectTimeout;
+
+  /// Largest frame this node will send, in bytes.
+  ///
+  /// Must be no larger than the hub's own limit, or the hub will close the
+  /// connection on a frame this node considered acceptable.
+  final int maxFrameBytes;
 
   @override
   String get id => 'websocket_transport_config';
@@ -32,6 +51,16 @@ class WebSocketTransportConfig implements ITransportConfig {
 
   @override
   bool validate({bool throwOnError = false}) {
+    if (maxFrameBytes < 1024) {
+      if (throwOnError) {
+        throw ArgumentError.value(
+          maxFrameBytes,
+          'maxFrameBytes',
+          'must leave room for a coordination message (at least 1024)',
+        );
+      }
+      return false;
+    }
     if (hubUri.scheme != 'ws' && hubUri.scheme != 'wss') {
       if (throwOnError) {
         throw ArgumentError.value(
@@ -46,17 +75,29 @@ class WebSocketTransportConfig implements ITransportConfig {
   }
 
   @override
-  WebSocketTransportConfig copyWith({Uri? hubUri, Duration? connectTimeout}) =>
-      WebSocketTransportConfig(
-        hubUri: hubUri ?? this.hubUri,
-        connectTimeout: connectTimeout ?? this.connectTimeout,
-      );
+  WebSocketTransportConfig copyWith({
+    Uri? hubUri,
+    HubCredentials? credentials,
+    Duration? connectTimeout,
+    int? maxFrameBytes,
+  }) => WebSocketTransportConfig(
+    hubUri: hubUri ?? this.hubUri,
+    credentials: credentials ?? this.credentials,
+    connectTimeout: connectTimeout ?? this.connectTimeout,
+    maxFrameBytes: maxFrameBytes ?? this.maxFrameBytes,
+  );
 
+  /// Diagnostics only, and deliberately without the secret.
+  ///
+  /// This ends up in logs and error reports. The session name is useful there;
+  /// the credential that admits a peer to it is not.
   @override
   Map<String, dynamic> toMap() => {
     'type': 'websocket',
     'hubUri': hubUri.toString(),
+    'session': credentials.session,
     'connectTimeoutMs': connectTimeout.inMilliseconds,
+    'maxFrameBytes': maxFrameBytes,
   };
 
   @override
@@ -64,10 +105,19 @@ class WebSocketTransportConfig implements ITransportConfig {
       identical(this, other) ||
       other is WebSocketTransportConfig &&
           other.hubUri == hubUri &&
-          other.connectTimeout == connectTimeout;
+          other.credentials.session == credentials.session &&
+          other.credentials.secret == credentials.secret &&
+          other.connectTimeout == connectTimeout &&
+          other.maxFrameBytes == maxFrameBytes;
 
   @override
-  int get hashCode => Object.hash(hubUri, connectTimeout);
+  int get hashCode => Object.hash(
+    hubUri,
+    credentials.session,
+    credentials.secret,
+    connectTimeout,
+    maxFrameBytes,
+  );
 }
 
 /// Coordination over a WebSocket relay hub.
@@ -80,15 +130,31 @@ class WebSocketTransportConfig implements ITransportConfig {
 /// Every stream on a node shares one socket; endpoints are demultiplexed by
 /// the hub-assigned slot carried in each frame.
 class WebSocketTransport extends ManagedResource
-    implements ITransport<WebSocketTransportConfig>, IResourceManager {
+    implements
+        ITransport<WebSocketTransportConfig>,
+        IAuthenticatedTransport,
+        IResourceManager {
   WebSocketTransport(this.config)
-    : _connection = WsConnection(config.hubUri),
+    : _connection = WsConnection(
+        config.hubUri,
+        credentials: config.credentials,
+        maxFrameBytes: config.maxFrameBytes,
+      ),
       super(id: 'websocket_transport');
 
   @override
   final WebSocketTransportConfig config;
 
   final WsConnection _connection;
+
+  String? _localNodeUId;
+
+  /// Set by [PeerSession] before [initialize].
+  ///
+  /// The hub ties every endpoint this connection claims to the node named here,
+  /// so it has to be known before the socket authenticates.
+  @override
+  set localNodeUId(String nodeUId) => _localNodeUId = nodeUId;
 
   /// The socket this node holds to the hub.
   WsConnection get connection => _connection;
@@ -120,7 +186,15 @@ class WebSocketTransport extends ManagedResource
   Future<void> initialize() async {
     if (_initialized) return;
     config.validate(throwOnError: true);
-    await _connection.connect(timeout: config.connectTimeout);
+    final nodeUId = _localNodeUId;
+    if (nodeUId == null) {
+      throw StateError(
+        'WebSocketTransport has no node identity. It is set by PeerSession '
+        'before initialize(); a transport driven directly must set '
+        'localNodeUId first.',
+      );
+    }
+    await _connection.connect(timeout: config.connectTimeout, nodeUId: nodeUId);
     _initialized = true;
   }
 

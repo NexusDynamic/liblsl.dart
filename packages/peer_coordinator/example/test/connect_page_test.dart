@@ -35,6 +35,7 @@ void main() {
   testWidgets('empty is valid — that is the LAN case', (tester) async {
     await pumpDirect(tester);
     await tester.enterText(find.widgetWithText(TextFormField, stunLabel), '');
+    await tester.ensureVisible(find.text('Join'));
     await tester.tap(find.text('Join'));
     await tester.pump();
 
@@ -49,6 +50,7 @@ void main() {
         find.widgetWithText(TextFormField, stunLabel),
         'turn:turn.example.com:3478',
       );
+      await tester.ensureVisible(find.text('Join'));
       await tester.tap(find.text('Join'));
       await tester.pump();
 
@@ -65,6 +67,7 @@ void main() {
       find.widgetWithText(TextFormField, stunLabel),
       'stun.l.google.com:19302',
     );
+    await tester.ensureVisible(find.text('Join'));
     await tester.tap(find.text('Join'));
     await tester.pump();
 

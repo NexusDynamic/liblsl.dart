@@ -12,6 +12,7 @@
 library;
 
 import 'package:peer_coordinator/hub.dart';
+import 'package:peer_coordinator/testing.dart';
 import 'package:peer_coordinator/in_memory.dart';
 import 'package:peer_coordinator/peer_coordinator.dart';
 import 'package:peer_coordinator/websocket.dart';
@@ -133,14 +134,14 @@ void main() {
   });
 
   group('websocket', () {
+    late TestHub testHub;
     late CoordinationHub hub;
-    late Uri hubUri;
 
     setUp(() async {
-      hub = await CoordinationHub.serve();
-      hubUri = Uri.parse('ws://127.0.0.1:${hub.port}');
+      testHub = await startTestHub(session: 'S');
+      hub = testHub.hub;
     });
-    tearDown(() => hub.close());
+    tearDown(() => testHub.close());
 
     test('tears the hub route down, not just the local filter', () async {
       final config = DataStreamConfig(
@@ -152,10 +153,8 @@ void main() {
       final producerNode = Node(NodeConfig(name: 'p', id: 'p'));
       final consumerNode = Node(NodeConfig(name: 'c', id: 'c'));
 
-      final producerConnection = WsConnection(hubUri);
-      final consumerConnection = WsConnection(hubUri);
-      await producerConnection.connect();
-      await consumerConnection.connect();
+      final producerConnection = await testHub.connect(producerNode.uId);
+      final consumerConnection = await testHub.connect(consumerNode.uId);
       addTearDown(producerConnection.close);
       addTearDown(consumerConnection.close);
 

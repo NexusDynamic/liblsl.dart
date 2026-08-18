@@ -91,6 +91,14 @@ class PeerSession extends CoordinationSession with InstanceUID {
       DateTime.now().toIso8601String(),
     );
 
+    // A relay-backed transport authenticates as this node, and the hub checks
+    // every endpoint it later claims against that identity. Set before
+    // initialize() connects anything.
+    final transport = _transport;
+    if (transport is IAuthenticatedTransport) {
+      (transport as IAuthenticatedTransport).localNodeUId = thisNode.uId;
+    }
+
     _controller = CoordinationController(
       coordinationConfig: coordinationConfig,
       transport: _transport,

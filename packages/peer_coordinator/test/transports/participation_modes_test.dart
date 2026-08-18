@@ -6,10 +6,8 @@
 @Tags(['integration'])
 library;
 
-import 'package:peer_coordinator/hub.dart';
 import 'package:peer_coordinator/in_memory.dart';
 import 'package:peer_coordinator/peer_coordinator.dart';
-import 'package:peer_coordinator/websocket.dart';
 import 'package:test/test.dart';
 
 import 'package:peer_coordinator/testing.dart';
@@ -41,7 +39,7 @@ class _InMemoryHarness extends ParticipationHarness {
 }
 
 class _WebSocketHarness extends ParticipationHarness {
-  CoordinationHub? _hub;
+  TestHub? _hub;
 
   @override
   String get name => 'websocket';
@@ -53,7 +51,7 @@ class _WebSocketHarness extends ParticipationHarness {
   Duration get settleTimeout => const Duration(seconds: 1);
 
   @override
-  Future<void> setUp() async => _hub = await CoordinationHub.serve();
+  Future<void> setUp() async => _hub = await startTestHub(session: sessionName);
 
   @override
   Future<void> tearDown() async {
@@ -62,10 +60,7 @@ class _WebSocketHarness extends ParticipationHarness {
   }
 
   @override
-  ITransportConfig transportConfigFor(int nodeIndex) =>
-      WebSocketTransportConfig(
-        hubUri: Uri.parse('ws://127.0.0.1:${_hub!.port}'),
-      );
+  ITransportConfig transportConfigFor(int nodeIndex) => _hub!.transportConfig();
 }
 
 void main() {

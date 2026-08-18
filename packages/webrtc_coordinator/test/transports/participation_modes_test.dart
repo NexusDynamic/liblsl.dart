@@ -12,7 +12,6 @@
 @Tags(['integration'])
 library;
 
-import 'package:peer_coordinator/hub.dart';
 import 'package:peer_coordinator/peer_coordinator.dart';
 import 'package:peer_coordinator/testing.dart';
 import 'package:test/test.dart';
@@ -20,7 +19,7 @@ import 'package:webrtc_coordinator/testing.dart';
 import 'package:webrtc_coordinator/transports/webrtc.dart';
 
 class _RtcHarness extends ParticipationHarness {
-  CoordinationHub? _hub;
+  TestHub? _hub;
   FakeRtcBus? _bus;
 
   @override
@@ -36,7 +35,7 @@ class _RtcHarness extends ParticipationHarness {
   Future<void> setUp() async {
     // A real hub: discovery, election queries and signalling all still go
     // through it. Only the data does not.
-    _hub = await CoordinationHub.serve();
+    _hub = await startTestHub();
     _bus = FakeRtcBus();
   }
 
@@ -51,7 +50,8 @@ class _RtcHarness extends ParticipationHarness {
   ITransportConfig transportConfigFor(int nodeIndex) {
     final bus = _bus!;
     return RtcTransportConfig(
-      hubUri: Uri.parse('ws://127.0.0.1:${_hub!.port}'),
+      hubUri: _hub!.uri,
+      credentials: _hub!.credentials,
       adapterFactory: (selfNodeUId) =>
           FakeRtcPeerAdapter(selfKey: selfNodeUId, bus: bus),
     );

@@ -39,8 +39,15 @@ Future<void> main(List<String> args) async {
     'WebSocket latency benchmark: $rateHz Hz for ${seconds}s (loopback hub)',
   );
 
-  final hub = await CoordinationHub.serve();
-  final hubUri = Uri.parse('ws://127.0.0.1:${hub.port}');
+  // A throwaway credential: this hub lives on loopback for the length of the
+  // benchmark. The handshake is one round trip at connect time and nothing per
+  // frame, so it does not touch what is being measured.
+  final credentials = HubCredentials(
+    session: 'BenchSession',
+    secret: 'benchmark-secret',
+  );
+  final hub = await CoordinationHub.serve(credentials: credentials);
+  final hubUri = hub.uri;
 
   final latencies = <int>[];
   final syncedLatencies = <int>[];
@@ -49,8 +56,8 @@ Future<void> main(List<String> args) async {
   var received = 0;
   var sent = 0;
 
-  final coordinator = _session('coordinator', 0.1, hubUri);
-  final participant = _session('participant', 0.9, hubUri);
+  final coordinator = _session('coordinator', 0.1, hubUri, credentials);
+  final participant = _session('participant', 0.9, hubUri, credentials);
 
   try {
     await coordinator.initialize();
@@ -145,33 +152,40 @@ Future<void> main(List<String> args) async {
   );
 }
 
-PeerSession _session(String name, double randomRoll, Uri hubUri) =>
-    PeerSession.create(
-      CoordinationConfig(
-        name: 'ws_bench',
-        sessionConfig: CoordinationSessionConfig(
-          name: 'WsBench',
-          maxNodes: 2,
-          minNodes: 1,
-          heartbeatInterval: const Duration(milliseconds: 250),
-          discoveryInterval: const Duration(milliseconds: 100),
-          nodeTimeout: const Duration(seconds: 2),
-          consumeCoordinationStreamAsCoordinator: false,
-        ),
-        topologyConfig: HierarchicalTopologyConfig(
-          promotionStrategy: PromotionStrategyRandom(),
-          maxNodes: 2,
-        ),
-        streamConfig: CoordinationStreamConfig(name: 'coordination'),
-        transportConfig: WebSocketTransportConfig(hubUri: hubUri),
-      ),
-      thisNodeConfig: NodeConfig(
-        name: name,
-        id: name,
-        capabilities: {NodeCapability.coordinator, NodeCapability.participant},
-        metadata: {PeerMetadataKeys.randomRoll: randomRoll.toString()},
-      ),
-    );
+PeerSession _session(
+  String name,
+  double randomRoll,
+  Uri hubUri,
+  HubCredentials credentials,
+) => PeerSession.create(
+  CoordinationConfig(
+    name: 'ws_bench',
+    sessionConfig: CoordinationSessionConfig(
+      name: 'WsBench',
+      maxNodes: 2,
+      minNodes: 1,
+      heartbeatInterval: const Duration(milliseconds: 250),
+      discoveryInterval: const Duration(milliseconds: 100),
+      nodeTimeout: const Duration(seconds: 2),
+      consumeCoordinationStreamAsCoordinator: false,
+    ),
+    topologyConfig: HierarchicalTopologyConfig(
+      promotionStrategy: PromotionStrategyRandom(),
+      maxNodes: 2,
+    ),
+    streamConfig: CoordinationStreamConfig(name: 'coordination'),
+    transportConfig: WebSocketTransportConfig(
+      hubUri: hubUri,
+      credentials: credentials,
+    ),
+  ),
+  thisNodeConfig: NodeConfig(
+    name: name,
+    id: name,
+    capabilities: {NodeCapability.coordinator, NodeCapability.participant},
+    metadata: {PeerMetadataKeys.randomRoll: randomRoll.toString()},
+  ),
+);
 
 void _report(
   double rateHz,

@@ -435,9 +435,8 @@ class RtcCoordinationStream
     required this.connection,
     required this.mesh,
     required this.sessionName,
-    required Node streamNode,
-  }) : _streamNode = streamNode,
-       super(config);
+    required this._streamNode,
+  }) : super(config);
 
   @override
   final WsConnection connection;
@@ -490,12 +489,11 @@ class RtcDataStream extends DataStream<DataStreamConfig, IMessage>
     required this.connection,
     required this.mesh,
     required this.sessionName,
-    required Node streamNode,
+    required this._streamNode,
     this.clockOffsets,
     this.channelOrdered = true,
     this.channelMaxRetransmits,
-  }) : _streamNode = streamNode,
-       super(config);
+  }) : super(config);
 
   @override
   final WsConnection connection;
