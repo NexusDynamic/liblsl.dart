@@ -22,6 +22,31 @@ import 'dart:async';
 
 import '../rtc_adapter.dart';
 
+/// One [RtcPeerLink.openChannel] call, as the transport made it.
+///
+/// Recorded and never removed, so a test can assert on what the transport
+/// *asked for* — in particular the reliability mode, which the fake honours by
+/// remembering rather than by dropping packets. Only a device proves the mode
+/// does anything; this proves the transport requested it.
+class FakeChannelRequest {
+  const FakeChannelRequest({
+    required this.peerKey,
+    required this.id,
+    required this.ordered,
+    required this.maxRetransmits,
+  });
+
+  final String peerKey;
+  final int id;
+  final bool ordered;
+  final int? maxRetransmits;
+
+  @override
+  String toString() =>
+      'FakeChannelRequest($peerKey, id: $id, ordered: $ordered, '
+      'maxRetransmits: $maxRetransmits)';
+}
+
 /// The shared switchboard fake links find each other through.
 ///
 /// Real peers find each other over the network; fake ones need a rendezvous.
@@ -32,6 +57,12 @@ class FakeRtcBus {
   /// Delay applied to every delivery. Zero still means asynchronous — a
   /// microtask hop — not synchronous.
   Duration deliveryDelay = Duration.zero;
+
+  /// Adapters currently on the bus.
+  Iterable<FakeRtcPeerAdapter> get adapters => _adapters.values;
+
+  /// The adapter for [selfKey], if it is still open.
+  FakeRtcPeerAdapter? adapterFor(String selfKey) => _adapters[selfKey];
 
   void _register(FakeRtcPeerAdapter adapter) =>
       _adapters[adapter.selfKey] = adapter;
@@ -69,8 +100,25 @@ class FakeRtcPeerAdapter implements RtcPeerAdapter {
   final Map<String, _FakeRtcPeerLink> _links = {};
   bool _closed = false;
 
+  /// Every channel this adapter was asked to open, in order and cumulative.
+  final List<FakeChannelRequest> openedChannels = [];
+
   /// Links currently open, for tests that assert on release.
   Iterable<RtcPeerLink> get links => _links.values;
+
+  /// Peers this adapter currently holds a connection to.
+  Set<String> get peerKeys => _links.keys.toSet();
+
+  /// Channel ids currently open to [peerKey].
+  ///
+  /// Shrinks as channels are released, unlike [openedChannels] — which is the
+  /// distinction `removeInlet` exists to make.
+  Set<int> openChannelIdsTo(String peerKey) => {
+    for (final MapEntry(key: id, value: channel)
+        in (_links[peerKey]?._channels ?? const <int, _FakeRtcChannel>{})
+            .entries)
+      if (!channel._closed) id,
+  };
 
   @override
   Future<RtcPeerLink> createLink(
@@ -203,6 +251,14 @@ class _FakeRtcPeerLink implements RtcPeerLink {
       maxRetransmits: maxRetransmits,
     );
     _channels[id] = channel;
+    adapter.openedChannels.add(
+      FakeChannelRequest(
+        peerKey: peerKey,
+        id: id,
+        ordered: ordered,
+        maxRetransmits: maxRetransmits,
+      ),
+    );
     // Pre-negotiated channels open as soon as the connection does — and only
     // then, which is what makes `ready` worth awaiting.
     if (_state == RtcLinkState.connected) channel._open();
@@ -328,8 +384,9 @@ class _FakeRtcChannel implements RtcChannel {
     if (peer == null) return;
     unawaited(
       link.adapter.bus._deliver(() {
-        if (peer.isOpen && !peer._messages.isClosed)
+        if (peer.isOpen && !peer._messages.isClosed) {
           peer._messages.add(payload);
+        }
       }),
     );
   }

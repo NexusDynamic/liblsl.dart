@@ -5,4 +5,5 @@
 /// — the same reason `peer_coordinator` ships its conformance suite in `lib/`.
 library;
 
-export 'src/rtc/fake/fake_adapter.dart' show FakeRtcBus, FakeRtcPeerAdapter;
+export 'src/rtc/fake/fake_adapter.dart'
+    show FakeChannelRequest, FakeRtcBus, FakeRtcPeerAdapter;

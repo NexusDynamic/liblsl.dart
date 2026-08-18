@@ -22,5 +22,13 @@ export '../src/rtc/rtc_adapter.dart'
         coordinationChannelId,
         reservedChannelIds,
         maxChannelId;
-export '../src/rtc/rtc_mesh.dart' show RtcMesh;
+export '../src/rtc/rtc_mesh.dart' show RtcChannelEvent, RtcMesh;
 export '../src/rtc/rtc_signal.dart' show RtcSignal, RtcSignalKind;
+export '../src/streams/rtc_stream.dart'
+    show
+        RtcCoordinationStream,
+        RtcDataStream,
+        RtcNetworkStreamFactory,
+        RtcStreamMixin;
+export '../src/transport/rtc_transport.dart'
+    show RtcAdapterFactory, RtcTransport, RtcTransportConfig;

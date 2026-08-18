@@ -25,6 +25,25 @@ import 'rtc_signal.dart';
 
 final Logger _logger = Logger('webrtc_coordinator.mesh');
 
+/// A data channel that has just come into existence.
+///
+/// Emitted for channels opened from either side — this node subscribing to a
+/// peer, or a peer subscribing to this node — because a stream has to listen to
+/// both. It sends on channels a peer asked for and receives on channels it
+/// asked for, and those two sets are not the same in an asymmetric
+/// participation mode.
+class RtcChannelEvent {
+  const RtcChannelEvent({
+    required this.peerNodeUId,
+    required this.streamName,
+    required this.channel,
+  });
+
+  final String peerNodeUId;
+  final String streamName;
+  final RtcChannel channel;
+}
+
 /// Owns one [RtcPeerLink] per remote peer, and the channels on it.
 class RtcMesh {
   RtcMesh({
@@ -52,7 +71,16 @@ class RtcMesh {
   final Duration connectTimeout;
 
   final Map<String, _PeerEntry> _peers = {};
+
+  /// streamName -> node uIds that have asked to receive it from this node.
+  ///
+  /// The whole routing table. On the WebSocket transport this lives in the
+  /// hub's `RelayRouting`; with no hub on the data path it lives here, filled
+  /// by [RtcSignalKind.open] signals from subscribers.
+  final Map<String, Set<String>> _subscribersByStream = {};
+
   final _peerLost = StreamController<String>.broadcast();
+  final _channelOpened = StreamController<RtcChannelEvent>.broadcast();
   StreamSubscription<WsSignal>? _signalSubscription;
   bool _closed = false;
 
@@ -64,6 +92,23 @@ class RtcMesh {
 
   /// Node uIds with a live link.
   Iterable<String> get connectedPeers => _peers.keys;
+
+  /// Channels as they open, from either side. Broadcast.
+  Stream<RtcChannelEvent> get channelOpened => _channelOpened.stream;
+
+  /// Node uIds that have asked this node for [streamName].
+  ///
+  /// A producer sends on exactly these peers' channels. Empty is normal: a
+  /// stream nobody subscribed to publishes nowhere, exactly as it does through
+  /// a hub with no routes installed.
+  Set<String> subscribersFor(String streamName) =>
+      _subscribersByStream[streamName] ?? const <String>{};
+
+  /// Every open channel carrying [streamName], keyed by peer node uId.
+  Map<String, RtcChannel> channelsForStream(String streamName) => {
+    for (final MapEntry(key: peer, value: entry) in _peers.entries)
+      peer: ?entry.channels[streamName],
+  };
 
   /// This node's signalling address.
   String get selfSignallingEndpoint => signallingEndpointFor(selfNodeUId);
@@ -112,28 +157,35 @@ class RtcMesh {
 
     final entry = await _entryFor(peerNodeUId);
     final id = channelIdFor(streamName);
-
-    final existing = entry.channels[streamName];
-    if (existing != null) return existing;
-
-    // A collision would put two streams on one channel and silently interleave
-    // them. Fail here, in this process, rather than let it cross the wire.
-    final collision = entry.streamByChannelId[id];
-    if (collision != null && collision != streamName) {
-      throw StateError(
-        'Data-channel id $id is claimed by both "$collision" and "$streamName". '
-        'Channel ids are derived from stream names (see rtcChannelIdFor); '
-        'rename one of these streams.',
-      );
-    }
-
-    final channel = await entry.link.openChannel(
+    final channel = await _ensureChannel(
+      entry,
+      streamName,
       id,
       ordered: ordered,
       maxRetransmits: maxRetransmits,
     );
-    entry.channels[streamName] = channel;
-    entry.streamByChannelId[id] = streamName;
+
+    // Ask the peer to open its half, and in doing so register as a subscriber
+    // over there. Both halves are needed: `negotiated: true` channels do not
+    // announce themselves, and the peer may have no reason of its own to open
+    // one — in `sendAllReceiveCoordinator` the producers never subscribe back.
+    //
+    // This also has to be sent before the offer, so that a peer that is the
+    // offerer for this pair knows to dial. It goes out on the same hub socket,
+    // which preserves order.
+    _send(
+      peerNodeUId,
+      RtcSignal(
+        kind: RtcSignalKind.open,
+        fromNodeUId: selfNodeUId,
+        payload: {
+          's': streamName,
+          'id': id,
+          'o': ordered,
+          'r': ?maxRetransmits,
+        },
+      ),
+    );
 
     // Only the offerer dials. The answerer has its channel open and waiting by
     // the time the offer arrives, which is the point of `negotiated: true`.
@@ -167,6 +219,7 @@ class RtcMesh {
   }) async {
     final entry = _peers[peerNodeUId];
     if (entry == null) return;
+    _subscribersByStream[streamName]?.remove(peerNodeUId);
     final channel = entry.channels.remove(streamName);
     if (channel == null) return;
     entry.streamByChannelId.remove(channel.id);
@@ -178,6 +231,7 @@ class RtcMesh {
   Future<void> releasePeer(String peerNodeUId) async {
     final entry = _peers.remove(peerNodeUId);
     if (entry == null) return;
+    _forgetSubscriber(peerNodeUId);
     await entry.dispose();
     if (!_closed && connection.isConnected) {
       // Best-effort courtesy: lets the peer drop its half now rather than after
@@ -198,8 +252,10 @@ class RtcMesh {
       await entry.dispose();
     }
     _peers.clear();
+    _subscribersByStream.clear();
     await adapter.close();
     await _peerLost.close();
+    await _channelOpened.close();
   }
 
   // ---------------------------------------------------------------------------
@@ -241,8 +297,56 @@ class RtcMesh {
   Future<void> _onLinkClosed(String peerNodeUId) async {
     final entry = _peers.remove(peerNodeUId);
     if (entry == null) return;
+    _forgetSubscriber(peerNodeUId);
     await entry.dispose();
     if (!_peerLost.isClosed) _peerLost.add(peerNodeUId);
+  }
+
+  void _forgetSubscriber(String peerNodeUId) {
+    for (final subscribers in _subscribersByStream.values) {
+      subscribers.remove(peerNodeUId);
+    }
+  }
+
+  /// Opens [streamName]'s channel on [entry] if it is not already open.
+  Future<RtcChannel> _ensureChannel(
+    _PeerEntry entry,
+    String streamName,
+    int id, {
+    required bool ordered,
+    int? maxRetransmits,
+  }) async {
+    final existing = entry.channels[streamName];
+    if (existing != null) return existing;
+
+    // A collision would put two streams on one channel and silently interleave
+    // them. Fail here, in this process, rather than let it cross the wire.
+    final collision = entry.streamByChannelId[id];
+    if (collision != null && collision != streamName) {
+      throw StateError(
+        'Data-channel id $id is claimed by both "$collision" and "$streamName". '
+        'Channel ids are derived from stream names (see rtcChannelIdFor); '
+        'rename one of these streams.',
+      );
+    }
+
+    final channel = await entry.link.openChannel(
+      id,
+      ordered: ordered,
+      maxRetransmits: maxRetransmits,
+    );
+    entry.channels[streamName] = channel;
+    entry.streamByChannelId[id] = streamName;
+    if (!_channelOpened.isClosed) {
+      _channelOpened.add(
+        RtcChannelEvent(
+          peerNodeUId: entry.peerNodeUId,
+          streamName: streamName,
+          channel: channel,
+        ),
+      );
+    }
+    return channel;
   }
 
   Future<void> _dial(_PeerEntry entry) async {
@@ -308,6 +412,8 @@ class RtcMesh {
           await _peers[signal.fromNodeUId]?.link.acceptAnswer(signal.payload);
         case RtcSignalKind.candidate:
           await _peers[signal.fromNodeUId]?.link.addCandidate(signal.payload);
+        case RtcSignalKind.open:
+          await _onOpen(signal);
         case RtcSignalKind.bye:
           await _onLinkClosed(signal.fromNodeUId);
       }
@@ -339,6 +445,45 @@ class RtcMesh {
         payload: answer,
       ),
     );
+  }
+
+  /// A peer wants [streamName] from this node.
+  Future<void> _onOpen(RtcSignal signal) async {
+    final peerNodeUId = signal.fromNodeUId;
+    final streamName = signal.payload['s'];
+    if (streamName is! String || streamName.isEmpty) {
+      _logger.warning('Dropping open signal from $peerNodeUId with no stream');
+      return;
+    }
+    final ordered = signal.payload['o'] as bool? ?? true;
+    final maxRetransmits = signal.payload['r'] as int?;
+
+    // Derived locally rather than taken from the wire: trusting the sender's
+    // arithmetic would let one mismatched peer put a stream on the wrong
+    // channel. The advertised id is checked only so a divergence is loud.
+    final id = channelIdFor(streamName);
+    final advertised = signal.payload['id'];
+    if (advertised is int && advertised != id) {
+      _logger.warning(
+        '$peerNodeUId derived channel id $advertised for "$streamName" but '
+        'this node derived $id; the peers disagree about the coordination '
+        'stream name and will not connect',
+      );
+    }
+
+    (_subscribersByStream[streamName] ??= <String>{}).add(peerNodeUId);
+
+    final entry = await _entryFor(peerNodeUId);
+    await _ensureChannel(
+      entry,
+      streamName,
+      id,
+      ordered: ordered,
+      maxRetransmits: maxRetransmits,
+    );
+    // The subscriber may be the answerer for this pair, in which case it is
+    // waiting on us to dial and nothing else will trigger it.
+    if (shouldOffer(peerNodeUId)) await _dial(entry);
   }
 }
 
