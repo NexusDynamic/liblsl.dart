@@ -5,9 +5,10 @@ import 'package:peer_coordinator/framework.dart';
 
 /// Wire protocol version. Bumped on any incompatible framing change.
 ///
-/// 2 added [WsControl.signal]. [WsFrame.decode] rejects both unknown versions
-/// and unknown frame types, so a hub and its clients must be deployed together.
-const int wsProtocolVersion = 2;
+/// 2 added [WsControl.signal]; 3 added [WsControl.unsubscribe].
+/// [WsFrame.decode] rejects both unknown versions and unknown frame types, so a
+/// hub and its clients must be deployed together.
+const int wsProtocolVersion = 3;
 
 /// Control-frame types.
 ///
@@ -33,6 +34,14 @@ enum WsControl {
 
   /// client -> hub: deliver this producer's stream to me.
   subscribe,
+
+  /// client -> hub: stop delivering this producer's stream to me.
+  ///
+  /// The counterpart to [subscribe], added with `NetworkStream.removeInlet`.
+  /// Without it a route outlives the inlet that asked for it, and the hub keeps
+  /// relaying to a stream that has already let go of the peer — until the
+  /// producer's socket closes, which may be much later or never.
+  unsubscribe,
 
   /// client -> hub -> subscribers: a coordination message (JSON payload).
   message,

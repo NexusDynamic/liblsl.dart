@@ -226,6 +226,23 @@ class WsConnection {
     }).encode(),
   );
 
+  /// Tears down routes installed by [subscribe].
+  ///
+  /// The hub drops a departed peer's routes on socket close anyway, so this is
+  /// about the case that close does not cover: an inlet released while the
+  /// producer is still connected and still publishing.
+  void unsubscribe({
+    required String streamName,
+    required String subscriberEndpointId,
+    required List<String> producerEndpointIds,
+  }) => _send(
+    WsFrame(WsControl.unsubscribe, {
+      'stream': streamName,
+      'subscriber': subscriberEndpointId,
+      'from': producerEndpointIds,
+    }).encode(),
+  );
+
   void publishMessage({
     required String streamName,
     required String fromEndpointId,

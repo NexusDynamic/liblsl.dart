@@ -11,6 +11,8 @@ workspace:
   - packages/peer_coordinator/example
   - packages/liblsl_test
   - packages/liblsl_coordinator
+  - packages/webrtc_coordinator
+  - packages/webrtc_coordinator_flutter
   - packages/liblsl_timing
   - packages/liblsl_analysis
 dev_dependencies:

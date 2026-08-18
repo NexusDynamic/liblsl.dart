@@ -85,14 +85,31 @@ void main() {
     });
 
     test('the previous protocol version is rejected', () {
-      // v2 added the signal frame. Decode refuses anything it does not fully
-      // understand rather than guessing, so a hub and its clients have to be
-      // deployed together — this is the test that says so out loud.
-      expect(wsProtocolVersion, 2);
+      // v2 added the signal frame, v3 the unsubscribe frame. Decode refuses
+      // anything it does not fully understand rather than guessing, so a hub
+      // and its clients have to be deployed together — this is the test that
+      // says so out loud.
+      expect(wsProtocolVersion, 3);
       expect(
         () => WsFrame.decode('{"v":1,"t":"hello","p":{}}'),
         throwsFormatException,
       );
+      expect(
+        () => WsFrame.decode('{"v":2,"t":"hello","p":{}}'),
+        throwsFormatException,
+      );
+    });
+
+    test('an unsubscribe frame round-trips', () {
+      final frame = WsFrame(WsControl.unsubscribe, {
+        'stream': 'Modes',
+        'subscriber': 'S/a/Modes',
+        'from': ['S/b/Modes', 'S/c/Modes'],
+      });
+      final decoded = WsFrame.decode(frame.encode());
+      expect(decoded.type, WsControl.unsubscribe);
+      expect(decoded.payload['subscriber'], 'S/a/Modes');
+      expect(decoded.payload['from'], ['S/b/Modes', 'S/c/Modes']);
     });
 
     test('a signal frame round-trips', () {

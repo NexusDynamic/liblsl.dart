@@ -29,6 +29,9 @@ mixin InMemoryStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
   /// The subscriptions this stream has taken out, so they can be torn down.
   final Set<String> _subscribedProducers = {};
 
+  /// nodeUId -> producer endpoint id, so [removeInlet] can translate.
+  final Map<String, String> _producerByNodeUId = {};
+
   // Both "peers" are objects in one process, reading one PeerClock, so a
   // sender's reading is directly comparable with a local one. This is what
   // makes end-to-end timing exercisable in tests without LSL or a socket.
@@ -127,6 +130,7 @@ mixin InMemoryStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
     // to its own coordination stream on purpose. A transport that silently
     // skipped self would override those decisions.
     if (!_subscribedProducers.add(producer)) return;
+    _producerByNodeUId[handle.descriptor.nodeUId] = producer;
 
     bus.routing.subscribe(
       streamName: config.name,
@@ -134,6 +138,19 @@ mixin InMemoryStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
       subscriberEndpointId: endpointId,
     );
     await handle.dispose();
+  }
+
+  @override
+  Future<void> removeInlet(String nodeUId) async {
+    final producer = _producerByNodeUId.remove(nodeUId);
+    if (producer == null) return;
+    _subscribedProducers.remove(producer);
+    if (_disposed) return;
+    bus.routing.unsubscribe(
+      streamName: config.name,
+      producerEndpointId: producer,
+      subscriberEndpointId: endpointId,
+    );
   }
 
   @override
@@ -208,6 +225,7 @@ mixin InMemoryStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
       );
     }
     _subscribedProducers.clear();
+    _producerByNodeUId.clear();
     if (_publishing) {
       bus.registry.detach(endpointId);
       _publishing = false;

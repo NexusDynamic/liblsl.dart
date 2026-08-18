@@ -67,6 +67,19 @@ class CoordinationHub {
   int get connectionCount => _connections.length;
 
   /// Number of registered endpoints across all clients.
+  /// The subscribers this hub would relay [producerEndpointId]'s stream to.
+  ///
+  /// Read-only, and the only way to tell a route that was actually torn down
+  /// from one a client is merely ignoring locally — which is exactly the
+  /// distinction `NetworkStream.removeInlet` has to get right.
+  Set<String> subscribersFor({
+    required String streamName,
+    required String producerEndpointId,
+  }) => _routing.subscribersFor(
+    streamName: streamName,
+    producerEndpointId: producerEndpointId,
+  );
+
   int get endpointCount => _registry.length;
 
   /// Starts a hub.
@@ -171,6 +184,16 @@ class CoordinationHub {
         final subscriber = frame.payload['subscriber'] as String;
         for (final producer in (frame.payload['from'] as List).cast<String>()) {
           _routing.subscribe(
+            streamName: frame.payload['stream'] as String,
+            producerEndpointId: producer,
+            subscriberEndpointId: subscriber,
+          );
+        }
+
+      case WsControl.unsubscribe:
+        final subscriber = frame.payload['subscriber'] as String;
+        for (final producer in (frame.payload['from'] as List).cast<String>()) {
+          _routing.unsubscribe(
             streamName: frame.payload['stream'] as String,
             producerEndpointId: producer,
             subscriberEndpointId: subscriber,

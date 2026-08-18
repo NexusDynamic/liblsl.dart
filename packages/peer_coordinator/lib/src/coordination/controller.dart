@@ -23,6 +23,13 @@ class CoordinationController {
 
   late final CoordinationState _state;
   late final CoordinationStream _coordinationStream;
+
+  /// Whether [_coordinationStream] has been assigned.
+  ///
+  /// [_setupStateListeners] runs in the constructor, before [initialize], and
+  /// the stream is `late final` — so the departure handler has to be able to
+  /// tell "not yet" from "gone".
+  bool _coordinationStreamReady = false;
   late final IDiscovery _discovery;
 
   bool _stopping = false;
@@ -96,6 +103,20 @@ class CoordinationController {
       // the one place that catches them all.
       if (event is NodeLeftEvent) {
         _untrackPeerClock(event.node.uId);
+        // Release the coordination-stream inlet too. Inert on a relay
+        // transport, but a peer-to-peer one holds a live connection behind it,
+        // and there is no other point where it learns the peer is gone.
+        if (_coordinationStreamReady) {
+          unawaited(
+            _coordinationStream.removeInlet(event.node.uId).catchError((
+              Object e,
+            ) {
+              logger.warning(
+                'Failed to remove coordination inlet for ${event.node.uId}: $e',
+              );
+            }),
+          );
+        }
       }
     });
   }
@@ -110,6 +131,7 @@ class CoordinationController {
       coordinationConfig.streamConfig,
       session, // We'll manage this ourselves
     );
+    _coordinationStreamReady = true;
 
     await _coordinationStream.create();
     await _coordinationStream.createOutlet();

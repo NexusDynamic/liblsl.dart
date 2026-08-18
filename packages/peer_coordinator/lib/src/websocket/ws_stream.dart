@@ -45,6 +45,13 @@ mixin WsStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
   /// be discarded here.
   final Map<int, String> _slotOwners = {};
 
+  /// nodeUId -> the producer endpoint id this stream subscribed to.
+  ///
+  /// [removeInlet] is keyed on nodeUId (the only identifier stable across a
+  /// role change on every transport), but the hub routes on endpoint ids, so
+  /// the translation has to be remembered at subscribe time.
+  final Map<String, String> _producerByNodeUId = {};
+
   String get endpointId => descriptor.endpointId;
 
   PeerDescriptor get descriptor => PeerDescriptor.forNode(
@@ -157,6 +164,7 @@ mixin WsStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
     if (handle is WsPeerHandle && handle.slot != null) {
       _slotOwners[handle.slot!] = handle.descriptor.nodeUId;
     }
+    _producerByNodeUId[handle.descriptor.nodeUId] = producer;
 
     connection.subscribe(
       streamName: config.name,
@@ -164,6 +172,22 @@ mixin WsStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
       producerEndpointIds: [producer],
     );
     await handle.dispose();
+  }
+
+  @override
+  Future<void> removeInlet(String nodeUId) async {
+    final producer = _producerByNodeUId.remove(nodeUId);
+    if (producer == null) return;
+    _subscribedProducers.remove(producer);
+    _slotOwners.removeWhere((_, owner) => owner == nodeUId);
+    if (_disposed) return;
+    // Both halves matter. Dropping the producer locally stops delivery even if
+    // the frame never lands; the frame stops the hub spending bandwidth on it.
+    connection.unsubscribe(
+      streamName: config.name,
+      subscriberEndpointId: endpointId,
+      producerEndpointIds: [producer],
+    );
   }
 
   @override
@@ -258,6 +282,7 @@ mixin WsStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
     await stop();
     _subscribedProducers.clear();
     _slotOwners.clear();
+    _producerByNodeUId.clear();
     _publishing = false;
   }
 

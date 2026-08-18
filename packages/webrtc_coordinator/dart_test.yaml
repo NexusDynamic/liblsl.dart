@@ -1,0 +1,11 @@
+tags:
+  # Tests that need a real LSL network stack (loopback sockets, multicast
+  # resolution, FFI). Excluded from the default run; see `melos run test:lsl`.
+  lsl:
+    timeout: 2x
+  # Multi-node tests that drive whole sessions rather than single units.
+  integration:
+    timeout: 2x
+  # Known-timing-sensitive; kept out of the default run until stabilised.
+  flaky:
+    timeout: 2x

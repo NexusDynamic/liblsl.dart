@@ -51,6 +51,7 @@ class PeerSession extends CoordinationSession with InstanceUID {
 
   final Lock _streamLock = Lock();
   StreamSubscription<StreamLifecycleEvent>? _lifecycleSubscription;
+  StreamSubscription<NodeLeftEvent>? _departureSubscription;
 
   /// Single event stream for all coordination events.
   ///
@@ -98,6 +99,7 @@ class PeerSession extends CoordinationSession with InstanceUID {
     );
 
     _setupStreamCommandHandlers();
+    _setupDepartureHandler();
   }
 
   /// Creates a session, building the transport from
@@ -113,6 +115,29 @@ class PeerSession extends CoordinationSession with InstanceUID {
     transport: config.transportConfig.createTransport(),
     thisNodeConfig: thisNodeConfig,
   );
+
+  /// Releases every data stream's inlet to a node that has left.
+  ///
+  /// The controller does this for the coordination stream; data streams are
+  /// owned here, so the fan-out is here too. On a relay transport the inlet is
+  /// inert either way, but a transport holding a real per-peer resource — an
+  /// LSL inlet, an `RTCPeerConnection` — leaks one per departure without this.
+  void _setupDepartureHandler() {
+    _departureSubscription = events.nodeLeft.listen((event) async {
+      // A snapshot: removeInlet is async and a stream may be destroyed while
+      // the fan-out is in flight.
+      for (final stream in _dataStreams.values.toList(growable: false)) {
+        try {
+          await stream.removeInlet(event.node.uId);
+        } catch (e) {
+          logger.warning(
+            'Failed to remove inlet for ${event.node.uId} from '
+            '"${stream.name}": $e',
+          );
+        }
+      }
+    });
+  }
 
   void _setupStreamCommandHandlers() {
     // Handle all stream lifecycle events through the unified event stream
@@ -789,6 +814,8 @@ class PeerSession extends CoordinationSession with InstanceUID {
     await super.dispose();
     await _lifecycleSubscription?.cancel();
     _lifecycleSubscription = null;
+    await _departureSubscription?.cancel();
+    _departureSubscription = null;
 
     logger.finest('Disposed coordination session');
   }

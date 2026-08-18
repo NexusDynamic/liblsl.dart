@@ -1,0 +1,30 @@
+name: webrtc_coordinator
+description: >-
+  A genuinely peer-to-peer transport for peer_coordinator: WebRTC data channels
+  between peers, with the hub demoted to discovery and connection setup. Pure
+  Dart — the plugin binding lives in webrtc_coordinator_flutter.
+version: 0.1.0
+homepage: https://zeyus.com/
+repository: https://github.com/NexusDynamic/liblsl.dart
+issue_tracker: https://github.com/NexusDynamic/liblsl.dart/issues
+publish_to: 'none'
+
+resolution: workspace
+
+environment:
+  sdk: ^3.12.2
+
+dependencies:
+  meta:
+  logging: ^1.3.0
+  collection: ^1.19.1
+  fast_immutable_collections: ^11.2.0
+  peer_coordinator:
+    path: ../peer_coordinator
+  # Regular dep, not dev: lib/testing.dart ships the fake adapter and the
+  # participation harness for webrtc_coordinator_flutter to reuse, exactly as
+  # peer_coordinator ships its conformance suite.
+  test: ^1.31.2
+
+dev_dependencies:
+  lints: ^6.0.0

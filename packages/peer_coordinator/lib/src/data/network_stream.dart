@@ -536,6 +536,23 @@ abstract class NetworkStream<T extends NetworkStreamConfig, M extends IMessage>
   /// before using it.
   Future<void> addInlet(PeerHandle handle);
 
+  /// Unsubscribes from a peer, releasing whatever that inlet holds.
+  ///
+  /// Keyed on [nodeUId] rather than an endpoint id because an endpoint id is
+  /// not stable across election on every transport: LSL's is its `source_id`,
+  /// which encodes the node's role. [nodeUId] is the one identifier that
+  /// survives a role change on all of them, and it is what the departure paths
+  /// have in hand.
+  ///
+  /// Idempotent — removing an inlet that is not there is not an error.
+  ///
+  /// The default is a no-op, because on a relay transport a stale inlet is
+  /// inert: it costs a routing entry that the hub drops anyway when the peer's
+  /// socket closes. Transports holding a real per-peer resource — an LSL inlet,
+  /// an `RTCPeerConnection` — must override, or a departed peer leaks until
+  /// [dispose].
+  Future<void> removeInlet(String nodeUId) async {}
+
   /// Subscribes to every node in [nodes], resolving their endpoints first.
   Future<void> createInletsForNodes(
     Iterable<Node> nodes, {

@@ -504,6 +504,52 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
   }
 
   @override
+  Future<void> removeInlet(String nodeUId) async {
+    if (_disposed) return;
+
+    // Inlets are keyed by LSL `source_id`, which encodes the node's role and
+    // therefore changes when a node is promoted. The uId component does not,
+    // which is why the contract is keyed on it.
+    final doomed = _inletStreamInfos
+        .where((info) => _sourceIdNodeUId(info.sourceId) == nodeUId)
+        .toList(growable: false);
+    if (doomed.isEmpty) return;
+
+    for (final streamInfo in doomed) {
+      // Order matters and is not symmetric with addInlet: the isolate has to
+      // stop polling the inlet before the main thread destroys the streaminfo
+      // it was built from, or the poll loop reads freed memory. The isolate
+      // destroys the *inlet*; the streaminfo stays the main thread's, exactly
+      // as dispose() assumes.
+      try {
+        await _inletIsolate?.removeInlet(streamInfo.streamInfo.address);
+      } catch (e) {
+        logger.warning('Error removing inlet for node $nodeUId: $e');
+      }
+      _inletStreamInfos.remove(streamInfo);
+      streamInfo.destroy();
+    }
+
+    // The isolate is deliberately left running with no inlets. It costs an idle
+    // poll loop, but tearing it down would also have to tear down
+    // _incomingSubscription, and a peer that leaves and rejoins — the common
+    // case this exists for — would then pay a full isolate spin-up. Removing
+    // the streaminfos is what makes hasInletForSource false again, so the
+    // rejoin takes addInlet's existing-isolate path.
+  }
+
+  /// The node uId component of an LSL `source_id`.
+  ///
+  /// `PeerDescriptor.toSourceId` builds `name//role//uId//nodeId`. Parsed
+  /// positionally here rather than via `PeerDescriptor.fromSourceId` because a
+  /// malformed id should mean "does not match", not a thrown FormatException
+  /// during a departure sweep.
+  static String? _sourceIdNodeUId(String sourceId) {
+    final parts = sourceId.split('//');
+    return parts.length == 4 ? parts[2] : null;
+  }
+
+  @override
   Future<void> createInletsForNodes(
     Iterable<Node> nodes, {
     Duration resolveTimeout = const Duration(seconds: 10),
