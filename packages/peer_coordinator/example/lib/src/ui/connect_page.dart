@@ -51,6 +51,15 @@ class _ConnectPageState extends State<ConnectPage> {
   final _hubController = TextEditingController(text: 'ws://127.0.0.1:8080');
   final _roomController = TextEditingController(text: 'lounge');
 
+  /// STUN servers for the direct transport, whitespace or comma separated.
+  ///
+  /// Empty by default, and that is the interesting default: with no ICE
+  /// servers the only candidates are host candidates, so a direct connection
+  /// on a LAN involves no third party at all. A STUN server is what makes the
+  /// same session work across NATs, and it still only reflects an address —
+  /// the data never touches it.
+  final _stunController = TextEditingController();
+
   _Transport _transport = _Transport.relay;
   bool _connecting = false;
   String? _error;
@@ -60,6 +69,7 @@ class _ConnectPageState extends State<ConnectPage> {
     _nameController.dispose();
     _hubController.dispose();
     _roomController.dispose();
+    _stunController.dispose();
     super.dispose();
   }
 
@@ -107,14 +117,60 @@ class _ConnectPageState extends State<ConnectPage> {
     _Transport.direct => RtcTransportConfig(
       hubUri: hubUri,
       adapterFactory: flutterWebrtcAdapterFactory,
-      // Host candidates only: no STUN, no TURN, no third party. That covers
-      // devices on one LAN, which is what this example is for. Crossing a NAT
-      // needs a STUN server here — and note that adding TURN would put a
-      // relay back on the data path, which is the thing this mode exists to
-      // remove.
-      iceServers: const [],
+      iceServers: _iceServers(),
     ),
   };
+
+  /// The STUN field, in the `{'urls': ...}` form `RtcTransportConfig` wants.
+  ///
+  /// Empty means host candidates only: no STUN, no TURN, no third party, which
+  /// covers devices on one LAN and is the default this example ships with.
+  /// Crossing a NAT needs a STUN server, which only tells a peer what its own
+  /// public address looks like — the data still goes peer to peer. TURN would
+  /// put a relay back on the data path, which is the thing this mode exists to
+  /// remove, so [_validateIceServers] turns it away.
+  ///
+  /// One entry per URL rather than one entry with every URL: the `urls` list on
+  /// a single entry means "one server, reachable these ways", which is not what
+  /// a list of different servers is.
+  List<Map<String, Object?>> _iceServers() => [
+    for (final url in _splitServers(_stunController.text)) {'urls': url},
+  ];
+
+  /// Splits on commas or whitespace, so a pasted list works however it came.
+  static Iterable<String> _splitServers(String value) => value
+      .split(RegExp(r'[,\s]+'))
+      .map((part) => part.trim())
+      .where((part) => part.isNotEmpty);
+
+  /// What the globe button fills in. A well-known public STUN server, so
+  /// testing across the internet does not start with finding one.
+  static const String _publicStun = 'stun:stun.l.google.com:19302';
+
+  /// Rejects what `RtcTransportConfig` would accept but this mode should not.
+  ///
+  /// Only reachable while [_Transport.direct] is selected — the field is not in
+  /// the tree otherwise, so the form never runs this for a relay session.
+  String? _validateIceServers(String? value) {
+    final text = value?.trim() ?? '';
+    // Empty is the LAN case, and the default: host candidates only.
+    if (text.isEmpty) return null;
+    for (final url in _splitServers(text)) {
+      final scheme = url.split(':').first.toLowerCase();
+      if (scheme == 'turn' || scheme == 'turns') {
+        // Not a validation technicality: a TURN-relayed connection sends the
+        // bytes through someone else's server, so it is peer-to-peer in name
+        // only and the halved hop count this mode exists for does not survive
+        // it. Relay mode is the honest way to have a relay.
+        return 'TURN relays the data — use Relay mode instead';
+      }
+      if (scheme != 'stun' && scheme != 'stuns') {
+        return 'Must start with stun: — e.g. $_publicStun';
+      }
+      if (url.length <= scheme.length + 1) return 'No host after "$scheme:"';
+    }
+    return null;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -174,6 +230,28 @@ class _ConnectPageState extends State<ConnectPage> {
                     ),
                     validator: _validateHubUri,
                   ),
+                  if (_transport == _Transport.direct) ...[
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      controller: _stunController,
+                      textInputAction: TextInputAction.next,
+                      decoration: InputDecoration(
+                        labelText: 'STUN servers (optional)',
+                        helperText: 'Leave empty on a LAN — no third party',
+                        border: const OutlineInputBorder(),
+                        suffixIcon: IconButton(
+                          tooltip: 'Use a public STUN server',
+                          icon: const Icon(Icons.public),
+                          onPressed: _connecting
+                              ? null
+                              : () => setState(
+                                  () => _stunController.text = _publicStun,
+                                ),
+                        ),
+                      ),
+                      validator: _validateIceServers,
+                    ),
+                  ],
                   const SizedBox(height: 16),
                   TextFormField(
                     controller: _roomController,

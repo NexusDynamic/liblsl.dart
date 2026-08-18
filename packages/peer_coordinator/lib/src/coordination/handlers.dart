@@ -130,29 +130,72 @@ class CoordinatorMessageHandler extends CoordinationMessageHandler
     required super.sessionConfig,
   });
 
+  /// Types only a coordinator sends, and which it is itself the authority on.
+  ///
+  /// `consumeCoordinationStreamAsCoordinator` — on by default — has the
+  /// coordinator subscribe to its own coordination stream, so every one of
+  /// these comes straight back to the node that broadcast it. Claiming them in
+  /// [canHandle] is what keeps the controller from logging "no handler" for a
+  /// node's own echo; [handleMessage] then drops them. Acting on them would be
+  /// the actual bug: applying our own topology update or re-accepting our own
+  /// join would double-count decisions this node already made.
+  ///
+  /// Deliberately excludes `streamReady` and `userMessage`, which the
+  /// coordinator also broadcasts but does have real handling for.
+  static const Set<CoordinationMessageType> _ownBroadcastEchoes = {
+    CoordinationMessageType.joinOffer,
+    CoordinationMessageType.joinAccept,
+    CoordinationMessageType.joinReject,
+    CoordinationMessageType.topologyUpdate,
+    CoordinationMessageType.createStream,
+    CoordinationMessageType.startStream,
+    CoordinationMessageType.stopStream,
+    CoordinationMessageType.pauseStream,
+    CoordinationMessageType.resumeStream,
+    CoordinationMessageType.flushStream,
+    CoordinationMessageType.destroyStream,
+    CoordinationMessageType.configUpdate,
+    CoordinationMessageType.sessionEnd,
+  };
+
   @override
   bool canHandle(CoordinationMessageType type) {
     return state.isCoordinator &&
-        {
-          CoordinationMessageType.heartbeat,
-          CoordinationMessageType.connectionTest,
-          // The coordinator probes each participant it has an inlet from, so it
-          // consumes replies too — this used to be participant-only.
-          CoordinationMessageType.connectionTestResponse,
-          CoordinationMessageType.joinRequest,
-          CoordinationMessageType.nodeLeaving,
-          CoordinationMessageType.streamReady,
-          CoordinationMessageType.userMessage,
-          CoordinationMessageType.userParticipantMessage,
-          // Not acted on — see handleMessage. Claimed so the controller does not
-          // log "no handler" for the coordinator's own echo of its own broadcast
-          // when consumeCoordinationStreamAsCoordinator is on.
-          CoordinationMessageType.sessionEnd,
-        }.contains(type);
+        ({
+              CoordinationMessageType.heartbeat,
+              CoordinationMessageType.connectionTest,
+              // The coordinator probes each participant it has an inlet from, so
+              // it consumes replies too — this used to be participant-only.
+              CoordinationMessageType.connectionTestResponse,
+              CoordinationMessageType.joinRequest,
+              CoordinationMessageType.nodeLeaving,
+              CoordinationMessageType.streamReady,
+              CoordinationMessageType.userMessage,
+              CoordinationMessageType.userParticipantMessage,
+            }.contains(type) ||
+            _ownBroadcastEchoes.contains(type));
   }
 
   @override
   Future<void> handleMessage(CoordinationMessage message) async {
+    if (_ownBroadcastEchoes.contains(message.type)) {
+      if (message.fromNodeUId == thisNode.uId) {
+        // finest, not warning: this is the expected steady state, once per
+        // broadcast, and at any louder level it buries the log.
+        logger.finest('Ignoring own ${message.type.name} echo');
+      } else {
+        // Not an echo. Another node is broadcasting decisions only a
+        // coordinator makes, which means two nodes believe they hold the role —
+        // worth saying out loud rather than dropping silently, because the
+        // sessions have already diverged by the time this is seen.
+        logger.warning(
+          'Received ${message.type.name} from ${message.fromNodeUId}, but this '
+          'node is the coordinator; ignoring. Two nodes appear to hold the '
+          'coordinator role.',
+        );
+      }
+      return;
+    }
     switch (message.type) {
       case CoordinationMessageType.heartbeat:
         await _handleHeartbeat(message as HeartbeatMessage);
@@ -164,11 +207,6 @@ class CoordinatorMessageHandler extends CoordinationMessageHandler
         await _handleJoinRequest(message as JoinRequestMessage);
       case CoordinationMessageType.nodeLeaving:
         await _handleNodeLeaving(message as NodeLeavingMessage);
-      case CoordinationMessageType.sessionEnd:
-        // Only this node sends these, and it is the authority on the session
-        // ending, so there is nothing to act on. Reaching here means our own
-        // broadcast came back to us.
-        logger.finest('Ignoring own sessionEnd echo');
       case CoordinationMessageType.streamReady:
         await _handleStreamReady(message as StreamReadyMessage);
       case CoordinationMessageType.userMessage:

@@ -42,6 +42,16 @@ class FlutterRtcPeerAdapter implements RtcPeerAdapter {
   final String selfKey;
 
   final Map<String, _FlutterRtcPeerLink> _links = {};
+
+  /// Links still being built, keyed by peer.
+  ///
+  /// `createPeerConnection` is a platform-channel round trip, and the mesh
+  /// asks for a link from two places at once on every connection — its own
+  /// dial and the peer's inbound signal. Memoising the *future* is what makes
+  /// "one connection per peer" true; memoising only the result leaves a gap
+  /// wide enough to build two, which is a fault that only appears on a device
+  /// because the fake adapter has no such gap.
+  final Map<String, Future<RtcPeerLink>> _pendingLinks = {};
   bool _closed = false;
 
   @override
@@ -52,21 +62,38 @@ class FlutterRtcPeerAdapter implements RtcPeerAdapter {
     if (_closed) throw StateError('Adapter for $selfKey is closed');
     final existing = _links[peerKey];
     if (existing != null) return existing;
+    // Nothing above this line awaits, so the memo is in place before any other
+    // caller can run.
+    return _pendingLinks[peerKey] ??= _createLink(peerKey, iceServers);
+  }
 
-    final connection = await createPeerConnection({
-      'iceServers': iceServers,
-      // Unified plan is the only semantics current browsers implement, and
-      // this connection carries no media anyway.
-      'sdpSemantics': 'unified-plan',
-    });
-    final link = _FlutterRtcPeerLink(
-      adapter: this,
-      peerKey: peerKey,
-      connection: connection,
-    );
-    _links[peerKey] = link;
-    link._wire();
-    return link;
+  Future<RtcPeerLink> _createLink(
+    String peerKey,
+    List<Map<String, Object?>> iceServers,
+  ) async {
+    try {
+      final connection = await createPeerConnection({
+        'iceServers': iceServers,
+        // Unified plan is the only semantics current browsers implement, and
+        // this connection carries no media anyway.
+        'sdpSemantics': 'unified-plan',
+      });
+      if (_closed) {
+        await connection.close();
+        await connection.dispose();
+        throw StateError('Adapter for $selfKey is closed');
+      }
+      final link = _FlutterRtcPeerLink(
+        adapter: this,
+        peerKey: peerKey,
+        connection: connection,
+      );
+      _links[peerKey] = link;
+      link._wire();
+      return link;
+    } finally {
+      _pendingLinks.remove(peerKey);
+    }
   }
 
   @override
@@ -77,6 +104,7 @@ class FlutterRtcPeerAdapter implements RtcPeerAdapter {
       await link.close();
     }
     _links.clear();
+    _pendingLinks.clear();
   }
 
   void _forget(String peerKey) => _links.remove(peerKey);
@@ -99,6 +127,9 @@ class _FlutterRtcPeerLink implements RtcPeerLink {
   final _candidates = StreamController<Map<String, Object?>>.broadcast();
   final Map<int, _FlutterRtcChannel> _channels = {};
 
+  /// Channels still being opened, keyed by id. See [openChannel].
+  final Map<int, Future<RtcChannel>> _pendingChannels = {};
+
   /// Candidates that arrived before the remote description did.
   ///
   /// ICE routinely delivers these ahead of the answer, and
@@ -109,6 +140,14 @@ class _FlutterRtcPeerLink implements RtcPeerLink {
 
   RtcLinkState _state = RtcLinkState.connecting;
   bool _remoteSet = false;
+
+  /// True between offering and the answer landing.
+  ///
+  /// Tracked here rather than read off `connection.signalingState`, which is a
+  /// cached copy updated by an event that has not necessarily arrived yet and
+  /// so still reads `stable` right after `setLocalDescription`. This is the
+  /// same fact, known locally and in time to be useful.
+  bool _answerPending = false;
 
   @override
   RtcLinkState get state => _state;
@@ -153,6 +192,7 @@ class _FlutterRtcPeerLink implements RtcPeerLink {
     _ensureOpen();
     final offer = await connection.createOffer({});
     await connection.setLocalDescription(offer);
+    _answerPending = true;
     return Map<String, Object?>.from(offer.toMap() as Map);
   }
 
@@ -161,6 +201,9 @@ class _FlutterRtcPeerLink implements RtcPeerLink {
     Map<String, Object?> remoteOffer,
   ) async {
     _ensureOpen();
+    // This node is the answerer for this pair, so any offer of its own is
+    // moot; see RtcMesh.shouldOffer, which decides that deterministically.
+    _answerPending = false;
     await _applyRemote(remoteOffer, expected: 'offer');
     final answer = await connection.createAnswer({});
     await connection.setLocalDescription(answer);
@@ -170,6 +213,15 @@ class _FlutterRtcPeerLink implements RtcPeerLink {
   @override
   Future<void> acceptAnswer(Map<String, Object?> remoteAnswer) async {
     _ensureOpen();
+    if (!_answerPending) {
+      // An answer to a negotiation that is already finished. libwebrtc rejects
+      // it outright — "Failed to set remote answer sdp: Called in wrong state:
+      // stable" — which reads like a failure when it is a duplicate, and the
+      // connection it names is fine. Drop it quietly instead.
+      _logger.fine('Ignoring an answer from $peerKey with no offer pending');
+      return;
+    }
+    _answerPending = false;
     await _applyRemote(remoteAnswer, expected: 'answer');
   }
 
@@ -218,7 +270,37 @@ class _FlutterRtcPeerLink implements RtcPeerLink {
     _ensureOpen();
     final existing = _channels[id];
     if (existing != null) return existing;
+    // Memoised before any await, so two callers asking for one pre-negotiated
+    // id get one channel. Two would be a protocol error — same SCTP stream,
+    // two halves — and the loser is silently the one the caller is awaiting.
+    return _pendingChannels[id] ??= _openChannel(
+      id,
+      ordered: ordered,
+      maxRetransmits: maxRetransmits,
+    );
+  }
 
+  Future<RtcChannel> _openChannel(
+    int id, {
+    required bool ordered,
+    int? maxRetransmits,
+  }) async {
+    try {
+      return await _buildChannel(
+        id,
+        ordered: ordered,
+        maxRetransmits: maxRetransmits,
+      );
+    } finally {
+      _pendingChannels.remove(id);
+    }
+  }
+
+  Future<RtcChannel> _buildChannel(
+    int id, {
+    required bool ordered,
+    int? maxRetransmits,
+  }) async {
     final init = RTCDataChannelInit()
       ..negotiated = true
       ..id = id
@@ -259,6 +341,7 @@ class _FlutterRtcPeerLink implements RtcPeerLink {
       await channel.close();
     }
     _channels.clear();
+    _pendingChannels.clear();
     adapter._forget(peerKey);
     await connection.close();
     await connection.dispose();
@@ -314,7 +397,15 @@ class _FlutterRtcChannel implements RtcChannel {
         case RTCDataChannelState.RTCDataChannelOpen:
           if (!_readyCompleter.isCompleted) _readyCompleter.complete();
         case RTCDataChannelState.RTCDataChannelClosed:
-          unawaited(close());
+          // Deferred, not inline. `RTCDataChannelNative.eventListener` invokes
+          // this callback and *then* adds to its own state controller, while
+          // `RTCDataChannelNative.close()` closes that controller before it
+          // cancels its event subscription. Closing from inside the callback
+          // therefore makes the plugin throw "Bad state: Cannot add new events
+          // after calling close" out of its own event listener, where nothing
+          // can catch it. Letting the event finish being delivered first costs
+          // one microtask.
+          scheduleMicrotask(() => unawaited(close()));
         case RTCDataChannelState.RTCDataChannelConnecting:
         case RTCDataChannelState.RTCDataChannelClosing:
           break;

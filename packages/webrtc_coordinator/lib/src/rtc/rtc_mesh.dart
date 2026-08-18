@@ -72,6 +72,19 @@ class RtcMesh {
 
   final Map<String, _PeerEntry> _peers = {};
 
+  /// Entries still being built, keyed by node uId.
+  ///
+  /// [_entryFor] awaits `adapter.createLink`, and two callers arriving inside
+  /// that gap is the normal case rather than a rare one: this node's own
+  /// `channelFor` and the peer's `open` or `offer` signal reach it at the same
+  /// moment on every connection. Without memoising the *future*, both would
+  /// see no entry, both would build one, and the second would displace the
+  /// first — two `RTCPeerConnection`s for one peer, with the offer made on one
+  /// and the answer applied to the other, which libwebrtc rejects as "Called
+  /// in wrong state: stable" while the channel nobody is waiting on never
+  /// opens.
+  final Map<String, Future<_PeerEntry>> _pendingPeers = {};
+
   /// streamName -> node uIds that have asked to receive it from this node.
   ///
   /// The whole routing table. On the WebSocket transport this lives in the
@@ -262,11 +275,33 @@ class RtcMesh {
   // Dialling
   // ---------------------------------------------------------------------------
 
-  Future<_PeerEntry> _entryFor(String peerNodeUId) async {
+  /// The entry for [peerNodeUId], building it if this is the first mention.
+  ///
+  /// Deliberately not `async`: everything up to storing the in-flight future
+  /// must run in one turn, or the memo does not close the window it exists to
+  /// close. See [_pendingPeers].
+  Future<_PeerEntry> _entryFor(String peerNodeUId) {
     final existing = _peers[peerNodeUId];
-    if (existing != null) return existing;
+    if (existing != null) return Future.value(existing);
+    return _pendingPeers[peerNodeUId] ??= _createEntry(peerNodeUId);
+  }
 
+  Future<_PeerEntry> _createEntry(String peerNodeUId) async {
+    try {
+      return await _buildEntry(peerNodeUId);
+    } finally {
+      _pendingPeers.remove(peerNodeUId);
+    }
+  }
+
+  Future<_PeerEntry> _buildEntry(String peerNodeUId) async {
     final link = await adapter.createLink(peerNodeUId, iceServers: iceServers);
+    // The mesh may have been closed while the link was being built, in which
+    // case nothing will ever dispose this one but us.
+    if (_closed) {
+      await link.close();
+      throw StateError('Mesh is closed');
+    }
     final entry = _PeerEntry(peerNodeUId: peerNodeUId, link: link);
     _peers[peerNodeUId] = entry;
 
@@ -309,16 +344,60 @@ class RtcMesh {
   }
 
   /// Opens [streamName]'s channel on [entry] if it is not already open.
+  ///
+  /// Memoised on the in-flight future for the same reason [_entryFor] is, and
+  /// the collision here is worse: `channelFor` and the peer's `open` signal
+  /// both ask for the coordination stream on every connection, so without this
+  /// two data channels get opened with the same pre-negotiated id. One of them
+  /// wins the map, the other is what `channelFor` is awaiting `ready` on, and
+  /// the join fails on a timeout with the link still `connecting`.
+  ///
+  /// Not `async`, for the same reason.
   Future<RtcChannel> _ensureChannel(
     _PeerEntry entry,
     String streamName,
     int id, {
     required bool ordered,
     int? maxRetransmits,
-  }) async {
+  }) {
     final existing = entry.channels[streamName];
-    if (existing != null) return existing;
+    if (existing != null) return Future.value(existing);
+    return entry.pendingChannels[streamName] ??= _openChannel(
+      entry,
+      streamName,
+      id,
+      ordered: ordered,
+      maxRetransmits: maxRetransmits,
+    );
+  }
 
+  Future<RtcChannel> _openChannel(
+    _PeerEntry entry,
+    String streamName,
+    int id, {
+    required bool ordered,
+    int? maxRetransmits,
+  }) async {
+    try {
+      return await _buildChannel(
+        entry,
+        streamName,
+        id,
+        ordered: ordered,
+        maxRetransmits: maxRetransmits,
+      );
+    } finally {
+      entry.pendingChannels.remove(streamName);
+    }
+  }
+
+  Future<RtcChannel> _buildChannel(
+    _PeerEntry entry,
+    String streamName,
+    int id, {
+    required bool ordered,
+    int? maxRetransmits,
+  }) async {
     // A collision would put two streams on one channel and silently interleave
     // them. Fail here, in this process, rather than let it cross the wire.
     final collision = entry.streamByChannelId[id];
@@ -409,9 +488,11 @@ class RtcMesh {
         case RtcSignalKind.offer:
           await _onOffer(signal);
         case RtcSignalKind.answer:
-          await _peers[signal.fromNodeUId]?.link.acceptAnswer(signal.payload);
+          final entry = await _knownEntry(signal.fromNodeUId);
+          await entry?.link.acceptAnswer(signal.payload);
         case RtcSignalKind.candidate:
-          await _peers[signal.fromNodeUId]?.link.addCandidate(signal.payload);
+          final entry = await _knownEntry(signal.fromNodeUId);
+          await entry?.link.addCandidate(signal.payload);
         case RtcSignalKind.open:
           await _onOpen(signal);
         case RtcSignalKind.bye:
@@ -421,6 +502,28 @@ class RtcMesh {
       _logger.warning(
         'Failed to handle ${signal.kind.name} from ${signal.fromNodeUId}: $e',
       );
+    }
+  }
+
+  /// The entry for [peerNodeUId] if one exists or is on its way, else null.
+  ///
+  /// Answers and candidates must not *create* a link — an unsolicited signal
+  /// from a peer this node never dialled is not a reason to connect — but they
+  /// must not be dropped merely because the link they belong to is still a
+  /// platform-channel round trip away from existing. That is the normal case
+  /// for the candidates that trickle in immediately behind an offer, and
+  /// dropping them leaves the answerer with no remote candidates at all.
+  Future<_PeerEntry?> _knownEntry(String peerNodeUId) async {
+    final existing = _peers[peerNodeUId];
+    if (existing != null) return existing;
+    final pending = _pendingPeers[peerNodeUId];
+    if (pending == null) return null;
+    try {
+      return await pending;
+    } catch (_) {
+      // Whoever asked for the link reports its failure; this is a signal that
+      // no longer has anywhere to go.
+      return null;
     }
   }
 
@@ -496,6 +599,10 @@ class _PeerEntry {
   /// streamName -> channel.
   final Map<String, RtcChannel> channels = {};
 
+  /// streamName -> the channel still being opened, so two callers asking for
+  /// one stream at once get one channel. See `RtcMesh._ensureChannel`.
+  final Map<String, Future<RtcChannel>> pendingChannels = {};
+
   /// channel id -> streamName, so a derivation collision is caught locally.
   final Map<int, String> streamByChannelId = {};
 
@@ -508,6 +615,7 @@ class _PeerEntry {
     }
     subscriptions.clear();
     channels.clear();
+    pendingChannels.clear();
     streamByChannelId.clear();
     await link.close();
   }

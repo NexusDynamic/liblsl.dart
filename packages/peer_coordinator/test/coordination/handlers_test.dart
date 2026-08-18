@@ -118,8 +118,20 @@ void main() {
           CoordinationMessageType.userParticipantMessage,
           // Claimed but not acted on: the coordinator is the only sender of
           // these, so one arriving here is its own broadcast coming back when
-          // consumeCoordinationStreamAsCoordinator is on. Claiming it keeps the
-          // controller from logging "no handler" for every one.
+          // consumeCoordinationStreamAsCoordinator is on. Claiming them keeps
+          // the controller from logging "no handler" for every one.
+          CoordinationMessageType.joinOffer,
+          CoordinationMessageType.joinAccept,
+          CoordinationMessageType.joinReject,
+          CoordinationMessageType.topologyUpdate,
+          CoordinationMessageType.createStream,
+          CoordinationMessageType.startStream,
+          CoordinationMessageType.stopStream,
+          CoordinationMessageType.pauseStream,
+          CoordinationMessageType.resumeStream,
+          CoordinationMessageType.flushStream,
+          CoordinationMessageType.destroyStream,
+          CoordinationMessageType.configUpdate,
           CoordinationMessageType.sessionEnd,
         };
         for (final type in CoordinationMessageType.values) {
@@ -136,6 +148,52 @@ void main() {
         for (final type in CoordinationMessageType.values) {
           expect(handler.canHandle(type), isFalse, reason: '$type');
         }
+      });
+    });
+
+    group('own broadcast echoes', () {
+      test(
+        'a topology update of our own does not re-apply or re-broadcast',
+        () async {
+          final peer = participant('peer-a');
+          state.addNode(peer);
+          spy.outgoing.clear();
+          spy.events.clear();
+
+          // Exactly what comes back when consumeCoordinationStreamAsCoordinator
+          // is on: the topology this node just published, with itself as sender.
+          await handler.handleMessage(
+            TopologyUpdateMessage(fromNodeUId: me.uId, topology: const []),
+          );
+          await spy.settle();
+
+          // The echo names an empty topology. Acting on it would drop the peer
+          // this node had just accepted, which is why dropping the echo is the
+          // load-bearing behaviour and not merely a way to quieten the log.
+          expect(state.connectedNodes.map((n) => n.uId), contains(peer.uId));
+          expect(spy.outgoing, isEmpty);
+          expect(spy.events, isEmpty);
+        },
+      );
+
+      test('the same type from another node is ignored, not applied', () async {
+        final peer = participant('peer-a');
+        state.addNode(peer);
+        spy.outgoing.clear();
+
+        // Two coordinators: a split brain. Still ignored — this node holds the
+        // role — but it must not silently adopt a rival's topology either.
+        await handler.handleMessage(
+          TopologyUpdateMessage(
+            fromNodeUId: 'rival-coordinator',
+            topology: const [],
+          ),
+        );
+        await spy.settle();
+
+        expect(state.coordinatorUId, me.uId);
+        expect(state.connectedNodes.map((n) => n.uId), contains(peer.uId));
+        expect(spy.outgoing, isEmpty);
       });
     });
 

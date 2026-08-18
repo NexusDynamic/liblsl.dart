@@ -36,6 +36,41 @@ same room name lands in the same session.
 The first node to join finds no one to defer to and becomes the **coordinator** —
 the app bar says which role this node holds.
 
+## Relay or direct
+
+The connect screen offers two transports, and `ChatSession` cannot tell which
+one it got — it takes an `ITransportConfig` and never asks. Switching medium
+changes exactly one expression in the whole app, `_transportConfig` in
+[`lib/src/ui/connect_page.dart`](lib/src/ui/connect_page.dart).
+
+| | Relay | Direct |
+| --- | --- | --- |
+| carries the data | the hub | a WebRTC data channel, peer to peer |
+| hops | two | one |
+| the hub still does | everything | discovery and signalling only |
+
+Both need the hub running. Two peers that have never met cannot exchange a
+WebRTC offer over the connection the offer is for, so direct mode uses the same
+socket to carry the offers, answers and candidates — it just stops sending it
+the messages.
+
+### STUN, and why the field is empty by default
+
+Direct mode has a **STUN servers** field. Leave it empty on a LAN: with no ICE
+servers the peers gather host candidates only, so the connection involves no
+third party whatsoever, which is what this mode is for.
+
+Across the internet, two peers behind NATs cannot learn their own public
+addresses on their own, and empty means they never connect. A STUN server tells
+each peer what its address looks like from outside and then takes no further
+part — the data still goes peer to peer. The globe button fills in a public one;
+a comma or space separated list works too.
+
+**TURN is refused, deliberately.** A TURN-relayed connection sends the bytes
+through someone else's server, so it is peer-to-peer in name only and the halved
+hop count direct mode exists for does not survive it. If you want a relay, Relay
+mode is the honest way to have one.
+
 ## How a message actually travels
 
 The user-message channel is shaped by the coordination topology, not by a mesh:
@@ -107,6 +142,9 @@ choice for a long-running measurement session; it is a worse fit here, where
 - **Kill the coordinator.** Every survivor returns to the connect screen. Rejoin
   from one of them and it becomes the host of a new room; rejoin from a second
   and it joins as a participant.
+- **Swap the transport.** Run the same room in Relay and then in Direct. Nothing
+  about the chat changes, which is the point; what changes is that in Direct the
+  hub stops seeing the messages.
 
 ## Platform notes
 
@@ -116,3 +154,7 @@ choice for a long-running measurement session; it is a worse fit here, where
   during development. Both are in the manifest.
 - **Web**: a page served over `https:` may only open a `wss:` socket. Serving the
   app over plain `http:` (as `flutter run -d chrome` does) works with `ws://`.
+- **Chrome and direct mode**: Chrome replaces its host candidates with mDNS
+  `.local` names unless a site has been granted media permission. Peers that
+  resolve mDNS pair up on them directly; ones that do not still connect, from
+  the peer-reflexive candidates Chrome's own connectivity checks create.

@@ -2,8 +2,8 @@
 /// against.
 ///
 /// The whole value of the adapter seam depends on this file being honest. The
-/// two properties that matter most, because getting either wrong would let the
-/// suite validate behaviour no real transport has:
+/// properties that matter most, because getting any of them wrong would let
+/// the suite validate behaviour no real transport has:
 ///
 /// 1. **Delivery is asynchronous.** Every send hops a microtask before it
 ///    arrives, the way `InMemoryBus` is careful to. A synchronous fake makes
@@ -12,6 +12,13 @@
 ///    through the caller, so the transport's signalling path is exercised
 ///    rather than short-circuited. A link that never receives an answer never
 ///    connects, and a channel opened on it never becomes ready.
+/// 3. **Creating a link or a channel suspends.** In the real binding both are
+///    platform-channel round trips, so there is a window between "is there one
+///    already?" and "here it is" in which a second caller can arrive — and the
+///    mesh routinely has two, its own dial and the peer's inbound `open`
+///    signal. A fake that answered synchronously would close that window for
+///    free and let the suite pass while a device built two connections for one
+///    peer, or two halves of one pre-negotiated channel.
 ///
 /// It does not model: media, bandwidth, packet loss, ICE restarts, or the
 /// difference between reliable and unreliable delivery beyond recording the
@@ -75,6 +82,10 @@ class FakeRtcBus {
     required String fromKey,
   }) => _adapters[peerKey]?._links[fromKey];
 
+  /// One suspension, sized like a delivery. What makes "asked for" and "have
+  /// it" distinct events for link and channel creation.
+  Future<void> _hop() => Future<void>.delayed(deliveryDelay);
+
   Future<void> _deliver(void Function() action) async {
     if (deliveryDelay == Duration.zero) {
       // A microtask, not a synchronous call: the minimum hop that still makes
@@ -98,6 +109,10 @@ class FakeRtcPeerAdapter implements RtcPeerAdapter {
   final FakeRtcBus bus;
 
   final Map<String, _FakeRtcPeerLink> _links = {};
+
+  /// Links still being built. The real binding needs this and so does the
+  /// fake, now that [createLink] suspends like the real one.
+  final Map<String, Future<RtcPeerLink>> _pendingLinks = {};
   bool _closed = false;
 
   /// Every channel this adapter was asked to open, in order and cumulative.
@@ -128,9 +143,19 @@ class FakeRtcPeerAdapter implements RtcPeerAdapter {
     if (_closed) throw StateError('Adapter for $selfKey is closed');
     final existing = _links[peerKey];
     if (existing != null) return existing;
-    final link = _FakeRtcPeerLink(adapter: this, peerKey: peerKey);
-    _links[peerKey] = link;
-    return link;
+    return _pendingLinks[peerKey] ??= _createLink(peerKey);
+  }
+
+  Future<RtcPeerLink> _createLink(String peerKey) async {
+    try {
+      // The gap a platform-channel round trip leaves. See the class comment.
+      await bus._hop();
+      final link = _FakeRtcPeerLink(adapter: this, peerKey: peerKey);
+      _links[peerKey] = link;
+      return link;
+    } finally {
+      _pendingLinks.remove(peerKey);
+    }
   }
 
   @override
@@ -141,6 +166,7 @@ class FakeRtcPeerAdapter implements RtcPeerAdapter {
       await link.close();
     }
     _links.clear();
+    _pendingLinks.clear();
     bus._unregister(selfKey);
   }
 
@@ -158,6 +184,9 @@ class _FakeRtcPeerLink implements RtcPeerLink {
   final _states = StreamController<RtcLinkState>.broadcast();
   final _candidates = StreamController<Map<String, Object?>>.broadcast();
   final Map<int, _FakeRtcChannel> _channels = {};
+
+  /// Channels still being opened. See the class comment on [FakeRtcPeerAdapter].
+  final Map<int, Future<RtcChannel>> _pendingChannels = {};
 
   RtcLinkState _state = RtcLinkState.connecting;
   bool _localSet = false;
@@ -244,6 +273,37 @@ class _FakeRtcPeerLink implements RtcPeerLink {
     _ensureOpen();
     final existing = _channels[id];
     if (existing != null) return existing;
+    return _pendingChannels[id] ??= _openChannel(
+      id,
+      ordered: ordered,
+      maxRetransmits: maxRetransmits,
+    );
+  }
+
+  Future<RtcChannel> _openChannel(
+    int id, {
+    required bool ordered,
+    int? maxRetransmits,
+  }) async {
+    try {
+      return await _buildChannel(
+        id,
+        ordered: ordered,
+        maxRetransmits: maxRetransmits,
+      );
+    } finally {
+      _pendingChannels.remove(id);
+    }
+  }
+
+  Future<RtcChannel> _buildChannel(
+    int id, {
+    required bool ordered,
+    int? maxRetransmits,
+  }) async {
+    // The gap a platform-channel round trip leaves.
+    await adapter.bus._hop();
+    _ensureOpen();
     final channel = _FakeRtcChannel(
       link: this,
       id: id,
@@ -273,6 +333,7 @@ class _FakeRtcPeerLink implements RtcPeerLink {
       await channel.close();
     }
     _channels.clear();
+    _pendingChannels.clear();
     adapter._forget(peerKey);
     await _states.close();
     await _candidates.close();
