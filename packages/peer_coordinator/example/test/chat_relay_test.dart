@@ -8,6 +8,7 @@ library;
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:peer_coordinator/in_memory.dart';
+import 'package:peer_coordinator/peer_coordinator.dart';
 import 'package:peer_coordinator_example/src/chat/chat_message.dart';
 import 'package:peer_coordinator_example/src/chat/chat_session.dart';
 
@@ -65,6 +66,20 @@ void main() {
         fail(
           'expected $count chat lines on ${session.displayName}, '
           'saw ${chatLines(session).length}',
+        );
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+  }
+
+  /// Polls until [session] can see [count] members.
+  Future<void> waitForRosterOf(ChatSession session, int count) async {
+    final deadline = DateTime.now().add(const Duration(seconds: 5));
+    while (session.roster.value.length < count) {
+      if (!DateTime.now().isBefore(deadline)) {
+        fail(
+          'expected $count in the roster on ${session.displayName}, '
+          'saw ${session.roster.value.length}',
         );
       }
       await Future<void>.delayed(const Duration(milliseconds: 10));
@@ -149,22 +164,92 @@ void main() {
     }
   });
 
-  test('everyone sees everyone in the roster', () async {
-    final coordinator = await join('ana');
-    final participant = await join('bo');
-
-    Future<void> waitForRoster(ChatSession session) async {
+  group('the host leaving closes the room', () {
+    /// Polls for the room to close, rather than sleeping a fixed slice.
+    Future<void> waitForClosed(ChatSession session) async {
       final deadline = DateTime.now().add(const Duration(seconds: 5));
-      while (session.roster.value.length < 2) {
+      while (session.status.value != ChatStatus.disconnected) {
         if (!DateTime.now().isBefore(deadline)) {
-          fail('${session.displayName} never saw both nodes');
+          fail(
+            '${session.displayName} never noticed the room close '
+            '(status: ${session.status.value})',
+          );
         }
         await Future<void>.delayed(const Duration(milliseconds: 10));
       }
     }
 
-    await waitForRoster(coordinator);
-    await waitForRoster(participant);
+    test('a clean departure disconnects every participant', () async {
+      final coordinator = await join('ana');
+      final first = await join('bo');
+      final second = await join('cy');
+      await waitForLines(coordinator, 0);
+
+      await coordinator.leave();
+
+      await waitForClosed(first);
+      await waitForClosed(second);
+      for (final session in [first, second]) {
+        expect(session.endReason, SessionEndReason.coordinatorLeft);
+        expect(session.endNotice, isNotNull);
+        expect(session.roster.value, isEmpty);
+      }
+    });
+
+    test('a host that vanishes is noticed by timeout', () async {
+      final coordinator = await join('ana');
+      final participant = await join('bo');
+      await waitForRosterOf(participant, 2);
+
+      // No announcement, nothing flushed — the bus drops the node the way a hub
+      // drops a closed socket. The endpoint id is
+      // `sessionName/nodeUId/streamName`, and ChatSession does not name a
+      // coordination stream, so it gets the factory default.
+      bus.disconnect(
+        'test_room/${coordinator.thisNodeUId}/Default Coordination Stream',
+      );
+
+      await waitForClosed(participant);
+      expect(participant.endReason, SessionEndReason.coordinatorTimedOut);
+    });
+
+    test('a closed room refuses further sends', () async {
+      // The bug this whole change is about: the composer used to keep working,
+      // with every line going nowhere.
+      final coordinator = await join('ana');
+      final participant = await join('bo');
+
+      await coordinator.leave();
+      await waitForClosed(participant);
+
+      await participant.send('anyone?');
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      expect(chatLines(participant), isEmpty);
+    });
+
+    test('leaving deliberately closes without a notice to show', () async {
+      final coordinator = await join('ana');
+      final participant = await join('bo');
+      await waitForRosterOf(participant, 2);
+
+      await participant.leave();
+
+      expect(participant.status.value, ChatStatus.disconnected);
+      expect(
+        participant.endNotice,
+        isNull,
+        reason: 'nothing to explain about something the user did on purpose',
+      );
+      expect(coordinator.status.value, ChatStatus.connected);
+    });
+  });
+
+  test('everyone sees everyone in the roster', () async {
+    final coordinator = await join('ana');
+    final participant = await join('bo');
+
+    await waitForRosterOf(coordinator, 2);
+    await waitForRosterOf(participant, 2);
 
     expect(
       coordinator.roster.value.map((m) => m.name),

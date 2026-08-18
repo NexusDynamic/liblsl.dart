@@ -24,11 +24,13 @@ class _ChatPageState extends State<ChatPage> {
   void initState() {
     super.initState();
     widget.session.messages.addListener(_scrollToLatest);
+    widget.session.status.addListener(_onStatusChanged);
   }
 
   @override
   void dispose() {
     widget.session.messages.removeListener(_scrollToLatest);
+    widget.session.status.removeListener(_onStatusChanged);
     _composerController.dispose();
     _scrollController.dispose();
     _composerFocus.dispose();
@@ -45,6 +47,29 @@ class _ChatPageState extends State<ChatPage> {
           curve: Curves.easeOut,
         );
       }
+    });
+  }
+
+  /// Leaves the room when it closes under us.
+  ///
+  /// The host going away ends this node's session, so there is nothing left to
+  /// show a room for. The reason is carried back as a snack bar rather than left
+  /// on the closing page, which the user is about to stop looking at.
+  void _onStatusChanged() {
+    if (widget.session.status.value != ChatStatus.disconnected) return;
+    if (!mounted) return;
+    // Already a plain sentence, so this file still never imports
+    // peer_coordinator. Null for a deliberate leave — the user did that on
+    // purpose and needs no telling.
+    final notice = widget.session.endNotice;
+    if (notice == null) return;
+    final navigator = Navigator.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+    // After the frame: this fires from a notifier, which may well be mid-build.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      messenger.showSnackBar(SnackBar(content: Text(notice)));
+      if (navigator.canPop()) navigator.pop();
     });
   }
 

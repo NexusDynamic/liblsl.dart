@@ -9,7 +9,8 @@
 /// client-side, exactly as they are over LSL.
 library;
 
-export 'src/websocket/ws_connection.dart' show WsConnection, WsInbound;
+export 'src/websocket/ws_connection.dart'
+    show WsConnection, WsInbound, WsSignal;
 export 'src/websocket/ws_discovery.dart' show WsDiscovery, WsPeerHandle;
 export 'src/websocket/ws_protocol.dart'
     show WsControl, WsFrame, WsSampleFrame, wsProtocolVersion;

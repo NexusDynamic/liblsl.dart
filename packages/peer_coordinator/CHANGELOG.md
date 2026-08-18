@@ -1,3 +1,90 @@
+## 0.3.0
+
+Defines what happens when the coordinator goes away. Previously nothing did: the
+liveness sweep ran on the coordinator only, so a participant whose coordinator
+had gone kept heartbeating and publishing into a stream with no consumer,
+indefinitely and silently, and there was no way for a departing coordinator to
+say it was leaving.
+
+### Behaviour changes
+
+- **A session now ends when its coordinator does.** New
+  `CoordinationSessionConfig.coordinatorLossPolicy`, defaulting to
+  `CoordinatorLossPolicy.endSession`: the node stops its timers, drops the
+  topology, and refuses further sends. `CoordinatorLossPolicy.reelect` instead
+  has the survivors re-elect between themselves; `CoordinatorLossPolicy.remainOpen`
+  is the previous behaviour, for applications that drive their own recovery.
+
+  This is the breaking change in this release. Anything relying on a session
+  outliving its coordinator must now say `remainOpen`.
+
+- **Sends after a session ends throw `StateError`.** `sendUserMessage`,
+  `createStream` and `startStream` fail loudly rather than publishing into a
+  stream nobody is reading.
+
+- **A departing coordinator announces it.** New
+  `CoordinationMessageType.sessionEnd` / `SessionEndMessage`, the counterpart to
+  the participant-only `nodeLeaving`. Survivors learn within a round trip instead
+  of waiting out `nodeTimeout`. It is accepted in any phase — a node still
+  handshaking is the one that most needs to hear it — and only from the node that
+  actually holds the coordinator role.
+
+- **An evicted node is told it was evicted.** The timeout sweep sends
+  `SessionEndMessage(evicted)` to the node it is dropping, best effort.
+
+- **New `SessionEndedEvent` and `events.sessionEnded`**, carrying a
+  `SessionEndReason` (`coordinatorLeft`, `coordinatorTimedOut`,
+  `coordinatorTransportLost`, `evicted`) and the policy applied. Emitted under
+  every policy, so there is one place to listen.
+
+### WebSocket protocol
+
+- **`wsProtocolVersion` is now 2**, adding `WsControl.signal`: an opaque payload
+  the hub forwards verbatim to one named endpoint, checking only that the sender
+  owns the `from` endpoint. It is the hub's only unicast and the only frame whose
+  contents it never inspects.
+
+  This exists so a peer-to-peer transport can use this hub for discovery and
+  connection setup — WebRTC offer/answer/candidate exchange — while its data
+  never touches the hub. That exchange cannot ride the coordination stream,
+  because the coordination stream is what is being established.
+
+  `WsFrame.decode` rejects unknown versions rather than guessing, so **a hub and
+  its clients must be deployed together.** Client side: `WsConnection.sendSignal`
+  and `WsConnection.signals`, plus the exported `WsSignal`.
+
+### Fixes
+
+- **The node-timeout sweep no longer spins.** Its period was
+  `Duration(seconds: nodeTimeout.inSeconds ~/ 2)`, which truncates to zero for
+  any timeout under two seconds — a periodic timer firing every event-loop turn.
+  Computed in microseconds now.
+
+- **A failed *join* no longer promotes the node to coordinator.** Election
+  wrapped both discovery and role setup in one `catch`, so a participant that
+  could not reach its coordinator became one instead. In a re-election that is
+  how two survivors both take the role and split the session. Only the discovery
+  call is caught now.
+
+- **Departure notices reach the wire.** `announceLeaving` enqueued onto the
+  handler's outgoing stream, which is drained by a listener on a microtask, and
+  the stream was disposed on the next line — `WsStreamMixin.sendMessage` drops
+  silently once disposed. Departures are now sent directly and awaited before
+  teardown.
+
+- **Heartbeat entries are cleared for nodes that never joined.** The clear sat
+  inside the "was it in the topology?" branch, so an entry with no matching node
+  survived every removal and was re-reported stale on every tick, re-broadcasting
+  the topology each time.
+
+- **`CoordinationSessionConfig.hashCode` and `==` no longer recurse.** `id` is
+  derived from `hashCode`, and `hashCode` hashed `id`; either would have
+  overflowed the stack. Nothing called them, which is why it went unnoticed.
+
+- **`copyWith` and `fromMap` stopped dropping fields.** `copyWith` reset
+  `clockSyncConfig` to the default; `fromMap` dropped `discoveryInterval` and
+  `consumeCoordinationStreamAsCoordinator`.
+
 ## 0.2.0
 
 Fixes a stream lifecycle race in which a `startStream` command could overtake

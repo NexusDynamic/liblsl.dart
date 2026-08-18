@@ -74,10 +74,37 @@ void main() {
     });
 
     test('an unknown frame type is rejected', () {
+      // The version has to be the current one, or this would pass for the wrong
+      // reason — rejected as an old protocol rather than an unknown type.
       expect(
-        () => WsFrame.decode('{"v":1,"t":"teleport","p":{}}'),
+        () => WsFrame.decode(
+          '{"v":$wsProtocolVersion,"t":"teleport","p":{}}',
+        ),
         throwsFormatException,
       );
+    });
+
+    test('the previous protocol version is rejected', () {
+      // v2 added the signal frame. Decode refuses anything it does not fully
+      // understand rather than guessing, so a hub and its clients have to be
+      // deployed together — this is the test that says so out loud.
+      expect(wsProtocolVersion, 2);
+      expect(
+        () => WsFrame.decode('{"v":1,"t":"hello","p":{}}'),
+        throwsFormatException,
+      );
+    });
+
+    test('a signal frame round-trips', () {
+      final frame = WsFrame(WsControl.signal, {
+        'from': 'S/a/coordination',
+        'to': 'S/b/coordination',
+        'payload': {'kind': 'offer', 'sdp': 'v=0'},
+      });
+      final decoded = WsFrame.decode(frame.encode());
+      expect(decoded.type, WsControl.signal);
+      expect(decoded.payload['from'], 'S/a/coordination');
+      expect((decoded.payload['payload'] as Map)['kind'], 'offer');
     });
 
     test('non-object JSON is rejected', () {

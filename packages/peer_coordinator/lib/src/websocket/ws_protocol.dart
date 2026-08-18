@@ -4,7 +4,10 @@ import 'dart:typed_data';
 import 'package:peer_coordinator/framework.dart';
 
 /// Wire protocol version. Bumped on any incompatible framing change.
-const int wsProtocolVersion = 1;
+///
+/// 2 added [WsControl.signal]. [WsFrame.decode] rejects both unknown versions
+/// and unknown frame types, so a hub and its clients must be deployed together.
+const int wsProtocolVersion = 2;
 
 /// Control-frame types.
 ///
@@ -36,6 +39,19 @@ enum WsControl {
 
   /// hub -> client: a peer this client cared about has gone.
   peerGone,
+
+  /// client -> hub -> one named client: an opaque payload, forwarded verbatim.
+  ///
+  /// The hub's only unicast, and the only frame whose contents it never looks
+  /// at. It exists so a peer-to-peer transport can use this hub for discovery
+  /// and connection setup — WebRTC offer/answer/candidate exchange — while its
+  /// data never touches the hub at all. Establishing that path cannot itself
+  /// run over the coordination stream, because the coordination stream is what
+  /// is being established.
+  ///
+  /// The hub verifies only that the sender owns the `from` endpoint, exactly as
+  /// it does for [message]. What is inside `payload` is between the two peers.
+  signal,
 }
 
 /// A control frame.

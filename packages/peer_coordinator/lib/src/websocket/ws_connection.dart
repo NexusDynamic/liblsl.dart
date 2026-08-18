@@ -20,6 +20,31 @@ class WsInbound {
   final Object payload;
 }
 
+/// A signalling payload from one peer to another, forwarded by the hub.
+///
+/// The hub never looks inside [payload] — it checks only that the sender owns
+/// [fromEndpointId] — so this carries whatever two peers need to establish a
+/// direct connection between themselves. That is what lets a peer-to-peer
+/// transport use this hub for discovery and connection setup while its data
+/// never crosses it.
+class WsSignal {
+  const WsSignal({
+    required this.fromEndpointId,
+    required this.toEndpointId,
+    required this.payload,
+  });
+
+  /// The endpoint that sent this, as the hub verified it.
+  final String fromEndpointId;
+
+  /// One of this connection's own endpoints.
+  final String toEndpointId;
+
+  /// Whatever the sender put in. JSON-decoded, and meaningful only to the
+  /// transport at both ends.
+  final Object? payload;
+}
+
 /// The single WebSocket a node holds to the hub.
 ///
 /// All of a node's endpoints — its coordination stream plus every data stream
@@ -39,6 +64,8 @@ class WsConnection {
 
   final StreamController<WsInbound> _inbound =
       StreamController<WsInbound>.broadcast();
+  final StreamController<WsSignal> _signals =
+      StreamController<WsSignal>.broadcast();
   final StreamController<WsFrame> _control =
       StreamController<WsFrame>.broadcast();
 
@@ -55,6 +82,13 @@ class WsConnection {
   /// Control frames from the hub, for callers that need them directly
   /// (query results, peer departures).
   Stream<WsFrame> get control => _control.stream;
+
+  /// Signalling frames addressed to one of this connection's endpoints.
+  ///
+  /// A convenience over filtering [control]: a peer-to-peer transport reads this
+  /// to set up its direct connections, and nothing else on the socket concerns
+  /// it. Broadcast, like the others, so several streams can listen.
+  Stream<WsSignal> get signals => _signals.stream;
 
   bool get isConnected => _channel != null && !_closed;
 
@@ -96,6 +130,14 @@ class WsConnection {
               streamName: frame.payload['stream'] as String,
               fromEndpointId: frame.payload['from'] as String,
               payload: frame.payload['payload'] as Object,
+            ),
+          );
+        case WsControl.signal:
+          _signals.add(
+            WsSignal(
+              fromEndpointId: frame.payload['from'] as String,
+              toEndpointId: frame.payload['to'] as String,
+              payload: frame.payload['payload'],
             ),
           );
         default:
@@ -198,6 +240,23 @@ class WsConnection {
 
   void publishSample(Uint8List frame) => _send(frame);
 
+  /// Sends an opaque payload to one named endpoint, through the hub.
+  ///
+  /// The hub forwards it verbatim without looking inside, so what goes in
+  /// [payload] is entirely between the two peers — a WebRTC offer, an answer, an
+  /// ICE candidate. It must be JSON-encodable.
+  void sendSignal({
+    required String fromEndpointId,
+    required String toEndpointId,
+    required Object? payload,
+  }) => _send(
+    WsFrame(WsControl.signal, {
+      'from': fromEndpointId,
+      'to': toEndpointId,
+      'payload': payload,
+    }).encode(),
+  );
+
   void _send(Object data) {
     final channel = _channel;
     if (channel == null || _closed) return;
@@ -216,5 +275,6 @@ class WsConnection {
     _channel = null;
     unawaited(_inbound.close());
     unawaited(_control.close());
+    unawaited(_signals.close());
   }
 }

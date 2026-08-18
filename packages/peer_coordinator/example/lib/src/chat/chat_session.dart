@@ -29,6 +29,20 @@
 /// stream is the right tool for a fixed set of nodes sampling at a rate; late
 /// joiners are not wired into an existing stream's inlets, which is exactly
 /// what a chat room needs to tolerate.
+///
+/// ## The coordinator is the room's host
+///
+/// A room lasts exactly as long as its coordinator. That is
+/// `CoordinatorLossPolicy.endSession`, chosen here rather than inherited: when
+/// the coordinator goes — cleanly or by vanishing — every other node's session
+/// ends, a `SessionEndedEvent` arrives, and everyone lands back on the connect
+/// screen. Reconnecting builds a whole new [PeerSession], so whoever gets there
+/// first finds nobody to defer to and hosts the new room.
+///
+/// The alternative, `CoordinatorLossPolicy.reelect`, would keep the room alive
+/// under a new host. It is the better fit for a long-running measurement
+/// session; it is a worse fit for a room, where "who is the host" and "which
+/// room is this" are the same question.
 library;
 
 import 'dart:async';
@@ -55,6 +69,7 @@ class ChatSession {
     this.heartbeatInterval = const Duration(seconds: 2),
     this.discoveryInterval = const Duration(seconds: 2),
     this.nodeTimeout = const Duration(seconds: 6),
+    this.coordinatorLossPolicy = CoordinatorLossPolicy.endSession,
   });
 
   /// This node's name, shown to everyone else. Travels as `NodeConfig.name`.
@@ -73,6 +88,19 @@ class ChatSession {
   final Duration discoveryInterval;
   final Duration nodeTimeout;
 
+  /// What happens to this node when the coordinator goes away.
+  ///
+  /// Stated explicitly rather than left to the library default, because it is
+  /// the whole shape of a chat room: [CoordinatorLossPolicy.endSession] makes
+  /// the coordinator the room's host, so when it goes the room goes with it and
+  /// everyone lands back on the connect screen. Whoever reconnects first then
+  /// finds nobody to defer to and opens a new room as its host.
+  ///
+  /// [CoordinatorLossPolicy.reelect] would instead keep the room alive with a
+  /// new host, which is the right choice for a long-running session but makes
+  /// "the room" a much vaguer thing.
+  final CoordinatorLossPolicy coordinatorLossPolicy;
+
   /// Which backend carries the coordination traffic. The app passes a
   /// [WebSocketTransportConfig]; the tests pass an in-memory one, which is why
   /// this is injected rather than built here.
@@ -85,6 +113,18 @@ class ChatSession {
 
   /// Why [connect] failed, if it did.
   String? failureReason;
+
+  /// Why the room closed, if it did, as a sentence the UI can show unchanged.
+  ///
+  /// A string rather than the [SessionEndReason] itself so that the widgets keep
+  /// their side of the bargain and never import `peer_coordinator`. Null while
+  /// the room is live, and after a deliberate [leave] — there is nothing to
+  /// explain about something the user did on purpose.
+  String? endNotice;
+
+  /// Why the room closed, for anything that needs to branch on it rather than
+  /// display it.
+  SessionEndReason? endReason;
 
   PeerSession? _session;
   final List<StreamSubscription<void>> _subscriptions = [];
@@ -111,6 +151,7 @@ class ChatSession {
           heartbeatInterval: heartbeatInterval,
           discoveryInterval: discoveryInterval,
           nodeTimeout: nodeTimeout,
+          coordinatorLossPolicy: coordinatorLossPolicy,
         ),
         topologyConfig: HierarchicalTopologyConfig(maxNodes: maxNodes),
         transportConfig: transportConfig,
@@ -131,6 +172,7 @@ class ChatSession {
     _subscriptions.add(session.events.nodeJoined.listen(_onNodeJoined));
     _subscriptions.add(session.events.nodeLeft.listen(_onNodeLeft));
     _subscriptions.add(session.events.phaseChanges.listen(_onPhaseChanged));
+    _subscriptions.add(session.events.sessionEnded.listen(_onSessionEnded));
 
     try {
       await session.initialize();
@@ -154,10 +196,16 @@ class ChatSession {
   }
 
   /// Sends a line, and renders it locally straight away.
+  ///
+  /// Does nothing once the room has closed. The coordination layer would throw a
+  /// [StateError] for a send after the session ended — which is the point of it,
+  /// and much better than the line silently going nowhere — but a tap handler is
+  /// not the place to surface that, and the UI already disables the composer.
   Future<void> send(String text) async {
     final session = _session;
     final trimmed = text.trim();
     if (session == null || trimmed.isEmpty) return;
+    if (status.value != ChatStatus.connected) return;
 
     final message = ChatMessage(
       id: generateUid(),
@@ -233,6 +281,34 @@ class ChatSession {
     _addSystem('${event.node.name} left.');
   }
 
+  /// The room's host has gone, so the room has gone with it.
+  ///
+  /// Everything below the event is the coordination layer's doing: it has already
+  /// stopped this node's timers, dropped the roster and made further sends
+  /// throw. All that is left here is to say so and stand down.
+  void _onSessionEnded(SessionEndedEvent event) {
+    if (status.value == ChatStatus.disconnected) return;
+    final notice = _endedMessage(event.reason);
+    _addSystem(notice);
+    endNotice = notice;
+    endReason = event.reason;
+    roster.value = const [];
+    status.value = ChatStatus.disconnected;
+    // Teardown, not disposal: the widgets still read the notifiers to render the
+    // closing state, and ConnectPage disposes the session once the route pops.
+    unawaited(_teardown());
+  }
+
+  String _endedMessage(SessionEndReason reason) => switch (reason) {
+    SessionEndReason.coordinatorLeft =>
+      'The room host left, so the room has closed.',
+    SessionEndReason.coordinatorTimedOut =>
+      'Lost contact with the room host. The room has closed.',
+    SessionEndReason.coordinatorTransportLost =>
+      'The connection to the room host dropped. The room has closed.',
+    SessionEndReason.evicted => 'You were disconnected from the room.',
+  };
+
   void _onPhaseChanged(PhaseChangedEvent event) {
     final session = _session;
     if (session == null) return;
@@ -264,6 +340,11 @@ class ChatSession {
   void _refreshRoster() {
     final session = _session;
     if (session == null) return;
+    // Once the room has closed there is no roster, and saying so once is enough.
+    // Ending a session drops its topology node by node, so the NodeLeft events
+    // land *after* the SessionEnded one and would otherwise rebuild the list
+    // with this node alone in it.
+    if (status.value == ChatStatus.disconnected) return;
     final byUId = <String, ChatMember>{
       session.thisNode.uId: ChatMember(
         uId: session.thisNode.uId,

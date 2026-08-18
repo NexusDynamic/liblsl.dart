@@ -71,6 +71,30 @@ the room would be fixed from the moment the stream started. Chat needs people to
 come and go, which is exactly what the user-message channel tolerates. Data
 streams are the right tool for a known set of nodes sampling at a rate.
 
+## The coordinator is the room's host
+
+A room lasts exactly as long as its coordinator. That is
+`CoordinatorLossPolicy.endSession`, which
+[`chat_session.dart`](lib/src/chat/chat_session.dart) states explicitly rather
+than inheriting: when the coordinator goes, every other node's session ends,
+a `SessionEndedEvent` arrives, and everyone lands back on the connect screen
+with a line saying why.
+
+It applies whether the host leaves cleanly or its process is killed. A clean
+departure broadcasts a `sessionEnd` message, so the others know within a round
+trip; a host that vanishes is noticed when it misses `nodeTimeout` (6 s here).
+Either way the composer stops accepting lines — a send after the session ends
+throws rather than going nowhere.
+
+Reconnecting builds a whole new session, so whoever gets there first finds
+nobody to defer to and hosts the new room. Same room name, new room.
+
+The alternative is `CoordinatorLossPolicy.reelect`, where the survivors elect a
+new coordinator between themselves and the session carries on. That is the right
+choice for a long-running measurement session; it is a worse fit here, where
+"who is the host" and "which room is this" are the same question. Pass it to
+`ChatSession` to see the difference.
+
 ## What to try
 
 - **Watch the election.** Start one instance, then a second: the first shows
@@ -78,10 +102,11 @@ streams are the right tool for a known set of nodes sampling at a rate.
 - **Three-way relay.** With three nodes, a message from one participant reaches
   the other participant through the coordinator, still attributed to its author.
 - **Heartbeat eviction.** Kill a participant instead of leaving cleanly. The
-  others drop it from the roster once it misses `nodeTimeout` (6 s here).
-- **Kill the coordinator.** The survivors lose their coordinator; what happens
-  next depends on the coordination layer rather than on this app, so watch it
-  rather than assume it.
+  others drop it from the roster once it misses `nodeTimeout` (6 s here), and it
+  is told it was dropped rather than left to work it out.
+- **Kill the coordinator.** Every survivor returns to the connect screen. Rejoin
+  from one of them and it becomes the host of a new room; rejoin from a second
+  and it joins as a participant.
 
 ## Platform notes
 

@@ -2,7 +2,7 @@ name: peer_coordinator
 description: >-
   Transport-neutral peer coordination: election, membership, heartbeat and
   synchronised data streams over a pluggable backend. Pure Dart, web-safe.
-version: 0.2.0
+version: 0.3.0
 homepage: https://zeyus.com/
 repository: https://github.com/NexusDynamic/liblsl.dart
 issue_tracker: https://github.com/NexusDynamic/liblsl.dart/issues

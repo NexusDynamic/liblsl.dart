@@ -20,6 +20,34 @@ Which node coordinates is decided by a promotion strategy
 authority: each node asks "is there anyone I should defer to?" and the one that
 finds nobody takes the role.
 
+## When the coordinator goes away
+
+A session has exactly one membership authority, so losing it is a real event
+rather than a degraded mode. Every node watches its coordinator's heartbeat, and
+a coordinator that shuts down announces it, so both a clean departure and a dead
+process are detected — the first within a round trip, the second within
+`nodeTimeout`.
+
+What happens next is `CoordinationSessionConfig.coordinatorLossPolicy`:
+
+| Policy | Effect |
+|---|---|
+| `endSession` (default) | The session is over. Timers stop, the topology is dropped, and further sends throw rather than publishing into a stream with no consumer. |
+| `reelect` | The survivors re-run the election and rebuild the session between themselves. |
+| `remainOpen` | Nothing beyond the event. For applications that drive their own recovery. |
+
+Every policy emits `SessionEndedEvent`, carrying a `SessionEndReason`
+(`coordinatorLeft`, `coordinatorTimedOut`, `coordinatorTransportLost`,
+`evicted`), so there is one place to listen regardless:
+
+```dart
+session.events.sessionEnded.listen((e) => print('session over: ${e.reason}'));
+```
+
+`endSession` is the default because a session with no coordinator has no
+membership authority and no stream lifecycle — carrying on is not a defined
+state. Choose `reelect` when the work outlives any one node.
+
 ## Choosing a transport
 
 The coordination logic never names a backend. You pick one by choosing an

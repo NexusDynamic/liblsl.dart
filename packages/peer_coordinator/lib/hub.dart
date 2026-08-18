@@ -180,6 +180,9 @@ class CoordinationHub {
       case WsControl.message:
         _relayMessage(connection, frame);
 
+      case WsControl.signal:
+        _forwardSignal(connection, frame);
+
       case WsControl.welcome:
       case WsControl.queryResult:
       case WsControl.peerGone:
@@ -289,6 +292,45 @@ class CoordinationHub {
     )) {
       _connectionForEndpoint(subscriber)?.send(encoded);
     }
+  }
+
+  /// Forwards a signalling frame to the one endpoint it names.
+  ///
+  /// The hub's only unicast, and the only payload it never inspects. This is
+  /// what lets a peer-to-peer transport use this hub for discovery and
+  /// connection setup while keeping its data off it entirely: the two peers
+  /// exchange whatever they need to dial each other, and the hub is a post box.
+  ///
+  /// Ownership of `from` is checked exactly as [_relayMessage] does, so a
+  /// connection cannot signal on another peer's behalf. An unknown or departed
+  /// `to` is dropped silently — the sender learns from its own connection
+  /// attempt timing out, and there is nothing useful the hub could add.
+  void _forwardSignal(_Connection connection, WsFrame frame) {
+    final from = frame.payload['from'] as String?;
+    final to = frame.payload['to'] as String?;
+    if (from == null || to == null) {
+      logger.warning('Hub: signal from ${connection.id} missing from/to');
+      return;
+    }
+    if (!connection.endpointIds.contains(from)) {
+      logger.warning('Hub: ${connection.id} tried to signal as $from');
+      return;
+    }
+
+    final target = _connectionForEndpoint(to);
+    if (target == null) {
+      logger.fine('Hub: no connection for signal target $to');
+      return;
+    }
+    // Re-encoded rather than forwarded byte for byte so `from` is the endpoint
+    // the hub verified, not whatever the sender wrote.
+    target.send(
+      WsFrame(WsControl.signal, {
+        'from': from,
+        'to': to,
+        'payload': frame.payload['payload'],
+      }).encode(),
+    );
   }
 
   void _relaySample(_Connection connection, Uint8List frame) {
