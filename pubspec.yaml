@@ -6,7 +6,7 @@ environment:
   sdk: ^3.12.2
   flutter: ^3.27.1
 workspace:
-  # - packages/liblsl
+  - packages/liblsl
   - packages/peer_coordinator
   - packages/peer_coordinator/example
   - packages/liblsl_test
@@ -25,7 +25,7 @@ dev_dependencies:
 dependency_overrides:
   cli_util: ^0.5.2
   test_api: ^0.7.13
-  meta: ^1.19.0
+#   meta: ^1.19.0
 
 melos:
   packages:
