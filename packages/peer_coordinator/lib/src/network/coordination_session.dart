@@ -301,7 +301,8 @@ class CoordinationSessionConfigFactory
       nodeTimeout: Duration(milliseconds: map['nodeTimeout'] ?? 15000),
       consumeCoordinationStreamAsCoordinator:
           map['consumeCoordinationStreamAsCoordinator'] ?? true,
-      coordinatorLossPolicy: CoordinatorLossPolicy.values
+      coordinatorLossPolicy:
+          CoordinatorLossPolicy.values
               .where((p) => p.name == map['coordinatorLossPolicy'])
               .firstOrNull ??
           CoordinatorLossPolicy.endSession,

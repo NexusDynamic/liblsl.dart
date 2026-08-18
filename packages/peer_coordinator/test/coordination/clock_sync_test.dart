@@ -100,29 +100,32 @@ void main() {
       expect(makeEstimator().estimate, isNull);
     });
 
-    test('negates the raw offset so it maps a remote stamp into local time', () {
-      final estimator = makeEstimator();
-      final wave = estimator.beginBurst();
-      for (var i = 0; i < 6; i++) {
-        estimator.addSample(
-          wave,
-          probe(
-            t0: i.toDouble(),
-            trueOffset: 10.0,
-            outbound: 0.005,
-            inbound: 0.005,
-          ),
-        );
-      }
+    test(
+      'negates the raw offset so it maps a remote stamp into local time',
+      () {
+        final estimator = makeEstimator();
+        final wave = estimator.beginBurst();
+        for (var i = 0; i < 6; i++) {
+          estimator.addSample(
+            wave,
+            probe(
+              t0: i.toDouble(),
+              trueOffset: 10.0,
+              outbound: 0.005,
+              inbound: 0.005,
+            ),
+          );
+        }
 
-      final estimate = estimator.aggregate()!;
-      // The peer reads 10s ahead, so -10s is what maps its stamps to ours.
-      expect(estimate.offset, closeTo(-10.0, 1e-9));
+        final estimate = estimator.aggregate()!;
+        // The peer reads 10s ahead, so -10s is what maps its stamps to ours.
+        expect(estimate.offset, closeTo(-10.0, 1e-9));
 
-      // And that is exactly what makes the arithmetic work out:
-      const remoteStamp = 110.0;
-      expect(remoteStamp + estimate.offset, closeTo(100.0, 1e-9));
-    });
+        // And that is exactly what makes the arithmetic work out:
+        const remoteStamp = 110.0;
+        expect(remoteStamp + estimate.offset, closeTo(100.0, 1e-9));
+      },
+    );
 
     test('takes the lowest-RTT probe, not the average or the last', () {
       final estimator = makeEstimator();
@@ -237,7 +240,12 @@ void main() {
       for (var i = 0; i < 8; i++) {
         estimator.addSample(
           first,
-          probe(t0: i.toDouble(), trueOffset: 1, outbound: 0.001, inbound: 0.001),
+          probe(
+            t0: i.toDouble(),
+            trueOffset: 1,
+            outbound: 0.001,
+            inbound: 0.001,
+          ),
         );
       }
       expect(estimator.repliesThisBurst, 8);

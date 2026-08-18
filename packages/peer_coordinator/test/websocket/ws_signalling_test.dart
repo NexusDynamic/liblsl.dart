@@ -43,8 +43,9 @@ void main() {
       PeerDescriptor.forNode(
         streamName: 'coordination',
         sessionName: 'SignalSession',
-        node: ParticipantNode(NodeConfig(name: nodeUId, id: nodeUId,
-            uId: nodeUId)),
+        node: ParticipantNode(
+          NodeConfig(name: nodeUId, id: nodeUId, uId: nodeUId),
+        ),
       ),
     );
     return connection;
@@ -178,8 +179,9 @@ void main() {
     );
     expect(((await offerAtBob).payload! as Map)['kind'], 'offer');
 
-    final answerAtAlice =
-        alice.signals.first.timeout(const Duration(seconds: 5));
+    final answerAtAlice = alice.signals.first.timeout(
+      const Duration(seconds: 5),
+    );
     bob.sendSignal(
       fromEndpointId: endpointOf('bob'),
       toEndpointId: endpointOf('alice'),

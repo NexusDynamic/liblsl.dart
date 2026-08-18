@@ -98,22 +98,26 @@ void main() {
       expect(
         decoded.coordinatorLossPolicy,
         CoordinatorLossPolicy.endSession,
-        reason: 'the safe default when the wire names something we cannot honour',
+        reason:
+            'the safe default when the wire names something we cannot honour',
       );
     });
 
-    test('fromMap keeps discoveryInterval and the coordinator-consumes flag', () {
-      // Both were dropped, so a round trip quietly reset them.
-      final original = CoordinationSessionConfig(
-        name: 'S',
-        discoveryInterval: const Duration(milliseconds: 250),
-        consumeCoordinationStreamAsCoordinator: false,
-      );
-      final decoded = CoordinationSessionConfigFactory().fromMap(
-        original.toMap(),
-      );
-      expect(decoded.discoveryInterval, const Duration(milliseconds: 250));
-      expect(decoded.consumeCoordinationStreamAsCoordinator, isFalse);
-    });
+    test(
+      'fromMap keeps discoveryInterval and the coordinator-consumes flag',
+      () {
+        // Both were dropped, so a round trip quietly reset them.
+        final original = CoordinationSessionConfig(
+          name: 'S',
+          discoveryInterval: const Duration(milliseconds: 250),
+          consumeCoordinationStreamAsCoordinator: false,
+        );
+        final decoded = CoordinationSessionConfigFactory().fromMap(
+          original.toMap(),
+        );
+        expect(decoded.discoveryInterval, const Duration(milliseconds: 250));
+        expect(decoded.consumeCoordinationStreamAsCoordinator, isFalse);
+      },
+    );
   });
 }

@@ -153,8 +153,7 @@ class ConnectionTestMessage extends CoordinationMessage {
   }) : super(type: CoordinationMessageType.connectionTest);
 
   /// Whether this message is meant for [nodeUId].
-  bool addressedTo(String nodeUId) =>
-      toNodeUId == null || toNodeUId == nodeUId;
+  bool addressedTo(String nodeUId) => toNodeUId == null || toNodeUId == nodeUId;
 
   @override
   Map<String, dynamic> toMap() => {
@@ -220,8 +219,7 @@ class ConnectionTestResponseMessage extends CoordinationMessage {
   }) : super(type: CoordinationMessageType.connectionTestResponse);
 
   /// Whether this message is meant for [nodeUId].
-  bool addressedTo(String nodeUId) =>
-      toNodeUId == null || toNodeUId == nodeUId;
+  bool addressedTo(String nodeUId) => toNodeUId == null || toNodeUId == nodeUId;
 
   /// Whether this reply carries the timestamps a clock probe needs.
   bool get isClockProbe =>
@@ -895,21 +893,21 @@ class TopologyUpdateMessage extends CoordinationMessage {
     'metadata': metadata,
   };
 
-  factory TopologyUpdateMessage.fromMap(
-    Map<String, dynamic> map,
-  ) => TopologyUpdateMessage(
-    fromNodeUId: map['fromNodeUId'],
-    topology: (map['topology'] as List)
-        .map(
-          (n) =>
-              NodeFactory.createNodeFromConfig(NodeConfigFactory().fromMap(n)),
-        )
-        .toList(),
-    timestamp: DateTime.parse(map['timestamp']),
-    messageId: map['messageId'],
-    parentMessageId: map['parentMessageId'],
-    metadata: Map<String, dynamic>.from(map['metadata'] ?? {}),
-  );
+  factory TopologyUpdateMessage.fromMap(Map<String, dynamic> map) =>
+      TopologyUpdateMessage(
+        fromNodeUId: map['fromNodeUId'],
+        topology: (map['topology'] as List)
+            .map(
+              (n) => NodeFactory.createNodeFromConfig(
+                NodeConfigFactory().fromMap(n),
+              ),
+            )
+            .toList(),
+        timestamp: DateTime.parse(map['timestamp']),
+        messageId: map['messageId'],
+        parentMessageId: map['parentMessageId'],
+        metadata: Map<String, dynamic>.from(map['metadata'] ?? {}),
+      );
 }
 
 class NodeLeavingMessage extends CoordinationMessage {

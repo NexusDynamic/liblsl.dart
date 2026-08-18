@@ -77,9 +77,7 @@ void main() {
       // The version has to be the current one, or this would pass for the wrong
       // reason — rejected as an old protocol rather than an unknown type.
       expect(
-        () => WsFrame.decode(
-          '{"v":$wsProtocolVersion,"t":"teleport","p":{}}',
-        ),
+        () => WsFrame.decode('{"v":$wsProtocolVersion,"t":"teleport","p":{}}'),
         throwsFormatException,
       );
     });

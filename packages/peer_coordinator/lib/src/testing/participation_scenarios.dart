@@ -295,28 +295,22 @@ void runParticipationScenarios(ParticipationHarness harness) {
       return reason == null ? null : '${mode.name}: $reason';
     }
 
-    test(
-      'coordinatorOnly: only the coordinator publishes',
-      () async {
-        await buildSession();
-        await exchange(StreamParticipationMode.coordinatorOnly);
+    test('coordinatorOnly: only the coordinator publishes', () async {
+      await buildSession();
+      await exchange(StreamParticipationMode.coordinatorOnly);
 
-        final coordinator = peers[0];
-        expect(
-          coordinator.received,
-          isEmpty,
-          reason: 'the coordinator is the sole producer; it consumes nothing',
-        );
-        for (final participant in peers.skip(1)) {
-          expect(
-            sendersSeenBy(participant),
-            {0},
-            reason: '${participant.label} should receive only the coordinator',
-          );
-        }
-      },
-      skip: skipFor(StreamParticipationMode.coordinatorOnly),
-    );
+      final coordinator = peers[0];
+      expect(
+        coordinator.received,
+        isEmpty,
+        reason: 'the coordinator is the sole producer; it consumes nothing',
+      );
+      for (final participant in peers.skip(1)) {
+        expect(sendersSeenBy(participant), {
+          0,
+        }, reason: '${participant.label} should receive only the coordinator');
+      }
+    }, skip: skipFor(StreamParticipationMode.coordinatorOnly));
 
     test(
       'sendParticipantsReceiveCoordinator: participants publish, only the '
@@ -327,11 +321,10 @@ void runParticipationScenarios(ParticipationHarness harness) {
           StreamParticipationMode.sendParticipantsReceiveCoordinator,
         );
 
-        expect(
-          sendersSeenBy(peers[0]),
-          {1, 2},
-          reason: 'the coordinator should receive from both participants',
-        );
+        expect(sendersSeenBy(peers[0]), {
+          1,
+          2,
+        }, reason: 'the coordinator should receive from both participants');
         for (final participant in peers.skip(1)) {
           expect(
             participant.received,
@@ -343,44 +336,36 @@ void runParticipationScenarios(ParticipationHarness harness) {
       skip: skipFor(StreamParticipationMode.sendParticipantsReceiveCoordinator),
     );
 
-    test(
-      'allNodes: everyone publishes and everyone consumes',
-      () async {
-        await buildSession();
-        await exchange(StreamParticipationMode.allNodes);
+    test('allNodes: everyone publishes and everyone consumes', () async {
+      await buildSession();
+      await exchange(StreamParticipationMode.allNodes);
 
-        // Including itself: getProducersForStream and getConsumersForStream
-        // both return every connected node for this mode, so a node is one of
-        // its own producers. Whether that is wanted is a property of the mode,
-        // not of the transport — a transport that quietly dropped self-delivery
-        // would be overriding the mode.
-        for (var i = 0; i < peers.length; i++) {
-          expect(
-            sendersSeenBy(peers[i]),
-            {0, 1, 2},
-            reason: '${peers[i].label} should receive from every node',
-          );
-        }
-      },
-      skip: skipFor(StreamParticipationMode.allNodes),
-    );
+      // Including itself: getProducersForStream and getConsumersForStream
+      // both return every connected node for this mode, so a node is one of
+      // its own producers. Whether that is wanted is a property of the mode,
+      // not of the transport — a transport that quietly dropped self-delivery
+      // would be overriding the mode.
+      for (var i = 0; i < peers.length; i++) {
+        expect(sendersSeenBy(peers[i]), {
+          0,
+          1,
+          2,
+        }, reason: '${peers[i].label} should receive from every node');
+      }
+    }, skip: skipFor(StreamParticipationMode.allNodes));
 
-    test(
-      'sendAllReceiveCoordinator: everyone publishes',
-      () async {
-        await buildSession();
-        await exchange(StreamParticipationMode.sendAllReceiveCoordinator);
+    test('sendAllReceiveCoordinator: everyone publishes', () async {
+      await buildSession();
+      await exchange(StreamParticipationMode.sendAllReceiveCoordinator);
 
-        // Producers are all nodes, consumers are the coordinator alone, so the
-        // coordinator sees everyone — itself included.
-        expect(
-          sendersSeenBy(peers[0]),
-          {0, 1, 2},
-          reason: 'the coordinator should receive from every producer',
-        );
-      },
-      skip: skipFor(StreamParticipationMode.sendAllReceiveCoordinator),
-    );
+      // Producers are all nodes, consumers are the coordinator alone, so the
+      // coordinator sees everyone — itself included.
+      expect(sendersSeenBy(peers[0]), {
+        0,
+        1,
+        2,
+      }, reason: 'the coordinator should receive from every producer');
+    }, skip: skipFor(StreamParticipationMode.sendAllReceiveCoordinator));
 
     test('sendAllReceiveCoordinator ALSO delivers to participants '
         '(characterisation — see known issues)', () async {

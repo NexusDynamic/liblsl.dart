@@ -370,56 +370,48 @@ void main() {
   });
 
   group('known issues (characterisation — these pin current behaviour)', () {
-    test(
-      'a rejected node cannot tell rejection from an ordinary timeout',
-      () {
-        // ParticipantMessageHandler._handleJoinReject throws a StateError so the
-        // session can surface the rejection (handlers.dart:535). But the
-        // controller invokes handlers from inside a stream listener and wraps
-        // every call in a try/catch that only logs
-        // (lsl_coordination_controller.dart:404-411), so the StateError is
-        // swallowed.
-        //
-        // The rejected node therefore just sits in CoordinationPhase.established
-        // until join()'s _waitForPhase gives up, and reports:
-        //
-        //   StateError: Failed to establish coordination: TimeoutException ...
-        //     Timeout waiting for phase {accepting, ready}
-        //
-        // — indistinguishable from "no coordinator could be reached". That is
-        // why example/multi_node_test.dart:184 has to string-match 'rejected',
-        // and why it never actually matches.
-        //
-        // The fix belongs with the coordinator-loss work: give the participant a
-        // way to fail its join with the real reason. Until then, callers must
-        // watch the coordinator's NodeJoinRejectedEvent, as the maxNodes test
-        // above does.
-        //
-        // Marked as a documentation-only test: the behaviour is asserted in the
-        // maxNodes test, which tolerates whatever join() does.
-      },
-      skip: 'documented above; behaviour is covered by the maxNodes test',
-    );
+    test('a rejected node cannot tell rejection from an ordinary timeout', () {
+      // ParticipantMessageHandler._handleJoinReject throws a StateError so the
+      // session can surface the rejection (handlers.dart:535). But the
+      // controller invokes handlers from inside a stream listener and wraps
+      // every call in a try/catch that only logs
+      // (lsl_coordination_controller.dart:404-411), so the StateError is
+      // swallowed.
+      //
+      // The rejected node therefore just sits in CoordinationPhase.established
+      // until join()'s _waitForPhase gives up, and reports:
+      //
+      //   StateError: Failed to establish coordination: TimeoutException ...
+      //     Timeout waiting for phase {accepting, ready}
+      //
+      // — indistinguishable from "no coordinator could be reached". That is
+      // why example/multi_node_test.dart:184 has to string-match 'rejected',
+      // and why it never actually matches.
+      //
+      // The fix belongs with the coordinator-loss work: give the participant a
+      // way to fail its join with the real reason. Until then, callers must
+      // watch the coordinator's NodeJoinRejectedEvent, as the maxNodes test
+      // above does.
+      //
+      // Marked as a documentation-only test: the behaviour is asserted in the
+      // maxNodes test, which tolerates whatever join() does.
+    }, skip: 'documented above; behaviour is covered by the maxNodes test');
 
-    test(
-      'a full session rejects the same node on every discovery cycle',
-      () {
-        // When the coordinator rejects a node it emits NodeJoinRejectedEvent,
-        // and the controller responds by clearing the node from
-        // _pendingJoinNodeUIds so it can be re-offered "if capacity frees up"
-        // (lsl_coordination_controller.dart:339-342).
-        //
-        // Nothing rate-limits that. A node parked outside a full session is
-        // re-offered, re-requests and is re-rejected on every discovery tick —
-        // observed at 11-16 rejections in a 5s window with a 500ms discovery
-        // interval. Each cycle also runs the 20s-timeout connection-test
-        // handshake, so the traffic is not trivial.
-        //
-        // Harmless for a short-lived session with a spare node; worth bounding
-        // before the WebSocket transport, where every one of those rejects is a
-        // relayed frame through the hub.
-      },
-      skip: 'documented above; no stable assertion without a long run',
-    );
+    test('a full session rejects the same node on every discovery cycle', () {
+      // When the coordinator rejects a node it emits NodeJoinRejectedEvent,
+      // and the controller responds by clearing the node from
+      // _pendingJoinNodeUIds so it can be re-offered "if capacity frees up"
+      // (lsl_coordination_controller.dart:339-342).
+      //
+      // Nothing rate-limits that. A node parked outside a full session is
+      // re-offered, re-requests and is re-rejected on every discovery tick —
+      // observed at 11-16 rejections in a 5s window with a 500ms discovery
+      // interval. Each cycle also runs the 20s-timeout connection-test
+      // handshake, so the traffic is not trivial.
+      //
+      // Harmless for a short-lived session with a spare node; worth bounding
+      // before the WebSocket transport, where every one of those rejects is a
+      // relayed frame through the hub.
+    }, skip: 'documented above; no stable assertion without a long run');
   });
 }

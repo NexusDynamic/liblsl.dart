@@ -33,13 +33,16 @@ class FakeRtcBus {
   /// microtask hop — not synchronous.
   Duration deliveryDelay = Duration.zero;
 
-  void _register(FakeRtcPeerAdapter adapter) => _adapters[adapter.selfKey] = adapter;
+  void _register(FakeRtcPeerAdapter adapter) =>
+      _adapters[adapter.selfKey] = adapter;
 
   void _unregister(String selfKey) => _adapters.remove(selfKey);
 
   /// The link on [peerKey]'s side that faces [fromKey], if it exists yet.
-  _FakeRtcPeerLink? _linkBetween({required String peerKey, required String fromKey}) =>
-      _adapters[peerKey]?._links[fromKey];
+  _FakeRtcPeerLink? _linkBetween({
+    required String peerKey,
+    required String fromKey,
+  }) => _adapters[peerKey]?._links[fromKey];
 
   Future<void> _deliver(void Function() action) async {
     if (deliveryDelay == Duration.zero) {
@@ -155,7 +158,10 @@ class _FakeRtcPeerLink implements RtcPeerLink {
     // The answerer is connected as soon as it has both descriptions; the
     // offerer gets there when the answer comes back.
     _setState(RtcLinkState.connected);
-    return {'type': 'answer', 'sdp': 'fake-answer:${adapter.selfKey}->$peerKey'};
+    return {
+      'type': 'answer',
+      'sdp': 'fake-answer:${adapter.selfKey}->$peerKey',
+    };
   }
 
   @override
@@ -322,7 +328,8 @@ class _FakeRtcChannel implements RtcChannel {
     if (peer == null) return;
     unawaited(
       link.adapter.bus._deliver(() {
-        if (peer.isOpen && !peer._messages.isClosed) peer._messages.add(payload);
+        if (peer.isOpen && !peer._messages.isClosed)
+          peer._messages.add(payload);
       }),
     );
   }

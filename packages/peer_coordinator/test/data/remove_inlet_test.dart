@@ -19,30 +19,32 @@ import 'package:test/test.dart';
 
 void main() {
   group('the default is a no-op', () {
-    test('removing an inlet on a stream that never had one is not an error',
-        () async {
-      final bus = InMemoryBus();
-      addTearDown(bus.dispose);
+    test(
+      'removing an inlet on a stream that never had one is not an error',
+      () async {
+        final bus = InMemoryBus();
+        addTearDown(bus.dispose);
 
-      final node = Node(NodeConfig(name: 'n', id: 'n'));
-      final stream = InMemoryDataStream(
-        config: DataStreamConfig(
-        name: 'Data',
-        channels: 1,
-        sampleRate: 50.0,
-        dataType: StreamDataType.double64,
-      ),
-        bus: bus,
-        sessionName: 'S',
-        streamNode: node,
-      );
-      await stream.create();
-      addTearDown(stream.dispose);
+        final node = Node(NodeConfig(name: 'n', id: 'n'));
+        final stream = InMemoryDataStream(
+          config: DataStreamConfig(
+            name: 'Data',
+            channels: 1,
+            sampleRate: 50.0,
+            dataType: StreamDataType.double64,
+          ),
+          bus: bus,
+          sessionName: 'S',
+          streamNode: node,
+        );
+        await stream.create();
+        addTearDown(stream.dispose);
 
-      // Idempotent, and safe for a uId that was never subscribed.
-      await stream.removeInlet('never-seen');
-      await stream.removeInlet('never-seen');
-    });
+        // Idempotent, and safe for a uId that was never subscribed.
+        await stream.removeInlet('never-seen');
+        await stream.removeInlet('never-seen');
+      },
+    );
   });
 
   group('in-memory', () {

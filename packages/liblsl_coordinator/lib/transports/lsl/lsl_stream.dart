@@ -332,12 +332,13 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
   /// the first two may be null (no correction estimate yet), in which case
   /// [MessageTiming.transitSeconds] correctly reports null rather than a
   /// fabricated number.
-  MessageTiming _timingFromIsolateData(IsolateDataMessage data) => MessageTiming(
-    sourceClock: data.lslTimestamp,
-    clockOffset: data.lslTimeCorrection,
-    receivedClock: data.localClock ?? LSL.localClock(),
-    sourceId: data.sourceId,
-  );
+  MessageTiming _timingFromIsolateData(IsolateDataMessage data) =>
+      MessageTiming(
+        sourceClock: data.lslTimestamp,
+        clockOffset: data.lslTimeCorrection,
+        receivedClock: data.localClock ?? LSL.localClock(),
+        sourceId: data.sourceId,
+      );
 
   // Isolate instances
   StreamInletIsolate? _inletIsolate;

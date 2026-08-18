@@ -124,10 +124,10 @@ void main() {
       final participant = await joined('participant', randomRoll: 0.9);
       await coordinator.waitForMinNodes(2, timeout: const Duration(seconds: 3));
 
-      final coordOffsets = (coordinator.transport as WebSocketTransport)
-          .clockOffsets;
-      final partOffsets = (participant.transport as WebSocketTransport)
-          .clockOffsets;
+      final coordOffsets =
+          (coordinator.transport as WebSocketTransport).clockOffsets;
+      final partOffsets =
+          (participant.transport as WebSocketTransport).clockOffsets;
 
       // Each side has an inlet from the other, so each side estimates the
       // other — the coordinator reads from the participant and vice versa.
@@ -148,10 +148,10 @@ void main() {
       final participant = await joined('participant', randomRoll: 0.9);
       await coordinator.waitForMinNodes(2, timeout: const Duration(seconds: 3));
 
-      final coordOffsets = (coordinator.transport as WebSocketTransport)
-          .clockOffsets;
-      final partOffsets = (participant.transport as WebSocketTransport)
-          .clockOffsets;
+      final coordOffsets =
+          (coordinator.transport as WebSocketTransport).clockOffsets;
+      final partOffsets =
+          (participant.transport as WebSocketTransport).clockOffsets;
 
       await waitFor(
         () =>
@@ -186,8 +186,8 @@ void main() {
       final participant = await joined('participant', randomRoll: 0.9);
       await coordinator.waitForMinNodes(2, timeout: const Duration(seconds: 3));
 
-      final partOffsets = (participant.transport as WebSocketTransport)
-          .clockOffsets;
+      final partOffsets =
+          (participant.transport as WebSocketTransport).clockOffsets;
       await waitFor(
         () => partOffsets.offsetFor(coordinator.thisNode.uId) != null,
       );
@@ -227,8 +227,8 @@ void main() {
       final participant = await joined('participant', randomRoll: 0.9);
       await coordinator.waitForMinNodes(2, timeout: const Duration(seconds: 3));
 
-      final coordOffsets = (coordinator.transport as WebSocketTransport)
-          .clockOffsets;
+      final coordOffsets =
+          (coordinator.transport as WebSocketTransport).clockOffsets;
       await waitFor(
         () => coordOffsets.offsetFor(participant.thisNode.uId) != null,
       );
@@ -290,22 +290,28 @@ void main() {
       await coordinator.stopStream('TimingData');
     });
 
-    test('a departed peer forgets its offset rather than going stale', () async {
-      final coordinator = await joined('coord', randomRoll: 0.1);
-      final participant = await joined('participant', randomRoll: 0.9);
-      await coordinator.waitForMinNodes(2, timeout: const Duration(seconds: 3));
+    test(
+      'a departed peer forgets its offset rather than going stale',
+      () async {
+        final coordinator = await joined('coord', randomRoll: 0.1);
+        final participant = await joined('participant', randomRoll: 0.9);
+        await coordinator.waitForMinNodes(
+          2,
+          timeout: const Duration(seconds: 3),
+        );
 
-      final coordOffsets = (coordinator.transport as WebSocketTransport)
-          .clockOffsets;
-      final participantUId = participant.thisNode.uId;
-      await waitFor(() => coordOffsets.offsetFor(participantUId) != null);
+        final coordOffsets =
+            (coordinator.transport as WebSocketTransport).clockOffsets;
+        final participantUId = participant.thisNode.uId;
+        await waitFor(() => coordOffsets.offsetFor(participantUId) != null);
 
-      await participant.leave();
-      await waitFor(
-        () => coordOffsets.offsetFor(participantUId) == null,
-        reason: 'the offset should be dropped when the peer leaves',
-      );
-    });
+        await participant.leave();
+        await waitFor(
+          () => coordOffsets.offsetFor(participantUId) == null,
+          reason: 'the offset should be dropped when the peer leaves',
+        );
+      },
+    );
   });
 
   group('transports that do not need an estimator', () {

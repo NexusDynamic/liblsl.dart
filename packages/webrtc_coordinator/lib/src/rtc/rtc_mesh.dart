@@ -281,7 +281,9 @@ class RtcMesh {
     if (_closed) return;
     final signal = RtcSignal.tryParse(wire.payload);
     if (signal == null) {
-      _logger.warning('Dropping unparseable signal from ${wire.fromEndpointId}');
+      _logger.warning(
+        'Dropping unparseable signal from ${wire.fromEndpointId}',
+      );
       return;
     }
 
@@ -322,7 +324,9 @@ class RtcMesh {
       // Glare, or a peer that does not know the rule. The lower uId offers, and
       // that is us — so this offer is not one we should answer. Dropping it is
       // safe: our own offer is either already out or about to be.
-      _logger.info('Ignoring offer from $peerNodeUId; this node is the offerer');
+      _logger.info(
+        'Ignoring offer from $peerNodeUId; this node is the offerer',
+      );
       return;
     }
     final entry = await _entryFor(peerNodeUId);

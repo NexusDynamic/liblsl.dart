@@ -134,15 +134,17 @@ void main() {
       expect(a.connectedPeers, ['bbb']);
     });
 
-    test('the coordination stream is pinned to the reserved channel id',
-        () async {
-      final a = await peer('aaa');
-      expect(a.channelIdFor(coordinationStream), coordinationChannelId);
-      expect(
-        a.channelIdFor('Data'),
-        greaterThanOrEqualTo(reservedChannelIds),
-      );
-    });
+    test(
+      'the coordination stream is pinned to the reserved channel id',
+      () async {
+        final a = await peer('aaa');
+        expect(a.channelIdFor(coordinationStream), coordinationChannelId);
+        expect(
+          a.channelIdFor('Data'),
+          greaterThanOrEqualTo(reservedChannelIds),
+        );
+      },
+    );
 
     test('dialling yourself is refused', () async {
       final a = await peer('aaa');
@@ -203,11 +205,9 @@ void main() {
       ]);
 
       await a.releaseChannel(peerNodeUId: 'bbb', streamName: 'Data');
-      expect(
-        a.connectedPeers,
-        ['bbb'],
-        reason: 'one channel left, so the connection stays',
-      );
+      expect(a.connectedPeers, [
+        'bbb',
+      ], reason: 'one channel left, so the connection stays');
 
       await a.releaseChannel(peerNodeUId: 'bbb', streamName: 'Other');
       expect(
@@ -241,34 +241,34 @@ void main() {
   });
 
   group('signal validation', () {
-    test('a signal whose envelope contradicts the verified sender is dropped',
-        () async {
-      final a = await peer('aaa');
-      final b = await peer('bbb');
+    test(
+      'a signal whose envelope contradicts the verified sender is dropped',
+      () async {
+        final a = await peer('aaa');
+        final b = await peer('bbb');
 
-      await Future.wait([
-        a.channelFor(peerNodeUId: 'bbb', streamName: 'Data'),
-        b.channelFor(peerNodeUId: 'aaa', streamName: 'Data'),
-      ]);
+        await Future.wait([
+          a.channelFor(peerNodeUId: 'bbb', streamName: 'Data'),
+          b.channelFor(peerNodeUId: 'aaa', streamName: 'Data'),
+        ]);
 
-      // 'bbb' claims to be 'ccc'. The hub stamps the real `from`, so the
-      // mismatch is detectable — and must not be acted on.
-      b.connection.sendSignal(
-        fromEndpointId: '$sessionName/bbb/$coordinationStream',
-        toEndpointId: '$sessionName/aaa/$coordinationStream',
-        payload: const RtcSignal(
-          kind: RtcSignalKind.bye,
-          fromNodeUId: 'ccc',
-        ).toJson(),
-      );
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+        // 'bbb' claims to be 'ccc'. The hub stamps the real `from`, so the
+        // mismatch is detectable — and must not be acted on.
+        b.connection.sendSignal(
+          fromEndpointId: '$sessionName/bbb/$coordinationStream',
+          toEndpointId: '$sessionName/aaa/$coordinationStream',
+          payload: const RtcSignal(
+            kind: RtcSignalKind.bye,
+            fromNodeUId: 'ccc',
+          ).toJson(),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 100));
 
-      expect(
-        a.connectedPeers,
-        ['bbb'],
-        reason: 'a forged bye must not tear down a real link',
-      );
-    });
+        expect(a.connectedPeers, [
+          'bbb',
+        ], reason: 'a forged bye must not tear down a real link');
+      },
+    );
 
     test('an unparseable payload does not kill the listener', () async {
       final a = await peer('aaa');

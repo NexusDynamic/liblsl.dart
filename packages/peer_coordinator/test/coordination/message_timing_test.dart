@@ -163,25 +163,30 @@ void main() {
       expect(timing.transitMicros, (transit * 1e6).round());
     });
 
-    test('the sender clock is stamped at transmit, not at construction',
-        () async {
-      final coordinator = await joined('coord', randomRoll: 0.1);
-      final participant = await joined('participant', randomRoll: 0.9);
-      await coordinator.waitForMinNodes(2, timeout: const Duration(seconds: 2));
+    test(
+      'the sender clock is stamped at transmit, not at construction',
+      () async {
+        final coordinator = await joined('coord', randomRoll: 0.1);
+        final participant = await joined('participant', randomRoll: 0.9);
+        await coordinator.waitForMinNodes(
+          2,
+          timeout: const Duration(seconds: 2),
+        );
 
-      final before = PeerClock.now();
-      final delivered = participant.waitForUserMessage(
-        'phase',
-        timeout: const Duration(seconds: 2),
-      );
-      await coordinator.sendUserMessage('phase', 'go', {});
-      final event = await delivered;
-      final after = PeerClock.now();
+        final before = PeerClock.now();
+        final delivered = participant.waitForUserMessage(
+          'phase',
+          timeout: const Duration(seconds: 2),
+        );
+        await coordinator.sendUserMessage('phase', 'go', {});
+        final event = await delivered;
+        final after = PeerClock.now();
 
-      final sourceClock = event.timing!.sourceClock!;
-      expect(sourceClock, greaterThanOrEqualTo(before));
-      expect(sourceClock, lessThanOrEqualTo(after));
-    });
+        final sourceClock = event.timing!.sourceClock!;
+        expect(sourceClock, greaterThanOrEqualTo(before));
+        expect(sourceClock, lessThanOrEqualTo(after));
+      },
+    );
 
     test('locally generated events have no transit to report', () async {
       final coordinator = await joined('solo', randomRoll: 0.5);

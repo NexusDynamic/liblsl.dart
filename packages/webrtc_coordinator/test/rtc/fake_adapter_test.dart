@@ -83,20 +83,22 @@ void main() {
       );
     });
 
-    test('candidates arriving before the remote description are buffered',
-        () async {
-      // The failure mode this guards: dropping early candidates works on a
-      // fast LAN and fails behind any real latency.
-      final b = await bob.createLink('alice');
-      await b.addCandidate({'candidate': 'early-1'});
-      await b.addCandidate({'candidate': 'early-2'});
+    test(
+      'candidates arriving before the remote description are buffered',
+      () async {
+        // The failure mode this guards: dropping early candidates works on a
+        // fast LAN and fails behind any real latency.
+        final b = await bob.createLink('alice');
+        await b.addCandidate({'candidate': 'early-1'});
+        await b.addCandidate({'candidate': 'early-2'});
 
-      final a = await alice.createLink('bob');
-      final offer = await a.createOffer();
-      await b.createAnswer(offer);
+        final a = await alice.createLink('bob');
+        final offer = await a.createOffer();
+        await b.createAnswer(offer);
 
-      expect((b as dynamic).acceptedCandidates, hasLength(2));
-    });
+        expect((b as dynamic).acceptedCandidates, hasLength(2));
+      },
+    );
   });
 
   group('delivery is asynchronous', () {
@@ -165,21 +167,23 @@ void main() {
   });
 
   group('channels follow the link', () {
-    test('a channel opened before connection becomes ready on connect',
-        () async {
-      final a = await alice.createLink('bob');
-      final b = await bob.createLink('alice');
+    test(
+      'a channel opened before connection becomes ready on connect',
+      () async {
+        final a = await alice.createLink('bob');
+        final b = await bob.createLink('alice');
 
-      final ca = await a.openChannel(604);
-      expect(ca.isOpen, isFalse);
+        final ca = await a.openChannel(604);
+        expect(ca.isOpen, isFalse);
 
-      final offer = await a.createOffer();
-      final answer = await b.createAnswer(offer);
-      await a.acceptAnswer(answer);
+        final offer = await a.createOffer();
+        final answer = await b.createAnswer(offer);
+        await a.acceptAnswer(answer);
 
-      await ca.ready;
-      expect(ca.isOpen, isTrue);
-    });
+        await ca.ready;
+        expect(ca.isOpen, isTrue);
+      },
+    );
 
     test('the same id returns the same channel', () async {
       final (a, _) = await connected();
@@ -207,27 +211,31 @@ void main() {
       expect(received, isEmpty);
     });
 
-    test('sending on a channel whose peer never opened one is a no-op',
-        () async {
-      final (a, _) = await connected();
-      final ca = await a.openChannel(607);
-      await ca.ready;
-      // No matching channel on bob's side; must not throw.
-      ca.send('into the void');
-      await Future<void>.delayed(const Duration(milliseconds: 5));
-    });
+    test(
+      'sending on a channel whose peer never opened one is a no-op',
+      () async {
+        final (a, _) = await connected();
+        final ca = await a.openChannel(607);
+        await ca.ready;
+        // No matching channel on bob's side; must not throw.
+        ca.send('into the void');
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      },
+    );
 
-    test('reliability options are recorded so the transport can be checked',
-        () async {
-      final (a, _) = await connected();
-      final channel = await a.openChannel(
-        608,
-        ordered: false,
-        maxRetransmits: 0,
-      );
-      expect((channel as dynamic).ordered, isFalse);
-      expect((channel as dynamic).maxRetransmits, 0);
-    });
+    test(
+      'reliability options are recorded so the transport can be checked',
+      () async {
+        final (a, _) = await connected();
+        final channel = await a.openChannel(
+          608,
+          ordered: false,
+          maxRetransmits: 0,
+        );
+        expect((channel as dynamic).ordered, isFalse);
+        expect((channel as dynamic).maxRetransmits, 0);
+      },
+    );
   });
 
   group('channel id derivation', () {

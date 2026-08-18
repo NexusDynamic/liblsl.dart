@@ -318,7 +318,7 @@ class MessageFactory {
     DateTime? timestamp,
     MessageTiming? timing,
   }) {
-    final mapping =StringMapping(channels: channels);
+    final mapping = StringMapping(channels: channels);
     final messageType = MessageType<String, StringMapping>(mapping);
     return StringMessage(
       uId: uId,
@@ -344,7 +344,7 @@ class MessageFactory {
     DateTime? timestamp,
     MessageTiming? timing,
   }) {
-    final mapping =Int8Mapping(channels: channels);
+    final mapping = Int8Mapping(channels: channels);
     final type = MessageType<int, Int8Mapping>(mapping);
     return Int8Message(
       uId: uId,
@@ -370,7 +370,7 @@ class MessageFactory {
     DateTime? timestamp,
     MessageTiming? timing,
   }) {
-    final mapping =Int16Mapping(channels: channels);
+    final mapping = Int16Mapping(channels: channels);
     final type = MessageType<int, Int16Mapping>(mapping);
     return Int16Message(
       uId: uId,
@@ -396,7 +396,7 @@ class MessageFactory {
     DateTime? timestamp,
     MessageTiming? timing,
   }) {
-    final mapping =Int32Mapping(channels: channels);
+    final mapping = Int32Mapping(channels: channels);
     final type = MessageType<int, Int32Mapping>(mapping);
     return Int32Message(
       uId: uId,
@@ -423,7 +423,7 @@ class MessageFactory {
     DateTime? timestamp,
     MessageTiming? timing,
   }) {
-    final mapping =Int64Mapping(channels: channels);
+    final mapping = Int64Mapping(channels: channels);
     final type = MessageType<int, Int64Mapping>(mapping);
     return Int64Message(
       uId: uId,
@@ -449,7 +449,7 @@ class MessageFactory {
     DateTime? timestamp,
     MessageTiming? timing,
   }) {
-    final mapping =Float32Mapping(channels: channels);
+    final mapping = Float32Mapping(channels: channels);
     final type = MessageType<double, Float32Mapping>(mapping);
     return Float32Message(
       uId: uId,
@@ -475,7 +475,7 @@ class MessageFactory {
     DateTime? timestamp,
     MessageTiming? timing,
   }) {
-    final mapping =Double64Mapping(channels: channels);
+    final mapping = Double64Mapping(channels: channels);
     final type = MessageType<double, Double64Mapping>(mapping);
     return Double64Message(
       uId: uId,

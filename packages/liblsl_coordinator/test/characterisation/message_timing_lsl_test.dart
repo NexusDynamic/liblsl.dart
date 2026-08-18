@@ -60,8 +60,7 @@ void main() {
   }
 
   group('coordination stream timing', () {
-    test('a user message carries the sender LSL clock and a correction',
-        () async {
+    test('a user message carries the sender LSL clock and a correction', () async {
       final coordinator = await joined('coord', randomRoll: 0.1);
       final participant = await joined('participant', randomRoll: 0.9);
       await coordinator.waitForMinNodes(2, timeout: const Duration(seconds: 5));
@@ -131,59 +130,64 @@ void main() {
   });
 
   group('data stream timing', () {
-    test('data samples carry the same timing as coordination messages',
-        () async {
-      final coordinator = await joined('coord', randomRoll: 0.1);
-      final participant = await joined('participant', randomRoll: 0.9);
-      await coordinator.waitForMinNodes(2, timeout: const Duration(seconds: 5));
+    test(
+      'data samples carry the same timing as coordination messages',
+      () async {
+        final coordinator = await joined('coord', randomRoll: 0.1);
+        final participant = await joined('participant', randomRoll: 0.9);
+        await coordinator.waitForMinNodes(
+          2,
+          timeout: const Duration(seconds: 5),
+        );
 
-      final streamConfig = DataStreamConfig(
-        name: 'TimingData',
-        channels: 2,
-        sampleRate: 20.0,
-        dataType: StreamDataType.double64,
-        participationMode:
-            StreamParticipationMode.sendParticipantsReceiveCoordinator,
-      );
+        final streamConfig = DataStreamConfig(
+          name: 'TimingData',
+          channels: 2,
+          sampleRate: 20.0,
+          dataType: StreamDataType.double64,
+          participationMode:
+              StreamParticipationMode.sendParticipantsReceiveCoordinator,
+        );
 
-      final received = Completer<IMessage>();
-      final stream = await coordinator.createDataStream(streamConfig);
-      final sub = stream.inbox.listen((message) {
-        if (!received.isCompleted) received.complete(message);
-      });
+        final received = Completer<IMessage>();
+        final stream = await coordinator.createDataStream(streamConfig);
+        final sub = stream.inbox.listen((message) {
+          if (!received.isCompleted) received.complete(message);
+        });
 
-      final producerReady = Completer<LSLDataStream>();
-      final startSub = participant.events.streamStart.listen((event) async {
-        if (!producerReady.isCompleted) {
-          producerReady.complete(
-            await participant.getDataStream(event.streamName),
-          );
-        }
-      });
+        final producerReady = Completer<LSLDataStream>();
+        final startSub = participant.events.streamStart.listen((event) async {
+          if (!producerReady.isCompleted) {
+            producerReady.complete(
+              await participant.getDataStream(event.streamName),
+            );
+          }
+        });
 
-      await coordinator.startStream('TimingData');
-      final producer = await producerReady.future.timeout(
-        const Duration(seconds: 10),
-      );
+        await coordinator.startStream('TimingData');
+        final producer = await producerReady.future.timeout(
+          const Duration(seconds: 10),
+        );
 
-      final pump = Timer.periodic(const Duration(milliseconds: 50), (_) {
-        if (producer.started) producer.sendData([1.0, 2.0]);
-      });
+        final pump = Timer.periodic(const Duration(milliseconds: 50), (_) {
+          if (producer.started) producer.sendData([1.0, 2.0]);
+        });
 
-      final message = await received.future.timeout(
-        const Duration(seconds: 10),
-      );
-      pump.cancel();
-      await sub.cancel();
-      await startSub.cancel();
+        final message = await received.future.timeout(
+          const Duration(seconds: 10),
+        );
+        pump.cancel();
+        await sub.cancel();
+        await startSub.cancel();
 
-      final timing = message.timing;
-      expect(timing, isNotNull);
-      expect(timing!.sourceClock, isNotNull);
-      expect(timing.receivedClock, greaterThan(0));
-      expect(timing.sourceId, isNotNull);
+        final timing = message.timing;
+        expect(timing, isNotNull);
+        expect(timing!.sourceClock, isNotNull);
+        expect(timing.receivedClock, greaterThan(0));
+        expect(timing.sourceId, isNotNull);
 
-      await coordinator.stopStream('TimingData');
-    });
+        await coordinator.stopStream('TimingData');
+      },
+    );
   });
 }

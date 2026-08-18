@@ -268,24 +268,26 @@ void main() {
       expect(state.isStale('never-heard-of', Duration.zero), isFalse);
     });
 
-    test('clearNodes empties the topology and emits one event per node',
-        () async {
-      state.addNode(participant('a'));
-      state.addNode(participant('b'));
-      final events = <ControllerEvent>[];
-      final sub = state.events.listen(events.add);
+    test(
+      'clearNodes empties the topology and emits one event per node',
+      () async {
+        state.addNode(participant('a'));
+        state.addNode(participant('b'));
+        final events = <ControllerEvent>[];
+        final sub = state.events.listen(events.add);
 
-      state.clearNodes();
-      await pumpEventQueue();
+        state.clearNodes();
+        await pumpEventQueue();
 
-      expect(state.connectedNodes, isEmpty);
-      expect(
-        events.whereType<NodeLeftEvent>().map((e) => e.node.uId),
-        unorderedEquals(['a', 'b']),
-      );
-      expect(state.getStaleNodes(Duration.zero), isEmpty);
-      await sub.cancel();
-    });
+        expect(state.connectedNodes, isEmpty);
+        expect(
+          events.whereType<NodeLeftEvent>().map((e) => e.node.uId),
+          unorderedEquals(['a', 'b']),
+        );
+        expect(state.getStaleNodes(Duration.zero), isEmpty);
+        await sub.cancel();
+      },
+    );
   });
 
   group('known issues (characterisation — these pin current behaviour)', () {

@@ -46,29 +46,30 @@ void main() {
     bus.dispose();
   });
 
-  CoordinationConfig configFor(CoordinatorLossPolicy policy) =>
-      CoordinationConfig(
-        name: 'loss_test',
-        sessionConfig: CoordinationSessionConfig(
-          name: sessionName,
-          maxNodes: 3,
-          minNodes: 1,
-          heartbeatInterval: const Duration(milliseconds: 50),
-          discoveryInterval: const Duration(milliseconds: 25),
-          // Sub-second on purpose. `Duration(seconds: nodeTimeout.inSeconds ~/ 2)`
-          // truncated to zero here, giving a periodic timer that fired every
-          // event-loop turn; the sweep period is now computed in microseconds.
-          nodeTimeout: nodeTimeout,
-          consumeCoordinationStreamAsCoordinator: false,
-          coordinatorLossPolicy: policy,
-        ),
-        topologyConfig: HierarchicalTopologyConfig(
-          promotionStrategy: PromotionStrategyRandom(),
-          maxNodes: 3,
-        ),
-        streamConfig: CoordinationStreamConfig(name: streamName),
-        transportConfig: InMemoryTransportConfig(bus: bus),
-      );
+  CoordinationConfig configFor(
+    CoordinatorLossPolicy policy,
+  ) => CoordinationConfig(
+    name: 'loss_test',
+    sessionConfig: CoordinationSessionConfig(
+      name: sessionName,
+      maxNodes: 3,
+      minNodes: 1,
+      heartbeatInterval: const Duration(milliseconds: 50),
+      discoveryInterval: const Duration(milliseconds: 25),
+      // Sub-second on purpose. `Duration(seconds: nodeTimeout.inSeconds ~/ 2)`
+      // truncated to zero here, giving a periodic timer that fired every
+      // event-loop turn; the sweep period is now computed in microseconds.
+      nodeTimeout: nodeTimeout,
+      consumeCoordinationStreamAsCoordinator: false,
+      coordinatorLossPolicy: policy,
+    ),
+    topologyConfig: HierarchicalTopologyConfig(
+      promotionStrategy: PromotionStrategyRandom(),
+      maxNodes: 3,
+    ),
+    streamConfig: CoordinationStreamConfig(name: streamName),
+    transportConfig: InMemoryTransportConfig(bus: bus),
+  );
 
   /// Lower roll wins the election, so the roll fixes who coordinates — before
   /// and after a re-election.
@@ -254,7 +255,9 @@ void main() {
       last.events.userMessages.listen((event) {
         if (!delivered.isCompleted) delivered.complete(event);
       });
-      await middle.sendUserMessage('chat', 'still here', {'text': 'still here'});
+      await middle.sendUserMessage('chat', 'still here', {
+        'text': 'still here',
+      });
 
       final event = await delivered.future.timeout(const Duration(seconds: 3));
       expect(event.payload['text'], 'still here');
@@ -302,8 +305,10 @@ void main() {
       // one-directional stall, which is what makes the eviction notice useful.
       bus.routing.unsubscribe(
         streamName: streamName,
-        producerEndpointId: '$sessionName/${participant.thisNode.uId}/$streamName',
-        subscriberEndpointId: '$sessionName/${coordinator.thisNode.uId}/$streamName',
+        producerEndpointId:
+            '$sessionName/${participant.thisNode.uId}/$streamName',
+        subscriberEndpointId:
+            '$sessionName/${coordinator.thisNode.uId}/$streamName',
       );
 
       final event = await nextEnd(participant);

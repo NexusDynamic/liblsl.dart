@@ -159,9 +159,7 @@ class CoordinatorMessageHandler extends CoordinationMessageHandler
       case CoordinationMessageType.connectionTest:
         await respondToConnectionTest(message as ConnectionTestMessage);
       case CoordinationMessageType.connectionTestResponse:
-        routeConnectionTestResponse(
-          message as ConnectionTestResponseMessage,
-        );
+        routeConnectionTestResponse(message as ConnectionTestResponseMessage);
       case CoordinationMessageType.joinRequest:
         await _handleJoinRequest(message as JoinRequestMessage);
       case CoordinationMessageType.nodeLeaving:

@@ -307,14 +307,15 @@ class CoordinationController {
     _state.becomeParticipant();
 
     // Create participant handler
-    _participantHandler = ParticipantMessageHandler(
-      state: _state,
-      thisNode: participantNode,
-      sessionConfig: coordinationConfig.sessionConfig,
-    )
-      ..onConnectionProbeReply = _onConnectionProbeReply
-      ..onSessionEnd = (message) =>
-          unawaited(_onCoordinatorLost(message.reason));
+    _participantHandler =
+        ParticipantMessageHandler(
+            state: _state,
+            thisNode: participantNode,
+            sessionConfig: coordinationConfig.sessionConfig,
+          )
+          ..onConnectionProbeReply = _onConnectionProbeReply
+          ..onSessionEnd = (message) =>
+              unawaited(_onCoordinatorLost(message.reason));
 
     // Connect to coordinator
     await _connectToCoordinator();
@@ -573,11 +574,11 @@ class CoordinationController {
         // Fire and forget: a probe that fails to send is one fewer sample in
         // the burst, which the minimum-probe gate already handles.
         unawaited(
-          handler
-              .sendConnectionProbe(peerUId, waveId, probeIndex)
-              .catchError((Object e) {
-                logger.finer('Clock probe to $peerUId failed to send: $e');
-              }),
+          handler.sendConnectionProbe(peerUId, waveId, probeIndex).catchError((
+            Object e,
+          ) {
+            logger.finer('Clock probe to $peerUId failed to send: $e');
+          }),
         );
       },
     );
@@ -621,7 +622,10 @@ class CoordinationController {
     final t2 = reply.senderClock;
     final t3 = reply.transportTiming?.receivedClock;
     final waveId = reply.waveId;
-    if (t0 == null || t1 == null || t2 == null || t3 == null ||
+    if (t0 == null ||
+        t1 == null ||
+        t2 == null ||
+        t3 == null ||
         waveId == null) {
       return;
     }
