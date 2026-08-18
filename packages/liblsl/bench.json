@@ -2,40 +2,40 @@
   {
     "name": "directSync/pushSample/8ch@500Hz latency_p50",
     "unit": "us",
-    "value": 293.12499100342393,
-    "extra": "n=1499"
+    "value": 26.291003450751305,
+    "extra": "n=4500"
   },
   {
     "name": "directSync/pushSample/8ch@500Hz latency_p95",
     "unit": "us",
-    "value": 7278.2910137902945
+    "value": 28274.91599600762
   },
   {
     "name": "directSync/pushSample/8ch@500Hz latency_p99",
     "unit": "us",
-    "value": 7927.791011752561
+    "value": 30768.29097699374
   },
   {
     "name": "directSync/pushSample/8ch@500Hz time_per_sample",
     "unit": "us/sample",
-    "value": 2001.33422281521,
+    "value": 2000.0,
     "extra": "500 samples/s, loss 0.0%"
   },
   {
     "name": "directSync/pushChunkTyped32/64ch@1000Hz latency_p50",
     "unit": "us",
-    "value": 11623.58300643973,
-    "extra": "n=2976"
+    "value": 11189.54096455127,
+    "extra": "n=8928"
   },
   {
     "name": "directSync/pushChunkTyped32/64ch@1000Hz latency_p95",
     "unit": "us",
-    "value": 25005.915988003835
+    "value": 42023.25001824647
   },
   {
     "name": "directSync/pushChunkTyped32/64ch@1000Hz latency_p99",
     "unit": "us",
-    "value": 27499.87499555573
+    "value": 50504.583050496876
   },
   {
     "name": "directSync/pushChunkTyped32/64ch@1000Hz time_per_sample",
@@ -46,40 +46,40 @@
   {
     "name": "directSyncBlocking/pushSample/8ch@500Hz latency_p50",
     "unit": "us",
-    "value": 232.70800011232495,
-    "extra": "n=1499"
+    "value": 190.0000497698784,
+    "extra": "n=4500"
   },
   {
     "name": "directSyncBlocking/pushSample/8ch@500Hz latency_p95",
     "unit": "us",
-    "value": 7227.666006656364
+    "value": 28285.50001140684
   },
   {
     "name": "directSyncBlocking/pushSample/8ch@500Hz latency_p99",
     "unit": "us",
-    "value": 7860.040990635753
+    "value": 30834.374949336052
   },
   {
     "name": "directSyncBlocking/pushSample/8ch@500Hz time_per_sample",
     "unit": "us/sample",
-    "value": 2001.33422281521,
+    "value": 2000.0,
     "extra": "500 samples/s, loss 0.0%"
   },
   {
     "name": "directSyncBlocking/pushChunkTyped32/64ch@1000Hz latency_p50",
     "unit": "us",
-    "value": 9824.540989939123,
-    "extra": "n=2976"
+    "value": 10600.166046060622,
+    "extra": "n=8928"
   },
   {
     "name": "directSyncBlocking/pushChunkTyped32/64ch@1000Hz latency_p95",
     "unit": "us",
-    "value": 27005.74998743832
+    "value": 46391.624957323074
   },
   {
     "name": "directSyncBlocking/pushChunkTyped32/64ch@1000Hz latency_p99",
     "unit": "us",
-    "value": 29113.16600511782
+    "value": 52611.9580026716
   },
   {
     "name": "directSyncBlocking/pushChunkTyped32/64ch@1000Hz time_per_sample",
@@ -90,40 +90,40 @@
   {
     "name": "isolateAsync/pushSample/8ch@500Hz latency_p50",
     "unit": "us",
-    "value": 482.8750097658485,
-    "extra": "n=1499"
+    "value": 241.20800662785769,
+    "extra": "n=4500"
   },
   {
     "name": "isolateAsync/pushSample/8ch@500Hz latency_p95",
     "unit": "us",
-    "value": 7544.583000708371
+    "value": 28537.75001130998
   },
   {
     "name": "isolateAsync/pushSample/8ch@500Hz latency_p99",
     "unit": "us",
-    "value": 8155.12498957105
+    "value": 30945.332953706384
   },
   {
     "name": "isolateAsync/pushSample/8ch@500Hz time_per_sample",
     "unit": "us/sample",
-    "value": 2001.33422281521,
+    "value": 2000.0,
     "extra": "500 samples/s, loss 0.0%"
   },
   {
     "name": "isolateAsync/pushChunkTyped32/64ch@1000Hz latency_p50",
     "unit": "us",
-    "value": 11043.625010643154,
-    "extra": "n=2976"
+    "value": 11257.666046731174,
+    "extra": "n=8928"
   },
   {
     "name": "isolateAsync/pushChunkTyped32/64ch@1000Hz latency_p95",
     "unit": "us",
-    "value": 24453.624995658174
+    "value": 41779.582970775664
   },
   {
     "name": "isolateAsync/pushChunkTyped32/64ch@1000Hz latency_p99",
     "unit": "us",
-    "value": 30603.749997681007
+    "value": 49460.00000927597
   },
   {
     "name": "isolateAsync/pushChunkTyped32/64ch@1000Hz time_per_sample",

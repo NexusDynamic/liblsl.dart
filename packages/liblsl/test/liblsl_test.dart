@@ -20,7 +20,7 @@ void main() {
       sessionId: 'LSLTestSession',
       unicastMinRTT: 0.1,
       multicastMinRTT: 0.1,
-      portRange: 64,
+      portRange: 128, // bump up for concurrency
       // don't bother checking during the test
       watchdogCheckInterval: 600.0,
       sendSocketBufferSize: 1024,

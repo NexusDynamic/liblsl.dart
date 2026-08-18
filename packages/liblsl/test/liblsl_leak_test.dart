@@ -82,8 +82,12 @@ void main() {
         streamInfo: producerInfo,
         useIsolates: false,
       );
-      await Future.delayed(Duration(milliseconds: 100));
-      final streams = await LSL.resolveStreams(waitTime: 2.0, maxStreams: 10);
+      final streams = await LSL.resolveStreamsByProperty(
+        property: LSLStreamProperty.name,
+        value: 'LeakDoubleDestroyInlet',
+        waitTime: 5.0,
+        maxStreams: 1,
+      );
       final resolved = streams.firstWhereOrNull(
         (s) => s.streamName == 'LeakDoubleDestroyInlet',
       );
