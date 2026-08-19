@@ -1,7 +1,7 @@
 name: liblsl
 description: A Dart (and Flutter) native library for working with Lab Streaming
   Layer (LSL / liblsl).
-version: 0.14.1+0
+version: 0.15.0+0
 homepage: https://zeyus.com/
 repository: https://github.com/NexusDynamic/liblsl.dart
 issue_tracker: https://github.com/NexusDynamic/liblsl.dart/issues
@@ -38,12 +38,12 @@ ffigen:
   output: "lib/native_liblsl.dart"
   headers:
     entry-points:
-      - "src/liblsl-9f0b6122/include/lsl_c.h"
+      - "src/liblsl-dart_main/include/lsl_c.h"
     include-directives:
-      - "src/liblsl-9f0b6122/include/lsl/*.h"
-      - "src/liblsl-9f0b6122/include/lsl_c.h"
+      - "src/liblsl-dart_main/include/lsl/*.h"
+      - "src/liblsl-dart_main/include/lsl_c.h"
   compiler-opts:
-    - "-Isrc/liblsl-9f0b6122/include"
+    - "-Isrc/liblsl-dart_main/include"
   structs:
     dependency-only: opaque
   functions:

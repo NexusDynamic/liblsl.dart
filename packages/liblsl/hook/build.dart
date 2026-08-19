@@ -54,8 +54,8 @@ void main(List<String> args) async {
   await build(args, (input, output) async {
     if (input.config.buildCodeAssets) {
       // This needs to be manually copied from CMakeLists.txt.
-      const String libLSLVersion = '1.18.0.b2 ';
-      const String libLSLBranch = '9f0b6122';
+      const String libLSLVersion = '1.18.0.b2-zpatch';
+      const String libLSLBranch = 'dart_main';
       const String libLSLPath = 'src/liblsl-$libLSLBranch';
       const String pugixmlPath = 'src/pugixml';
       final OS targetOs = input.config.code.targetOS;
