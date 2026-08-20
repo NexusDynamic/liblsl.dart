@@ -332,11 +332,17 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
   /// the first two may be null (no correction estimate yet), in which case
   /// [MessageTiming.transitSeconds] correctly reports null rather than a
   /// fabricated number.
+  ///
+  /// `lslTimeCorrectionUncertainty` is liblsl's own error bound on the offset
+  /// — the full probe round-trip time, the same quantity `ClockSyncService`
+  /// reports for the other transports, so the ± figures are comparable across
+  /// all of them.
   MessageTiming _timingFromIsolateData(IsolateDataMessage data) =>
       MessageTiming(
         sourceClock: data.lslTimestamp,
         clockOffset: data.lslTimeCorrection,
         receivedClock: data.localClock ?? LSL.localClock(),
+        uncertainty: data.lslTimeCorrectionUncertainty,
         sourceId: data.sourceId,
       );
 

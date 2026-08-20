@@ -100,6 +100,24 @@ void main() {
       );
       expect(timing.clockOffset!.abs(), lessThan(0.1));
 
+      // liblsl's own error bound on that offset, read via
+      // lsl_time_correction_ex. It used to be null here — LSL was the only
+      // transport that could not say how good its offset was — so a null is a
+      // regression in the plumbing, not a missing estimate.
+      expect(
+        timing.uncertainty,
+        isNotNull,
+        reason: 'LSL reports the probe RTT; it must reach MessageTiming',
+      );
+      expect(timing.uncertainty!, greaterThanOrEqualTo(0));
+      // Loopback, and the same conservative full-RTT quantity ClockSyncService
+      // reports, so uncertaintySeconds is half of it.
+      expect(timing.uncertainty!, lessThan(1.0));
+      expect(
+        timing.transitUncertaintySeconds,
+        closeTo(timing.uncertainty! / 2, 1e-12),
+      );
+
       // The LSL source_id of the sending outlet.
       expect(timing.sourceId, isNotNull);
       expect(timing.sourceId, isNotEmpty);

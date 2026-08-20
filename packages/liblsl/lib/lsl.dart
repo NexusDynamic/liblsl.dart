@@ -2,6 +2,7 @@
 library;
 
 export 'package:liblsl/src/lsl/structs.dart';
+export 'package:liblsl/src/lsl/time_correction.dart' show LSLTimeCorrection;
 export 'package:liblsl/src/lsl/stream_info.dart';
 export 'package:liblsl/src/lsl/pull_sample.dart' show LSLPullSample;
 export 'package:liblsl/src/lsl/push_sample.dart' show LSLPushSample;

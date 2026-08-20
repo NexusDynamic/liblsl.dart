@@ -1,3 +1,34 @@
+# 0.15.0+0
+
+## New features
+
+- `lsl_time_correction_ex` is now wrapped: `LSLInlet.getTimeCorrectionEx()` /
+  `getTimeCorrectionExSync()` return an `LSLTimeCorrection` carrying the clock
+  `offset`, the `remoteTime` it was measured against, and the `uncertainty`
+  (the probe's full round-trip time; `bound` is half of it, the ± on the
+  offset). liblsl computes all three on the same round trip — its plain
+  `lsl_time_correction` discards two of them — so this costs no extra network
+  traffic and no extra native work. `getTimeCorrection()` is unchanged and now
+  delegates to the same single native call site.
+- Inlet time-stamp post-processing: `LSLInlet.setPostProcessing()` /
+  `setPostProcessingSync()` take a `Set<LSLProcessingOptions>`
+  (`none`/`clockSync`/`dejitter`/`monotonize`/`threadSafe`), and
+  `setSmoothingHalftime()` / `setSmoothingHalftimeSync()` tune the dejitter
+  window. Note that `clockSync` rewrites time stamps into the local clock
+  domain and is not compatible with layers that apply the correction
+  themselves, such as `liblsl_coordinator`.
+- `LSLInlet.wasClockReset()` / `wasClockResetSync()` report whether the source
+  machine's clock may have been reset, which invalidates an offset fitted over
+  several estimates. Reading it clears the flag.
+- `LSL.lastError()` exposes liblsl's thread-local last-error message.
+
+## Improvements
+
+- Exceptions raised from a nonzero liblsl error code now name the code
+  (`timeout`/`lost`/`argument`/`internal`) and append liblsl's own message when
+  it has one, instead of reporting a bare integer. A timeout code now raises
+  `LSLTimeout` rather than a plain `LSLException`.
+
 # 0.14.1+0
 
 - Added identities to `LSLInlet`, `LSLOutlet` and `LSLStreamInfo` (`hashCode` and `==`).

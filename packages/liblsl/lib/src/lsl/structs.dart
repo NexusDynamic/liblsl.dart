@@ -233,3 +233,78 @@ extension LSLTransportOptionsFlags on Set<LSLTransportOptions> {
   @pragma('vm:prefer-inline')
   int get nativeFlags => fold(0, (acc, option) => acc | option.value);
 }
+
+/// Automatic post-processing an inlet applies to incoming time stamps.
+///
+/// The default is no post-processing at all: the inlet returns ground-truth
+/// time stamps in the *sender's* clock domain, which you synchronize yourself
+/// with [LSLInlet.getTimeCorrection].
+///
+/// **Warning:** once post-processing is enabled the original time stamps are
+/// neither delivered nor recoverable.
+enum LSLProcessingOptions {
+  /// No automatic post-processing; ground-truth time stamps, for manual
+  /// synchronization. This is the inlet default.
+  none(lsl_processing_options_t.proc_none),
+
+  /// Automatic clock synchronization: equivalent to adding the
+  /// [LSLInlet.getTimeCorrection] value to every received time stamp.
+  ///
+  /// **Do not enable this under `liblsl_coordinator`.** Its `MessageTiming`
+  /// treats the sample time stamp as the sender's clock and adds the offset
+  /// itself, so a pre-corrected time stamp would be corrected twice and every
+  /// reported transit time would be wrong by roughly one offset.
+  clockSync(lsl_processing_options_t.proc_clocksync),
+
+  /// Remove jitter from time stamps by smoothing them.
+  ///
+  /// Needs to see a minimum number of samples (30-120 seconds worst case)
+  /// before the residual jitter is consistently below 1 ms. See
+  /// [LSLInlet.setSmoothingHalftime] to tune the smoothing window.
+  dejitter(lsl_processing_options_t.proc_dejitter),
+
+  /// Force time stamps to ascend monotonically.
+  /// Only meaningful together with [dejitter].
+  monotonize(lsl_processing_options_t.proc_monotonize),
+
+  /// Make post-processing thread-safe, so one inlet can be read from multiple
+  /// threads. Uses somewhat more CPU.
+  threadSafe(lsl_processing_options_t.proc_threadsafe);
+
+  final lsl_processing_options_t _nativeType;
+
+  lsl_processing_options_t get nativeType => _nativeType;
+  int get value => nativeType.value;
+
+  /// Private constructor to associate the enum value with its native type.
+  const LSLProcessingOptions(this._nativeType);
+
+  /// Converts a native lsl_processing_options_t value to the corresponding
+  /// LSLProcessingOptions enum value.
+  static LSLProcessingOptions fromNative(lsl_processing_options_t native) {
+    return LSLProcessingOptions.values.firstWhere(
+      (e) => e.nativeType == native,
+      orElse: () => throw ArgumentError(
+        'No matching LSLProcessingOptions for native value: $native',
+      ),
+    );
+  }
+
+  /// Converts an integer value to the corresponding LSLProcessingOptions enum
+  /// value.
+  static LSLProcessingOptions fromValue(int value) {
+    return LSLProcessingOptions.values.firstWhere(
+      (e) => e.value == value,
+      orElse: () => throw ArgumentError(
+        'No matching LSLProcessingOptions for value: $value',
+      ),
+    );
+  }
+}
+
+/// Combines a set of [LSLProcessingOptions] into the bitwise-OR'd int that
+/// `lsl_set_postprocessing` expects.
+extension LSLProcessingOptionsFlags on Set<LSLProcessingOptions> {
+  @pragma('vm:prefer-inline')
+  int get nativeFlags => fold(0, (acc, option) => acc | option.value);
+}

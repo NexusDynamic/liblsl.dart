@@ -241,6 +241,11 @@ final class IsolateDataMessage {
   final double? lslTimestamp;
   final double? lslTimeCorrection;
 
+  /// Error bound on [lslTimeCorrection], in seconds: the full round-trip time
+  /// of the probe liblsl derived the offset from, so the true offset lies
+  /// within half of it. Null whenever [lslTimeCorrection] is.
+  final double? lslTimeCorrectionUncertainty;
+
   /// `lsl_local_clock()` on *this* machine when the sample was pulled.
   ///
   /// Captured inside the inlet isolate so it excludes the isolate-port hop that
@@ -255,6 +260,7 @@ final class IsolateDataMessage {
     this.sourceId,
     this.lslTimestamp,
     this.lslTimeCorrection,
+    this.lslTimeCorrectionUncertainty,
     this.localClock,
   });
 
@@ -265,6 +271,7 @@ final class IsolateDataMessage {
     'sourceId': sourceId,
     'lslTimestamp': lslTimestamp,
     'lslTimeCorrection': lslTimeCorrection,
+    'lslTimeCorrectionUncertainty': lslTimeCorrectionUncertainty,
     'localClock': localClock,
   };
 
@@ -276,6 +283,8 @@ final class IsolateDataMessage {
       sourceId: map['sourceId'] as String?,
       lslTimestamp: map['lslTimestamp'] as double?,
       lslTimeCorrection: map['lslTimeCorrection'] as double?,
+      lslTimeCorrectionUncertainty:
+          map['lslTimeCorrectionUncertainty'] as double?,
       localClock: map['localClock'] as double?,
     );
   }
@@ -947,7 +956,13 @@ final class InletWorker extends IsolateWorker {
   /// from a known offset of `0.0`: reporting zero would make a receiver compute
   /// a plausible-looking but wrong transit time for the first few seconds of
   /// every new peer.
-  late final List<double?> timeCorrections;
+  ///
+  /// Holds the extended estimate (offset *and* its uncertainty) rather than a
+  /// bare offset. liblsl's plain `lsl_time_correction` delegates to
+  /// `lsl_time_correction_ex` internally, so the error bound comes free with
+  /// the same round trip and keeping both in one list avoids a second
+  /// index-parallel array to keep in sync with `inlets`.
+  late final List<LSLTimeCorrection?> timeCorrections;
 
   /// Lock for inlet operations
   late final Lock inletsLock;
@@ -997,7 +1012,11 @@ final class InletWorker extends IsolateWorker {
       '[${config.debugName}] Initializing inlet worker for stream ${config.streamId}',
     );
     inlets = await IsolateStreamManager._createInlets(config);
-    timeCorrections = List<double?>.filled(inlets.length, null, growable: true);
+    timeCorrections = List<LSLTimeCorrection?>.filled(
+      inlets.length,
+      null,
+      growable: true,
+    );
     inletsLock = Lock();
     timeCorrectionsLock = Lock();
     inletAddRemoveLock = MultiLock(locks: [inletsLock, timeCorrectionsLock]);
@@ -1272,17 +1291,17 @@ final class InletWorker extends IsolateWorker {
         return; // Limit updates to every 5 seconds
       }
       // Keep the inlet index attached to each pending correction. These inlets
-      // are created with `useIsolates: false`, so `getTimeCorrection` runs the
+      // are created with `useIsolates: false`, so `getTimeCorrectionEx` runs the
       // FFI call synchronously *before* returning its future — a throw lands
       // here rather than in the future. Collecting bare futures therefore left
       // the results list shorter than `inlets` whenever one failed, and the
       // positional write-back then assigned every subsequent inlet's correction
       // to the wrong inlet.
       final List<int> indices = [];
-      final List<Future<double>> futures = [];
+      final List<Future<LSLTimeCorrection>> futures = [];
       for (int i = 0; i < inlets.length; i++) {
         try {
-          futures.add(inlets[i].getTimeCorrection(timeout: 1.0));
+          futures.add(inlets[i].getTimeCorrectionEx(timeout: 1.0));
           indices.add(i);
         } catch (e) {
           logger.warning('Error updating time correction for inlet $i: $e');
@@ -1315,6 +1334,7 @@ final class InletWorker extends IsolateWorker {
 
     for (int i = 0; i < inlets.length; i++) {
       final inlet = inlets[i];
+      final correction = timeCorrections[i];
       try {
         // Drain the inlet instead of taking a single sample, otherwise a
         // producer faster than the poll rate builds an ever-growing backlog.
@@ -1329,7 +1349,8 @@ final class InletWorker extends IsolateWorker {
               data: sample.data,
               sourceId: inlet.streamInfo.sourceId,
               lslTimestamp: sample.timestamp,
-              lslTimeCorrection: timeCorrections[i],
+              lslTimeCorrection: correction?.offset,
+              lslTimeCorrectionUncertainty: correction?.uncertainty,
               localClock: tickLocalClock,
             ),
           );

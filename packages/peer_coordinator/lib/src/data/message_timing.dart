@@ -41,11 +41,12 @@ final class MessageTiming {
   /// This is the **full** round-trip time of the probe the offset came from,
   /// not half of it — the true offset lies within ±[uncertainty]/2. liblsl
   /// reports the same conservative quantity through
-  /// `lsl_time_correction_ex`. Quoting a transit time without it implies a
-  /// precision the method does not have.
+  /// `lsl_time_correction_ex`, which the LSL transport reads directly, so the
+  /// figure means the same thing on every transport. Quoting a transit time
+  /// without it implies a precision the method does not have.
   ///
-  /// Null on LSL for now: `lsl_time_correction_ex` exists in the generated
-  /// bindings but has no Dart wrapper yet.
+  /// Null when no offset estimate has been made yet, or on a transport that
+  /// does not estimate one.
   final double? uncertainty;
 
   /// How the transport identifies the sender: LSL's `source_id`, a peer's node

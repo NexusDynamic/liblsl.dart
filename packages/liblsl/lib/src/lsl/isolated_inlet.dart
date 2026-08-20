@@ -43,6 +43,9 @@ class LSLInletIsolate extends LSLIsolateWorkerBase {
     _handlers[LSLMessageType.samplesAvailable] = _samplesAvailable;
     _handlers[LSLMessageType.destroy] = _destroy;
     _handlers[LSLMessageType.pullChunk] = _pullChunk;
+    _handlers[LSLMessageType.setPostProcessing] = _setPostProcessing;
+    _handlers[LSLMessageType.setSmoothingHalftime] = _setSmoothingHalftime;
+    _handlers[LSLMessageType.wasClockReset] = _wasClockReset;
     _handlers[LSLMessageType.getFullInfo] = (Map<String, dynamic> data) async {
       if (_inlet == null) {
         throw LSLException('Inlet not created');
@@ -53,7 +56,7 @@ class LSLInletIsolate extends LSLIsolateWorkerBase {
       final result = ec.value;
       ec.free();
       if (result != 0) {
-        throw LSLException('Error getting full info: $result');
+        throw lslError('Error getting full info', result);
       }
       return fullInfoPtr.address;
     };
@@ -161,7 +164,7 @@ class LSLInletIsolate extends LSLIsolateWorkerBase {
     ec.free();
 
     if (result != 0) {
-      throw LSLException('Error opening stream: $result');
+      throw lslError('Error opening stream', result);
     }
 
     return {
@@ -211,16 +214,64 @@ class LSLInletIsolate extends LSLIsolateWorkerBase {
   }
 
   @Todo('zeyus', 'handle timeout code')
-  /// Time correction
-  Future<double> _timeCorrection(Map<String, dynamic> data) async {
+  /// Time correction, as `[offset, remoteTime, uncertainty]`.
+  ///
+  /// Always the extended form: liblsl's plain `lsl_time_correction` delegates
+  /// to this one internally, so returning all three values is free. The
+  /// out-parameter slots are allocated here rather than shared with the main
+  /// isolate, matching how the `getFullInfo` handler allocates its error code.
+  Future<List<double>> _timeCorrection(Map<String, dynamic> data) async {
     final timeout = data['timeout'] as double;
     final ecPtr = Pointer<Int32>.fromAddress(data['ecPointerAddr'] as int);
-    final timeCorrection = lsl_time_correction(_inlet!, timeout, ecPtr);
-    final result = ecPtr.value;
-    if (result != 0) {
-      throw LSLException('Error getting time correction: $result');
+    final scratch = allocate<Double>(2);
+    try {
+      final offset = lsl_time_correction_ex(
+        _inlet!,
+        scratch,
+        scratch + 1,
+        timeout,
+        ecPtr,
+      );
+      final result = ecPtr.value;
+      if (result != 0) {
+        throw lslError('Error getting time correction', result);
+      }
+      return <double>[offset, scratch[0], scratch[1]];
+    } finally {
+      scratch.free();
     }
-    return timeCorrection;
+  }
+
+  /// Enables automatic post-processing of incoming time stamps.
+  Future<void> _setPostProcessing(Map<String, dynamic> data) async {
+    if (_inlet == null) {
+      throw LSLException('Inlet not created');
+    }
+    final flags = data['flags'] as int;
+    final result = lsl_set_postprocessing(_inlet!, flags);
+    if (result != 0) {
+      throw lslError('Error setting post-processing', result);
+    }
+  }
+
+  /// Overrides the half-time of the time-stamp smoothing window.
+  Future<void> _setSmoothingHalftime(Map<String, dynamic> data) async {
+    if (_inlet == null) {
+      throw LSLException('Inlet not created');
+    }
+    final value = data['value'] as double;
+    final result = lsl_smoothing_halftime(_inlet!, value);
+    if (result != 0) {
+      throw lslError('Error setting smoothing halftime', result);
+    }
+  }
+
+  /// Whether the source clock was reset since the last check.
+  Future<bool> _wasClockReset(Map<String, dynamic>? data) async {
+    if (_inlet == null) {
+      throw LSLException('Inlet not created');
+    }
+    return lsl_was_clock_reset(_inlet!) != 0;
   }
 
   /// Cleans up the inlet and stream info.

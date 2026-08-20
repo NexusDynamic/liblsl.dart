@@ -483,6 +483,26 @@ class LSL {
     return versionString;
   }
 
+  /// The message from the last liblsl call on *this* thread that failed with
+  /// an error code, or an empty string if there is none.
+  ///
+  /// liblsl stores this in a thread-local buffer, so it must be read on the
+  /// same thread that made the failing call. In isolated mode that means
+  /// inside the worker isolate — reading it on the main isolate after a failed
+  /// response has come back returns that isolate's (empty) buffer.
+  ///
+  /// Only the exception-wrapped C entry points populate it. The `pull_sample`
+  /// family reports through its error code without touching this buffer, so
+  /// treat an empty result as "no detail available" rather than as a claim
+  /// that nothing went wrong.
+  static String lastError() {
+    final message = lsl_last_error();
+    if (message.isNullPointer) {
+      return '';
+    }
+    return message.cast<Utf8>().toDartString();
+  }
+
   /// Cleans up all resources.
   void destroy() {}
 

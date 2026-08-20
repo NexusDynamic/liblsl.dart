@@ -1,3 +1,13 @@
+## 0.4.0+1
+
+- LSL messages now carry `MessageTiming.uncertainty`. The inlet isolate reads
+  the offset through `lsl_time_correction_ex` instead of `lsl_time_correction`,
+  which is the same native round trip, and passes liblsl's own error bound (the
+  probe's full RTT) along with the offset. LSL was previously the only
+  transport that reported an offset without saying how good it was; the figure
+  now means the same thing here as the one `ClockSyncService` reports for the
+  WebSocket and WebRTC transports.
+
 ## 0.4.0+0
 
 The coordination layer is now transport-neutral and lives in a new pure-Dart

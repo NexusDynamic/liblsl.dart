@@ -23,6 +23,9 @@ enum LSLMessageType {
   flush,
   timeCorrection,
   getFullInfo,
+  setPostProcessing,
+  setSmoothingHalftime,
+  wasClockReset,
 }
 
 /// A message payload for communication between isolates

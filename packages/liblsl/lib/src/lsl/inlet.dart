@@ -84,6 +84,16 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   LSLReusableBuffer get _bufferBang =>
       _buffer ?? (throw LSLException('Inlet buffer not initialized'));
 
+  /// Out-parameter slots for [lsl_time_correction_ex]: `[0]` receives the
+  /// remote clock reading, `[1]` the uncertainty.
+  ///
+  /// Allocated once with the pull buffer rather than per call, so
+  /// [getTimeCorrectionExSync] keeps its zero-allocation contract.
+  Pointer<Double>? _tcScratch;
+
+  Pointer<Double> get _tcScratchBang =>
+      _tcScratch ?? (throw LSLException('Inlet buffer not initialized'));
+
   /// Pull function for converting raw data to Dart types.
   /// This is initialized based on the [streamInfo] type.
   /// It provides methods to create reusable buffers and pull samples.
@@ -230,6 +240,8 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
     _isolateManager = null;
     _buffer?.free();
     _buffer = null;
+    _tcScratch?.free();
+    _tcScratch = null;
     _chunkBuffer?.free();
     _chunkBuffer = null;
   }
@@ -363,9 +375,8 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   ///   [_getTimeCorrectionDirect]
   /// **Returns:** Time correction in seconds.
   /// **See also:** [getTimeCorrectionSync] for zero-overhead direct calls
-  Future<double> getTimeCorrection({double timeout = 5.0}) => _useIsolates
-      ? _getTimeCorrectionIsolated(timeout)
-      : Future.value(_getTimeCorrectionDirect(timeout));
+  Future<double> getTimeCorrection({double timeout = 5.0}) =>
+      getTimeCorrectionEx(timeout: timeout).then((tc) => tc.offset);
 
   /// Synchronously gets the time correction for the inlet.
   /// **Direct mode only** - throws [LSLException] if `useIsolates: true`.
@@ -378,7 +389,143 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// ```
   /// **Returns:** Time correction in seconds.
   double getTimeCorrectionSync({double timeout = 5.0}) =>
-      requireDirect(() => _getTimeCorrectionDirect(timeout));
+      getTimeCorrectionExSync(timeout: timeout).offset;
+
+  /// Gets the extended time correction for the inlet: the clock [offset], the
+  /// [LSLTimeCorrection.remoteTime] it was measured against, and the
+  /// [LSLTimeCorrection.uncertainty] (full round-trip time) that bounds it.
+  ///
+  /// liblsl computes all three on the same round trip and
+  /// [getTimeCorrection] simply discards two of them, so this costs no extra
+  /// network traffic and no extra native work.
+  ///
+  /// **Parameters:**
+  /// - [timeout]: Maximum wait time in seconds (default: 5.0). Only the first
+  ///   call blocks; later ones read a background-updated estimate.
+  /// **Returns:** An [LSLTimeCorrection].
+  /// **Throws:** [LSLException] if getting time correction fails.
+  /// **See also:** [getTimeCorrectionExSync] for zero-overhead direct calls
+  Future<LSLTimeCorrection> getTimeCorrectionEx({double timeout = 5.0}) =>
+      _useIsolates
+      ? _getTimeCorrectionExIsolated(timeout)
+      : Future.value(_getTimeCorrectionExDirect(timeout));
+
+  /// Synchronously gets the extended time correction for the inlet.
+  /// **Direct mode only** - throws [LSLException] if `useIsolates: true`.
+  /// See [getTimeCorrectionEx].
+  LSLTimeCorrection getTimeCorrectionExSync({double timeout = 5.0}) =>
+      requireDirect(() => _getTimeCorrectionExDirect(timeout));
+
+  /// Enables automatic post-processing of incoming time stamps.
+  ///
+  /// By default an inlet does none, returning ground-truth time stamps in the
+  /// sender's clock domain for you to synchronize with [getTimeCorrection].
+  ///
+  /// **Warning:** once enabled, the original time stamps are neither delivered
+  /// nor recoverable. In particular [LSLProcessingOptions.clockSync] rewrites
+  /// time stamps into the local domain, which conflicts with any layer that
+  /// applies the correction itself.
+  ///
+  /// **Parameters:**
+  /// - [options]: the post-processing steps to enable. An empty set, like
+  ///   `{LSLProcessingOptions.none}`, disables post-processing.
+  /// **Throws:** [LSLException] if liblsl rejects the flags.
+  Future<void> setPostProcessing(Set<LSLProcessingOptions> options) async {
+    if (_useIsolates) return _setPostProcessingIsolated(options);
+    _setPostProcessingDirect(options);
+  }
+
+  /// Synchronously enables automatic post-processing of incoming time stamps.
+  /// **Direct mode only** - throws [LSLException] if `useIsolates: true`.
+  /// See [setPostProcessing].
+  void setPostProcessingSync(Set<LSLProcessingOptions> options) =>
+      requireDirect(() => _setPostProcessingDirect(options));
+
+  void _setPostProcessingDirect(Set<LSLProcessingOptions> options) {
+    final result = lsl_set_postprocessing(_inletBang, options.nativeFlags);
+    if (result != 0) {
+      throw lslError('Error setting post-processing', result);
+    }
+  }
+
+  Future<void> _setPostProcessingIsolated(
+    Set<LSLProcessingOptions> options,
+  ) async {
+    final response = await _isolateManagerBang.sendMessage(
+      LSLMessage(LSLMessageType.setPostProcessing, {
+        'flags': options.nativeFlags,
+      }),
+    );
+    if (!response.success) {
+      throw LSLException('Error setting post-processing: ${response.error}');
+    }
+  }
+
+  /// Overrides the half-time (forget factor) of the time-stamp smoothing used
+  /// by [LSLProcessingOptions.dejitter].
+  ///
+  /// The default is 90 seconds unless the config file says otherwise. A longer
+  /// window yields lower jitter but tracks changes in clock rate (usually from
+  /// temperature) more slowly.
+  ///
+  /// **Parameters:**
+  /// - [halftime]: seconds after which a past sample is weighted by 1/2.
+  /// **Throws:** [LSLException] if liblsl rejects the value.
+  Future<void> setSmoothingHalftime(double halftime) async {
+    if (_useIsolates) return _setSmoothingHalftimeIsolated(halftime);
+    _setSmoothingHalftimeDirect(halftime);
+  }
+
+  /// Synchronously overrides the time-stamp smoothing half-time.
+  /// **Direct mode only** - throws [LSLException] if `useIsolates: true`.
+  /// See [setSmoothingHalftime].
+  void setSmoothingHalftimeSync(double halftime) =>
+      requireDirect(() => _setSmoothingHalftimeDirect(halftime));
+
+  void _setSmoothingHalftimeDirect(double halftime) {
+    final result = lsl_smoothing_halftime(_inletBang, halftime);
+    if (result != 0) {
+      throw lslError('Error setting smoothing halftime', result);
+    }
+  }
+
+  Future<void> _setSmoothingHalftimeIsolated(double halftime) async {
+    final response = await _isolateManagerBang.sendMessage(
+      LSLMessage(LSLMessageType.setSmoothingHalftime, {'value': halftime}),
+    );
+    if (!response.success) {
+      throw LSLException('Error setting smoothing halftime: ${response.error}');
+    }
+  }
+
+  /// Whether the source machine's clock may have been reset since the last
+  /// call to this method.
+  ///
+  /// Needed only when combining multiple [getTimeCorrectionEx] estimates to
+  /// model clock drift: a source that was restarted or hot-swapped invalidates
+  /// any offset fitted over earlier readings.
+  ///
+  /// **Note:** this is a consuming read. liblsl clears the flag as it reports
+  /// it, so two calls in a row return `true` then `false` for the same reset.
+  Future<bool> wasClockReset() => _useIsolates
+      ? _wasClockResetIsolated()
+      : Future.value(lsl_was_clock_reset(_inletBang) != 0);
+
+  /// Synchronously checks whether the source clock was reset.
+  /// **Direct mode only** - throws [LSLException] if `useIsolates: true`.
+  /// See [wasClockReset].
+  bool wasClockResetSync() =>
+      requireDirect(() => lsl_was_clock_reset(_inletBang) != 0);
+
+  Future<bool> _wasClockResetIsolated() async {
+    final response = await _isolateManagerBang.sendMessage(
+      LSLMessage(LSLMessageType.wasClockReset, {}),
+    );
+    if (!response.success) {
+      throw LSLException('Error checking clock reset: ${response.error}');
+    }
+    return response.result as bool;
+  }
 
   /// Flushes the inlet's buffer.
   /// **Execution:**
@@ -445,6 +592,7 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
     // Initialize the pull function
     _pullFn = LSLMapper().streamPull(streamInfo);
     _buffer = _pullFn.createReusableBuffer(streamInfo.channelCount);
+    _tcScratch = allocate<Double>(2);
   }
 
   /// Creates the inlet directly using FFI calls.
@@ -476,12 +624,17 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
     lsl_open_stream(_inletBang, createTimeout, _bufferBang.ec);
     final result = _bufferBang.ec.value;
     if (result != 0) {
+      // Build the exception before cleaning up: it reads liblsl's thread-local
+      // last-error buffer, which any later call could overwrite.
+      final error = lslError('Error opening inlet', result);
       final failedInlet = _inletBang;
       // Null out first so a later destroy() cannot touch the freed inlet.
       _inlet = null;
       lsl_destroy_inlet(failedInlet);
       _bufferBang.free();
-      throw LSLException('Error opening inlet: $result');
+      _tcScratch?.free();
+      _tcScratch = null;
+      throw error;
     }
 
     return this;
@@ -496,9 +649,8 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
     _isolateManager = LSLInletIsolateManager();
     await _isolateManagerBang.init();
 
-    _pullFn = LSLMapper().streamPull(streamInfo);
     // Create reusable buffer for pulling samples
-    _buffer = _pullFn.createReusableBuffer(streamInfo.channelCount);
+    setupPullBuffer();
 
     // Send message to create inlet in the isolate
     final response = await _isolateManagerBang.sendMessage(
@@ -514,6 +666,8 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
 
     if (!response.success) {
       _bufferBang.free();
+      _tcScratch?.free();
+      _tcScratch = null;
       throw LSLException('Error creating inlet: ${response.error}');
     }
 
@@ -758,8 +912,8 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   ///   runs in the background.
   /// **Returns:** Time correction in seconds.
   /// **Throws:** [LSLException] if getting time correction fails.
-  /// **See also:** [getTimeCorrectionSync] for direct calls
-  Future<double> _getTimeCorrectionIsolated(double timeout) async {
+  /// **See also:** [getTimeCorrectionExSync] for direct calls
+  Future<LSLTimeCorrection> _getTimeCorrectionExIsolated(double timeout) async {
     final response = await _isolateManagerBang.sendMessage(
       LSLMessage(LSLMessageType.timeCorrection, {
         'timeout': timeout,
@@ -771,7 +925,15 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
       throw LSLException('Error getting time correction: ${response.error}');
     }
 
-    return response.result as double;
+    // The worker returns [offset, remoteTime, uncertainty]; the out-parameter
+    // slots it wrote into are its own, so nothing is read back through a
+    // pointer here.
+    final values = response.result as List<double>;
+    return LSLTimeCorrection(
+      offset: values[0],
+      remoteTime: values[1],
+      uncertainty: values[2],
+    );
   }
 
   /// Gets the time correction for the inlet directly using FFI calls.
@@ -782,17 +944,24 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   ///   runs in the background.
   /// **Returns:** Time correction in seconds.
   /// **Throws:** [LSLException] if getting time correction fails.
-  double _getTimeCorrectionDirect(double timeout) {
-    final timeCorrection = lsl_time_correction(
+  LSLTimeCorrection _getTimeCorrectionExDirect(double timeout) {
+    final scratch = _tcScratchBang;
+    final offset = lsl_time_correction_ex(
       _inletBang,
+      scratch,
+      scratch + 1,
       timeout,
       _bufferBang.ec,
     );
     final result = _bufferBang.ec.value;
     if (result != 0) {
-      throw LSLException('Error getting time correction: $result');
+      throw lslError('Error getting time correction', result);
     }
-    return timeCorrection;
+    return LSLTimeCorrection(
+      offset: offset,
+      remoteTime: scratch[0],
+      uncertainty: scratch[1],
+    );
   }
 
   /// Gets the full stream info with metadata from the inlet in isolated mode.
