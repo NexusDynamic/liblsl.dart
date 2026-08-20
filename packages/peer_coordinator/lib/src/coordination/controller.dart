@@ -41,8 +41,7 @@ class CoordinationController {
   ///
   /// Empty until [initialize] has built the stream, rather than throwing on the
   /// `late final`: a consumer subscribing early should get nothing, not a crash.
-  Stream<ClockSyncSample> get coordinationClockSyncs =>
-      _coordinationStreamReady
+  Stream<ClockSyncSample> get coordinationClockSyncs => _coordinationStreamReady
       ? _coordinationStream.clockSyncs
       : const Stream.empty();
   late final IDiscovery _discovery;
