@@ -477,6 +477,19 @@ abstract class NetworkStream<T extends NetworkStreamConfig, M extends IMessage>
   Stream<M> get inbox =>
       throw UnimplementedError('inbox must be implemented by subclasses');
 
+  /// Clock-offset estimates for this stream's peers, as they are made.
+  ///
+  /// A **broadcast** stream, with the same listen/cancel/listen contract as
+  /// [inbox]. Empty by default: a transport that does not estimate clock
+  /// offsets has nothing to report, and a consumer should not have to know
+  /// which transport it is on to write the subscription.
+  ///
+  /// This exists because [MessageTiming] can only describe estimates that
+  /// happened to be attached to a message that happened to arrive. Drift over
+  /// a session is a property of the clocks, not of the traffic, so it needs a
+  /// channel that ticks on the estimate's own cadence.
+  Stream<ClockSyncSample> get clockSyncs => const Stream.empty();
+
   /// Whether this transport already puts the sender's clock on the wire.
   ///
   /// LSL does: every sample carries the sending machine's `lsl_local_clock()`

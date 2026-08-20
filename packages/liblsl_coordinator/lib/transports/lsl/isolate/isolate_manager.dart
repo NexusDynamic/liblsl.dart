@@ -312,6 +312,68 @@ final class IsolateDataMessageList {
   }
 }
 
+/// One inlet's clock-offset estimate, as measured inside the inlet isolate.
+///
+/// The isolate-side counterpart of `ClockSyncSample`; kept separate so the
+/// isolate layer has no opinion about the public data model, exactly as
+/// [IsolateDataMessage] is separate from `MessageTiming`.
+///
+/// Sent on the estimate's own cadence (at most every 5 s per inlet), not per
+/// sample: [IsolateDataMessage] already carries the offset a sample was
+/// stamped with, so repeating [remoteTime] and [clockReset] on every one of
+/// several hundred samples per second would be pure duplication. What it adds
+/// is that the estimates are reported *even when no data arrives*.
+final class IsolateClockSync {
+  final String? sourceId;
+  final double? offset;
+  final double? remoteTime;
+  final double? uncertainty;
+  final double localClock;
+
+  /// Whether the source machine's clock may have been reset since the previous
+  /// estimate. Reading liblsl's flag clears it, so this is true on exactly one
+  /// estimate per reset.
+  final bool clockReset;
+
+  const IsolateClockSync({
+    required this.localClock,
+    this.sourceId,
+    this.offset,
+    this.remoteTime,
+    this.uncertainty,
+    this.clockReset = false,
+  });
+
+  Map<String, dynamic> toMap() => {
+    'sourceId': sourceId,
+    'offset': offset,
+    'remoteTime': remoteTime,
+    'uncertainty': uncertainty,
+    'localClock': localClock,
+    'clockReset': clockReset,
+  };
+
+  factory IsolateClockSync.fromMap(Map<String, dynamic> map) =>
+      IsolateClockSync(
+        sourceId: map['sourceId'] as String?,
+        offset: map['offset'] as double?,
+        remoteTime: map['remoteTime'] as double?,
+        uncertainty: map['uncertainty'] as double?,
+        localClock: map['localClock'] as double,
+        clockReset: map['clockReset'] as bool? ?? false,
+      );
+}
+
+/// A batch of [IsolateClockSync], one per inlet refreshed in the same pass.
+final class IsolateClockSyncList {
+  final List<IsolateClockSync> samples;
+
+  const IsolateClockSyncList(this.samples);
+
+  factory IsolateClockSyncList.from(Iterable<IsolateClockSync> samples) =>
+      IsolateClockSyncList(samples.toList(growable: false));
+}
+
 /// Base class for stream isolates with shared functionality
 sealed class StreamIsolate {
   final String streamId;
@@ -340,6 +402,17 @@ sealed class StreamIsolate {
       StreamController<IsolateDataMessage>();
 
   Stream<IsolateDataMessage> get incomingData => _incomingDataController.stream;
+
+  /// Clock-offset estimates from the inlet worker.
+  ///
+  /// Broadcast, unlike [incomingData]: these are low-rate and optional, so a
+  /// stream with no interested consumer must not buffer them, and a consumer
+  /// that comes and goes across a stop/start cycle must be able to resubscribe.
+  final StreamController<IsolateClockSync> _incomingClockSyncController =
+      StreamController<IsolateClockSync>.broadcast();
+
+  Stream<IsolateClockSync> get incomingClockSyncs =>
+      _incomingClockSyncController.stream;
 
   StreamIsolate({
     required this.streamId,
@@ -512,6 +585,7 @@ sealed class StreamIsolate {
     // Don't await: close() completes when the (already cancelled) listener
     // is done, and teardown must not block on that.
     unawaited(_incomingDataController.close());
+    unawaited(_incomingClockSyncController.close());
   }
 
   /// Clean up resources
@@ -549,6 +623,10 @@ sealed class StreamIsolate {
     } else if (message is ResponseMessage) {
       final completer = _responseCompleters.remove(message.requestID);
       completer?.complete();
+    } else if (message is IsolateClockSyncList) {
+      for (final sample in message.samples) {
+        _incomingClockSyncController.add(sample);
+      }
     } else if (message is BufferReleasedMessage) {
       _handleBufferReleased(message);
     } else if (message is Map<String, dynamic>) {
@@ -1308,8 +1386,33 @@ final class InletWorker extends IsolateWorker {
         }
       }
       final results = await Future.wait(futures);
+      final localClock = LSL.localClock();
+      final syncs = <IsolateClockSync>[];
       for (int i = 0; i < results.length; i++) {
-        timeCorrections[indices[i]] = results[i];
+        final index = indices[i];
+        timeCorrections[index] = results[i];
+        // Read once, here, and report what it said. liblsl clears the flag on
+        // read, so polling it anywhere else would consume the one notification
+        // this estimate gets and silently drop it.
+        bool clockReset = false;
+        try {
+          clockReset = inlets[index].wasClockResetSync();
+        } catch (e) {
+          logger.warning('Error reading clock-reset flag for inlet $index: $e');
+        }
+        syncs.add(
+          IsolateClockSync(
+            sourceId: inlets[index].streamInfo.sourceId,
+            offset: results[i].offset,
+            remoteTime: results[i].remoteTime,
+            uncertainty: results[i].uncertainty,
+            localClock: localClock,
+            clockReset: clockReset,
+          ),
+        );
+      }
+      if (syncs.isNotEmpty) {
+        config.mainSendPort.send(IsolateClockSyncList.from(syncs));
       }
       logger.finer('Updated time corrections for stream ${config.streamId}');
       lastTimeCorrectionUpdate.reset();

@@ -369,8 +369,15 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
       StreamController<M>.broadcast();
   final StreamController<M> _outgoingController = StreamController<M>();
 
+  // Broadcast for the same reason `inbox` is, plus one of its own: nothing is
+  // obliged to listen. A consumer that only wants samples must not cause
+  // clock-sync estimates to pile up in a controller nobody drains.
+  final StreamController<ClockSyncSample> _clockSyncController =
+      StreamController<ClockSyncSample>.broadcast();
+
   StreamSubscription? _outgoingSubscription;
   StreamSubscription? _incomingSubscription;
+  StreamSubscription? _clockSyncSubscription;
 
   // State
   bool _created = false;
@@ -492,6 +499,21 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
         if (message != null) {
           _incomingController.add(message);
         }
+      });
+
+      // ...and to the offset estimates behind it, which arrive on their own
+      // cadence rather than with the data.
+      _clockSyncSubscription = _inletIsolate!.incomingClockSyncs.listen((sync) {
+        _clockSyncController.add(
+          ClockSyncSample(
+            sourceId: sync.sourceId,
+            offset: sync.offset,
+            remoteTime: sync.remoteTime,
+            uncertainty: sync.uncertainty,
+            receivedClock: sync.localClock,
+            clockReset: sync.clockReset,
+          ),
+        );
       });
 
       // Start the inlet isolate if the stream is already started
@@ -745,6 +767,8 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
     if (_inletIsolate != null) {
       await _incomingSubscription?.cancel();
       _incomingSubscription = null;
+      await _clockSyncSubscription?.cancel();
+      _clockSyncSubscription = null;
       await _inletIsolate!.stop();
       await _inletIsolate!.dispose();
       _inletIsolate = null;
@@ -787,6 +811,9 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
     }
     return _incomingController.stream;
   }
+
+  @override
+  Stream<ClockSyncSample> get clockSyncs => _clockSyncController.stream;
 
   @override
   StreamSink<M> get outbox => _outgoingController.sink;
@@ -832,6 +859,7 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
     logger.finest('Disposing message controllers for stream ${config.name}');
     await _outgoingSubscription?.cancel();
     await _incomingSubscription?.cancel();
+    await _clockSyncSubscription?.cancel();
     // _outgoingController is single-subscription, so its close() must not be
     // awaited: the future only completes once a listener drains the stream,
     // and the subscription was just cancelled. unawaited close still releases
@@ -839,6 +867,7 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
     // promptly there) but is left unawaited for symmetry.
     unawaited(_incomingController.close());
     unawaited(_outgoingController.close());
+    unawaited(_clockSyncController.close());
 
     // Dispose StreamInfos (main thread's responsibility)
     for (final streamInfo in _inletStreamInfos) {

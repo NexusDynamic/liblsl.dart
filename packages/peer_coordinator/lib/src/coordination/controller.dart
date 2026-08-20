@@ -30,6 +30,21 @@ class CoordinationController {
   /// the stream is `late final` — so the departure handler has to be able to
   /// tell "not yet" from "gone".
   bool _coordinationStreamReady = false;
+
+  /// Clock-offset estimates for the coordination stream's peers.
+  ///
+  /// Worth exposing separately from the data streams' own `clockSyncs`: the
+  /// coordination stream is up for the whole session, while data streams come
+  /// and go with phases. It is therefore the only continuous record of how the
+  /// peers' clocks are drifting — including across stretches where no data
+  /// stream exists at all.
+  ///
+  /// Empty until [initialize] has built the stream, rather than throwing on the
+  /// `late final`: a consumer subscribing early should get nothing, not a crash.
+  Stream<ClockSyncSample> get coordinationClockSyncs =>
+      _coordinationStreamReady
+      ? _coordinationStream.clockSyncs
+      : const Stream.empty();
   late final IDiscovery _discovery;
 
   bool _stopping = false;

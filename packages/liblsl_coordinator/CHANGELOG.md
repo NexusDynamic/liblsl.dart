@@ -1,3 +1,30 @@
+## 0.4.1
+
+- Streams now expose `clockSyncs`, a broadcast stream of `ClockSyncSample`
+  carrying each clock-offset estimate as it is made: the offset, its
+  uncertainty, the peer's own clock at the moment it was measured
+  (`remoteTime`), and whether the peer's clock may have been reset since the
+  previous estimate (`clockReset`). LSL supplies all four — `remoteTime` and
+  the reset flag come from `lsl_time_correction_ex` and `lsl_was_clock_reset`
+  and were previously discarded inside the inlet worker.
+
+  These are deliberately *not* fields on `MessageTiming`. An estimate is
+  refreshed at most every 5 s while data samples arrive hundreds of times a
+  second, so carrying them per sample would repeat one value hundreds of times
+  across the isolate port. More importantly, a per-message view can only
+  describe estimates that happened to be attached to a message that happened to
+  arrive: clock drift is a property of the clocks, not of the traffic, so a
+  quiet stream left an unbridgeable gap. `clockSyncs` ticks on the estimate's
+  own cadence regardless of traffic.
+
+  The getter is on the base `NetworkStream` and defaults to an empty stream, so
+  a transport that estimates no offsets needs no change and a consumer does not
+  have to know which transport it is on.
+
+  Note that reading liblsl's clock-reset flag clears it. It is read exactly
+  once per refresh inside the inlet worker and reported on that estimate;
+  nothing else may poll it without consuming the notification.
+
 ## 0.4.0+1
 
 - LSL messages now carry `MessageTiming.uncertainty`. The inlet isolate reads

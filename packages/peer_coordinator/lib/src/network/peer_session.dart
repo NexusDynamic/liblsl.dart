@@ -63,6 +63,10 @@ class PeerSession extends CoordinationSession with InstanceUID {
   /// ```
   Stream<ControllerEvent> get events => _controller.events;
 
+  /// See [CoordinationController.coordinationClockSyncs].
+  Stream<ClockSyncSample> get coordinationClockSyncs =>
+      _controller.coordinationClockSyncs;
+
   // Public state access
   CoordinationPhase get currentPhase => _controller.currentPhase;
   bool get isCoordinator => _controller.isCoordinator;

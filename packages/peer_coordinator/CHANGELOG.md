@@ -1,3 +1,18 @@
+## 0.3.1
+
+- New `ClockSyncSample`: one clock-offset estimate for one peer — `offset`,
+  `uncertainty` (full probe RTT, so the ± bound is `bound`), `remoteTime` (the
+  peer's own clock when the estimate was taken), `receivedClock`, and
+  `clockReset`. Exposed on `NetworkStream.clockSyncs`, which defaults to an
+  empty broadcast stream so transports that estimate no offsets need no change.
+
+  Complements `MessageTiming` rather than duplicating it: `MessageTiming`
+  answers "when did *this* message arrive", `ClockSyncSample` answers "how well
+  do the two clocks agree right now, and how is that changing". The
+  `(remoteTime, offset)` pairs are what make drift fittable; an offset alone is
+  not. And because the estimates arrive on their own cadence, a stream that
+  carries no traffic for a while no longer leaves a hole in the record.
+
 ## 0.3.0
 
 Defines what happens when the coordinator goes away. Previously nothing did: the
