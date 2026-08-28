@@ -98,6 +98,11 @@ void main(List<String> args) async {
       if (targetOs == OS.android) {
         // Add flag for 16k pages.
         flags.add('-Wl,-z,max-page-size=16384');
+        // Prevents undefined symbols from causing link errors.
+        // When the build happens, without these flags there are errors
+        // e.g.
+        // symbol __aeabi_memclr@@LIBC_N has undefined version LIBC_N
+        flags.add('-Wl,--allow-shlib-undefined');
       }
 
       // WIN
