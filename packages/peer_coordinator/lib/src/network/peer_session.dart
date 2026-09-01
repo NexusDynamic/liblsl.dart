@@ -67,6 +67,21 @@ class PeerSession extends CoordinationSession with InstanceUID {
   Stream<ClockSyncSample> get coordinationClockSyncs =>
       _controller.coordinationClockSyncs;
 
+  /// See [CoordinationController.coordinationOutletConsumers].
+  Stream<bool> get coordinationOutletConsumers =>
+      _controller.coordinationOutletConsumers;
+
+  /// See [CoordinationController.noteNodeActivity].
+  void noteNodeActivity(String nodeUId) =>
+      _controller.noteNodeActivity(nodeUId);
+
+  /// See [CoordinationController.sinceLastHeard].
+  Duration? sinceLastHeard(String nodeUId) =>
+      _controller.sinceLastHeard(nodeUId);
+
+  /// See [CoordinationController.coordinationSendFailures].
+  int get coordinationSendFailures => _controller.coordinationSendFailures;
+
   // Public state access
   CoordinationPhase get currentPhase => _controller.currentPhase;
   bool get isCoordinator => _controller.isCoordinator;

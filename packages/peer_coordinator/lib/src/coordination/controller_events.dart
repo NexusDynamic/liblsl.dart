@@ -82,6 +82,61 @@ final class SessionEndedEvent extends ControllerEvent {
   });
 }
 
+/// Emitted when a node that lost its coordinator has re-joined one.
+///
+/// Only under [CoordinatorLossPolicy.rejoin]. The counterpart to
+/// [SessionEndedEvent]: an application that showed "disconnected" on that one
+/// clears it on this one. [attempts] is how many tries it took, and
+/// [coordinatorUId] is the coordinator it landed on — usually, but not
+/// necessarily, the same one it lost.
+final class SessionRejoinedEvent extends ControllerEvent {
+  /// The coordinator this node is now attached to.
+  final String? coordinatorUId;
+
+  /// How many attempts the rejoin took, counting the successful one.
+  final int attempts;
+
+  /// How long the node spent without a coordinator.
+  final Duration outage;
+
+  SessionRejoinedEvent({
+    required this.coordinatorUId,
+    required this.attempts,
+    required this.outage,
+    required super.fromNodeUId,
+    super.messageId,
+    super.parentMessageId,
+    super.timestamp,
+    super.timing,
+  });
+}
+
+/// Emitted when this node's own outbound coordination path changes health.
+///
+/// Fires once when consecutive send failures cross the alarm threshold, and once
+/// when they recover — not per failure. [healthy] false means this node's
+/// messages are not reaching the coordinator, so its heartbeats are not either,
+/// and it is on a countdown to being evicted. That is worth telling a user
+/// *before* the eviction: the alternative, and the reason this exists, is a
+/// screen that silently stops updating while everything local carries on.
+final class CoordinationSendHealthEvent extends ControllerEvent {
+  /// Whether outbound coordination is working.
+  final bool healthy;
+
+  /// Consecutive failures at the moment of the transition. Zero when healthy.
+  final int consecutiveFailures;
+
+  CoordinationSendHealthEvent({
+    required this.healthy,
+    required this.consecutiveFailures,
+    required super.fromNodeUId,
+    super.messageId,
+    super.parentMessageId,
+    super.timestamp,
+    super.timing,
+  });
+}
+
 // =============================================================================
 // Node Events
 // =============================================================================
@@ -347,6 +402,14 @@ extension ControllerEventStreamExtensions on Stream<ControllerEvent> {
 
   /// Filter to session-ended events only.
   Stream<SessionEndedEvent> get sessionEnded => _ofType<SessionEndedEvent>();
+
+  /// Filter to session rejoined events only.
+  Stream<SessionRejoinedEvent> get sessionRejoined =>
+      _ofType<SessionRejoinedEvent>();
+
+  /// Filter to outbound-coordination health events only.
+  Stream<CoordinationSendHealthEvent> get coordinationSendHealth =>
+      _ofType<CoordinationSendHealthEvent>();
 
   /// Filter to node joined events only.
   Stream<NodeJoinedEvent> get nodeJoined => _ofType<NodeJoinedEvent>();

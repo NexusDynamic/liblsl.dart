@@ -296,6 +296,24 @@ void main() {
   });
 
   group('eviction', () {
+    /// Stops the coordinator hearing [participant] while leaving the reverse
+    /// direction intact — the one-directional stall that eviction exists for,
+    /// and the shape of the field failure these tests were written from: a node
+    /// whose coordination stream went silent outbound while everything else
+    /// about it kept working.
+    void muteTowardsCoordinator(
+      PeerSession participant,
+      PeerSession coordinator,
+    ) {
+      bus.routing.unsubscribe(
+        streamName: streamName,
+        producerEndpointId:
+            '$sessionName/${participant.thisNode.uId}/$streamName',
+        subscriberEndpointId:
+            '$sessionName/${coordinator.thisNode.uId}/$streamName',
+      );
+    }
+
     test('an evicted node is told, rather than left to time out', () async {
       final coordinator = await joined('coord', randomRoll: 0.1);
       final participant = await joined('p1', randomRoll: 0.9);
@@ -303,6 +321,76 @@ void main() {
 
       // The participant stops being heard from but can still receive — a
       // one-directional stall, which is what makes the eviction notice useful.
+      muteTowardsCoordinator(participant, coordinator);
+
+      final event = await nextEnd(participant);
+      expect(event.reason, SessionEndReason.evicted);
+      expect(participant.currentPhase, CoordinationPhase.ended);
+    });
+
+    test('activity on another stream keeps a node from being evicted', () async {
+      // The reason the field failure was so wasteful: the evicted node's *data*
+      // stream was delivering samples to the coordinator 1:1 in the same second
+      // it was declared dead. Only its heartbeats were missing.
+      final coordinator = await joined('coord', randomRoll: 0.1);
+      final participant = await joined('p1', randomRoll: 0.9);
+      await coordinator.waitForMinNodes(2, timeout: const Duration(seconds: 2));
+
+      final ends = watchEnds(participant);
+      muteTowardsCoordinator(participant, coordinator);
+
+      // Stand in for the application seeing data from that node.
+      final ticker = Timer.periodic(
+        const Duration(milliseconds: 40),
+        (_) => coordinator.noteNodeActivity(participant.thisNode.uId),
+      );
+      addTearDown(ticker.cancel);
+
+      await Future<void>.delayed(nodeTimeout * 4);
+
+      expect(
+        ends,
+        isEmpty,
+        reason: 'a node heard from on any stream is not a silent node',
+      );
+      expect(coordinator.connectedNodes.map((n) => n.uId), contains(
+        participant.thisNode.uId,
+      ));
+    });
+
+    test('activity stopping still lets the sweep evict', () async {
+      // The counterpart: noteNodeActivity must postpone eviction, not disable
+      // it, or a crashed node would linger in the roster forever.
+      final coordinator = await joined('coord', randomRoll: 0.1);
+      final participant = await joined('p1', randomRoll: 0.9);
+      await coordinator.waitForMinNodes(2, timeout: const Duration(seconds: 2));
+
+      muteTowardsCoordinator(participant, coordinator);
+      coordinator.noteNodeActivity(participant.thisNode.uId);
+
+      final event = await nextEnd(participant);
+      expect(event.reason, SessionEndReason.evicted);
+    });
+  });
+
+  group('rejoin policy', () {
+    test('an evicted node re-attaches once it can be heard again', () async {
+      // The behaviour the whole policy exists for. Under endSession this same
+      // sequence leaves the node permanently dead while its app carries on
+      // rendering — a frozen screen with a running clock.
+      final coordinator = await joined('coord', randomRoll: 0.1);
+      final participant = await joined(
+        'p1',
+        randomRoll: 0.9,
+        policy: CoordinatorLossPolicy.rejoin,
+      );
+      await coordinator.waitForMinNodes(2, timeout: const Duration(seconds: 2));
+
+      final rejoined = participant.events.sessionRejoined.first.timeout(
+        const Duration(seconds: 5),
+      );
+      final ended = nextEnd(participant);
+
       bus.routing.unsubscribe(
         streamName: streamName,
         producerEndpointId:
@@ -311,9 +399,86 @@ void main() {
             '$sessionName/${coordinator.thisNode.uId}/$streamName',
       );
 
-      final event = await nextEnd(participant);
-      expect(event.reason, SessionEndReason.evicted);
-      expect(participant.currentPhase, CoordinationPhase.ended);
+      final endEvent = await ended;
+      expect(endEvent.reason, SessionEndReason.evicted);
+      expect(endEvent.policy, CoordinatorLossPolicy.rejoin);
+      expect(
+        participant.currentPhase,
+        isNot(CoordinationPhase.ended),
+        reason: 'rejoin must not enter the terminal phase',
+      );
+
+      // The link comes back, as it did in the field 10s before the eviction
+      // was even declared.
+      bus.routing.subscribe(
+        streamName: streamName,
+        producerEndpointId:
+            '$sessionName/${participant.thisNode.uId}/$streamName',
+        subscriberEndpointId:
+            '$sessionName/${coordinator.thisNode.uId}/$streamName',
+      );
+
+      final event = await rejoined;
+      expect(event.coordinatorUId, coordinator.thisNode.uId);
+      expect(event.attempts, greaterThanOrEqualTo(1));
+      expect(participant.isCoordinator, isFalse,
+          reason: 'rejoin re-attaches as a participant, it never promotes');
+      await coordinator.waitForMinNodes(2, timeout: const Duration(seconds: 3));
+    });
+
+    test('a rejoined node can send again', () async {
+      // endSession leaves _ensureLive throwing forever; rejoin must clear that.
+      final coordinator = await joined('coord', randomRoll: 0.1);
+      final participant = await joined(
+        'p1',
+        randomRoll: 0.9,
+        policy: CoordinatorLossPolicy.rejoin,
+      );
+      await coordinator.waitForMinNodes(2, timeout: const Duration(seconds: 2));
+
+      final rejoined = participant.events.sessionRejoined.first.timeout(
+        const Duration(seconds: 5),
+      );
+      bus.routing.unsubscribe(
+        streamName: streamName,
+        producerEndpointId:
+            '$sessionName/${participant.thisNode.uId}/$streamName',
+        subscriberEndpointId:
+            '$sessionName/${coordinator.thisNode.uId}/$streamName',
+      );
+      await nextEnd(participant);
+      bus.routing.subscribe(
+        streamName: streamName,
+        producerEndpointId:
+            '$sessionName/${participant.thisNode.uId}/$streamName',
+        subscriberEndpointId:
+            '$sessionName/${coordinator.thisNode.uId}/$streamName',
+      );
+      await rejoined;
+
+      await participant.sendUserMessage('chat', 'back', {'text': 'back'});
+    });
+
+    test('a coordinator that announces departure is also rejoined', () async {
+      // Not only eviction: the same policy has to survive a coordinator
+      // restarting under a new UId, which is what a headless server does.
+      final coordinator = await joined('coord', randomRoll: 0.1);
+      final participant = await joined(
+        'p1',
+        randomRoll: 0.9,
+        policy: CoordinatorLossPolicy.rejoin,
+      );
+      await coordinator.waitForMinNodes(2, timeout: const Duration(seconds: 2));
+
+      final ended = nextEnd(participant);
+      await coordinator.leave();
+      final endEvent = await ended;
+      expect(endEvent.reason, SessionEndReason.coordinatorLeft);
+      expect(
+        participant.currentPhase,
+        isNot(CoordinationPhase.ended),
+        reason: 'rejoin keeps looking rather than giving up',
+      );
     });
   });
 }

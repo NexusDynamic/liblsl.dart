@@ -10,6 +10,7 @@ import 'package:liblsl/lsl.dart';
 import 'package:liblsl_coordinator/framework.dart';
 import 'package:meta/meta.dart';
 import 'package:synchronized/synchronized.dart';
+import 'outlet_buffer_pool.dart';
 
 /// Enum defining all possible isolate message types
 enum IsolateMessageType {
@@ -26,6 +27,7 @@ enum IsolateMessageType {
   flush, // 10
   data, // 11
   bufferReleased, // 12
+  consumerPresence, // 13
 }
 
 /// This is dumb, but despite Enum being immutable, it doesn't work
@@ -101,6 +103,23 @@ final class BufferReleasedMessage extends IsolateMessage {
   final int bufferIndex;
 
   const BufferReleasedMessage(this.bufferIndex) : super(12);
+}
+
+/// Sent from the outlet worker when its consumer count crosses zero.
+///
+/// The only signal there is. `stream_outlet_impl::push_sample` fans out over
+/// the registered consumers and, with none registered, silently discards the
+/// sample and reports success — so an outlet nobody is listening to is
+/// indistinguishable from a working one at every layer above liblsl. That is
+/// the shape of the 2026-08-31 failure: a participant's coordination
+/// heartbeats stopped reaching the coordinator with no error anywhere, on any
+/// device, while its other streams kept working.
+@pragma('vm:deeply-immutable')
+final class ConsumerPresenceMessage extends IsolateMessage {
+  /// Whether at least one consumer is subscribed.
+  final bool hasConsumers;
+
+  const ConsumerPresenceMessage(this.hasConsumers) : super(13);
 }
 
 /// Message to start isolate processing - immutable
@@ -475,6 +494,9 @@ sealed class StreamIsolate {
     }
   }
 
+  /// Overridden by the outlet manager; ignored elsewhere.
+  void _handleConsumerPresence(ConsumerPresenceMessage message) {}
+
   /// Send a message to the isolate - now sends objects directly!
   Future<void> sendMessage(IsolateMessage message) async {
     await _initialized.future;
@@ -615,6 +637,8 @@ sealed class StreamIsolate {
       for (final msg in message.messages) {
         _incomingDataController.add(msg);
       }
+    } else if (message is ConsumerPresenceMessage) {
+      _handleConsumerPresence(message);
     } else if (message is InitializedMessage) {
       if (!_initialized.isCompleted) {
         logger.finer('Isolate for stream $streamId initialized');
@@ -720,9 +744,34 @@ final class StreamOutletIsolate extends StreamIsolate {
   late final LSLPushSample _pushFn;
   final Lock _bufferLock = Lock();
   late final List<LSLReusableBuffer<NativeType>> _buffers;
-  final ListQueue<int> _freeBuffers = ListQueue<int>(bufferPoolSize);
-  final ListQueue<Completer<void>> _bufferWaiters =
-      ListQueue<Completer<void>>();
+
+  final StreamController<bool> _consumerPresenceController =
+      StreamController<bool>.broadcast();
+
+  /// Emits whenever this outlet gains or loses all of its consumers.
+  ///
+  /// `false` means liblsl is silently discarding everything pushed here. There
+  /// is no other way to find that out — see [ConsumerPresenceMessage].
+  Stream<bool> get consumerPresence => _consumerPresenceController.stream;
+
+  /// Latest known consumer presence, or null before the first push.
+  bool? get hasConsumers => _hasConsumers;
+  bool? _hasConsumers;
+
+  @override
+  void _handleConsumerPresence(ConsumerPresenceMessage message) {
+    _hasConsumers = message.hasConsumers;
+    if (!_consumerPresenceController.isClosed) {
+      _consumerPresenceController.add(message.hasConsumers);
+    }
+  }
+
+  /// Index bookkeeping and the bounded wait. See [OutletBufferPool] for why
+  /// the wait is bounded at all.
+  final OutletBufferPool _pool = OutletBufferPool(
+    size: bufferPoolSize,
+    timeout: const Duration(seconds: 5),
+  );
 
   StreamOutletIsolate({
     required super.streamId,
@@ -743,9 +792,6 @@ final class StreamOutletIsolate extends StreamIsolate {
       (_) => _pushFn.createReusableBuffer(_channelCount),
       growable: false,
     );
-    for (int i = 0; i < bufferPoolSize; i++) {
-      _freeBuffers.add(i);
-    }
   }
 
   static LSLChannelFormat _dataTypeToChannelFormat(StreamDataType dataType) {
@@ -767,19 +813,51 @@ final class StreamOutletIsolate extends StreamIsolate {
     }
   }
 
+  /// How long a send waits for a pooled buffer before giving up.
+  ///
+  /// See [OutletBufferPool]: the wait used to be unbounded, and one stalled
+  /// push then wedged every later send on that stream, permanently.
+  Duration get sendTimeout => _pool.timeout;
+  set sendTimeout(Duration value) => _pool.timeout = value;
+
+  /// How many consecutive sends have timed out. Zero when healthy.
+  int get consecutiveSendTimeouts => _pool.consecutiveTimeouts;
+
   /// Send data through outlet.
   ///
   /// Completes once the sample has been handed to the outlet isolate (not
   /// once LSL has pushed it). The backing buffer comes from a fixed pool of
   /// [bufferPoolSize]; when every buffer is in flight this blocks until the
   /// worker releases one, which bounds how far senders can run ahead.
+  ///
+  /// Throws [TimeoutException] if no buffer comes free within [sendTimeout],
+  /// rather than blocking this stream's sends indefinitely.
   Future<void> sendData(IList<dynamic> data) async {
     if (stopped) {
       throw StateError('Cannot send data: isolate for $streamId is stopped');
     }
     // The lock preserves send ordering and serializes buffer acquisition.
     await _bufferLock.synchronized(() async {
-      final index = await _acquireBuffer();
+      final int index;
+      final wasTimingOut = _pool.consecutiveTimeouts > 0;
+      try {
+        index = await _pool.acquire(isStopped: () => stopped);
+      } on TimeoutException {
+        logger.severe(
+          '[$isolateDebugName] Timed out after $sendTimeout waiting for an '
+          'outlet buffer on stream $streamId '
+          '(${_pool.consecutiveTimeouts} consecutive). The worker has not '
+          'released a buffer, so the outlet is not draining — this sample is '
+          'dropped.',
+        );
+        rethrow;
+      }
+      if (wasTimingOut) {
+        logger.warning(
+          '[$isolateDebugName] Outlet buffer pool recovered on stream '
+          '$streamId',
+        );
+      }
       _pushFn.listToBuffer(data, _buffers[index].buffer);
       await sendDataMessage(
         DataMessage(_buffers[index].buffer, bufferIndex: index),
@@ -787,24 +865,9 @@ final class StreamOutletIsolate extends StreamIsolate {
     });
   }
 
-  Future<int> _acquireBuffer() async {
-    while (_freeBuffers.isEmpty) {
-      if (stopped) {
-        throw StateError('Cannot send data: isolate for $streamId is stopped');
-      }
-      final waiter = Completer<void>();
-      _bufferWaiters.add(waiter);
-      await waiter.future;
-    }
-    return _freeBuffers.removeFirst();
-  }
-
   @override
   void _handleBufferReleased(BufferReleasedMessage message) {
-    _freeBuffers.add(message.bufferIndex);
-    if (_bufferWaiters.isNotEmpty) {
-      _bufferWaiters.removeFirst().complete();
-    }
+    _pool.release(message.bufferIndex);
   }
 
   @override
@@ -812,9 +875,7 @@ final class StreamOutletIsolate extends StreamIsolate {
     super._failPendingRequests(error);
     // Senders parked on buffer acquisition must fail too - covers both
     // clean stop and isolate crash/exit.
-    while (_bufferWaiters.isNotEmpty) {
-      _bufferWaiters.removeFirst().completeError(error);
-    }
+    _pool.failAll(error);
   }
 
   Future<void> recreateOutlet(int address) async {
@@ -828,6 +889,7 @@ final class StreamOutletIsolate extends StreamIsolate {
   @override
   Future<void> dispose() async {
     await super.dispose();
+    await _consumerPresenceController.close();
     for (final buffer in _buffers) {
       // String buffers hold a native UTF-8 allocation per element from the
       // last fill; release those before freeing the buffer itself.
@@ -1149,6 +1211,7 @@ final class InletWorker extends IsolateWorker {
         case IsolateMessageType.initialized:
         case IsolateMessageType.requestResponse:
         case IsolateMessageType.bufferReleased:
+        case IsolateMessageType.consumerPresence:
           // Not applicable for inlet workers
           break;
       }
@@ -1568,6 +1631,7 @@ final class OutletWorker extends IsolateWorker {
         case IsolateMessageType.initialized:
         case IsolateMessageType.requestResponse:
         case IsolateMessageType.bufferReleased:
+        case IsolateMessageType.consumerPresence:
           // Not applicable for outlet workers
           break;
       }
@@ -1586,6 +1650,12 @@ final class OutletWorker extends IsolateWorker {
     outlet.destroy();
     config = config.copyWith(outletAddress: message.address);
     outlet = IsolateStreamManager._createOutlet(config);
+    // A fresh outlet starts with no subscribers, and comparing against the old
+    // one's state would either report a loss that is just the rebuild, or
+    // suppress the first real report. `destroy()` nulls the handle, so a check
+    // landing mid-rebuild throws and is swallowed rather than touching freed
+    // memory.
+    _lastConsumerPresence = null;
   }
 
   void _handleStart() {
@@ -1597,6 +1667,7 @@ final class OutletWorker extends IsolateWorker {
     }
     running = true;
     paused = false;
+    _startConsumerChecks();
     // For coordination streams and on-demand data streams, just wait for data messages
     // No automatic sample generation needed
   }
@@ -1610,6 +1681,9 @@ final class OutletWorker extends IsolateWorker {
     }
     logger.info('Pausing outlet worker for stream ${config.streamId}');
     paused = true;
+    // A paused outlet is not expected to have traffic, so consumer loss while
+    // paused is neither surprising nor actionable.
+    _stopConsumerChecks();
     // Outlet just sets paused flag - data messages will be ignored
   }
 
@@ -1622,6 +1696,10 @@ final class OutletWorker extends IsolateWorker {
     }
     logger.info('Resuming outlet worker for stream ${config.streamId}');
     paused = false;
+    // Cleared so the first check after resuming reports the current state
+    // rather than comparing against what was true before the pause.
+    _lastConsumerPresence = null;
+    _startConsumerChecks();
     // flushBeforeResume doesn't apply to outlets - they don't buffer data
   }
 
@@ -1636,6 +1714,9 @@ final class OutletWorker extends IsolateWorker {
     running = false;
     paused = false;
     timer?.cancel();
+    // Before the outlet is destroyed below: a check that fired afterwards would
+    // touch a freed handle.
+    _stopConsumerChecks();
     if (completer != null && !completer!.isCompleted) {
       completer?.complete();
     }
@@ -1650,12 +1731,91 @@ final class OutletWorker extends IsolateWorker {
     receivePort.close();
   }
 
+  /// Consumer presence as of the last push, or null before the first one.
+  ///
+  /// Only transitions are reported: an outlet is legitimately consumer-less
+  /// between creation and the first subscriber, and saying so once per sample
+  /// would be noise rather than signal.
+  bool? _lastConsumerPresence;
+
   void _handleData(DataMessage message) {
-    if (running && !paused) {
-      outlet.pushSamplePointerSync(message.payload);
+    try {
+      if (running && !paused) {
+        outlet.pushSamplePointerSync(message.payload);
+      }
+    } catch (e, st) {
+      // Logged rather than rethrown. `handleMessage` is async and its future is
+      // dropped by `receivePort.listen`, so a throw here would surface only as
+      // an uncaught async error — and with errorsAreFatal it would take the
+      // whole worker down, turning one bad sample into a dead stream.
+      logger.severe(
+        'Outlet worker for stream ${config.streamId} failed to push a '
+        'sample: $e',
+        e,
+        st,
+      );
+    } finally {
+      // Always recycle the buffer, even when the sample was dropped
+      // (paused/stopped) or the push threw, or the pool on the main isolate
+      // drains permanently. The comment used to say "always" while the code
+      // only managed it on the success path.
+      config.mainSendPort.send(BufferReleasedMessage(message.bufferIndex));
     }
-    // Always recycle the buffer, even when the sample was dropped
-    // (paused/stopped), or the pool on the main isolate drains permanently.
-    config.mainSendPort.send(BufferReleasedMessage(message.bufferIndex));
+  }
+
+  /// How often consumer presence is sampled.
+  ///
+  /// Deliberately time-based rather than per-push. `lsl_have_consumers` takes
+  /// `send_buffer::consumers_mut_` — the *same* mutex `push_sample` takes — so
+  /// checking on every sample doubles lock traffic on the send hot path, and
+  /// contends it hardest exactly when connections are churning. It would also
+  /// scale with sample rate for no benefit: a 1000 Hz EEG outlet would pay a
+  /// thousand times over per second to detect a condition that persists for
+  /// seconds at minimum, and permanently in the case this was built for.
+  ///
+  /// One second is far finer than the [CoordinationSessionConfig.nodeTimeout]
+  /// it needs to beat, and costs one leaf FFI call and one uncontended mutex
+  /// per outlet per second.
+  ///
+  /// A timer also covers what per-push checking could not: an outlet that has
+  /// gone quiet still reports that nobody is listening.
+  static const Duration consumerCheckInterval = Duration(seconds: 1);
+
+  Timer? _consumerCheckTimer;
+
+  void _startConsumerChecks() {
+    _consumerCheckTimer?.cancel();
+    _consumerCheckTimer = Timer.periodic(consumerCheckInterval, (_) {
+      if (running && !paused) _reportConsumerPresence();
+    });
+  }
+
+  void _stopConsumerChecks() {
+    _consumerCheckTimer?.cancel();
+    _consumerCheckTimer = null;
+  }
+
+  /// Tells the main isolate when this outlet gains or loses its consumers.
+  void _reportConsumerPresence() {
+    final bool present;
+    try {
+      present = outlet.hasConsumersSync();
+    } catch (_) {
+      // Never let diagnostics break the send path.
+      return;
+    }
+    if (present == _lastConsumerPresence) return;
+    _lastConsumerPresence = present;
+    if (!present) {
+      logger.severe(
+        'Outlet for stream ${config.streamId} has NO consumers; samples '
+        'pushed now are silently discarded by liblsl',
+      );
+    } else {
+      logger.info(
+        'Outlet for stream ${config.streamId} has consumers again',
+      );
+    }
+    config.mainSendPort.send(ConsumerPresenceMessage(present));
   }
 }

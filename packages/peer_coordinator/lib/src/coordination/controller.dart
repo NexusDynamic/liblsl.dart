@@ -44,6 +44,17 @@ class CoordinationController {
   Stream<ClockSyncSample> get coordinationClockSyncs => _coordinationStreamReady
       ? _coordinationStream.clockSyncs
       : const Stream.empty();
+  /// Emits when this node's coordination outlet gains or loses every consumer.
+  ///
+  /// `false` means this node's heartbeats and control messages are being
+  /// discarded by the transport with no error reported — the exact state a
+  /// participant was in on 2026-08-31 while its data stream kept working and
+  /// nothing on any device said a word. Empty until [initialize] has built the
+  /// stream, matching [coordinationClockSyncs].
+  Stream<bool> get coordinationOutletConsumers => _coordinationStreamReady
+      ? _coordinationStream.outletConsumerPresence
+      : const Stream.empty();
+
   late final IDiscovery _discovery;
 
   bool _stopping = false;
@@ -307,8 +318,12 @@ class CoordinationController {
     }
   }
 
-  /// Become a participant
-  Future<void> _becomeParticipant() async {
+  /// Become a participant.
+  ///
+  /// [preferredCoordinatorUId] narrows the discovery query to one coordinator,
+  /// for a rejoin that wants the node it just lost. Null — the normal case —
+  /// takes whichever node currently holds the role.
+  Future<void> _becomeParticipant({String? preferredCoordinatorUId}) async {
     logger.finer('Becoming participant');
 
     // Update node role and recreate outlet
@@ -332,7 +347,7 @@ class CoordinationController {
               unawaited(_onCoordinatorLost(message.reason));
 
     // Connect to coordinator
-    await _connectToCoordinator();
+    await _connectToCoordinator(preferredCoordinatorUId);
 
     // Start participant services
     await _startParticipantServices();
@@ -412,9 +427,14 @@ class CoordinationController {
       ),
     );
 
-    // Listen to outgoing messages from handler
+    // Listen to outgoing messages from handler. `listen` does not await an
+    // async onData, so a throwing _sendMessage would otherwise raise an
+    // unobserved async error and vanish.
     _handlerSubscription = _coordinatorHandler!.outgoingMessages.listen(
-      _sendMessage,
+      _sendMessageObserved,
+      onError: (Object error) => logger.severe(
+        '[CONTROLLER-${thisNode.uId}] Error in outgoing message stream: $error',
+      ),
     );
 
     // Forward handler events to the unified event stream
@@ -446,9 +466,13 @@ class CoordinationController {
       ),
     );
 
-    // Listen to outgoing messages from handler
+    // Listen to outgoing messages from handler. See the coordinator's copy: an
+    // async onData's failure is unobserved unless it is caught here.
     _handlerSubscription = _participantHandler!.outgoingMessages.listen(
-      _sendMessage,
+      _sendMessageObserved,
+      onError: (Object error) => logger.severe(
+        '[CONTROLLER-${thisNode.uId}] Error in outgoing message stream: $error',
+      ),
     );
 
     // Forward handler events to the unified event stream
@@ -651,6 +675,77 @@ class CoordinationController {
     );
   }
 
+  /// Consecutive coordination sends that failed. Reset on the first success.
+  ///
+  /// This is the counter that matters, and it lives here rather than at the
+  /// heartbeat timer because that is where the failure actually appears:
+  /// `sendHeartbeat` only adds to a queue and returns, so the send it triggers
+  /// fails one hop later, in this method.
+  int _coordinationSendFailures = 0;
+
+  /// How many consecutive coordination sends have failed. Zero when healthy.
+  ///
+  /// Non-zero means this node is talking to nobody and is on its way to being
+  /// evicted — worth surfacing to a user before the eviction rather than after.
+  int get coordinationSendFailures => _coordinationSendFailures;
+
+  /// Emitted when [coordinationSendFailures] crosses into or out of trouble.
+  ///
+  /// "Trouble" is two consecutive failures: one is a blip, two means the
+  /// outbound path is not working and the [CoordinationSessionConfig.nodeTimeout]
+  /// clock is already running.
+  static const int _sendFailureAlarmThreshold = 2;
+
+  /// [_sendMessage] with its failures counted and logged rather than lost.
+  ///
+  /// The subscription that calls this cannot await it, so an exception here has
+  /// no other place to surface. Before this existed, a node whose coordination
+  /// outlet had stopped accepting samples said nothing at all — the first sign
+  /// of trouble was the coordinator evicting it ten seconds later.
+  Future<void> _sendMessageObserved(CoordinationMessage message) async {
+    try {
+      await _sendMessage(message);
+      if (_coordinationSendFailures > 0) {
+        final recovered = _coordinationSendFailures;
+        _coordinationSendFailures = 0;
+        logger.warning(
+          '[CONTROLLER-${thisNode.uId}] Coordination sends recovered after '
+          '$recovered consecutive failure(s)',
+        );
+        if (recovered >= _sendFailureAlarmThreshold &&
+            !_eventController.isClosed) {
+          _eventController.add(
+            CoordinationSendHealthEvent(
+              healthy: true,
+              consecutiveFailures: 0,
+              fromNodeUId: thisNode.uId,
+            ),
+          );
+        }
+      }
+    } catch (e, st) {
+      _coordinationSendFailures++;
+      final text =
+          '[CONTROLLER-${thisNode.uId}] Failed to send ${message.type} '
+          '($_coordinationSendFailures consecutive): $e';
+      if (_coordinationSendFailures >= _sendFailureAlarmThreshold) {
+        logger.severe(text, e, st);
+      } else {
+        logger.warning(text);
+      }
+      if (_coordinationSendFailures == _sendFailureAlarmThreshold &&
+          !_eventController.isClosed) {
+        _eventController.add(
+          CoordinationSendHealthEvent(
+            healthy: false,
+            consecutiveFailures: _coordinationSendFailures,
+            fromNodeUId: thisNode.uId,
+          ),
+        );
+      }
+    }
+  }
+
   Future<void> _sendMessage(CoordinationMessage message) async {
     logger.finest('[CONTROLLER-${thisNode.uId}] Sending ${message.type}');
     // Stamped at transmit rather than at construction: messages queue in the
@@ -670,25 +765,59 @@ class CoordinationController {
     await _coordinationStream.sendMessage(stringMessage);
   }
 
+  /// Consecutive heartbeat sends that threw. Reset on the first success.
+  ///
+  /// Exists because the failure that motivated it was invisible: a node stopped
+  /// emitting coordination messages entirely and nothing on either side said so
+  /// — the coordinator only reported the resulting timeout ten seconds later,
+  /// and the node's own log had nothing at all. An unobserved async error in a
+  /// `Timer.periodic` callback is a silent one.
+  int _heartbeatFailures = 0;
+
+  /// How many consecutive heartbeat sends have failed. Zero when healthy.
+  int get heartbeatFailures => _heartbeatFailures;
+
   void _startHeartbeat() {
     _heartbeatTimer?.cancel();
+    _heartbeatFailures = 0;
     _heartbeatTimer = Timer.periodic(
       coordinationConfig.sessionConfig.heartbeatInterval,
       (_) async {
         if (_stopping) return;
 
         logger.finest('[${thisNode.uId}] Sending heartbeat');
-        if (_state.isCoordinator) {
-          // Coordinator sends heartbeat through normal message flow
-          final heartbeat = HeartbeatMessage(
-            fromNodeUId: thisNode.uId,
-            nodeRole: thisNode.role,
-            isCoordinator: true,
-          );
-          await _coordinatorHandler!.sendMessage(heartbeat);
-        } else {
-          // Participant sends heartbeat
-          await _participantHandler!.sendHeartbeat();
+        try {
+          if (_state.isCoordinator) {
+            // Coordinator sends heartbeat through normal message flow
+            final heartbeat = HeartbeatMessage(
+              fromNodeUId: thisNode.uId,
+              nodeRole: thisNode.role,
+              isCoordinator: true,
+            );
+            await _coordinatorHandler!.sendMessage(heartbeat);
+          } else {
+            // Participant sends heartbeat
+            await _participantHandler!.sendHeartbeat();
+          }
+          if (_heartbeatFailures > 0) {
+            logger.warning(
+              '[${thisNode.uId}] Heartbeat recovered after '
+              '$_heartbeatFailures consecutive failure(s)',
+            );
+            _heartbeatFailures = 0;
+          }
+        } catch (e, st) {
+          _heartbeatFailures++;
+          // Escalates: one dropped heartbeat is noise, several in a row means
+          // this node is about to be evicted and needs to have said so first.
+          final message =
+              '[${thisNode.uId}] Heartbeat send failed '
+              '($_heartbeatFailures consecutive): $e';
+          if (_heartbeatFailures >= 3) {
+            logger.severe(message, e, st);
+          } else {
+            logger.warning(message);
+          }
         }
       },
     );
@@ -816,6 +945,28 @@ class CoordinationController {
     });
   }
 
+  /// Records that [nodeUId] was heard from on some stream other than the
+  /// coordination one, so the liveness sweep counts it as alive.
+  ///
+  /// Heartbeats ride the coordination stream, and that stream failing is not the
+  /// same thing as the node failing. In the run this was written for, a node was
+  /// evicted for a silent coordination stream while its data stream was
+  /// delivering samples to the coordinator 1:1 in the same second. An
+  /// application that receives per-node data should call this as it does, and
+  /// then a node is only stale when it is genuinely quiet on every channel.
+  ///
+  /// Cheap enough to call per sample: one map write.
+  /// How long since anything was heard from [nodeUId], or null if nothing ever
+  /// has been. Rises towards [CoordinationSessionConfig.nodeTimeout], at which
+  /// point the sweep evicts — so it is the number to show an operator who wants
+  /// to see a device going quiet before it drops out.
+  Duration? sinceLastHeard(String nodeUId) => _state.sinceLastHeard(nodeUId);
+
+  void noteNodeActivity(String nodeUId) {
+    if (_stopping || _state.phase == CoordinationPhase.ended) return;
+    _state.updateNodeHeartbeat(nodeUId);
+  }
+
   /// Coordinator side: drop participants that have gone silent.
   void _sweepStaleNodes(Duration nodeTimeout) {
     final staleNodes = _state.getStaleNodes(nodeTimeout);
@@ -923,6 +1074,12 @@ class CoordinationController {
           // Not awaited: this is called from a message handler or a timer tick,
           // and a re-election takes discovery timeouts to complete.
           unawaited(_reelect());
+        case CoordinatorLossPolicy.rejoin:
+          await _teardownRole();
+          _emitSessionEnded(reason, policy, lostCoordinatorUId);
+          // Not awaited, for the same reason as re-election: discovery blocks
+          // for whole seconds and the caller here is a timer tick.
+          unawaited(_rejoin(lostCoordinatorUId));
       }
     } finally {
       _handlingCoordinatorLoss = false;
@@ -991,6 +1148,76 @@ class CoordinationController {
     // Clears the clock estimators too, via NodeLeftEvent — the peer set is about
     // to change and a stale offset is worse than none.
     _state.clearNodes();
+  }
+
+  /// Re-attaches to a coordinator, without ever standing in for one.
+  ///
+  /// The difference from [_reelect] is the whole point of the policy: this node
+  /// stays a participant and keeps looking for something to attach to. It is
+  /// what a transient fault deserves — the coordinator that "went away" is
+  /// usually still there, and in the case that motivated this (a node evicted
+  /// during a 35 s link degradation) it had already rediscovered this node's
+  /// streams before this node finished tearing its own role down.
+  ///
+  /// [lostCoordinatorUId] is a preference, not a requirement: the first attempt
+  /// asks for that specific coordinator, and later attempts take whichever node
+  /// holds the role. A coordinator that restarted comes back under a new UId,
+  /// and refusing to talk to it would strand this node forever.
+  Future<void> _rejoin(String? lostCoordinatorUId) async {
+    const maxAttempts = 20;
+    final startedAt = DateTime.now();
+    // So `currentPhase` says "looking for a coordinator" rather than still
+    // claiming `ready` while this node has nothing to be ready with.
+    _state.transitionTo(CoordinationPhase.discovering);
+
+    for (var attempt = 1; attempt <= maxAttempts; attempt++) {
+      if (_stopping || _state.phase == CoordinationPhase.ended) return;
+
+      await Future<void>.delayed(_reelectBackoff(attempt));
+      if (_stopping || _state.phase == CoordinationPhase.ended) return;
+
+      try {
+        // Only the first attempt insists on the coordinator we lost; after that
+        // take whoever holds the role.
+        await _becomeParticipant(
+          preferredCoordinatorUId: attempt == 1 ? lostCoordinatorUId : null,
+        );
+        final outage = DateTime.now().difference(startedAt);
+        logger.info(
+          '[CONTROLLER-${thisNode.uId}] Rejoined coordinator '
+          '${_state.coordinatorUId} after $attempt attempt(s), '
+          '${outage.inMilliseconds}ms without one',
+        );
+        if (!_eventController.isClosed) {
+          _eventController.add(
+            SessionRejoinedEvent(
+              coordinatorUId: _state.coordinatorUId,
+              attempts: attempt,
+              outage: outage,
+              fromNodeUId: thisNode.uId,
+            ),
+          );
+        }
+        return;
+      } catch (e) {
+        logger.warning(
+          '[CONTROLLER-${thisNode.uId}] Rejoin attempt '
+          '$attempt/$maxAttempts failed: $e',
+        );
+        await _teardownRole();
+      }
+    }
+
+    logger.severe(
+      '[CONTROLLER-${thisNode.uId}] Rejoin failed after $maxAttempts '
+      'attempts; ending the session',
+    );
+    await _endSession(SessionEndReason.coordinatorTimedOut);
+    _emitSessionEnded(
+      SessionEndReason.coordinatorTimedOut,
+      CoordinatorLossPolicy.rejoin,
+      lostCoordinatorUId,
+    );
   }
 
   /// Re-runs the election among the survivors.

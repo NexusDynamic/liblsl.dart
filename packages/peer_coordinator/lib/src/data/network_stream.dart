@@ -543,6 +543,17 @@ abstract class NetworkStream<T extends NetworkStreamConfig, M extends IMessage>
   /// election changes that role after the endpoint already exists.
   Future<void> recreateOutlet();
 
+  /// Emits when this stream's publishing endpoint gains or loses every
+  /// subscriber, where the transport can tell.
+  ///
+  /// `false` means sends from this node are going nowhere. Exists because on
+  /// LSL that state is otherwise undetectable: the push fans out over the
+  /// registered consumers and, with none, discards the sample and reports
+  /// success. A transport that cannot distinguish the two — or a stream with
+  /// no outlet — reports nothing, which is why the default is empty rather
+  /// than an optimistic `true`.
+  Stream<bool> get outletConsumerPresence => const Stream.empty();
+
   /// Subscribes to a peer found by discovery.
   ///
   /// Implementations must take ownership of [handle] (see [PeerHandle.take])

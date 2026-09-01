@@ -815,6 +815,19 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
   @override
   Stream<ClockSyncSample> get clockSyncs => _clockSyncController.stream;
 
+  /// Emits when this stream's outlet gains or loses all of its consumers.
+  ///
+  /// `false` means every sample pushed from here is being discarded inside
+  /// liblsl, silently and successfully — see [StreamOutletIsolate.consumerPresence].
+  /// Empty when this stream has no outlet (a receive-only participant).
+  @override
+  Stream<bool> get outletConsumerPresence =>
+      _outletIsolate?.consumerPresence ?? const Stream.empty();
+
+  /// Latest known outlet consumer presence; null before the first push or
+  /// when there is no outlet.
+  bool? get outletHasConsumers => _outletIsolate?.hasConsumers;
+
   @override
   StreamSink<M> get outbox => _outgoingController.sink;
 

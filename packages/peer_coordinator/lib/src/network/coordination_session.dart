@@ -24,6 +24,19 @@ enum CoordinatorLossPolicy {
   /// others re-join it.
   reelect,
 
+  /// Keep trying to re-join a coordinator, staying a participant throughout.
+  ///
+  /// For a session with one authoritative coordinator that the participants
+  /// cannot stand in for — a headless server driving an experiment, say. The
+  /// node tears its role down, then retries [_connectToCoordinator] with
+  /// backoff until a coordinator answers, and emits [SessionRejoinedEvent] when
+  /// one does.
+  ///
+  /// This is the policy to want when a *transient* fault can evict a node that
+  /// is otherwise healthy: [endSession] makes a network hiccup permanent, and
+  /// [reelect] would promote a participant that has no business coordinating.
+  rejoin,
+
   /// Do nothing beyond emitting [SessionEndedEvent].
   ///
   /// The pre-existing behaviour, kept as an escape hatch. Only sound if the

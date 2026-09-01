@@ -139,6 +139,14 @@ class CoordinationState {
     _lastHeartbeats[nodeUId] = DateTime.now();
   }
 
+  /// How long since anything was heard from [nodeUId], or null if there is no
+  /// record of ever hearing from it.
+  Duration? sinceLastHeard(String nodeUId) {
+    final last = _lastHeartbeats[nodeUId];
+    if (last == null) return null;
+    return DateTime.now().difference(last);
+  }
+
   /// Whether [nodeUId] has been silent for longer than [timeout].
   ///
   /// False when there is no entry at all: a node we have never heard from is not
