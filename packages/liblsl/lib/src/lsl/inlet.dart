@@ -172,8 +172,13 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// - [maxBuffer]: Maximum buffer size in seconds (default: 360).
   /// - [chunkSize]: Maximum chunk length in seconds (default: 0).
   /// - [recover]: Whether to recover from lost samples (default: true).
-  /// - [createTimeout]: Timeout for creating the inlet (default: LSL_FOREVER).
-  ///   Only used in isolated mode.
+  /// - [createTimeout]: Seconds `lsl_open_stream` may block while opening the
+  ///   data connection (default: [LSL_FOREVER], i.e. ~370 days). Used in
+  ///   **both** modes — direct mode passes it to `lsl_open_stream` in
+  ///   [_createDirect]. In direct mode the call is a synchronous FFI call on
+  ///   the calling thread, so leaving this at the default lets an unreachable
+  ///   peer block that thread indefinitely; callers sharing a thread or isolate
+  ///   between several inlets should set a bounded value.
   /// - [useIsolates]: Whether to use isolates for thread safety (default: true)
   ///   This is recommended for most use cases to ensure thread safety,
   ///   if you choose to use direct mode (`useIsolates: false`), you most likely

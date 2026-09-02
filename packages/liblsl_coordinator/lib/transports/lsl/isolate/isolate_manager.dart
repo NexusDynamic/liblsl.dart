@@ -11,6 +11,7 @@ import 'package:liblsl_coordinator/framework.dart';
 import 'package:meta/meta.dart';
 import 'package:synchronized/synchronized.dart';
 import 'outlet_buffer_pool.dart';
+import 'time_correction_schedule.dart';
 
 /// Enum defining all possible isolate message types
 enum IsolateMessageType {
@@ -689,12 +690,41 @@ final class StreamInletIsolate extends StreamIsolate {
     }
   }
 
+  /// How long the main isolate waits for the worker to acknowledge an inlet
+  /// add or remove before giving up on it.
+  ///
+  /// These waits used to be unbounded. A worker blocked inside a native call
+  /// therefore hung its caller too, and since the caller is
+  /// `CoordinationController`'s discovery path, the node stayed in
+  /// `_pendingJoinNodeUIds` forever and could never be re-offered a join — the
+  /// `Join already in progress ... skipping` loop. Worse, the eviction that
+  /// should have cleaned the dead peer up queued its `removeInlet` behind the
+  /// very `addInlet` that was stuck, so the wedge could not clear itself.
+  ///
+  /// Generous relative to [IsolateStreamManager.inletCreateTimeout] so that a
+  /// worker doing its job is never abandoned; this fires only when the worker
+  /// is genuinely wedged.
+  static const Duration inletRequestTimeout = Duration(seconds: 5);
+
   /// Add an inlet to the running isolate
   Future<void> addInlet(int address) async {
     _inletAddresses.add(address);
     final requestRecord = _generateRequestID();
     await sendMessage(AddInletMessage(address, requestID: requestRecord.$1));
-    await requestRecord.$2.future;
+    await requestRecord.$2.future.timeout(
+      inletRequestTimeout,
+      onTimeout: () {
+        // Thrown, not swallowed: the caller has to learn the inlet is not
+        // usable so it can drop its pending-join bookkeeping and retry, rather
+        // than believing the peer was admitted.
+        _inletAddresses.remove(address);
+        throw TimeoutException(
+          'Timed out after $inletRequestTimeout waiting for the inlet worker '
+          'on stream $streamId to add inlet $address; the worker is not '
+          'responding',
+        );
+      },
+    );
   }
 
   /// Remove an inlet from the running isolate
@@ -702,7 +732,18 @@ final class StreamInletIsolate extends StreamIsolate {
     _inletAddresses.remove(address);
     final requestRecord = _generateRequestID();
     await sendMessage(RemoveInletMessage(address, requestID: requestRecord.$1));
-    await requestRecord.$2.future;
+    await requestRecord.$2.future.timeout(
+      inletRequestTimeout,
+      onTimeout: () {
+        // Logged rather than thrown: removal is cleanup, and the address is
+        // already out of `_inletAddresses`, so callers have nothing useful to
+        // do with the failure beyond knowing the worker is unhealthy.
+        logger.warning(
+          'Timed out after $inletRequestTimeout waiting for the inlet worker '
+          'on stream $streamId to remove inlet $address',
+        );
+      },
+    );
   }
 
   @override
@@ -1005,14 +1046,33 @@ final class IsolateStreamManager {
     return LSLOutlet(streamInfo, useIsolates: false, chunkSize: 1)..create();
   }
 
+  /// Builds the worker's initial inlets, skipping any that cannot be opened.
+  ///
+  /// One unreachable peer used to abort worker startup for the whole stream:
+  /// `Future.wait` surfaces the first error and `InletWorker.initialize` does
+  /// not catch it, so the worker never started and *no* peer on that stream was
+  /// ever polled. That was masked while inlet creation waited forever instead
+  /// of failing — with [inletCreateTimeout] bounding the wait it becomes
+  /// reachable, so it has to be handled rather than merely made possible.
+  ///
+  /// Skipping is safe for the same reason it is in
+  /// [InletWorker._handleAddInlet]: discovery re-emits its whole resolved set
+  /// each cycle, so a peer that becomes reachable is added later.
   static Future<List<LSLInlet>> _createInlets(
     IsolateWorkerConfig config,
   ) async {
-    final inletFutures = config.inletAddresses!.map((addr) async {
-      return _createInletFromAddr(addr, config.dataType);
-    }).toList();
-
-    return await Future.wait(inletFutures);
+    final inlets = <LSLInlet>[];
+    for (final addr in config.inletAddresses!) {
+      try {
+        inlets.add(await _createInletFromAddr(addr, config.dataType));
+      } catch (e) {
+        logger.severe(
+          '[${config.debugName}] Failed to create initial inlet for address '
+          '$addr on stream ${config.streamId}; starting without it: $e',
+        );
+      }
+    }
+    return inlets;
   }
 
   static Future<LSLInlet> _createInletFromAddr(
@@ -1028,6 +1088,38 @@ final class IsolateStreamManager {
     return inlet;
   }
 
+  /// How long `lsl_open_stream` may block while an inlet is being created.
+  ///
+  /// The default this replaces is [LSL_FOREVER] — 32000000.0 s, roughly 370
+  /// days. These inlets are built with `useIsolates: false`, so `create()` runs
+  /// `lsl_open_stream` as a synchronous FFI call on the inlet worker's own
+  /// thread. All of a stream's inlets share that one worker, so a peer that has
+  /// dropped off the network takes every *other* peer's sample delivery down
+  /// with it for the duration of that call.
+  ///
+  /// That is not hypothetical: on 2026-09-02 a coordinator re-created an inlet
+  /// for a participant whose Wi-Fi was in a ~34 s black hole, and stopped
+  /// reading heartbeats from the five healthy participants until the OS gave up
+  /// on the connect. It then evicted all of them. Against a host that answers
+  /// ARP but not TCP there is no OS backstop and the worker never returns.
+  ///
+  /// Two seconds is chosen against measurement, not intuition. On the
+  /// production rig (Raspberry Pi coordinator, iPads over Wi-Fi) a *successful*
+  /// open costs a strikingly uniform ~654 ms — nine consecutive samples spanned
+  /// 653-664 ms across two different streams. The cost is structural rather
+  /// than round-trip-dependent, so the variance to leave headroom for is small;
+  /// 2 s is roughly 3x the observed figure and still well under the node
+  /// timeout this must not jeopardise.
+  ///
+  /// (That uniform ~654 ms is worth knowing in its own right: even the happy
+  /// path stalls this worker for two thirds of a second per inlet, so admitting
+  /// six peers at once costs about four seconds of polling.)
+  ///
+  /// On expiry `_createDirect` throws [LSLTimeout], which
+  /// [InletWorker._handleAddInlet] turns into a skipped inlet that discovery
+  /// retries on its next cycle.
+  static const double inletCreateTimeout = 2.0;
+
   static Future<LSLInlet> _createTypedInlet(
     LSLStreamInfo streamInfo,
     StreamDataType dataType,
@@ -1035,14 +1127,29 @@ final class IsolateStreamManager {
     switch (dataType) {
       case StreamDataType.float32:
       case StreamDataType.double64:
-        return LSLInlet<double>(streamInfo, chunkSize: 1, useIsolates: false);
+        return LSLInlet<double>(
+          streamInfo,
+          chunkSize: 1,
+          createTimeout: inletCreateTimeout,
+          useIsolates: false,
+        );
       case StreamDataType.int8:
       case StreamDataType.int16:
       case StreamDataType.int32:
       case StreamDataType.int64:
-        return LSLInlet<int>(streamInfo, chunkSize: 1, useIsolates: false);
+        return LSLInlet<int>(
+          streamInfo,
+          chunkSize: 1,
+          createTimeout: inletCreateTimeout,
+          useIsolates: false,
+        );
       case StreamDataType.string:
-        return LSLInlet<String>(streamInfo, chunkSize: 1, useIsolates: false);
+        return LSLInlet<String>(
+          streamInfo,
+          chunkSize: 1,
+          createTimeout: inletCreateTimeout,
+          useIsolates: false,
+        );
     }
   }
 }
@@ -1233,6 +1340,11 @@ final class InletWorker extends IsolateWorker {
     }
     running = true;
     paused = false;
+    // Started here rather than at construction so the first pass is measured
+    // against the worker actually running, not against isolate spawn.
+    _sincePollCompleted
+      ..reset()
+      ..start();
 
     if (completer == null || completer!.isCompleted) {
       completer = Completer<void>();
@@ -1257,6 +1369,7 @@ final class InletWorker extends IsolateWorker {
           return;
         }
         await inletsLock.synchronized(_pollInletsWorker);
+        _notePollCompleted();
         if (buffer.isNotEmpty) {
           await bufferLock.synchronized(() {
             if (buffer.isNotEmpty) {
@@ -1280,6 +1393,9 @@ final class InletWorker extends IsolateWorker {
     }
     logger.info('Pausing inlet worker for stream ${config.streamId}');
     paused = true;
+    // A paused worker is not polling by design; leaving the watchdog running
+    // would report the pause itself as a stall on resume.
+    _sincePollCompleted.stop();
     resumeCompleter = Completer<void>();
     // Note: we don't cancel timer or complete completer - just set paused flag
     // Timer-based polling will check paused flag, busy-wait will be handled in the loop
@@ -1380,24 +1496,41 @@ final class InletWorker extends IsolateWorker {
     logger.finest(
       '[${config.debugName}] Adding inlet for address ${message.address} in stream ${config.streamId}',
     );
-    final newInlet = await IsolateStreamManager._createInletFromAddr(
-      message.address,
-      config.dataType,
-    );
+    final LSLInlet newInlet;
+    try {
+      newInlet = await IsolateStreamManager._createInletFromAddr(
+        message.address,
+        config.dataType,
+      );
+    } catch (e, st) {
+      // Caught rather than rethrown, for two reasons. This isolate is spawned
+      // with `errorsAreFatal: true`, so an escaping throw kills the worker and
+      // takes every healthy inlet on this stream with it — strictly worse than
+      // the unreachable peer we are already handling. And `handleMessage` sends
+      // the caller's ResponseMessage only after this returns, so throwing would
+      // leave the main isolate's `addInlet` future pending forever.
+      //
+      // Skipping the inlet is safe: discovery re-emits its whole resolved set
+      // every cycle, so a peer that becomes reachable again is retried without
+      // any bookkeeping here.
+      logger.severe(
+        '[${config.debugName}] Failed to create inlet for address '
+        '${message.address} in stream ${config.streamId}; skipping it. The '
+        'peer is unreachable or refusing the data connection: $e',
+        e,
+        st,
+      );
+      return;
+    }
     await inletAddRemoveLock.synchronized(() {
       inlets.add(newInlet);
       // Null, not 0.0: this inlet has no clock-offset estimate yet.
       timeCorrections.add(null);
     });
-    // Get the new peer an offset now rather than making it wait out the rest of
-    // the 5 s refresh window with unusable timing on every sample it delivers.
-    //
-    // Deliberately not awaited: the caller's response is sent once this method
-    // returns, so awaiting would put lsl_time_correction's first-call cost
-    // (milliseconds normally, up to the 1 s timeout on a lossy link) directly
-    // on the peer-admission path. Until the estimate lands the correction stays
-    // null, which reports "transit unknown" rather than a wrong number.
-    unawaited(_updateTimeCorrections(0));
+    // Warm up only the inlet just added, not every inlet on the stream. See
+    // [_warmTimeCorrectionForNewestInlet] for why the old full sweep here was
+    // the expensive half of this bug.
+    await _warmTimeCorrectionForNewestInlet();
   }
 
   Future<void> _handleRemoveInlet(RemoveInletMessage message) async {
@@ -1411,6 +1544,7 @@ final class InletWorker extends IsolateWorker {
         );
         return;
       }
+      _timeCorrectionSchedule.forget(inlets[index].streamInfo.sourceId);
       try {
         await inlets[index].destroy();
       } catch (e) {
@@ -1422,6 +1556,159 @@ final class InletWorker extends IsolateWorker {
   }
 
   // Member methods for time corrections and polling
+  /// Time since the poll loop last completed a pass over the inlets.
+  ///
+  /// Restarted on every completed pass; read at the start of the next one, so
+  /// what it measures is the gap the *previous* pass left behind.
+  final Stopwatch _sincePollCompleted = Stopwatch();
+
+  /// How far behind schedule a poll pass has to fall before it is reported.
+  ///
+  /// The poll interval is 1–10 ms, so any of these is a large multiple of it.
+  /// The floor exists because a coordination stream polling at 1 ms would
+  /// otherwise report on ordinary GC pauses and scheduler jitter.
+  static const Duration pollStallThreshold = Duration(seconds: 1);
+
+  /// Notes that a poll pass finished, and reports it if the gap was long
+  /// enough to have starved the stream.
+  ///
+  /// This exists because the failure it watches for left no direct trace. When
+  /// this worker blocked for 27.6 s inside a native call on 2026-09-02, nothing
+  /// in any log said so — the stall had to be reconstructed afterwards from the
+  /// *absence* of periodic lines and from heartbeat ages climbing on a peer.
+  /// A blocked isolate cannot log while it is blocked, but it can say what
+  /// happened the moment it comes back, and that is enough to identify this
+  /// class of fault immediately rather than over an evening.
+  void _notePollCompleted() {
+    if (_sincePollCompleted.isRunning &&
+        _sincePollCompleted.elapsed > pollStallThreshold) {
+      logger.severe(
+        'Inlet worker for stream ${config.streamId} did not poll for '
+        '${_sincePollCompleted.elapsed.inMilliseconds}ms '
+        '(poll interval ${config.pollingInterval.inMilliseconds}ms, '
+        '${inlets.length} inlet(s)). No samples were read from ANY inlet on '
+        'this stream during that window; peers will look silent to this node '
+        'and may be evicted. This means something blocked the worker isolate '
+        '— almost always a native call on an unreachable peer.',
+      );
+    }
+    _sincePollCompleted
+      ..reset()
+      ..start();
+  }
+
+  /// Per-inlet time-correction timeout, in seconds.
+  ///
+  /// Left at 1.0 deliberately. Shortening it looks attractive - every one of
+  /// these calls is paid serially on this worker's thread, so the number
+  /// multiplies by the count of unresponsive peers - but an inlet's *first*
+  /// correction has to complete a round trip that includes connection setup,
+  /// and it does not reliably fit in 0.2 s even on loopback. Cutting it there
+  /// makes new peers report "transit unknown" instead of an offset, which is a
+  /// correctness regression in exchange for a bound that
+  /// [timeCorrectionSweepBudget] and the backoff below already provide.
+  static const double timeCorrectionTimeout = 1.0;
+
+  /// Wall-clock budget for one sweep across all inlets.
+  ///
+  /// This, not the per-call timeout, is what bounds the stall. Without it the
+  /// worst case is [timeCorrectionTimeout] times the number of dead peers - six
+  /// seconds on a six-participant rig if they all drop at once - during which
+  /// no inlet on this stream is polled and every peer looks silent. With it,
+  /// a sweep gives up once it has spent long enough and finishes the remaining
+  /// inlets on the next tick; corrections refresh every few seconds, so
+  /// deferring some of them costs nothing that matters.
+  ///
+  /// Sits well under the shortest node timeout this must not jeopardise.
+  static const Duration timeCorrectionSweepBudget = Duration(
+    milliseconds: 1500,
+  );
+
+  /// Cap on the exponential backoff, in sweeps.
+  ///
+  /// At the 5 s sweep interval this is a retry every ~2.5 minutes for a peer
+  /// that has never answered — often enough to pick it up again on its own,
+  /// rare enough to cost nothing.
+  static const int maxTimeCorrectionSkips = 32;
+
+  /// Which inlets a sweep refreshes and when it gives up. See
+  /// [TimeCorrectionSchedule] for why this is a separate, testable object.
+  final TimeCorrectionSchedule _timeCorrectionSchedule = TimeCorrectionSchedule(
+    maxSkips: maxTimeCorrectionSkips,
+    sweepBudget: timeCorrectionSweepBudget,
+  );
+
+  /// Refreshes one inlet's clock offset, returning the sync to report or null.
+  ///
+  /// Factored out so the periodic sweep and the single-inlet warm-up in
+  /// [_handleAddInlet] share exactly one implementation of the failure
+  /// bookkeeping — the backoff below is the only thing keeping an unreachable
+  /// peer from costing [timeCorrectionTimeout] out of every sweep forever.
+  ///
+  /// Returns null when the inlet is in backoff or the call failed. Runs
+  /// synchronously despite the `Future`: these inlets are `useIsolates: false`,
+  /// so `getTimeCorrectionEx` performs its FFI call before it returns a future
+  /// at all, and a failure therefore throws here rather than completing the
+  /// future with an error.
+  Future<IsolateClockSync?> _refreshTimeCorrection(
+    int index,
+    double localClock,
+  ) async {
+    final inlet = inlets[index];
+    final sourceId = inlet.streamInfo.sourceId;
+
+    // An inlet in backoff keeps whatever correction it already had: a stale
+    // offset is better than none, and staleness is already reported downstream.
+    if (_timeCorrectionSchedule.shouldSkip(sourceId)) return null;
+
+    final LSLTimeCorrection correction;
+    try {
+      // `await` costs a microtask, not a suspension of the FFI call: in direct
+      // mode the native work has already finished by the time the future
+      // exists. The try/catch has to wrap both anyway, because a failure throws
+      // synchronously here rather than completing the future with an error.
+      correction = await inlet.getTimeCorrectionEx(
+        timeout: timeCorrectionTimeout,
+      );
+    } catch (e) {
+      final backoff = _timeCorrectionSchedule.noteFailure(sourceId);
+      logger.warning(
+        'Error updating time correction for inlet $index ($sourceId) on '
+        'stream ${config.streamId}: $e - '
+        '${_timeCorrectionSchedule.failuresFor(sourceId)} consecutive '
+        'failure(s), skipping the next $backoff sweep(s)',
+      );
+      return null;
+    }
+
+    if (_timeCorrectionSchedule.noteSuccess(sourceId)) {
+      logger.info(
+        'Time correction recovered for inlet $index ($sourceId) on stream '
+        '${config.streamId}',
+      );
+    }
+    timeCorrections[index] = correction;
+
+    // Read once, here, and report what it said. liblsl clears the flag on read,
+    // so polling it anywhere else would consume the one notification this
+    // estimate gets and silently drop it.
+    bool clockReset = false;
+    try {
+      clockReset = inlet.wasClockResetSync();
+    } catch (e) {
+      logger.warning('Error reading clock-reset flag for inlet $index: $e');
+    }
+
+    return IsolateClockSync(
+      sourceId: sourceId,
+      offset: correction.offset,
+      remoteTime: correction.remoteTime,
+      uncertainty: correction.uncertainty,
+      localClock: localClock,
+      clockReset: clockReset,
+    );
+  }
+
   Future<void> _updateTimeCorrections([
     int minTimeSinceLastUpdate = 5000,
   ]) async {
@@ -1431,54 +1718,60 @@ final class InletWorker extends IsolateWorker {
               minTimeSinceLastUpdate) {
         return; // Limit updates to every 5 seconds
       }
-      // Keep the inlet index attached to each pending correction. These inlets
-      // are created with `useIsolates: false`, so `getTimeCorrectionEx` runs the
-      // FFI call synchronously *before* returning its future — a throw lands
-      // here rather than in the future. Collecting bare futures therefore left
-      // the results list shorter than `inlets` whenever one failed, and the
-      // positional write-back then assigned every subsequent inlet's correction
-      // to the wrong inlet.
-      final List<int> indices = [];
-      final List<Future<LSLTimeCorrection>> futures = [];
-      for (int i = 0; i < inlets.length; i++) {
-        try {
-          futures.add(inlets[i].getTimeCorrectionEx(timeout: 1.0));
-          indices.add(i);
-        } catch (e) {
-          logger.warning('Error updating time correction for inlet $i: $e');
+      // Reset in a `finally`. It used to run only on the success path, so a
+      // throw anywhere below left the stopwatch un-reset and every subsequent
+      // tick re-ran the full sweep - turning one unreachable peer into a
+      // permanent, per-tick stall instead of a five-second one.
+      try {
+        final localClock = LSL.localClock();
+        final syncs = <IsolateClockSync>[];
+        final sweep = _timeCorrectionSchedule.beginSweep();
+        for (int i = 0; i < inlets.length; i++) {
+          final sync = await _refreshTimeCorrection(i, localClock);
+          if (sync != null) syncs.add(sync);
+          if (sweep.isExhausted && i + 1 < inlets.length) {
+            logger.warning(
+              'Time-correction sweep for stream ${config.streamId} used its '
+              '${timeCorrectionSweepBudget.inMilliseconds}ms budget after '
+              '${i + 1} of ${inlets.length} inlet(s) '
+              '(${sweep.elapsed.inMilliseconds}ms); deferring the rest to the '
+              'next sweep so polling is not starved',
+            );
+            break;
+          }
         }
-      }
-      final results = await Future.wait(futures);
-      final localClock = LSL.localClock();
-      final syncs = <IsolateClockSync>[];
-      for (int i = 0; i < results.length; i++) {
-        final index = indices[i];
-        timeCorrections[index] = results[i];
-        // Read once, here, and report what it said. liblsl clears the flag on
-        // read, so polling it anywhere else would consume the one notification
-        // this estimate gets and silently drop it.
-        bool clockReset = false;
-        try {
-          clockReset = inlets[index].wasClockResetSync();
-        } catch (e) {
-          logger.warning('Error reading clock-reset flag for inlet $index: $e');
+        if (syncs.isNotEmpty) {
+          config.mainSendPort.send(IsolateClockSyncList.from(syncs));
         }
-        syncs.add(
-          IsolateClockSync(
-            sourceId: inlets[index].streamInfo.sourceId,
-            offset: results[i].offset,
-            remoteTime: results[i].remoteTime,
-            uncertainty: results[i].uncertainty,
-            localClock: localClock,
-            clockReset: clockReset,
-          ),
-        );
+        logger.finer('Updated time corrections for stream ${config.streamId}');
+      } finally {
+        lastTimeCorrectionUpdate.reset();
       }
-      if (syncs.isNotEmpty) {
-        config.mainSendPort.send(IsolateClockSyncList.from(syncs));
+    });
+  }
+
+  /// Gives a freshly added inlet a clock offset without sweeping the others.
+  ///
+  /// The warm-up used to be `unawaited(_updateTimeCorrections(0))`: a full
+  /// sweep, rate limit bypassed, on the peer-admission path. Because these
+  /// calls are synchronous and serial, admitting one peer paid the timeout for
+  /// every *other* unreachable peer too, and `unawaited` bought nothing because
+  /// a blocking call cannot be made non-blocking by not awaiting it.
+  ///
+  /// Touching only the new inlet keeps the reason for the warm-up - a new peer
+  /// should not spend the first refresh window reporting "transit unknown" -
+  /// while bounding its cost to a single [timeCorrectionTimeout] against a peer
+  /// whose `lsl_open_stream` has just succeeded, so it is known reachable.
+  Future<void> _warmTimeCorrectionForNewestInlet() async {
+    await timeCorrectionsLock.synchronized(() async {
+      if (inlets.isEmpty) return;
+      final sync = await _refreshTimeCorrection(
+        inlets.length - 1,
+        LSL.localClock(),
+      );
+      if (sync != null) {
+        config.mainSendPort.send(IsolateClockSyncList.from([sync]));
       }
-      logger.finer('Updated time corrections for stream ${config.streamId}');
-      lastTimeCorrectionUpdate.reset();
     });
   }
 
@@ -1541,6 +1834,7 @@ final class InletWorker extends IsolateWorker {
         }
 
         await inletsLock.synchronized(_pollInletsWorker);
+        _notePollCompleted();
 
         await bufferLock.synchronized(() {
           if (buffer.isNotEmpty) {
@@ -1812,9 +2106,7 @@ final class OutletWorker extends IsolateWorker {
         'pushed now are silently discarded by liblsl',
       );
     } else {
-      logger.info(
-        'Outlet for stream ${config.streamId} has consumers again',
-      );
+      logger.info('Outlet for stream ${config.streamId} has consumers again');
     }
     config.mainSendPort.send(ConsumerPresenceMessage(present));
   }

@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:peer_coordinator/framework.dart';
 import 'package:peer_coordinator/config.dart';
+import 'pending_joins.dart';
 
 /// Controls the coordination flow with clear phases and event-driven logic.
 ///
@@ -44,6 +45,7 @@ class CoordinationController {
   Stream<ClockSyncSample> get coordinationClockSyncs => _coordinationStreamReady
       ? _coordinationStream.clockSyncs
       : const Stream.empty();
+
   /// Emits when this node's coordination outlet gains or loses every consumer.
   ///
   /// `false` means this node's heartbeats and control messages are being
@@ -68,7 +70,11 @@ class CoordinationController {
 
   /// Tracks node UIDs with a pending inlet creation or join offer in progress,
   /// to prevent duplicate addInlet/sendJoinOffer calls every discovery cycle.
-  final Set<String> _pendingJoinNodeUIds = {};
+  ///
+  /// Entries expire. See [PendingJoins] for why a plain set was the difference
+  /// between one lost heartbeat and a participant that could never rejoin.
+  /// Built in [initialize], once the session config's node timeout is known.
+  late final PendingJoins _pendingJoins;
 
   CoordinatorMessageHandler? _coordinatorHandler;
   ParticipantMessageHandler? _participantHandler;
@@ -121,7 +127,7 @@ class CoordinationController {
       _eventController.add(event);
       // Clean up pending join tracking when a node successfully joins
       if (event is NodeJoinedEvent) {
-        _pendingJoinNodeUIds.remove(event.node.uId);
+        _pendingJoins.complete(event.node.uId);
       }
       // Every removal path funnels through here — voluntary leave, topology
       // update and the timeout sweep all go via state.removeNode — so this is
@@ -149,6 +155,16 @@ class CoordinationController {
   /// Initialize the controller - creates streams and discovery
   Future<void> initialize() async {
     logger.info('Initializing coordination controller');
+
+    // Twice the node timeout. A join has to survive the offer, the
+    // participant's connection confirmation and the request coming back, so the
+    // deadline has to be comfortably longer than one timeout period or a slow
+    // but healthy handshake would be cancelled and retried needlessly. It also
+    // must not be so long that a node stays locked out for minutes: at two
+    // timeouts, a lost offer costs one retry cycle rather than the session.
+    _pendingJoins = PendingJoins(
+      ttl: coordinationConfig.sessionConfig.nodeTimeout * 2,
+    );
 
     // Create coordination stream
     final factory = transport.streamFactory;
@@ -419,6 +435,26 @@ class CoordinationController {
 
   /// Start coordinator-specific services
   Future<void> _startCoordinatorServices() async {
+    // An evicted node's heartbeats are proof it is alive and reachable, so
+    // release whatever pending-join slot it still holds and let the next
+    // discovery cycle offer it a join.
+    //
+    // Deliberately not a second admission path: re-offering from here would
+    // duplicate the discovery loop's logic and fire at heartbeat frequency,
+    // and the participant answers an offer with a connection confirmation that
+    // retries for up to a minute. Clearing the slot lets the one tested path
+    // do the work, at its own cadence, on its next pass.
+    _coordinatorHandler!.onUnknownNodeHeartbeat = (nodeUId, nodeRole) {
+      if (_pendingJoins.isInProgress(nodeUId)) {
+        logger.info(
+          '[CONTROLLER-${thisNode.uId}] Clearing the pending join for '
+          '$nodeUId after ${_pendingJoins.inFlightFor(nodeUId)?.inSeconds}s: '
+          'it is heartbeating, so the handshake was lost rather than slow',
+        );
+        _pendingJoins.complete(nodeUId);
+      }
+    };
+
     // Listen to coordination messages
     _coordinationSubscription = _coordinationStream.inbox.listen(
       (message) async => await _handleIncomingMessage(message),
@@ -442,7 +478,7 @@ class CoordinationController {
       _eventController.add(event);
       if (event is NodeJoinRejectedEvent) {
         // Allow the node to be offered a join again if capacity frees up.
-        _pendingJoinNodeUIds.remove(event.rejectedNodeUId);
+        _pendingJoins.complete(event.rejectedNodeUId);
       }
     });
 
@@ -844,10 +880,15 @@ class CoordinationController {
               // Already connected
               continue;
             }
-            if (_pendingJoinNodeUIds.contains(nodeUId)) {
-              // Inlet creation / join offer already in progress for this node
+            if (_pendingJoins.isInProgress(nodeUId)) {
+              // Inlet creation / join offer already in progress for this node.
+              // Bounded: the entry expires so a handshake that is never going
+              // to complete releases its slot rather than blocking this node
+              // forever.
               logger.finer(
-                'Join already in progress for node $nodeId ($nodeUId), skipping',
+                'Join already in progress for node $nodeId ($nodeUId) for '
+                '${_pendingJoins.inFlightFor(nodeUId)?.inMilliseconds}ms, '
+                'skipping',
               );
               continue;
             }
@@ -869,7 +910,7 @@ class CoordinationController {
             // addInlet, which calls take() before touching it. That closes the
             // window in which the next discovery cycle could free the
             // underlying resource out from under us.
-            _pendingJoinNodeUIds.add(nodeUId);
+            _pendingJoins.start(nodeUId);
 
             _coordinationStream
                 .addInlet(peer)
@@ -884,15 +925,16 @@ class CoordinationController {
                     logger.warning(
                       'Not accepting new nodes, skipping join offer to $nodeId ($nodeUId)',
                     );
-                    _pendingJoinNodeUIds.remove(nodeUId);
+                    _pendingJoins.complete(nodeUId);
                     return;
                   }
                   _coordinatorHandler!.sendJoinOffer(newNode);
-                  // _pendingJoinNodeUIds entry removed via NodeJoinedEvent in
-                  // _setupStateListeners once the node successfully joins.
+                  // The pending entry is released via NodeJoinedEvent in
+                  // _setupStateListeners once the node successfully joins, or
+                  // by its own deadline if the handshake never completes.
                 })
                 .catchError((Object e, StackTrace st) {
-                  _pendingJoinNodeUIds.remove(nodeUId);
+                  _pendingJoins.complete(nodeUId);
                   logger.severe(
                     'Failed to add inlet for discovered node $nodeId ($nodeUId): $e',
                     e,
@@ -1118,7 +1160,7 @@ class CoordinationController {
     _discovery.stop();
     await _discoverySubscription?.cancel();
     _discoverySubscription = null;
-    _pendingJoinNodeUIds.clear();
+    _pendingJoins.clear();
     _state.clearNodes();
     _state.transitionTo(CoordinationPhase.ended);
   }
@@ -1144,7 +1186,7 @@ class CoordinationController {
     _coordinatorHandler = null;
     _participantHandler?.dispose();
     _participantHandler = null;
-    _pendingJoinNodeUIds.clear();
+    _pendingJoins.clear();
     // Clears the clock estimators too, via NodeLeftEvent — the peer set is about
     // to change and a stale offset is worse than none.
     _state.clearNodes();
@@ -1163,6 +1205,53 @@ class CoordinationController {
   /// asks for that specific coordinator, and later attempts take whichever node
   /// holds the role. A coordinator that restarted comes back under a new UId,
   /// and refusing to talk to it would strand this node forever.
+  /// How often an unanswered join request is repeated while waiting.
+  ///
+  /// A join request used to be sent exactly once, with no ack and no retry. A
+  /// participant whose request went into an inlet the coordinator had already
+  /// torn down therefore waited forever, in `established`, heartbeating
+  /// cheerfully at a coordinator that considered it a stranger.
+  static const Duration _joinRequestRetryInterval = Duration(seconds: 2);
+
+  /// Waits until the coordinator has actually accepted this node.
+  ///
+  /// [CoordinationPhase.ready] is set only by `_handleJoinAccept`, so it is the
+  /// one state that means the coordinator has this node in its topology. Until
+  /// then the node has, at most, *sent* a request.
+  ///
+  /// Throws [TimeoutException] if no acceptance arrives within [budget], which
+  /// puts the caller back on its retry path rather than leaving it wedged.
+  Future<void> _awaitJoinAccepted(Duration budget) async {
+    final deadline = DateTime.now().add(budget);
+    var lastRequestAt = DateTime.now();
+
+    while (DateTime.now().isBefore(deadline)) {
+      if (_stopping || _state.phase == CoordinationPhase.ended) {
+        throw StateError('Session ended while waiting for a join acceptance');
+      }
+      if (_state.phase == CoordinationPhase.ready) return;
+
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+
+      if (DateTime.now().difference(lastRequestAt) >=
+          _joinRequestRetryInterval) {
+        lastRequestAt = DateTime.now();
+        // Idempotent on the coordinator: a request from a node it already has
+        // re-accepts and re-sends the acceptance rather than duplicating it.
+        logger.fine(
+          '[CONTROLLER-${thisNode.uId}] No join acceptance yet; repeating the '
+          'join request',
+        );
+        await _participantHandler?.sendJoinRequest();
+      }
+    }
+
+    throw TimeoutException(
+      'No join acceptance from the coordinator within $budget',
+      budget,
+    );
+  }
+
   Future<void> _rejoin(String? lostCoordinatorUId) async {
     const maxAttempts = 20;
     final startedAt = DateTime.now();
@@ -1182,6 +1271,14 @@ class CoordinationController {
         await _becomeParticipant(
           preferredCoordinatorUId: attempt == 1 ? lostCoordinatorUId : null,
         );
+        // Finding a coordinator's stream and queueing a join request is not
+        // rejoining. This used to report success right here, so a participant
+        // announced itself reconnected — and cleared the operator-facing
+        // "disconnected" banner — while the coordinator had never seen its
+        // request. On 2026-09-02 every device in the room did exactly that: all
+        // six said they were back, none of them was in the session, and the
+        // only sign was that nothing they did had any effect.
+        await _awaitJoinAccepted(coordinationConfig.sessionConfig.nodeTimeout);
         final outage = DateTime.now().difference(startedAt);
         logger.info(
           '[CONTROLLER-${thisNode.uId}] Rejoined coordinator '

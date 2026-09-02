@@ -353,9 +353,10 @@ void main() {
         isEmpty,
         reason: 'a node heard from on any stream is not a silent node',
       );
-      expect(coordinator.connectedNodes.map((n) => n.uId), contains(
-        participant.thisNode.uId,
-      ));
+      expect(
+        coordinator.connectedNodes.map((n) => n.uId),
+        contains(participant.thisNode.uId),
+      );
     });
 
     test('activity stopping still lets the sweep evict', () async {
@@ -421,10 +422,80 @@ void main() {
       final event = await rejoined;
       expect(event.coordinatorUId, coordinator.thisNode.uId);
       expect(event.attempts, greaterThanOrEqualTo(1));
-      expect(participant.isCoordinator, isFalse,
-          reason: 'rejoin re-attaches as a participant, it never promotes');
+      expect(
+        participant.isCoordinator,
+        isFalse,
+        reason: 'rejoin re-attaches as a participant, it never promotes',
+      );
       await coordinator.waitForMinNodes(2, timeout: const Duration(seconds: 3));
     });
+
+    test(
+      'a node the coordinator will not accept does not claim it rejoined',
+      () async {
+        // The false positive that made 2026-09-02 so hard to read from the floor.
+        //
+        // Rejoining used to be declared the moment `_becomeParticipant` returned
+        // - i.e. on having found the coordinator's stream and *queued* a join
+        // request. Reaching a stream is the easy half, and it succeeds in plenty
+        // of situations where the join itself does not, so a participant whose
+        // request was never honoured reported itself reconnected, cleared its
+        // "disconnected" banner, and heartbeated at a coordinator that had never
+        // heard of it. Six devices did exactly that, and the only symptom was
+        // that nothing anyone did had any effect.
+        //
+        // Here the coordinator stops accepting nodes before the eviction, so the
+        // participant can discover it, connect to its outlet and send a join
+        // request - and still must not claim to be back, because it is not.
+        final coordinator = await joined('coord', randomRoll: 0.1);
+        final participant = await joined(
+          'p1',
+          randomRoll: 0.9,
+          policy: CoordinatorLossPolicy.rejoin,
+        );
+        await coordinator.waitForMinNodes(
+          2,
+          timeout: const Duration(seconds: 2),
+        );
+
+        var rejoinedClaimed = false;
+        final sub = participant.events.sessionRejoined.listen(
+          (_) => rejoinedClaimed = true,
+        );
+        addTearDown(sub.cancel);
+
+        await coordinator.pauseAcceptingNodes();
+
+        final ended = nextEnd(participant);
+        bus.routing.unsubscribe(
+          streamName: streamName,
+          producerEndpointId:
+              '$sessionName/${participant.thisNode.uId}/$streamName',
+          subscriberEndpointId:
+              '$sessionName/${coordinator.thisNode.uId}/$streamName',
+        );
+        await ended;
+
+        // Long enough for several rejoin attempts. Each one reconnects to the
+        // coordinator's stream successfully and then waits for an acceptance
+        // that is never going to come.
+        await Future<void>.delayed(const Duration(seconds: 2));
+
+        expect(
+          rejoinedClaimed,
+          isFalse,
+          reason:
+              'reaching a coordinator stream is not the same as being in the '
+              'session; saying otherwise is what hid six dead devices behind a '
+              'green status',
+        );
+        expect(
+          participant.currentPhase,
+          isNot(CoordinationPhase.ready),
+          reason: 'ready is set only by a join acceptance',
+        );
+      },
+    );
 
     test('a rejoined node can send again', () async {
       // endSession leaves _ensureLive throwing forever; rejoin must clear that.

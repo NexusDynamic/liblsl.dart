@@ -124,6 +124,15 @@ class CoordinatorMessageHandler extends CoordinationMessageHandler
   // Control flags
   bool _acceptingNewNodes = true;
 
+  /// Called when a node this coordinator does not know about heartbeats at it.
+  ///
+  /// The one unambiguous signal that an evicted node is alive, reachable and
+  /// still trying: it is sending on the coordination stream and the coordinator
+  /// is reading it. Left to the owner to act on, because re-admission is the
+  /// controller's business — it holds the discovery loop and the pending-join
+  /// bookkeeping that decides whether another offer goes out.
+  void Function(String nodeUId, String nodeRole)? onUnknownNodeHeartbeat;
+
   CoordinatorMessageHandler({
     required super.state,
     required super.thisNode,
@@ -251,21 +260,37 @@ class CoordinatorMessageHandler extends CoordinationMessageHandler
   }
 
   Future<void> _handleHeartbeat(HeartbeatMessage message) async {
-    state.updateNodeHeartbeat(message.fromNodeUId);
     logger.finest(
       'Received heartbeat from ${message.fromNodeUId} (role: ${message.nodeRole})',
     );
 
-    // If this is from a node we don't know about, it might be a rejoin
     final knownNode = state.connectedNodes.any(
       (n) => n.uId == message.fromNodeUId,
     );
-    if (!knownNode && _acceptingNewNodes) {
-      logger.warning(
-        'Received heartbeat from unknown node, treating as implicit join request',
-      );
-      // We could auto-accept or request explicit join
+
+    if (knownNode) {
+      // Only for a node that is actually in the topology. This used to run
+      // unconditionally, before the check, which quietly created a liveness
+      // entry for a node that had already been evicted. That entry was then
+      // kept permanently fresh by the very heartbeats that proved the node was
+      // trying to rejoin, so `getStaleNodes` never reported it again and the
+      // eviction path — the one thing that would have cleaned its state up —
+      // could never fire a second time. Wedged in both directions at once.
+      state.updateNodeHeartbeat(message.fromNodeUId);
+      return;
     }
+
+    if (!_acceptingNewNodes) return;
+
+    // Not a warning any more, because it is now acted on rather than merely
+    // observed. The old message said it was "treating as implicit join request"
+    // while doing nothing of the kind.
+    logger.info(
+      'Heartbeat from unknown node ${message.fromNodeUId}; it is alive and '
+      'reachable but not in the topology, so clearing the way for it to be '
+      're-offered a join',
+    );
+    onUnknownNodeHeartbeat?.call(message.fromNodeUId, message.nodeRole);
   }
 
   Future<void> _handleStreamReady(StreamReadyMessage message) async {
