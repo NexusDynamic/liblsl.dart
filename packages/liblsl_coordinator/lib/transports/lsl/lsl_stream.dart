@@ -474,6 +474,19 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
 
     _inletStreamInfos.add(streamInfo);
 
+    try {
+      await _addInletToIsolate(streamInfo);
+    } catch (_) {
+      // Without this the entry stays behind, hasInletForSource stays true, and
+      // every later addInlet for this peer returns early: a peer that failed
+      // to connect once could never be subscribed to again.
+      _inletStreamInfos.remove(streamInfo);
+      streamInfo.destroy();
+      rethrow;
+    }
+  }
+
+  Future<void> _addInletToIsolate(LSLStreamInfo streamInfo) async {
     // Create inlet isolate if it doesn't exist
     if (_inletIsolate == null) {
       final mySourceId = LSLStreamInfoHelper.generateSourceID(
@@ -486,9 +499,10 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
         useBusyWaitInlets: useBusyWaitInlets,
         useBusyWaitOutlets: useBusyWaitOutlets,
         pollingInterval: _getPollingInterval(),
-        initialInletAddresses: _inletStreamInfos
-            .map((info) => info.streamInfo.address)
-            .toList(),
+        // Empty, with the inlet added below instead. Initial inlets that fail
+        // to open are skipped inside the worker with nothing reported back,
+        // which is what left failed peers registered here for good.
+        initialInletAddresses: const [],
         isolateDebugName: 'inlet:$mySourceId',
       );
       await _inletIsolate!.create();
@@ -516,14 +530,14 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
         );
       });
 
-      // Start the inlet isolate if the stream is already started
+      // Start the inlet isolate if the stream is already started. Before the
+      // add, so the worker is polling even if this first inlet fails and a
+      // later one succeeds.
       if (_started) {
         await _inletIsolate!.start();
       }
-    } else {
-      // Add inlet to existing isolate
-      await _inletIsolate!.addInlet(streamInfo.streamInfo.address);
     }
+    await _inletIsolate!.addInlet(streamInfo.streamInfo.address);
 
     // we don't want to auto start
     // Start if not already started
@@ -657,10 +671,25 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
       );
     }
 
+    // Every resolved info is handed over even if an earlier one fails, so
+    // none is leaked and one unreachable peer does not cost the others.
+    final failures = <String>[];
     for (final entry in resolved.entries) {
-      await _addInletForStreamInfo(entry.value);
       final node = wanted[entry.key]!;
-      logger.finest('Created resolved inlet for node ${node.id} (${node.uId})');
+      try {
+        await _addInletForStreamInfo(entry.value);
+        logger.finest(
+          'Created resolved inlet for node ${node.id} (${node.uId})',
+        );
+      } catch (e) {
+        failures.add('${node.uId}: $e');
+      }
+    }
+    if (failures.isNotEmpty) {
+      throw StateError(
+        'Could not open inlet(s) on "${config.name}" for '
+        '${failures.join('; ')}',
+      );
     }
   }
 

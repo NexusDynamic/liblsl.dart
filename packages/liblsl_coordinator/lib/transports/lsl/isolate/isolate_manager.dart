@@ -5,7 +5,9 @@ import 'dart:collection';
 import 'dart:ffi';
 import 'dart:isolate';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:ffi/ffi.dart' show calloc;
 import 'package:liblsl/lsl.dart';
+import 'package:liblsl/native_liblsl.dart' as native;
 
 import 'package:liblsl_coordinator/framework.dart';
 import 'package:meta/meta.dart';
@@ -187,7 +189,13 @@ final class InitializedMessage extends IsolateMessage {
 /// Message to notify main thread of request response
 @pragma('vm:deeply-immutable')
 final class ResponseMessage extends IsolateMessage {
-  const ResponseMessage({required super.requestID}) : super(2);
+  /// Why the request failed, or null when it succeeded.
+  ///
+  /// A string rather than the error itself: this class is deeply immutable so
+  /// it can cross the isolate boundary without a copy.
+  final String? error;
+
+  const ResponseMessage({required super.requestID, this.error}) : super(2);
 }
 
 /// Configuration for isolate workers
@@ -647,7 +655,12 @@ sealed class StreamIsolate {
       }
     } else if (message is ResponseMessage) {
       final completer = _responseCompleters.remove(message.requestID);
-      completer?.complete();
+      final error = message.error;
+      if (error == null) {
+        completer?.complete();
+      } else {
+        completer?.completeError(StateError(error));
+      }
     } else if (message is IsolateClockSyncList) {
       for (final sample in message.samples) {
         _incomingClockSyncController.add(sample);
@@ -711,13 +724,26 @@ final class StreamInletIsolate extends StreamIsolate {
     _inletAddresses.add(address);
     final requestRecord = _generateRequestID();
     await sendMessage(AddInletMessage(address, requestID: requestRecord.$1));
+    // Thrown, not swallowed, whether the worker timed out or reported that it
+    // could not open the inlet: the caller has to learn the inlet is not usable
+    // so it can drop its own bookkeeping and retry, rather than believing the
+    // peer was admitted.
+    try {
+      await _awaitAddInlet(address, requestRecord);
+    } catch (_) {
+      _inletAddresses.remove(address);
+      _responseCompleters.remove(requestRecord.$1);
+      rethrow;
+    }
+  }
+
+  Future<void> _awaitAddInlet(
+    int address,
+    (String, Completer<void>) requestRecord,
+  ) async {
     await requestRecord.$2.future.timeout(
       inletRequestTimeout,
       onTimeout: () {
-        // Thrown, not swallowed: the caller has to learn the inlet is not
-        // usable so it can drop its pending-join bookkeeping and retry, rather
-        // than believing the peer was admitted.
-        _inletAddresses.remove(address);
         throw TimeoutException(
           'Timed out after $inletRequestTimeout waiting for the inlet worker '
           'on stream $streamId to add inlet $address; the worker is not '
@@ -1088,6 +1114,79 @@ final class IsolateStreamManager {
     return inlet;
   }
 
+  /// Opens a stream's inlet on a short-lived helper isolate, then wraps it.
+  ///
+  /// `lsl_open_stream` and an inlet's first `lsl_time_correction` are
+  /// synchronous native calls: ~654 ms even when the peer answers, and up to
+  /// [inletCreateTimeout] plus [InletWorker.timeCorrectionTimeout] when it does
+  /// not. Made on the worker itself they stopped every other inlet on the
+  /// stream from being polled for that long, and on the coordination stream
+  /// that is every peer's heartbeat: on 2026-09-11 at 14:59:56 the coordinator
+  /// read no heartbeat from any node for 2.5 s while one inlet was created.
+  ///
+  /// liblsl handles are process-wide, so the helper opens the inlet and hands
+  /// back only its address; the worker adopts it and owns it from then on. The
+  /// time correction warmed here is cached by liblsl, so the worker's own
+  /// warm-up for this inlet returns without another round trip.
+  static Future<LSLInlet> _openInletOffThread(
+    int streamInfoAddr,
+    StreamDataType dataType,
+  ) async {
+    final inletAddress = await Isolate.run(
+      () => _openNativeInlet(
+        streamInfoAddr,
+        inletCreateTimeout,
+        InletWorker.timeCorrectionTimeout,
+      ),
+      debugName: 'inlet-open',
+    );
+    final streamInfo = LSLStreamInfo.fromStreamInfoAddr(streamInfoAddr);
+    final inlet = await _createTypedInlet(streamInfo, dataType);
+    await inlet.createFromPointer(
+      native.lsl_inlet.fromAddress(inletAddress),
+      takeOwnership: true,
+    );
+    return inlet;
+  }
+
+  /// The native half of [_openInletOffThread]; runs on the helper isolate.
+  ///
+  /// Matches what [_createTypedInlet] builds: liblsl's default 360 s buffer,
+  /// a chunk size of 1, recovery on.
+  static int _openNativeInlet(
+    int streamInfoAddr,
+    double openTimeout,
+    double warmTimeout,
+  ) {
+    final inlet = native.lsl_create_inlet(
+      native.lsl_streaminfo.fromAddress(streamInfoAddr),
+      360,
+      1,
+      1,
+    );
+    if (inlet == nullptr) {
+      throw LSLException('Failed to create inlet');
+    }
+    final ec = calloc<Int32>();
+    try {
+      native.lsl_open_stream(inlet, openTimeout, ec);
+      if (ec.value != 0) {
+        // Before anything else: liblsl keeps the message thread-local, and it
+        // is only readable on the thread that made the failing call.
+        final error = lslError('Error opening inlet', ec.value);
+        native.lsl_destroy_inlet(inlet);
+        throw error;
+      }
+      // A failure here is not fatal. The data connection is open, and the
+      // worker's correction schedule retries on its own.
+      ec.value = 0;
+      native.lsl_time_correction(inlet, warmTimeout, ec);
+      return inlet.address;
+    } finally {
+      calloc.free(ec);
+    }
+  }
+
   /// How long `lsl_open_stream` may block while an inlet is being created.
   ///
   /// The default this replaces is [LSL_FOREVER] — 32000000.0 s, roughly 370
@@ -1195,6 +1294,17 @@ final class InletWorker extends IsolateWorker {
   /// List of active inlets
   late final List<LSLInlet> inlets;
 
+  /// Addresses whose inlet is being opened off this worker's thread right now.
+  ///
+  /// Opening suspends this worker's message handling, so a `removeInlet` for
+  /// the same peer can arrive before the add finishes. The inlet is not in
+  /// [inlets] yet, so the removal would find nothing, and the add would then
+  /// install a peer that has already departed.
+  final Set<int> _openingInlets = <int>{};
+
+  /// Opens that a `removeInlet` cancelled while they were still in flight.
+  final Set<int> _cancelledOpens = <int>{};
+
   /// List of time corrections for each inlet (fragile, needs to be exactly
   /// the same length as inlets)
   ///
@@ -1284,6 +1394,8 @@ final class InletWorker extends IsolateWorker {
     if (message is IIMessage) {
       final IsolateMessageType messageType =
           IsolateMessageType.values[message.type];
+      // Set only by requests that can fail and report it back.
+      String? error;
       switch (messageType) {
         case IsolateMessageType.start:
           _handleStart();
@@ -1307,7 +1419,7 @@ final class InletWorker extends IsolateWorker {
           await _handleFlush();
           break;
         case IsolateMessageType.addInlet:
-          await _handleAddInlet(message as AddInletMessage);
+          error = await _handleAddInlet(message as AddInletMessage);
           break;
         case IsolateMessageType.removeInlet:
           await _handleRemoveInlet(message as RemoveInletMessage);
@@ -1326,7 +1438,9 @@ final class InletWorker extends IsolateWorker {
         // logger.finest(
         //   'Inlet worker for stream ${config.streamId} sending response for request ${message.requestID}',
         // );
-        config.mainSendPort.send(ResponseMessage(requestID: message.requestID));
+        config.mainSendPort.send(
+          ResponseMessage(requestID: message.requestID, error: error),
+        );
       }
     }
   }
@@ -1492,17 +1606,21 @@ final class InletWorker extends IsolateWorker {
     receivePort.close();
   }
 
-  Future<void> _handleAddInlet(AddInletMessage message) async {
+  /// Returns null on success, or why the inlet could not be added.
+  Future<String?> _handleAddInlet(AddInletMessage message) async {
     logger.finest(
       '[${config.debugName}] Adding inlet for address ${message.address} in stream ${config.streamId}',
     );
     final LSLInlet newInlet;
+    _openingInlets.add(message.address);
     try {
-      newInlet = await IsolateStreamManager._createInletFromAddr(
+      newInlet = await IsolateStreamManager._openInletOffThread(
         message.address,
         config.dataType,
       );
     } catch (e, st) {
+      _openingInlets.remove(message.address);
+      _cancelledOpens.remove(message.address);
       // Caught rather than rethrown, for two reasons. This isolate is spawned
       // with `errorsAreFatal: true`, so an escaping throw kills the worker and
       // takes every healthy inlet on this stream with it — strictly worse than
@@ -1520,7 +1638,14 @@ final class InletWorker extends IsolateWorker {
         e,
         st,
       );
-      return;
+      return 'Failed to create inlet for address ${message.address} in stream '
+          '${config.streamId}: $e';
+    }
+    _openingInlets.remove(message.address);
+    if (_cancelledOpens.remove(message.address)) {
+      await newInlet.destroy();
+      return 'Inlet for address ${message.address} in stream '
+          '${config.streamId} was removed while it was being opened';
     }
     await inletAddRemoveLock.synchronized(() {
       inlets.add(newInlet);
@@ -1531,9 +1656,14 @@ final class InletWorker extends IsolateWorker {
     // [_warmTimeCorrectionForNewestInlet] for why the old full sweep here was
     // the expensive half of this bug.
     await _warmTimeCorrectionForNewestInlet();
+    return null;
   }
 
   Future<void> _handleRemoveInlet(RemoveInletMessage message) async {
+    if (_openingInlets.contains(message.address)) {
+      _cancelledOpens.add(message.address);
+      return;
+    }
     await inletAddRemoveLock.synchronized(() async {
       final index = inlets.indexWhere(
         (inlet) => inlet.streamInfo.streamInfo.address == message.address,
