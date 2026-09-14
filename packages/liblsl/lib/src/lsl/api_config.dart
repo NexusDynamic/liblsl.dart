@@ -77,6 +77,14 @@ class LSLApiConfig {
   /// site multicast routing enabled.
   int ttlOverride;
 
+  /// Local addresses that discovery is restricted to, one per interface.
+  ///
+  /// liblsl's `[multicast] Interfaces`. Empty (the default) lets liblsl use
+  /// every local interface. A stream is connected to at whichever address its
+  /// discovery reply came from, so on a machine with more than one network
+  /// path an unrestricted resolve can bind a stream to the wrong one.
+  List<String> multicastInterfaces;
+
   // LAB SECTION
   /// The list of known peers for the lab. This is a fallback in case the
   /// multicast discovery fails.
@@ -193,6 +201,7 @@ class LSLApiConfig {
     this.globalAddresses = const [],
     this.addressesOverride = const [],
     this.ttlOverride = -1,
+    this.multicastInterfaces = const [],
 
     // Lab section
     this.knownPeers = const [],
@@ -243,6 +252,7 @@ class LSLApiConfig {
     List<String>? globalAddresses,
     List<String>? addressesOverride,
     int? ttlOverride,
+    List<String>? multicastInterfaces,
     List<String>? knownPeers,
     String? sessionId,
     double? watchdogCheckInterval,
@@ -286,6 +296,8 @@ class LSLApiConfig {
       globalAddresses: globalAddresses ?? List.from(this.globalAddresses),
       addressesOverride: addressesOverride ?? List.from(this.addressesOverride),
       ttlOverride: ttlOverride ?? this.ttlOverride,
+      multicastInterfaces:
+          multicastInterfaces ?? List.from(this.multicastInterfaces),
       knownPeers: knownPeers ?? List.from(this.knownPeers),
       sessionId: sessionId ?? this.sessionId,
       watchdogCheckInterval:
@@ -421,6 +433,8 @@ class LSLApiConfig {
           addressesOverride = _parseAddressList(value);
         } else if (keyLower == 'ttloverride') {
           ttlOverride = int.tryParse(value) ?? ttlOverride;
+        } else if (keyLower == 'interfaces') {
+          multicastInterfaces = _parseAddressList(value);
         }
         break;
 
@@ -606,6 +620,12 @@ class LSLApiConfig {
       'AddressesOverride = ${_formatAddressList(addressesOverride)}',
     );
     buffer.writeln('TTLOverride = $ttlOverride');
+    // Only when set, so a default config's ini is unchanged.
+    if (multicastInterfaces.isNotEmpty) {
+      buffer.writeln(
+        'Interfaces = ${_formatAddressList(multicastInterfaces)}',
+      );
+    }
     buffer.writeln();
 
     // Lab section
@@ -699,6 +719,7 @@ class LSLApiConfig {
         _listEquals(other.addressesOverride, addressesOverride) &&
         other.ttlOverride == ttlOverride &&
         _listEquals(other.knownPeers, knownPeers) &&
+        _listEquals(other.multicastInterfaces, multicastInterfaces) &&
         other.sessionId == sessionId &&
         other.watchdogCheckInterval == watchdogCheckInterval &&
         other.watchdogTimeThreshold == watchdogTimeThreshold &&
@@ -743,6 +764,7 @@ class LSLApiConfig {
         addressesOverride.hashCode ^
         ttlOverride.hashCode ^
         knownPeers.hashCode ^
+        multicastInterfaces.hashCode ^
         sessionId.hashCode ^
         watchdogCheckInterval.hashCode ^
         watchdogTimeThreshold.hashCode ^

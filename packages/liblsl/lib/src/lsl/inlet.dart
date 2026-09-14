@@ -570,10 +570,17 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// Creates an inlet from an existing lsl_inlet pointer.
   /// **Parameters:**
   /// - [pointer]: The existing lsl_inlet pointer.
+  /// - [takeOwnership]: Whether [destroy] closes and destroys [pointer].
+  ///   Defaults to false, for a pointer some other object still owns. Pass
+  ///   true when handing over an inlet opened elsewhere — on another isolate,
+  ///   say — that nothing else will destroy, or it leaks, connection and all.
   /// **Returns:** A [LSLInlet] instance wrapping the existing pointer.
   /// **Throws:** [LSLException] if inlet creation fails or if
   /// `useIsolates: true`.
-  Future<LSLInlet<T>> createFromPointer(lsl_inlet pointer) async {
+  Future<LSLInlet<T>> createFromPointer(
+    lsl_inlet pointer, {
+    bool takeOwnership = false,
+  }) async {
     if (created) {
       throw LSLException('Inlet already created');
     }
@@ -582,7 +589,7 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
         'Creating inlet from pointer is not supported in isolated mode',
       );
     }
-    _managed = false;
+    _managed = takeOwnership;
     super.create();
     _inlet = pointer;
     setupPullBuffer();
