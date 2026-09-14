@@ -52,6 +52,19 @@ class PeerSession extends CoordinationSession with InstanceUID {
   final Lock _streamLock = Lock();
   StreamSubscription<StreamLifecycleEvent>? _lifecycleSubscription;
   StreamSubscription<NodeLeftEvent>? _departureSubscription;
+  StreamSubscription<NodeJoinedEvent>? _arrivalSubscription;
+
+  /// One lock per (stream, node) pair, shared by the departure and arrival
+  /// handlers.
+  ///
+  /// A participant's teardown and its rejoin can land close together, and
+  /// `removeInlet` is async: without this an arrival could find the old inlet
+  /// still registered, skip the add as a duplicate, and then watch the
+  /// in-flight removal take the inlet away for good.
+  final Map<String, Lock> _inletLocks = {};
+
+  Lock _inletLockFor(String streamName, String nodeUId) =>
+      _inletLocks.putIfAbsent('$streamName//$nodeUId', Lock.new);
 
   /// Single event stream for all coordination events.
   ///
@@ -127,6 +140,7 @@ class PeerSession extends CoordinationSession with InstanceUID {
 
     _setupStreamCommandHandlers();
     _setupDepartureHandler();
+    _setupArrivalHandler();
   }
 
   /// Creates a session, building the transport from
@@ -155,7 +169,10 @@ class PeerSession extends CoordinationSession with InstanceUID {
       // the fan-out is in flight.
       for (final stream in _dataStreams.values.toList(growable: false)) {
         try {
-          await stream.removeInlet(event.node.uId);
+          await _inletLockFor(
+            stream.name,
+            event.node.uId,
+          ).synchronized(() => stream.removeInlet(event.node.uId));
         } catch (e) {
           logger.warning(
             'Failed to remove inlet for ${event.node.uId} from '
@@ -164,6 +181,60 @@ class PeerSession extends CoordinationSession with InstanceUID {
         }
       }
     });
+  }
+
+  /// Re-creates data-stream inlets for a node that has joined.
+  ///
+  /// The counterpart to [_setupDepartureHandler], and it cannot be left out.
+  /// A participant that loses its coordinator runs `_teardownRole`, whose
+  /// `clearNodes` emits a departure for the coordinator too, so every
+  /// data-stream inlet is released. Rejoining re-adds only the coordination
+  /// inlet, and data-stream inlets were otherwise created only when a stream
+  /// was first set up. On 2026-09-11 that left three evicted-then-rejoined
+  /// iPads without a PhysicsState sample for the rest of the trial, and the
+  /// coordinator, having released their GameData inlets on eviction, ignoring
+  /// their input.
+  ///
+  /// On a first join no data stream exists yet, so this does nothing; streams
+  /// set up later get their inlets from [_setUpDataStream]. Where both run for
+  /// the same node, the transport's per-source dedupe turns the second add into
+  /// a no-op.
+  void _setupArrivalHandler() {
+    _arrivalSubscription = events.nodeJoined.listen((event) {
+      for (final stream in _dataStreams.values.toList(growable: false)) {
+        // Not awaited: resolving a publisher can take seconds on LSL, and a
+        // blocked listener would hold up every coordination event behind it.
+        unawaited(_restoreInlet(stream, event.node));
+      }
+    });
+  }
+
+  Future<void> _restoreInlet(DataStream stream, Node node) async {
+    final mode = stream.config.participationMode;
+    // The same consumer rules as _setUpDataStream.
+    final consumesHere = isCoordinator
+        ? mode != StreamParticipationMode.coordinatorOnly
+        : mode != StreamParticipationMode.sendParticipantsReceiveCoordinator;
+    if (!consumesHere) return;
+
+    try {
+      await _inletLockFor(stream.name, node.uId).synchronized(() async {
+        // The stream may have been destroyed while this waited for the lock.
+        if (!identical(_dataStreams[stream.name], stream)) return;
+        final producers = await getProducersForStream(stream.name);
+        if (!producers.any((producer) => producer.uId == node.uId)) return;
+        await stream.createInletsForNodes([node]);
+        logger.info(
+          'Restored inlet for ${node.id} (${node.uId}) on "${stream.name}"',
+        );
+      });
+    } catch (e) {
+      logger.severe(
+        'Failed to restore inlet for ${node.uId} on "${stream.name}"; this '
+        'node will receive nothing from that peer on this stream until the '
+        'stream is re-created: $e',
+      );
+    }
   }
 
   void _setupStreamCommandHandlers() {
@@ -843,6 +914,9 @@ class PeerSession extends CoordinationSession with InstanceUID {
     _lifecycleSubscription = null;
     await _departureSubscription?.cancel();
     _departureSubscription = null;
+    await _arrivalSubscription?.cancel();
+    _arrivalSubscription = null;
+    _inletLocks.clear();
 
     logger.finest('Disposed coordination session');
   }
