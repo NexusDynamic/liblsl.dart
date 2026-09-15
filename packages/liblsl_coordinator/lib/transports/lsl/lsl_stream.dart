@@ -617,14 +617,24 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
     // an isolate and restarts the resolver from cold, so no attempt runs long
     // enough to see anything. A continuous resolver keeps polling in the C
     // library and simply reports whatever it currently knows.
+    // One node wanted is the rejoin case: narrow the query to that node, so
+    // the other publishers of this stream cannot take its place in the result
+    // buffer. Several wanted is first setup: keep the stream-wide query, with a
+    // cap well above any real session size.
+    //
+    // `lsl_resolver_results` truncates to maxStreams, so the old cap of
+    // wanted.length * 2 meant a coordinator restoring one rejoined participant
+    // saw at most two of the stream's publishers — with three or more, usually
+    // not the one it wanted — and timed out, leaving that participant's input
+    // unread for the rest of the stream's life.
+    final singleNodeUId = wanted.length == 1 ? wanted.keys.single : null;
     final resolver = LSLStreamResolverContinuousByPredicate(
       predicate: LSLStreamInfoHelper.generatePredicate(
         streamNamePrefix: config.name,
         sessionName: streamSessionConfig.name,
+        nodeUId: singleNodeUId,
       ),
-      // Room for more publishers than we want: capping at wanted.length could
-      // return a set that happens to exclude the nodes being looked for.
-      maxStreams: wanted.length * 2,
+      maxStreams: wanted.length * 2 > 64 ? wanted.length * 2 : 64,
       forgetAfter: resolveTimeout.inMilliseconds / 1000.0,
     );
     resolver.create();

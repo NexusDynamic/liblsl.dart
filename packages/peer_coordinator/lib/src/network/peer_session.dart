@@ -169,8 +169,11 @@ class PeerSession extends CoordinationSession with InstanceUID {
       // the fan-out is in flight.
       for (final stream in _dataStreams.values.toList(growable: false)) {
         try {
+          // config.name, not name: a transport may override `name` with a
+          // display string ("LSL Data Stream GameData"), and _dataStreams and
+          // the lock map are keyed by the config name.
           await _inletLockFor(
-            stream.name,
+            stream.config.name,
             event.node.uId,
           ).synchronized(() => stream.removeInlet(event.node.uId));
         } catch (e) {
@@ -210,27 +213,45 @@ class PeerSession extends CoordinationSession with InstanceUID {
   }
 
   Future<void> _restoreInlet(DataStream stream, Node node) async {
+    // The registry key: `stream.name` is a display string on some transports.
+    final streamName = stream.config.name;
+    logger.fine(
+      'Arrival of ${node.uId} (role ${node.role}): checking inlet on '
+      '"$streamName" (coordinator: $isCoordinator)',
+    );
     final mode = stream.config.participationMode;
     // The same consumer rules as _setUpDataStream.
     final consumesHere = isCoordinator
         ? mode != StreamParticipationMode.coordinatorOnly
         : mode != StreamParticipationMode.sendParticipantsReceiveCoordinator;
-    if (!consumesHere) return;
+    if (!consumesHere) {
+      logger.fine('"$streamName" ($mode) is not consumed here; no inlet');
+      return;
+    }
 
     try {
-      await _inletLockFor(stream.name, node.uId).synchronized(() async {
+      await _inletLockFor(streamName, node.uId).synchronized(() async {
         // The stream may have been destroyed while this waited for the lock.
-        if (!identical(_dataStreams[stream.name], stream)) return;
-        final producers = await getProducersForStream(stream.name);
-        if (!producers.any((producer) => producer.uId == node.uId)) return;
+        if (!identical(_dataStreams[streamName], stream)) {
+          logger.fine('"$streamName" was replaced; not restoring');
+          return;
+        }
+        final producers = await getProducersForStream(streamName);
+        if (!producers.any((producer) => producer.uId == node.uId)) {
+          logger.fine(
+            '${node.uId} is not a producer of "$streamName" '
+            '(producers: ${producers.map((p) => '${p.uId}/${p.role}').join(', ')})',
+          );
+          return;
+        }
         await stream.createInletsForNodes([node]);
         logger.info(
-          'Restored inlet for ${node.id} (${node.uId}) on "${stream.name}"',
+          'Restored inlet for ${node.id} (${node.uId}) on "$streamName"',
         );
       });
     } catch (e) {
       logger.severe(
-        'Failed to restore inlet for ${node.uId} on "${stream.name}"; this '
+        'Failed to restore inlet for ${node.uId} on "$streamName"; this '
         'node will receive nothing from that peer on this stream until the '
         'stream is re-created: $e',
       );

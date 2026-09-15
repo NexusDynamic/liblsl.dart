@@ -28,6 +28,9 @@ void main() {
   const coordinationStreamName = 'coordination';
   const nodeTimeout = Duration(milliseconds: 400);
 
+  // Set per group: whether streams report a display name, as LSL's do.
+  var displayNamed = false;
+
   setUp(() {
     bus = InMemoryBus();
     sessions = [];
@@ -74,8 +77,11 @@ void main() {
     required double randomRoll,
     CoordinatorLossPolicy policy = CoordinatorLossPolicy.endSession,
   }) async {
-    final session = PeerSession.create(
+    final session = PeerSession(
       configFor(policy),
+      transport: displayNamed
+          ? _DisplayNamedTransport(InMemoryTransportConfig(bus: bus))
+          : InMemoryTransport(InMemoryTransportConfig(bus: bus)),
       thisNodeConfig: NodeConfig(
         name: name,
         id: name,
@@ -145,99 +151,158 @@ void main() {
     expect(count(), greaterThan(from), reason: reason);
   }
 
-  test(
-    'a participant receives coordinator data again after rejoining',
-    () async {
-      final coordinator = await joined('coord', randomRoll: 0.1);
-      final participant = await joined(
-        'p1',
-        randomRoll: 0.9,
-        policy: CoordinatorLossPolicy.rejoin,
-      );
-      await coordinator.waitForMinNodes(2, timeout: const Duration(seconds: 2));
+  void defineTests() {
+    test(
+      'a participant receives coordinator data again after rejoining',
+      () async {
+        final coordinator = await joined('coord', randomRoll: 0.1);
+        final participant = await joined(
+          'p1',
+          randomRoll: 0.9,
+          policy: CoordinatorLossPolicy.rejoin,
+        );
+        await coordinator.waitForMinNodes(
+          2,
+          timeout: const Duration(seconds: 2),
+        );
 
-      const name = 'Physics';
-      final outlet = await coordinator.createDataStream(
-        dataConfig(name, StreamParticipationMode.coordinatorOnly),
-      );
-      await coordinator.startStream(name);
+        const name = 'Physics';
+        final outlet = await coordinator.createDataStream(
+          dataConfig(name, StreamParticipationMode.coordinatorOnly),
+        );
+        await coordinator.startStream(name);
 
-      final inlet = await participant.getDataStream(name);
-      var received = 0;
-      final inboxSub = inlet.inbox.listen((_) => received++);
-      addTearDown(inboxSub.cancel);
+        final inlet = await participant.getDataStream(name);
+        var received = 0;
+        final inboxSub = inlet.inbox.listen((_) => received++);
+        addTearDown(inboxSub.cancel);
 
-      final sender = Timer.periodic(const Duration(milliseconds: 20), (_) {
-        if (outlet.started) outlet.sendData([1.0, 2.0]);
-      });
-      addTearDown(sender.cancel);
+        final sender = Timer.periodic(const Duration(milliseconds: 20), (_) {
+          if (outlet.started) outlet.sendData([1.0, 2.0]);
+        });
+        addTearDown(sender.cancel);
 
-      await expectDeliveryResumes(
-        () => received,
-        from: 0,
-        reason: 'samples should flow before any fault',
-      );
+        await expectDeliveryResumes(
+          () => received,
+          from: 0,
+          reason: 'samples should flow before any fault',
+        );
 
-      await evictAndRejoin(coordinator, participant);
+        await evictAndRejoin(coordinator, participant);
 
-      await expectDeliveryResumes(
-        () => received,
-        from: received,
-        reason:
-            'the rejoined participant must get its data-stream inlet to the '
-            'coordinator back, not only the coordination inlet',
-      );
-    },
+        await expectDeliveryResumes(
+          () => received,
+          from: received,
+          reason:
+              'the rejoined participant must get its data-stream inlet to the '
+              'coordinator back, not only the coordination inlet',
+        );
+      },
+    );
+
+    test(
+      'the coordinator receives a participant\'s data again after it rejoins',
+      () async {
+        final coordinator = await joined('coord', randomRoll: 0.1);
+        final participant = await joined(
+          'p1',
+          randomRoll: 0.9,
+          policy: CoordinatorLossPolicy.rejoin,
+        );
+        await coordinator.waitForMinNodes(
+          2,
+          timeout: const Duration(seconds: 2),
+        );
+
+        const name = 'Actions';
+        final startSub = participant.events.streamStart.listen((event) async {
+          if (event.streamName != name) return;
+          final stream = await participant.getDataStream(name);
+          if (!stream.started) await stream.start();
+        });
+        addTearDown(startSub.cancel);
+
+        final inlet = await coordinator.createDataStream(
+          dataConfig(
+            name,
+            StreamParticipationMode.sendParticipantsReceiveCoordinator,
+          ),
+        );
+        var received = 0;
+        final inboxSub = inlet.inbox.listen((_) => received++);
+        addTearDown(inboxSub.cancel);
+        await coordinator.startStream(name);
+
+        final outlet = await participant.getDataStream(name);
+        final sender = Timer.periodic(const Duration(milliseconds: 20), (_) {
+          if (outlet.started) outlet.sendData([3.0, 4.0]);
+        });
+        addTearDown(sender.cancel);
+
+        await expectDeliveryResumes(
+          () => received,
+          from: 0,
+          reason: 'samples should flow before any fault',
+        );
+
+        await evictAndRejoin(coordinator, participant);
+
+        await expectDeliveryResumes(
+          () => received,
+          from: received,
+          reason:
+              'the coordinator must re-create its inlet for a rejoined '
+              'participant, or that participant\'s input is silently lost',
+        );
+      },
+    );
+  }
+
+  group('plain stream names', () {
+    setUp(() => displayNamed = false);
+    defineTests();
+  });
+
+  // LSLDataStream.name is "LSL Data Stream <config name>", while the session
+  // keys its streams by config name. The in-memory stream used to hide that:
+  // a handler keyed on `name` passed here and restored nothing on LSL.
+  group('display stream names, as on LSL', () {
+    setUp(() => displayNamed = true);
+    defineTests();
+  });
+}
+
+/// Reports a display name, the way `LSLDataStream` does.
+class _DisplayNamedStream extends InMemoryDataStream {
+  _DisplayNamedStream({
+    required super.config,
+    required super.bus,
+    required super.sessionName,
+    required super.streamNode,
+  });
+
+  @override
+  String get name => 'Display ${config.name}';
+}
+
+class _DisplayNamedFactory extends InMemoryNetworkStreamFactory {
+  _DisplayNamedFactory(super.bus);
+
+  @override
+  Future<InMemoryDataStream> createDataStream(
+    DataStreamConfig config,
+    CoordinationSession session,
+  ) async => _DisplayNamedStream(
+    config: config,
+    bus: bus,
+    sessionName: session.config.name,
+    streamNode: session.thisNode,
   );
+}
 
-  test(
-    'the coordinator receives a participant\'s data again after it rejoins',
-    () async {
-      final coordinator = await joined('coord', randomRoll: 0.1);
-      final participant = await joined(
-        'p1',
-        randomRoll: 0.9,
-        policy: CoordinatorLossPolicy.rejoin,
-      );
-      await coordinator.waitForMinNodes(2, timeout: const Duration(seconds: 2));
+class _DisplayNamedTransport extends InMemoryTransport {
+  _DisplayNamedTransport(super.config);
 
-      const name = 'Actions';
-      final startSub = participant.events.streamStart.listen((event) async {
-        if (event.streamName != name) return;
-        final stream = await participant.getDataStream(name);
-        if (!stream.started) await stream.start();
-      });
-      addTearDown(startSub.cancel);
-
-      final inlet = await coordinator.createDataStream(
-        dataConfig(name, StreamParticipationMode.sendParticipantsReceiveCoordinator),
-      );
-      var received = 0;
-      final inboxSub = inlet.inbox.listen((_) => received++);
-      addTearDown(inboxSub.cancel);
-      await coordinator.startStream(name);
-
-      final outlet = await participant.getDataStream(name);
-      final sender = Timer.periodic(const Duration(milliseconds: 20), (_) {
-        if (outlet.started) outlet.sendData([3.0, 4.0]);
-      });
-      addTearDown(sender.cancel);
-
-      await expectDeliveryResumes(
-        () => received,
-        from: 0,
-        reason: 'samples should flow before any fault',
-      );
-
-      await evictAndRejoin(coordinator, participant);
-
-      await expectDeliveryResumes(
-        () => received,
-        from: received,
-        reason:
-            'the coordinator must re-create its inlet for a rejoined '
-            'participant, or that participant\'s input is silently lost',
-      );
-    },
-  );
+  @override
+  NetworkStreamFactory get streamFactory => _DisplayNamedFactory(bus);
 }
