@@ -1,5 +1,6 @@
 import 'dart:async';
-import 'dart:io' show ProcessInfo;
+import 'dart:io'
+    show InternetAddress, ProcessInfo, RawDatagramSocket, RawSocketEvent;
 
 import 'package:liblsl/lsl.dart';
 import 'package:test/test.dart';
@@ -241,5 +242,90 @@ void main() {
       resolved.destroy();
       info.destroy();
     }, timeout: Timeout(Duration(minutes: 3)));
+  });
+
+  group('continuous resolver lifecycle', () {
+    // Filtered continuous resolvers used to create an unfiltered native
+    // resolver in the base create() and then overwrite the handle with the
+    // filtered one. destroy() freed only the second, so the first kept sending
+    // resolve waves until the process exited, one more per resolver created.
+    final resolverFactories = <String, LSLStreamResolverContinuous Function()>{
+      'unfiltered': () => LSLStreamResolverContinuous(forgetAfter: 1.0),
+      'by predicate': () => LSLStreamResolverContinuousByPredicate(
+        predicate: "name='LeakResolverNoSuchStream'",
+        forgetAfter: 1.0,
+      ),
+      'by property': () => LSLStreamResolverContinuousByProperty(
+        property: LSLStreamProperty.name,
+        value: 'LeakResolverNoSuchStream',
+        forgetAfter: 1.0,
+      ),
+    };
+
+    for (final entry in resolverFactories.entries) {
+      test('${entry.key} creates exactly one native resolver', () {
+        final baseline = LSLStreamResolverContinuous.liveNativeResolvers;
+        for (int i = 0; i < 50; i++) {
+          final resolver = entry.value()..create();
+          expect(LSLStreamResolverContinuous.liveNativeResolvers, baseline + 1);
+          resolver.destroy();
+          expect(LSLStreamResolverContinuous.liveNativeResolvers, baseline);
+        }
+      });
+    }
+
+    // Tagged `lsl`: it counts datagrams on a real loopback port, so another
+    // test file resolving at the same time would be counted too. Run with
+    // `dart test --tags lsl --concurrency=1` (melos `test:lsl`).
+    test('destroyed resolvers stop sending resolve queries', () async {
+      // The leak test config makes 127.0.0.1 a known peer, so every resolve
+      // wave sends a unicast query to each port in the range. Listen on the
+      // top port, which no outlet in this file gets near.
+      const int basePort = 16572;
+      const int portRange = 64;
+      final socket = await RawDatagramSocket.bind(
+        InternetAddress.loopbackIPv4,
+        basePort + portRange - 1,
+      );
+      var queries = 0;
+      final subscription = socket.listen((event) {
+        if (event != RawSocketEvent.read) return;
+        final datagram = socket.receive();
+        if (datagram != null &&
+            String.fromCharCodes(datagram.data).startsWith('LSL:shortinfo')) {
+          queries++;
+        }
+      });
+
+      try {
+        final resolvers = [
+          for (final factory in resolverFactories.values) factory()..create(),
+        ];
+        await Future.delayed(Duration(seconds: 2));
+        expect(
+          queries,
+          greaterThan(0),
+          reason: 'live resolvers should query the known peer',
+        );
+
+        for (final resolver in resolvers) {
+          resolver.destroy();
+        }
+        // Let any wave already in flight land before counting.
+        await Future.delayed(Duration(seconds: 1));
+        queries = 0;
+        await Future.delayed(Duration(seconds: 3));
+        expect(
+          queries,
+          0,
+          reason:
+              'received $queries resolve queries after every resolver was '
+              'destroyed; a native continuous resolver is still running',
+        );
+      } finally {
+        await subscription.cancel();
+        socket.close();
+      }
+    }, tags: ['lsl']);
   });
 }

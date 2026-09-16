@@ -1,4 +1,8 @@
 tags:
+  # Tests that count traffic on real loopback sockets. Run on their own with
+  # --concurrency=1; see `melos run test:lsl`.
+  lsl:
+    timeout: 2x
   performance:
     timeout: 10m
   benchmark:

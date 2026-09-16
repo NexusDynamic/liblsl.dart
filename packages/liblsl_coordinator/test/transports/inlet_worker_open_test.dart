@@ -107,7 +107,9 @@ void main() {
       await worker.addInlet(resolved.first.streamInfo.address);
 
       final arrivals = <DateTime>[];
-      final sub = worker.incomingData.listen((_) => arrivals.add(DateTime.now()));
+      final sub = worker.incomingData.listen(
+        (_) => arrivals.add(DateTime.now()),
+      );
       addTearDown(sub.cancel);
 
       final pusher = Timer.periodic(
@@ -120,7 +122,11 @@ void main() {
       while (arrivals.isEmpty && DateTime.now().isBefore(deadline)) {
         await Future<void>.delayed(const Duration(milliseconds: 20));
       }
-      expect(arrivals, isNotEmpty, reason: 'samples should flow before the fault');
+      expect(
+        arrivals,
+        isNotEmpty,
+        reason: 'samples should flow before the fault',
+      );
 
       final unserved = await unservedInfo('Unreachable');
       addTearDown(unserved.destroy);
@@ -148,13 +154,15 @@ void main() {
       expect(
         windowEnd.difference(windowStart),
         greaterThan(const Duration(milliseconds: 1500)),
-        reason: 'the failed open should have taken most of its timeout, or '
+        reason:
+            'the failed open should have taken most of its timeout, or '
             'this test measured nothing',
       );
       expect(
         worstGap,
         lessThan(const Duration(seconds: 1)),
-        reason: 'the served inlet must keep delivering while another peer is '
+        reason:
+            'the served inlet must keep delivering while another peer is '
             'being opened',
       );
     },

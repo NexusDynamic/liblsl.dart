@@ -1,22 +1,20 @@
-# 0.15.0+0
+# 0.15.0+1
 
 ## New features
 
 - `lsl_time_correction_ex` is now wrapped: `LSLInlet.getTimeCorrectionEx()` /
   `getTimeCorrectionExSync()` return an `LSLTimeCorrection` carrying the clock
   `offset`, the `remoteTime` it was measured against, and the `uncertainty`
-  (the probe's full round-trip time; `bound` is half of it, the ± on the
-  offset). liblsl computes all three on the same round trip — its plain
-  `lsl_time_correction` discards two of them — so this costs no extra network
-  traffic and no extra native work. `getTimeCorrection()` is unchanged and now
-  delegates to the same single native call site.
+  (the probe's full round-trip time; `bound` is half of the RTT, indicating the
+  +/- uncertainty).
 - Inlet time-stamp post-processing: `LSLInlet.setPostProcessing()` /
   `setPostProcessingSync()` take a `Set<LSLProcessingOptions>`
   (`none`/`clockSync`/`dejitter`/`monotonize`/`threadSafe`), and
   `setSmoothingHalftime()` / `setSmoothingHalftimeSync()` tune the dejitter
   window. Note that `clockSync` rewrites time stamps into the local clock
   domain and is not compatible with layers that apply the correction
-  themselves, such as `liblsl_coordinator`.
+  themselves, such as `liblsl_coordinator` (or your own application,
+  if it handles the time correction).
 - `LSLInlet.wasClockReset()` / `wasClockResetSync()` report whether the source
   machine's clock may have been reset, which invalidates an offset fitted over
   several estimates. Reading it clears the flag.
@@ -29,6 +27,22 @@
   it has one, instead of reporting a bare integer. A timeout code now raises
   `LSLTimeout` rather than a plain `LSLException`.
 
+## Fixes
+
+- Fixed a leaked native continuous resolver for every
+  `LSLStreamResolverContinuousByPredicate` / `...ByProperty`. `create()` made
+  an unfiltered native resolver in the base class and then overwrote its
+  handle with the filtered one, so `destroy()` never freed the first. Each
+  resolver kept sending waves thereby constatly increasing UDP socket count
+  each time a resolver was created. Subclasses now override
+  `createNativeResolver()`, and exactly one native resolver is created per
+  object.
+- The predicate/property strings passed to the continuous resolver are now
+  freed after creation instead of leaking.
+- `create()` on a continuous resolver now throws `LSLException` if liblsl
+  cannot create it (e.g. an invalid predicate), instead of keeping a null
+  handle.
+
 # 0.14.1+0
 
 - Added identities to `LSLInlet`, `LSLOutlet` and `LSLStreamInfo` (`hashCode` and `==`).
@@ -39,7 +53,7 @@
 
 - Sync/blocking transport support: `LSL.createOutlet`/`LSL.createInlet` (and
   the `LSLOutlet`/`LSLInlet` constructors) accept
-  `transportOptions: Set<LSLTransportOptions>`, wired to
+  `transportOptions: Set<LSLTransportOptions>`, matching
   `lsl_create_outlet_ex`/`lsl_create_inlet_ex`. `syncBlocking` enables
   zero-copy blocking socket writes (not available for string streams —
   `ArgumentError` at creation); `bufsizeInSamples`/`bufsizeInThousandths`
@@ -68,9 +82,8 @@
 - Fixed a use-after-free crash when an inlet's `lsl_open_stream` failed at
   creation and the inlet was later destroyed.
 - `destroy()` is now safe and idempotent after partially failed creation
-  (no more `LateInitializationError`/double free); `LSLReusableBuffer.free()`
-  is idempotent.
-- Isolate managers no longer leak a 30 s `Timer` per message; the response
+  and `LSLReusableBuffer.free()` is now idempotent.
+- Isolate managers `Timer` leak fixed. Response
   timeout is cancelled on completion and is now configurable.
 - `LSL.createOutlet` default `chunkSize` corrected from `1` to `0`
   (liblsl semantics: one chunk per push), matching the `LSLOutlet` default.
@@ -78,8 +91,7 @@
 ## Performance
 
 - Hot push paths no longer wrap data in `IList`;
-  `LSLPushSample.listToBuffer` now takes `Iterable<dynamic>` (minor
-  signature change for direct users of the push classes).
+  `LSLPushSample.listToBuffer` now takes `Iterable<dynamic>`.
 - `lsl_local_clock`, `lsl_have_consumers`, `lsl_samples_available`, and
   `lsl_inlet_flush` now use `isLeaf` FFI calls; buffer converters are
   inline-hinted; chunk TypedData copies compile to memmove.

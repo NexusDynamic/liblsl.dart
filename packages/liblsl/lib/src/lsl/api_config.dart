@@ -622,9 +622,7 @@ class LSLApiConfig {
     buffer.writeln('TTLOverride = $ttlOverride');
     // Only when set, so a default config's ini is unchanged.
     if (multicastInterfaces.isNotEmpty) {
-      buffer.writeln(
-        'Interfaces = ${_formatAddressList(multicastInterfaces)}',
-      );
+      buffer.writeln('Interfaces = ${_formatAddressList(multicastInterfaces)}');
     }
     buffer.writeln();
 

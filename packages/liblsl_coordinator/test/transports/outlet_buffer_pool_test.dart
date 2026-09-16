@@ -54,18 +54,20 @@ void main() {
     expect(await pool.acquire(), held);
   });
 
-  test('a release wakes a waiter instead of making it wait out the timeout',
-      () async {
-    final pool = poolOf(size: 1, timeout: const Duration(seconds: 30));
-    final held = await pool.acquire();
+  test(
+    'a release wakes a waiter instead of making it wait out the timeout',
+    () async {
+      final pool = poolOf(size: 1, timeout: const Duration(seconds: 30));
+      final held = await pool.acquire();
 
-    final waiting = pool.acquire();
-    // Give the waiter a turn to park before releasing.
-    await Future<void>.delayed(Duration.zero);
-    pool.release(held);
+      final waiting = pool.acquire();
+      // Give the waiter a turn to park before releasing.
+      await Future<void>.delayed(Duration.zero);
+      pool.release(held);
 
-    expect(await waiting.timeout(const Duration(seconds: 1)), held);
-  });
+      expect(await waiting.timeout(const Duration(seconds: 1)), held);
+    },
+  );
 
   test('a wakeup is not lost to a waiter that already gave up', () async {
     // A timed-out waiter left in the queue would swallow the next release, and
@@ -99,17 +101,19 @@ void main() {
     expect(pool.consecutiveTimeouts, 0);
   });
 
-  test('a stopped outlet fails its senders rather than stranding them',
-      () async {
-    var stopped = false;
-    final pool = poolOf(size: 1, timeout: const Duration(seconds: 30));
-    await pool.acquire();
-    stopped = true;
-    await expectLater(
-      pool.acquire(isStopped: () => stopped),
-      throwsStateError,
-    );
-  });
+  test(
+    'a stopped outlet fails its senders rather than stranding them',
+    () async {
+      var stopped = false;
+      final pool = poolOf(size: 1, timeout: const Duration(seconds: 30));
+      await pool.acquire();
+      stopped = true;
+      await expectLater(
+        pool.acquire(isStopped: () => stopped),
+        throwsStateError,
+      );
+    },
+  );
 
   test('failAll releases everyone parked, once', () async {
     // Isolate crash or clean stop: a sender parked here has no other way out.

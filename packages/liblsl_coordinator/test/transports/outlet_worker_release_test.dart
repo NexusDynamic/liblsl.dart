@@ -52,19 +52,21 @@ void main() {
     expect(pool.consecutiveTimeouts, 0);
   });
 
-  test('without the release, the pool dies after exactly poolSize sends',
-      () async {
-    // Characterises the old behaviour, so a regression is unmistakable rather
-    // than showing up months later as a frozen iPad.
-    final pool = OutletBufferPool(
-      size: 3,
-      timeout: const Duration(milliseconds: 20),
-    );
+  test(
+    'without the release, the pool dies after exactly poolSize sends',
+    () async {
+      // Characterises the old behaviour, so a regression is unmistakable rather
+      // than showing up months later as a frozen iPad.
+      final pool = OutletBufferPool(
+        size: 3,
+        timeout: const Duration(milliseconds: 20),
+      );
 
-    for (var i = 0; i < 3; i++) {
-      await pool.acquire(); // acquired and never released
-    }
+      for (var i = 0; i < 3; i++) {
+        await pool.acquire(); // acquired and never released
+      }
 
-    await expectLater(pool.acquire(), throwsA(isA<TimeoutException>()));
-  });
+      await expectLater(pool.acquire(), throwsA(isA<TimeoutException>()));
+    },
+  );
 }
