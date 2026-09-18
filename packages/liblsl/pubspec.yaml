@@ -27,10 +27,6 @@ dev_dependencies:
   test: ^1.31.0
   dartdoc: ^9.0.8
 
-dependency_overrides:
-  code_assets: ^1.0.0 # temporarily override to avoid issues with equality, breaking change with code_assets: ^2.0.0
-  native_toolchain_c: 0.19.4 # pinned to 0.19.4 because 0.19.5 breaks building on linux arm right now.
-
 ffigen:
   name: Liblsl
   silence-enum-warning: true
