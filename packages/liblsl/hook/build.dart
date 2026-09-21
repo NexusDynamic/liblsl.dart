@@ -5,7 +5,7 @@ import 'package:hooks/hooks.dart';
 import 'package:native_toolchain_c/native_toolchain_c.dart';
 
 /// The default name prefix for dynamic libraries per [OS].
-const _dylibPrefix = {
+Map<OS, String> _dylibPrefix = {
   OS.android: 'lib',
   OS.fuchsia: 'lib',
   OS.iOS: 'lib',
