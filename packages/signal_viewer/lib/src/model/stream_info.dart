@@ -15,11 +15,30 @@ enum Kind {
 
 /// Map a stream type (a Hyperscanner data type, an LSL stream type) to a
 /// display kind.
+///
+/// Covers the Hyperscanner's data types and the LSL stream types of the
+/// LSL wiki's meta-data conventions (e.g. `Markers`, `MoCap`, `Gaze`).
 Kind kindFromType(String type) => switch (type.trim().toLowerCase()) {
-  'eeg' => Kind.eeg,
-  'emg' || 'exg' || 'ecg' || 'eog' => Kind.emg,
-  'imu' || 'gyro' || 'accel' || 'acc' || 'motion' || 'mocap' => Kind.imu,
-  'event' || 'markers' || 'marker' || 'trigger' || 'triggers' => Kind.event,
+  'eeg' || 'meg' || 'ieeg' || 'ecog' => Kind.eeg,
+  'emg' || 'exg' || 'ecg' || 'eog' || 'ekg' => Kind.emg,
+  'imu' ||
+  'gyro' ||
+  'gyroscope' ||
+  'accel' ||
+  'acc' ||
+  'accelerometer' ||
+  'motion' ||
+  'mocap' ||
+  'orientation' ||
+  'position' => Kind.imu,
+  'event' ||
+  'events' ||
+  'markers' ||
+  'marker' ||
+  'stim' ||
+  'stimulus' ||
+  'trigger' ||
+  'triggers' => Kind.event,
   _ => Kind.other,
 };
 
