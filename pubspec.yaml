@@ -16,6 +16,8 @@ workspace:
   - packages/liblsl_timing
   - packages/liblsl_analysis
   - packages/signal_core
+  - packages/signal_viewer
+  - packages/signal_viewer_lsl
 dev_dependencies:
   melos: ^8.2.2
 
