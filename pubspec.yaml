@@ -20,6 +20,7 @@ workspace:
   - packages/signal_viewer_lsl
   - packages/signal_viewer_xdf
   - packages/xdf
+  - apps/lsl_viewer
 dev_dependencies:
   melos: ^8.2.2
 
@@ -28,6 +29,10 @@ dev_dependencies:
 # meta version, melos requires a higher cli_util
 # and test_api is incompatible between the two versions of test and flutter_test.
 dependency_overrides:
+  # desktop_drop 0.8.4 prefers the portal transfer key on Linux, which
+  # loses drops from e.g. Dolphin; patched copy (as in hyprview).
+  desktop_drop:
+    path: third_party/desktop_drop
   cli_util: ^0.5.2
   test_api: ^0.7.13
 #   meta: ^1.19.0
@@ -35,6 +40,7 @@ dependency_overrides:
 melos:
   packages:
     - packages/**
+    - apps/**
   command:
     version:
       # Only allow versioning to happen on main branch.

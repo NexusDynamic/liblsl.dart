@@ -1,0 +1,25 @@
+name: lsl_viewer
+description: "Lab Streaming Layer stream and XDF recording viewer"
+publish_to: 'none'
+version: 0.1.0+1
+
+resolution: workspace
+
+environment:
+  sdk: ^3.10.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  signal_viewer: ^0.1.0
+  signal_viewer_lsl: ^0.1.0
+  signal_viewer_xdf: ^0.1.0
+
+dev_dependencies:
+  flutter_lints: ^6.0.0
+  flutter_test:
+    sdk: flutter
+  shared_preferences: ^2.5.5
+
+flutter:
+  uses-material-design: true
