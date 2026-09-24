@@ -43,6 +43,12 @@ class LslSession extends SourceSession implements LiveData {
   double? _firstStamp;
   double _lastStamp = 0;
 
+  /// Intervals between time stamps: count, mean and variance (Welford),
+  /// the largest, and how many went backwards.
+  int _intervals = 0;
+  double _intervalMean = 0, _intervalM2 = 0, _intervalMax = 0;
+  int backwards = 0;
+
   bool _closed = false;
   bool _idle = false;
   String? error;
@@ -132,6 +138,14 @@ class LslSession extends SourceSession implements LiveData {
       info.rate > 0 ? math.max(2, 20 / info.rate) : double.infinity;
 
   int get lostSampleCount => _ring?.lost ?? 0;
+
+  /// Standard deviation of the intervals between time stamps, in seconds
+  /// (null until there are two intervals): the jitter.
+  double? get intervalStd =>
+      _intervals < 2 ? null : math.sqrt(_intervalM2 / (_intervals - 1));
+
+  /// The largest interval between time stamps, in seconds.
+  double? get largestInterval => _intervals == 0 ? null : _intervalMax;
 
   /// Samples per second from the time stamps received so far (null until
   /// there are two).
@@ -233,6 +247,19 @@ class LslSession extends SourceSession implements LiveData {
         } else {
           log.add(times[i] - origin, c.values!, i * n);
         }
+      }
+    }
+    for (var i = 0; i < c.length; i++) {
+      final t = times[i];
+      if (received + i > 0) {
+        final prev = i == 0 ? _lastStamp : times[i - 1];
+        final d = t - prev;
+        if (d < 0) backwards++;
+        _intervals++;
+        final delta = d - _intervalMean;
+        _intervalMean += delta / _intervals;
+        _intervalM2 += delta * (d - _intervalMean);
+        if (d > _intervalMax) _intervalMax = d;
       }
     }
     received += c.length;

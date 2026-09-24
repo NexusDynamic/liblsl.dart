@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -521,6 +522,9 @@ class _LslStreamInfoDialogState extends State<_LslStreamInfoDialog> {
   double? _offset;
   String? _offsetError;
 
+  /// Clock offsets measured while open: (LSL time, offset).
+  final List<(double, double)> _offsets = [];
+
   @override
   void initState() {
     super.initState();
@@ -539,6 +543,7 @@ class _LslStreamInfoDialogState extends State<_LslStreamInfoDialog> {
         setState(() {
           _offset = o;
           _offsetError = null;
+          _offsets.add((lsl.clock(), o));
         });
       }
     } catch (e) {
@@ -550,6 +555,32 @@ class _LslStreamInfoDialogState extends State<_LslStreamInfoDialog> {
   void dispose() {
     _timer?.cancel();
     super.dispose();
+  }
+
+  /// Least-squares slope of the offsets over time: how fast the sender's
+  /// clock drifts against this computer's.
+  double _drift() {
+    final n = _offsets.length;
+    final t0 = _offsets.first.$1;
+    var st = 0.0, so = 0.0, stt = 0.0, sto = 0.0;
+    for (final (t, o) in _offsets) {
+      final x = t - t0;
+      st += x;
+      so += o;
+      stt += x * x;
+      sto += x * o;
+    }
+    final det = n * stt - st * st;
+    return det == 0 ? 0 : (n * sto - st * so) / det;
+  }
+
+  double _range() {
+    var lo = double.infinity, hi = double.negativeInfinity;
+    for (final (_, o) in _offsets) {
+      lo = math.min(lo, o);
+      hi = math.max(hi, o);
+    }
+    return hi - lo;
   }
 
   @override
@@ -590,6 +621,23 @@ class _LslStreamInfoDialogState extends State<_LslStreamInfoDialog> {
               : '${num(session.measuredRate!, 3)} Hz',
         ),
         ('Received', '${session.received} samples'),
+        if (session.intervalStd != null)
+          (
+            'Interval jitter',
+            '${num(session.intervalStd! * 1000)} ms (s.d.)'
+                '${s.rate > 0 ? ' · nominal ${num(1000 / s.rate)} ms' : ''}',
+          ),
+        if (session.largestInterval != null)
+          ('Largest interval', '${num(session.largestInterval! * 1000)} ms'),
+        if (session.backwards > 0)
+          ('Backwards', '${session.backwards} time stamps went back'),
+        if (_offsets.length >= 2)
+          (
+            'Offset drift',
+            '${num(_drift() * 1e6, 1)} µs/s over '
+                '${num(_offsets.last.$1 - _offsets.first.$1, 0)} s '
+                '(range ${num(_range() * 1000)} ms)',
+          ),
         if (session.lostSampleCount > 0)
           ('Filled gaps', '${session.lostSampleCount} samples'),
       ],
@@ -746,6 +794,163 @@ class _LslRecordDialogState extends State<_LslRecordDialog> {
           ],
         );
       },
+    );
+  }
+}
+
+/// Send test streams and markers over LSL: a synthetic signal generator
+/// and a marker stream to annotate a session.
+Future<void> showLslTestOutlets(BuildContext context, LslProvider app) =>
+    showDialog<void>(context: context, builder: (_) => _TestOutletsDialog(app));
+
+class _TestOutletsDialog extends StatefulWidget {
+  final LslProvider app;
+  const _TestOutletsDialog(this.app);
+
+  @override
+  State<_TestOutletsDialog> createState() => _TestOutletsDialogState();
+}
+
+class _TestOutletsDialogState extends State<_TestOutletsDialog> {
+  final _name = TextEditingController(text: 'Test signal');
+  final _channels = TextEditingController(text: '8');
+  final _rate = TextEditingController(text: '250');
+  final _frequency = TextEditingController(text: '10');
+  final _marker = TextEditingController();
+
+  @override
+  void dispose() {
+    for (final c in [_name, _channels, _rate, _frequency, _marker]) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  Future<void> _start() async {
+    final channels = int.tryParse(_channels.text.trim());
+    final rate = double.tryParse(_rate.text.trim());
+    final frequency = double.tryParse(_frequency.text.trim());
+    if (channels == null || channels < 1 || rate == null || rate <= 0) return;
+    await widget.app.startGenerator(
+      name: _name.text.trim().isEmpty ? 'Test signal' : _name.text.trim(),
+      channels: channels,
+      rate: rate,
+      frequency: frequency ?? 10,
+    );
+  }
+
+  Future<void> _send() async {
+    final text = _marker.text.trim();
+    if (text.isEmpty) return;
+    await widget.app.sendMarker(text);
+    _marker.selection = TextSelection(
+      baseOffset: 0,
+      extentOffset: _marker.text.length,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    Widget field(TextEditingController c, String label, {double w = 90}) =>
+        SizedBox(
+          width: w,
+          child: TextField(
+            controller: c,
+            decoration: InputDecoration(isDense: true, labelText: label),
+          ),
+        );
+    return ListenableBuilder(
+      listenable: widget.app,
+      builder: (context, _) => AlertDialog(
+        title: const Text('LSL test outlets'),
+        content: SizedBox(
+          width: 560,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Signal generator', style: theme.textTheme.titleSmall),
+                Text(
+                  'Sine waves (channel n at n × the frequency) with noise, '
+                  'in real time.',
+                  style: theme.textTheme.bodySmall,
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.end,
+                  children: [
+                    field(_name, 'Name', w: 160),
+                    field(_channels, 'Channels'),
+                    field(_rate, 'Rate (Hz)'),
+                    field(_frequency, 'Frequency (Hz)', w: 110),
+                    FilledButton.tonal(
+                      onPressed: _start,
+                      child: const Text('Start'),
+                    ),
+                  ],
+                ),
+                for (final g in widget.app.generators)
+                  ListTile(
+                    dense: true,
+                    leading: const Icon(Icons.graphic_eq),
+                    title: Text(g.name),
+                    subtitle: Text(
+                      '${g.outlet.spec.channelCount} ch · '
+                      '${g.rate} Hz · ${g.sent} samples sent',
+                    ),
+                    trailing: TextButton(
+                      onPressed: () => widget.app.stopGenerator(g),
+                      child: const Text('Stop'),
+                    ),
+                  ),
+                const Divider(height: 32),
+                Text('Markers', style: theme.textTheme.titleSmall),
+                Text(
+                  'Sent on the stream "${widget.app.app.config.title} '
+                  'markers", stamped when sent.',
+                  style: theme.textTheme.bodySmall,
+                ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _marker,
+                        decoration: const InputDecoration(
+                          isDense: true,
+                          labelText: 'Marker text',
+                        ),
+                        onSubmitted: (_) => _send(),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    FilledButton.tonal(
+                      onPressed: _send,
+                      child: const Text('Send'),
+                    ),
+                  ],
+                ),
+                if (widget.app.markers != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(
+                      '${widget.app.markers!.sent} sent',
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
     );
   }
 }

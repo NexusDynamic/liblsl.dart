@@ -11,3 +11,4 @@ export 'src/lsl_provider.dart';
 export 'src/lsl_recorder.dart';
 export 'src/lsl_replay.dart';
 export 'src/lsl_session.dart';
+export 'src/lsl_test_outlets.dart';

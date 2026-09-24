@@ -7,6 +7,7 @@ import 'lsl_session.dart';
 import 'lsl_dialogs.dart';
 import 'lsl_recorder.dart';
 import 'lsl_replay.dart';
+import 'lsl_test_outlets.dart';
 import 'package:signal_viewer/signal_viewer.dart';
 import 'lsl.dart';
 
@@ -51,6 +52,60 @@ class LslProvider extends SourceProvider {
 
   /// Streams being connected to, by key.
   final Set<String> connecting = {};
+
+  /// Synthetic streams being sent (Test outlets).
+  final List<LslSignalGenerator> generators = [];
+
+  /// The marker stream the user sends on, once used.
+  LslMarkerSender? markers;
+
+  Future<void> startGenerator({
+    required String name,
+    required int channels,
+    required double rate,
+    required double frequency,
+  }) async {
+    await lsl.prepare();
+    try {
+      generators.add(
+        await LslSignalGenerator.start(
+          name: name,
+          channels: channels,
+          rate: rate,
+          frequency: frequency,
+          options: app.prefs.lsl.outlet,
+        ),
+      );
+      app.setStatus('Sending test stream $name over LSL');
+    } catch (e) {
+      app.setError('Could not start $name: $e');
+    }
+    notifyListeners();
+  }
+
+  Future<void> stopGenerator(LslSignalGenerator g) async {
+    generators.remove(g);
+    notifyListeners();
+    await g.close();
+  }
+
+  /// Send [text] on the marker stream (made on first use).
+  Future<void> sendMarker(String text) async {
+    try {
+      if (markers == null) {
+        await lsl.prepare();
+        markers = await LslMarkerSender.start(
+          name: '${app.config.title} markers',
+          options: app.prefs.lsl.outlet,
+        );
+      }
+      await markers!.send(text);
+      app.setStatus('Marker sent: $text');
+    } catch (e) {
+      app.setError('Could not send a marker: $e');
+    }
+    notifyListeners();
+  }
 
   /// A recording being played over LSL.
   LslReplay? replay;
@@ -256,6 +311,10 @@ class LslProvider extends SourceProvider {
     _recordTimer?.cancel();
     recorder?.stop();
     replay?.close();
+    for (final g in generators) {
+      g.close();
+    }
+    markers?.close();
     super.dispose();
   }
 
@@ -310,6 +369,13 @@ class LslProvider extends SourceProvider {
           _ => null,
         },
         order: 50,
+      ),
+      ViewerAction(
+        'LSL',
+        'Test outlets…',
+        narrowLabel: 'LSL test outlets…',
+        onPressed: () => showLslTestOutlets(context, this),
+        order: 60,
       ),
       ViewerAction(
         'LSL',
