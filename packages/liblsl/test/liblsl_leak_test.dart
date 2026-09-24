@@ -242,6 +242,90 @@ void main() {
       resolved.destroy();
       info.destroy();
     }, timeout: Timeout(Duration(minutes: 3)));
+
+    test(
+      'string chunk push / binary chunk pull has bounded RSS growth',
+      () async {
+        const int iterations = 1000;
+        const int chunkSamples = 10;
+        const int channels = 2;
+        // A leak of either side's per-element copies would be
+        // ~iterations * chunkSamples * channels * 1 KiB ≈ 20 MiB per side.
+        final String payload = 'y' * 1024;
+        final chunk = List.generate(chunkSamples, (_) => [payload, payload]);
+
+        final info = await LSL.createStreamInfo(
+          streamName: 'LeakStringChunkStream',
+          channelCount: channels,
+          channelFormat: LSLChannelFormat.string,
+          sampleRate: LSL_IRREGULAR_RATE,
+          streamType: LSLContentType.markers,
+        );
+        final outlet = await LSL.createOutlet(
+          streamInfo: info,
+          useIsolates: false,
+        );
+        await Future.delayed(Duration(milliseconds: 100));
+        final streams = await LSL.resolveStreams(waitTime: 2.0, maxStreams: 10);
+        final resolved = streams.firstWhereOrNull(
+          (s) => s.streamName == 'LeakStringChunkStream',
+        );
+        expect(resolved, isNotNull);
+        final inlet = await LSL.createInlet<String>(
+          streamInfo: resolved!,
+          useIsolates: false,
+        );
+
+        // maxSamples well above what is buffered: liblsl allocates every
+        // slot of the binary pull buffer, filled or not. timeout 0 takes
+        // only what is buffered (a nonzero one would wait it out in full).
+        int pullAvailable() {
+          int n = 0;
+          final deadline = DateTime.now().add(Duration(seconds: 2));
+          while (DateTime.now().isBefore(deadline)) {
+            final c = inlet.pullChunkBytesSync(maxSamples: 64);
+            n += c.sampleCount;
+            if (c.isEmpty && n > 0) return n;
+          }
+          return n;
+        }
+
+        for (int i = 0; i < 20; i++) {
+          outlet.pushChunkSync(chunk);
+        }
+        expect(pullAvailable(), greaterThan(0));
+
+        final int rssBefore = ProcessInfo.currentRss;
+        int received = 0;
+        for (int i = 0; i < iterations; i++) {
+          outlet.pushChunkSync(chunk, pushthrough: true);
+          final c = inlet.pullChunkBytesSync(maxSamples: 64);
+          received += c.sampleCount;
+          if (c.isNotEmpty) {
+            expect(c.samples.first[0].length, payload.length);
+          }
+        }
+        received += pullAvailable();
+        final int rssAfter = ProcessInfo.currentRss;
+        final int growthMiB = (rssAfter - rssBefore) ~/ (1024 * 1024);
+
+        expect(received, greaterThan(iterations * chunkSamples ~/ 2));
+        expect(
+          growthMiB,
+          lessThan(15),
+          reason:
+              'RSS grew ${growthMiB}MiB over $iterations string chunks — '
+              'possible native memory leak in string chunk push or binary '
+              'chunk pull',
+        );
+
+        await inlet.destroy();
+        await outlet.destroy();
+        resolved.destroy();
+        info.destroy();
+      },
+      timeout: Timeout(Duration(minutes: 3)),
+    );
   });
 
   group('continuous resolver lifecycle', () {

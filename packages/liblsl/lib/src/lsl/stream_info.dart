@@ -6,6 +6,16 @@ import 'package:liblsl/src/lsl/exception.dart';
 import 'package:liblsl/src/lsl/structs.dart';
 import 'package:liblsl/src/ffi/mem.dart';
 
+/// Runs [fn] with a temporary native UTF-8 copy of [value], freed after.
+T _withUtf8<T>(String value, T Function(Pointer<Char> ptr) fn) {
+  final ptr = value.toNativeUtf8(allocator: allocate);
+  try {
+    return fn(ptr.cast<Char>());
+  } finally {
+    ptr.free();
+  }
+}
+
 extension StreamInfoList on List<LSLStreamInfo> {
   void destroy() {
     for (final streamInfo in this) {
@@ -264,6 +274,93 @@ class LSLXmlNode extends LSLXml {
     return LSLXmlNode.fromXmlPtr(childPtr);
   }
 
+  /// Inserts a child element with text content as the *first* child
+  /// (like [addChildValue], which appends).
+  LSLXmlNode prependChildValue(String name, String value) {
+    if (name.isEmpty) {
+      throw LSLException('Child name cannot be empty');
+    }
+    // lsl_prepend_child_value returns the parent, not the new child.
+    _withUtf8(
+      name,
+      (n) => _withUtf8(value, (v) => lsl_prepend_child_value(xmlPtr, n, v)),
+    );
+    final firstChildPtr = lsl_first_child(xmlPtr);
+    if (firstChildPtr.isNullPointer) {
+      throw LSLException('Failed to prepend child value: $name');
+    }
+    return LSLXmlNode.fromXmlPtr(firstChildPtr);
+  }
+
+  /// Inserts an empty child element as the *first* child (like
+  /// [addChildElement], which appends).
+  LSLXmlNode prependChildElement(String name) {
+    if (name.isEmpty) {
+      throw LSLException('Child name cannot be empty');
+    }
+    final childPtr = _withUtf8(name, (n) => lsl_prepend_child(xmlPtr, n));
+    if (childPtr.isNullPointer) {
+      throw LSLException('Failed to prepend child element: $name');
+    }
+    return LSLXmlNode.fromXmlPtr(childPtr);
+  }
+
+  /// Appends a deep copy of [node] (which may live in another stream info's
+  /// description) as the last child; returns the copy.
+  LSLXmlNode appendCopy(LSLXml node) {
+    final copyPtr = lsl_append_copy(xmlPtr, node.xmlPtr);
+    if (copyPtr.isNullPointer) {
+      throw LSLException('Failed to append copy of node');
+    }
+    return LSLXmlNode.fromXmlPtr(copyPtr);
+  }
+
+  /// Inserts a deep copy of [node] as the first child; returns the copy.
+  LSLXmlNode prependCopy(LSLXml node) {
+    final copyPtr = lsl_prepend_copy(xmlPtr, node.xmlPtr);
+    if (copyPtr.isNullPointer) {
+      throw LSLException('Failed to prepend copy of node');
+    }
+    return LSLXmlNode.fromXmlPtr(copyPtr);
+  }
+
+  /// Text content of the first child element named [name] (empty if there
+  /// is no such child or it has no text).
+  String childValueNamed(String name) {
+    final valuePtr = _withUtf8(name, (n) => lsl_child_value_n(xmlPtr, n));
+    if (valuePtr.isNullPointer) {
+      return '';
+    }
+    return valuePtr.cast<Utf8>().toDartString();
+  }
+
+  /// Replaces the text content of the first child element named [name].
+  ///
+  /// Only works for a child that already has text content (e.g. one made
+  /// with [addChildValue]); returns `false` otherwise, or if there is no
+  /// such child.
+  bool setChildValue(String name, String value) =>
+      _withUtf8(
+        name,
+        (n) => _withUtf8(value, (v) => lsl_set_child_value(xmlPtr, n, v)),
+      ) !=
+      0;
+
+  /// Removes [child] (a direct child of this node) and its subtree.
+  ///
+  /// [child] and any other [LSLXmlNode] referring into its subtree become
+  /// invalid.
+  void removeChild(LSLXml child) {
+    lsl_remove_child(xmlPtr, child.xmlPtr);
+  }
+
+  /// Removes the first child element named [name] (no-op if none).
+  ///
+  /// Any [LSLXmlNode] referring into the removed subtree becomes invalid.
+  void removeChildNamed(String name) {
+    _withUtf8(name, (n) => lsl_remove_child_n(xmlPtr, n));
+  }
+
   @override
   String toString() =>
       'LSLXmlNode[$name]: ${textValue.isEmpty ? '${children.length} children' : textValue}';
@@ -416,6 +513,49 @@ class LSLStreamInfo extends LSLObj {
     } catch (e) {
       return null;
     }
+  }
+
+  lsl_streaminfo get _infoBang =>
+      _streamInfo ??
+      (throw LSLException('StreamInfo not created or destroyed'));
+
+  /// Number of bytes occupied by one channel value (0 for string streams,
+  /// whose values are variable-length).
+  int get channelBytes => lsl_get_channel_bytes(_infoBang);
+
+  /// Number of bytes occupied by one sample (`channelBytes * channelCount`;
+  /// 0 for string streams).
+  int get sampleBytes => lsl_get_sample_bytes(_infoBang);
+
+  /// [LSL.localClock] time at which the stream was created on the sending
+  /// machine (0.0 for a stream info that has not been served by an outlet).
+  double get createdAt => lsl_get_created_at(_infoBang);
+
+  /// The session ID the stream belongs to (`'default'` unless configured
+  /// via [LSLApiConfig.sessionId]); resolvers only see streams sharing
+  /// their own session ID.
+  String get sessionId =>
+      lsl_get_session_id(_infoBang).cast<Utf8>().toDartString();
+
+  /// The LSL protocol version the stream info was created with (e.g. 110
+  /// for 1.10).
+  int get protocolVersion => lsl_get_version(_infoBang);
+
+  /// Whether this stream info matches the XPath 1.0 [query] (the same
+  /// predicate syntax as [LSL.resolveStreamsByPredicate], e.g.
+  /// `"name='EEG' and type='EEG'"`).
+  bool matchesQuery(String query) =>
+      _withUtf8(query, (q) => lsl_stream_info_matches_query(_infoBang, q)) != 0;
+
+  /// Creates an independent deep copy of this stream info (including its
+  /// description). The copy owns its native handle: call [destroy] on it
+  /// when done; it stays valid after this object is destroyed.
+  LSLStreamInfoWithMetadata copy() {
+    final copied = lsl_copy_streaminfo(_infoBang);
+    if (copied.isNullPointer) {
+      throw LSLException('Failed to copy stream info');
+    }
+    return LSLStreamInfoWithMetadata.fromStreamInfo(copied);
   }
 
   /// Creates a new LSLStreamInfo object from an existing stream info address.

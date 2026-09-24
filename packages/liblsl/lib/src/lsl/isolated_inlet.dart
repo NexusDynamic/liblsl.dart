@@ -4,6 +4,7 @@ import 'dart:ffi';
 import 'package:liblsl/native_liblsl.dart';
 import 'package:liblsl/src/ffi/bindings_ex.dart';
 import 'package:liblsl/src/ffi/mem.dart';
+import 'package:liblsl/src/lsl/binary_string.dart';
 import 'package:liblsl/src/lsl/exception.dart';
 import 'package:liblsl/src/lsl/pull_chunk.dart';
 import 'package:liblsl/src/lsl/pull_sample.dart';
@@ -46,6 +47,8 @@ class LSLInletIsolate extends LSLIsolateWorkerBase {
     _handlers[LSLMessageType.setPostProcessing] = _setPostProcessing;
     _handlers[LSLMessageType.setSmoothingHalftime] = _setSmoothingHalftime;
     _handlers[LSLMessageType.wasClockReset] = _wasClockReset;
+    _handlers[LSLMessageType.pullSampleBytes] = _pullSampleBytes;
+    _handlers[LSLMessageType.pullChunkBytes] = _pullChunkBytes;
     _handlers[LSLMessageType.getFullInfo] = (Map<String, dynamic> data) async {
       if (_inlet == null) {
         throw LSLException('Inlet not created');
@@ -97,6 +100,34 @@ class LSLInletIsolate extends LSLIsolateWorkerBase {
       _streamInfo!.channelCount,
       data['timeout'] as double,
       Pointer<Int32>.fromAddress(data['ecPointerAddr'] as int),
+    );
+  }
+
+  /// Pulls a binary sample into the main isolate's buffers; returns the
+  /// timestamp. The main isolate reads and releases the strings liblsl
+  /// allocated once this response arrives.
+  double _pullSampleBytes(Map<String, dynamic> data) {
+    if (_inlet == null) {
+      throw LSLException('Inlet not created');
+    }
+    return lslPullSampleBinary(
+      _inlet!,
+      LSLBinaryBuffer.view(data['buffer'] as Map<String, dynamic>),
+      data['timeout'] as double,
+    );
+  }
+
+  /// Pulls a binary chunk into the main isolate's buffers; returns the
+  /// number of data elements written.
+  int _pullChunkBytes(Map<String, dynamic> data) {
+    if (_inlet == null) {
+      throw LSLException('Inlet not created');
+    }
+    return lslPullChunkBinary(
+      _inlet!,
+      LSLBinaryBuffer.view(data['buffer'] as Map<String, dynamic>),
+      data['channels'] as int,
+      data['timeout'] as double,
     );
   }
 

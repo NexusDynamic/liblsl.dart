@@ -70,7 +70,7 @@ class LSLMapper {
   }
 
   /// Map of [StreamInfo.channelFormat] to [LSLPushChunk].
-  /// String/undefined streams have no chunk push (variable-size samples).
+  /// Undefined-format streams have no chunk push.
   static final Map<LSLChannelFormat, LSLPushChunk> _pushChunkMap = {
     LSLChannelFormat.float32: LSLPushChunkFloat(),
     LSLChannelFormat.double64: LSLPushChunkDouble(),
@@ -78,6 +78,7 @@ class LSLMapper {
     LSLChannelFormat.int16: LSLPushChunkInt16(),
     LSLChannelFormat.int32: LSLPushChunkInt32(),
     LSLChannelFormat.int64: LSLPushChunkInt64(),
+    LSLChannelFormat.string: LSLPushChunkString(),
   };
 
   /// Map of [StreamInfo.channelFormat] to [LSLPullChunk].
@@ -92,7 +93,7 @@ class LSLMapper {
   };
 
   /// Gets the [LSLPushChunk] for the given [LSLStreamInfo].
-  /// **Throws:** [LSLException] for string/undefined formats.
+  /// **Throws:** [LSLException] for the undefined format.
   LSLPushChunk streamPushChunk(LSLStreamInfo streamInfo) {
     final LSLChannelFormat channelFormat = streamInfo.channelFormat;
     final pushChunk = _pushChunkMap[channelFormat];

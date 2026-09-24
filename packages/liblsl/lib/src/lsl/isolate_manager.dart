@@ -26,6 +26,11 @@ enum LSLMessageType {
   setPostProcessing,
   setSmoothingHalftime,
   wasClockReset,
+  pushSampleBytes,
+  pushChunkBytes,
+  pullSampleBytes,
+  pullChunkBytes,
+  getInfo,
 }
 
 /// A message payload for communication between isolates

@@ -196,7 +196,7 @@ class LSLPullSampleInt8 extends LSLPullSample<Char, int> {
   const LSLPullSampleInt8() : super(lsl_pull_sample_c);
   @override
   IList<int> bufferToList(Pointer<Char> buffer, int channels) {
-    return IList<int>(buffer.cast<Uint8>().asTypedList(channels));
+    return IList<int>(buffer.cast<Int8>().asTypedList(channels));
   }
 
   @override

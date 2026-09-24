@@ -78,6 +78,12 @@ class LSL {
   /// Returns the version of the LSL library.
   static int get version => lsl_library_version();
 
+  /// Returns the LSL protocol version the library speaks (e.g. 110 for 1.10).
+  ///
+  /// Clients with different minor protocol versions are compatible; this is
+  /// distinct from the library version ([version]).
+  static int get protocolVersion => lsl_protocol_version();
+
   /// Creates a new outlet object.
   ///
   /// [chunkSize] determines how to hand off samples to the buffer,

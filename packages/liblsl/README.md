@@ -200,8 +200,10 @@ await outlet.pushChunk([
 final data = Float32List.fromList([1.0, 2.0, 3.0, 4.0]);
 await outlet.pushChunkTyped(data);
 
-// Pulling: returns everything buffered (up to maxSamples); the timeout only
-// applies while the buffer is empty.
+// Pulling: with the default timeout of 0.0 this returns everything already
+// buffered (up to maxSamples). A nonzero timeout keeps pulling until
+// maxSamples samples arrive or the timeout expires — it does not return
+// early once some data is there.
 final chunk = await inlet.pullChunk(maxSamples: 512);
 print('${chunk.sampleCount} samples, first ts ${chunk.timestamps.firstOrNull}');
 
@@ -212,7 +214,40 @@ final Float32List flat = typed.data as Float32List;
 In direct mode (`useIsolates: false`) the `*Sync` variants
 (`pushChunkSync`, `pullChunkTypedSync`, and the zero-copy
 `pullChunkPointerSync`) skip all async overhead. String streams support
-`pullChunk` only — chunked pushes need fixed-size samples.
+the list forms (`pushChunk`/`pullChunk`) but not the typed ones.
+
+### Explicit timestamps & pushthrough
+
+By default a pushed sample is stamped with the current `LSL.localClock()`.
+When the data was captured earlier (e.g. an event detected a few ms ago, or
+samples read from a device buffer), pass the capture time instead:
+
+```dart
+final capturedAt = LSL.localClock() - latency;
+await outlet.pushSample(['stimulus_onset'], timestamp: capturedAt);
+
+// pushthrough: false lets liblsl batch samples; true (liblsl's default)
+// sends immediately. Works with or without a timestamp.
+await outlet.pushSample([1.0, 2.0], pushthrough: false);
+await outlet.pushChunk(samples, timestamps: perSampleTimes, pushthrough: true);
+```
+
+### Binary string samples
+
+String channels are NUL-terminated in the normal API. To send arbitrary bytes
+(including `0x00`) on a string stream, use the binary variants:
+
+```dart
+await outlet.pushSampleBytes([Uint8List.fromList([0x01, 0x00, 0x02])]);
+final sample = await inlet.pullSampleBytes(timeout: 1.0); // LSLSample<Uint8List>
+
+await outlet.pushChunkBytes(listOfSamplesOfUint8Lists);
+final chunk = await inlet.pullChunkBytes(maxSamples: 64);
+```
+
+The binary chunk pull keeps pulling until `maxSamples` samples have arrived
+or `timeout` expires; use `timeout: 0.0` to take only what is already
+buffered.
 
 ### Transport options (sync/blocking transfer, buffer units)
 

@@ -19,6 +19,27 @@
   machine's clock may have been reset, which invalidates an offset fitted over
   several estimates. Reading it clears the flag.
 - `LSL.lastError()` exposes liblsl's thread-local last-error message.
+- Every exported liblsl function is now reachable from the high-level API:
+  - `LSLOutlet.pushSample` / `pushSampleSync` / `pushSamplePointerSync` take
+    optional `timestamp` (back-date a sample to its capture time) and
+    `pushthrough` arguments (`lsl_push_sample_*t` / `*tp`), for every format
+    including strings.
+  - `pushChunk` / `pushChunkTyped` (and `*Sync`) take `pushthrough`
+    (`lsl_push_chunk_*tp` / `*tnp`).
+  - String streams now support `pushChunk` / `pushChunkSync`
+    (`lsl_push_chunk_str*`).
+  - Binary strings (values that may contain NUL bytes):
+    `LSLOutlet.pushSampleBytes` / `pushChunkBytes` and
+    `LSLInlet.pullSampleBytes` / `pullChunkBytes` (plus `*Sync`), wrapping
+    the `lsl_*_buf` family.
+  - `LSLOutlet.getInfo()` / `getInfoSync()` return the outlet's served
+    stream info (`lsl_get_info`).
+  - `LSLStreamInfo` gains `channelBytes`, `sampleBytes`, `createdAt`,
+    `sessionId`, `protocolVersion`, `matchesQuery()` and `copy()`;
+    `LSL.protocolVersion` reports the library's protocol version.
+  - `LSLXmlNode` gains `prependChildElement`, `prependChildValue`,
+    `appendCopy`, `prependCopy`, `childValueNamed`, `setChildValue`,
+    `removeChild` and `removeChildNamed`.
 
 ## Improvements
 
@@ -28,6 +49,10 @@
   `LSLTimeout` rather than a plain `LSLException`.
 
 ## Fixes
+
+- `pullSample` on int8 streams returned negative values as unsigned
+  (`-3` came back as `253`); it now reads them as signed, matching
+  `pullChunk`.
 
 - Fixed a leaked native continuous resolver for every
   `LSLStreamResolverContinuousByPredicate` / `...ByProperty`. `create()` made

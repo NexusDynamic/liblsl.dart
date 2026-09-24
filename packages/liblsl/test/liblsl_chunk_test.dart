@@ -172,17 +172,71 @@ void main() {
       await cleanupPair(outlet, inlet, infos);
     });
 
-    test('string pushChunk throws LSLException', () async {
+    test('string pushChunk/pullChunk round-trip', () async {
       final (outlet, inlet, infos) = await createPair<String>(
         format: LSLChannelFormat.string,
-        channels: 1,
+        channels: 3,
+      );
+      final pushed = List.generate(
+        6,
+        (s) => ['s$s', 'ünïcödé $s', s.isEven ? '' : 'odd'],
+      );
+      final now = LSL.localClock();
+      final timestamps = List.generate(6, (i) => now - 1.0 + i * 0.01);
+      expect(outlet.pushChunkSync(pushed, timestamps: timestamps), 0);
+      final chunk = await pullAll<String>(inlet, 6);
+      expect(chunk.sampleCount, 6);
+      for (int s = 0; s < 6; s++) {
+        expect(chunk.samples[s], pushed[s]);
+        expect(chunk.timestamps[s], closeTo(timestamps[s], 1e-6));
+      }
+      await cleanupPair(outlet, inlet, infos);
+    });
+
+    test('string pushChunk reuses its buffer across pushes', () async {
+      final (outlet, inlet, infos) = await createPair<String>(
+        format: LSLChannelFormat.string,
+        channels: 2,
+      );
+      // Growing then shrinking chunks exercises buffer growth and the
+      // per-push release of string copies.
+      int total = 0;
+      for (final size in [1, 20, 3, 40, 2]) {
+        outlet.pushChunkSync(
+          List.generate(size, (s) => ['${total + s}', 'x' * s]),
+          pushthrough: true,
+        );
+        total += size;
+      }
+      final chunk = await pullAll<String>(inlet, total);
+      expect(chunk.sampleCount, total);
+      for (int i = 0; i < total; i++) {
+        expect(chunk.samples[i][0], '$i');
+      }
+      await cleanupPair(outlet, inlet, infos);
+    });
+
+    test('string pushChunk rejects non-string values', () async {
+      final (outlet, inlet, infos) = await createPair<String>(
+        format: LSLChannelFormat.string,
+        channels: 2,
       );
       expect(
         () => outlet.pushChunkSync([
-          ['x'],
+          ['ok', 'ok'],
+          ['ok', 42],
         ]),
-        throwsA(isA<LSLException>()),
+        throwsA(isA<TypeError>()),
       );
+      // The outlet stays usable after the failed fill.
+      expect(
+        outlet.pushChunkSync([
+          ['a', 'b'],
+        ]),
+        0,
+      );
+      final chunk = await pullAll<String>(inlet, 1);
+      expect(chunk.samples.single, ['a', 'b']);
       await cleanupPair(outlet, inlet, infos);
     });
 
@@ -342,6 +396,18 @@ void main() {
       await cleanupPair(outlet, inlet, infos);
     });
 
+    test('typed push on string stream throws ArgumentError', () async {
+      final (outlet, inlet, infos) = await createPair<String>(
+        format: LSLChannelFormat.string,
+        channels: 1,
+      );
+      expect(
+        () => outlet.pushChunkTypedSync(Float32List(2)),
+        throwsA(isA<ArgumentError>()),
+      );
+      await cleanupPair(outlet, inlet, infos);
+    });
+
     test('typed pull on string stream throws UnsupportedError', () async {
       final (outlet, inlet, infos) = await createPair<String>(
         format: LSLChannelFormat.string,
@@ -408,6 +474,25 @@ void main() {
       final chunk = await pullAll<String>(inlet, 3, sync: false);
       expect(chunk.sampleCount, 3);
       expect(chunk.samples.map((s) => s[0]), ['msg0', 'msg1', 'msg2']);
+      await cleanupPair(outlet, inlet, infos);
+    });
+
+    test('string pushChunk (both isolated)', () async {
+      final (outlet, inlet, infos) = await createPair<String>(
+        format: LSLChannelFormat.string,
+        channels: 2,
+        outletIsolates: true,
+        inletIsolates: true,
+      );
+      final pushed = List.generate(5, (s) => ['a$s', 'b$s']);
+      for (int round = 0; round < 3; round++) {
+        expect(await outlet.pushChunk(pushed, pushthrough: true), 0);
+      }
+      final chunk = await pullAll<String>(inlet, 15, sync: false);
+      expect(chunk.sampleCount, 15);
+      for (int i = 0; i < 15; i++) {
+        expect(chunk.samples[i], pushed[i % 5]);
+      }
       await cleanupPair(outlet, inlet, infos);
     });
 

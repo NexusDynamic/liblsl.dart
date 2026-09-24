@@ -733,5 +733,190 @@ void main() {
         resolvedStreams.destroy();
       });
     });
+
+    group('Stream info properties', () {
+      test('byte sizes, protocol version and session id', () async {
+        final info = await LSL.createStreamInfo(
+          streamName: 'PropsStream',
+          channelCount: 4,
+          channelFormat: LSLChannelFormat.float32,
+        );
+        expect(info.channelBytes, 4);
+        expect(info.sampleBytes, 16);
+        expect(info.protocolVersion, greaterThanOrEqualTo(110));
+        expect(LSL.protocolVersion, greaterThanOrEqualTo(110));
+        // Not served by an outlet yet: liblsl fills these in on serving.
+        expect(info.sessionId, isEmpty);
+        expect(info.createdAt, 0.0);
+        info.destroy();
+
+        final strInfo = await LSL.createStreamInfo(
+          streamName: 'PropsStringStream',
+          channelCount: 3,
+          channelFormat: LSLChannelFormat.string,
+        );
+        expect(strInfo.sampleBytes, greaterThanOrEqualTo(0));
+        strInfo.destroy();
+
+        final i64 = await LSL.createStreamInfo(
+          streamName: 'PropsInt64Stream',
+          channelCount: 2,
+          channelFormat: LSLChannelFormat.int64,
+        );
+        expect(i64.channelBytes, 8);
+        expect(i64.sampleBytes, 16);
+        i64.destroy();
+      });
+
+      test('matchesQuery', () async {
+        final info = await LSL.createStreamInfo(
+          streamName: 'QueryStream',
+          streamType: LSLContentType.eeg,
+          channelCount: 8,
+        );
+        expect(info.matchesQuery("name='QueryStream'"), isTrue);
+        expect(info.matchesQuery("name='Other'"), isFalse);
+        expect(info.matchesQuery("type='EEG' and channel_count=8"), isTrue);
+        expect(info.matchesQuery('channel_count>8'), isFalse);
+        info.destroy();
+      });
+
+      test('copy is independent of the original', () async {
+        final info = await LSL.createStreamInfo(
+          streamName: 'CopyStream',
+          channelCount: 2,
+        );
+        info.description.value.addChildValue('manufacturer', 'ACME');
+        final uid = info.uid;
+        final copy = info.copy();
+        info.destroy();
+
+        expect(copy.streamName, 'CopyStream');
+        expect(copy.uid, uid);
+        expect(copy.description.value.childValueNamed('manufacturer'), 'ACME');
+        // Edits to the copy stay in the copy.
+        copy.description.value.addChildValue('model', 'X1');
+        expect(copy.toXml(), contains('<model>X1</model>'));
+        copy.destroy();
+      });
+
+      for (final isolates in [false, true]) {
+        test('outlet.getInfo returns the served info '
+            '(${isolates ? 'isolated' : 'direct'})', () async {
+          final info = await LSL.createStreamInfo(
+            streamName: 'OutletInfoStream',
+            channelCount: 3,
+          );
+          info.description.value.addChildValue('note', 'hello');
+          final outlet = await LSL.createOutlet(
+            streamInfo: info,
+            useIsolates: isolates,
+          );
+          final served = isolates
+              ? await outlet.getInfo()
+              : outlet.getInfoSync();
+          expect(served.streamName, 'OutletInfoStream');
+          expect(served.channelCount, 3);
+          expect(served.sourceId, info.sourceId);
+          // The outlet serves its own copy with a fresh uid; it is
+          // stable for the outlet's lifetime.
+          expect(served.uid, isNotEmpty);
+          final again = isolates
+              ? await outlet.getInfo()
+              : outlet.getInfoSync();
+          expect(again.uid, served.uid);
+          again.destroy();
+          expect(served.createdAt, greaterThan(0.0));
+          expect(served.createdAt, lessThanOrEqualTo(LSL.localClock()));
+          expect(served.hostname, isNotEmpty);
+          expect(served.sessionId, isNotEmpty);
+          expect(served.description.value.childValueNamed('note'), 'hello');
+          served.destroy();
+          await outlet.destroy();
+          info.destroy();
+        });
+      }
+    });
+
+    group('XML editing', () {
+      late LSLStreamInfoWithMetadata info;
+      late LSLXmlNode root;
+
+      setUp(() async {
+        info = await LSL.createStreamInfo(streamName: 'XmlEditStream');
+        root = info.description.value;
+      });
+
+      tearDown(() {
+        info.destroy();
+      });
+
+      List<String> childNames(LSLXmlNode node) =>
+          node.children.map((c) => c.name).toList();
+
+      test('prependChildElement / prependChildValue', () {
+        root.addChildValue('b', '2');
+        final a = root.prependChildValue('a', '1');
+        expect(a.name, 'a');
+        expect(a.textValue, '1');
+        final first = root.prependChildElement('first');
+        expect(first.name, 'first');
+        expect(childNames(root), ['first', 'a', 'b']);
+        expect(
+          () => root.prependChildElement(''),
+          throwsA(isA<LSLException>()),
+        );
+      });
+
+      test('childValueNamed / setChildValue', () {
+        root.addChildValue('unit', 'uV');
+        expect(root.childValueNamed('unit'), 'uV');
+        expect(root.childValueNamed('missing'), '');
+
+        expect(root.setChildValue('unit', 'mV'), isTrue);
+        expect(root.childValueNamed('unit'), 'mV');
+        // No child with text content to replace.
+        root.addChildElement('empty');
+        expect(root.setChildValue('empty', 'x'), isFalse);
+      });
+
+      test('appendCopy / prependCopy deep-copy across infos', () async {
+        final other = await LSL.createStreamInfo(streamName: 'XmlSource');
+        final channels = other.description.value.addChildElement('channels');
+        channels.addChildElement('channel').addChildValue('label', 'Cz');
+        channels.addChildElement('channel').addChildValue('label', 'Pz');
+
+        root.addChildValue('middle', 'm');
+        final appended = root.appendCopy(channels);
+        final prepended = root.prependCopy(channels);
+        other.destroy(); // copies must not depend on the source
+
+        expect(childNames(root), ['channels', 'middle', 'channels']);
+        expect(appended.children.length, 2);
+        expect(
+          appended.children.map((c) => c.childValueNamed('label')).toList(),
+          ['Cz', 'Pz'],
+        );
+        expect(prepended.children.first.childValueNamed('label'), 'Cz');
+      });
+
+      test('removeChild / removeChildNamed', () {
+        final a = root.addChildValue('a', '1');
+        root.addChildValue('b', '2');
+        root.addChildValue('b', '3');
+        root.addChildValue('c', '4');
+
+        root.removeChild(a);
+        expect(childNames(root), ['b', 'b', 'c']);
+
+        root.removeChildNamed('b'); // first match only
+        expect(childNames(root), ['b', 'c']);
+        expect(root.childValueNamed('b'), '3');
+
+        root.removeChildNamed('nope'); // no-op
+        expect(childNames(root), ['b', 'c']);
+        expect(info.toXml(), isNot(contains('<a>')));
+      });
+    });
   });
 }

@@ -30,7 +30,8 @@ abstract class LSLPullChunk<T extends NativeType, D> {
   /// Pulls up to [maxSamples] frames into [data]/[timestamps].
   ///
   /// Returns the number of data elements read (`samples * channels`).
-  /// [timeout] only applies when no sample is buffered yet.
+  /// liblsl keeps pulling until [maxSamples] frames are read or [timeout]
+  /// expires; with `0.0` it takes only what is already buffered.
   int pullInto(
     lsl_inlet inlet,
     Pointer<NativeType> data,

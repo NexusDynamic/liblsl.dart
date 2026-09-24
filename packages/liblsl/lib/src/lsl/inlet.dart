@@ -7,6 +7,7 @@ import 'package:liblsl/native_liblsl.dart';
 import 'package:liblsl/src/ffi/bindings_ex.dart';
 import 'package:liblsl/src/ffi/mem.dart';
 import 'package:liblsl/src/lsl/base.dart';
+import 'package:liblsl/src/lsl/binary_string.dart';
 import 'package:liblsl/src/lsl/isolate_manager.dart';
 import 'package:liblsl/src/lsl/lsl_io_mixin.dart';
 import 'package:liblsl/src/util/chunk_buffer.dart';
@@ -292,13 +293,95 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   LSLSample<T> pullSampleSync({double timeout = 0.0}) =>
       requireDirect(() => _pullSampleDirect(timeout));
 
+  /// Pulls one sample of a string stream as raw bytes.
+  ///
+  /// The binary counterpart of [pullSample] (via `lsl_pull_sample_buf`):
+  /// values keep any `0x00` bytes, which [pullSample] would truncate at.
+  /// Works for string-format streams only.
+  ///
+  /// **Returns:** An [LSLSample] of [Uint8List]; empty (timestamp 0) if no
+  /// sample arrived within [timeout].
+  Future<LSLSample<Uint8List>> pullSampleBytes({double timeout = 0.0}) async {
+    if (!_useIsolates) {
+      return _pullSampleBytesDirect(timeout);
+    }
+    final buf = _binarySampleBuffer();
+    try {
+      final response = await _isolateManagerBang.sendMessage(
+        LSLMessage(LSLMessageType.pullSampleBytes, {
+          'buffer': buf.addresses,
+          'timeout': timeout,
+        }),
+        timeoutSeconds: timeout + 30,
+      );
+      if (!response.success) {
+        throw LSLException('Error pulling binary sample: ${response.error}');
+      }
+      return _binarySampleFromBuffer(buf, response.result as double);
+    } finally {
+      buf.free();
+    }
+  }
+
+  /// Synchronously pulls one sample of a string stream as raw bytes.
+  ///
+  /// **Direct mode only** - throws [LSLException] if `useIsolates: true`.
+  /// See [pullSampleBytes].
+  LSLSample<Uint8List> pullSampleBytesSync({double timeout = 0.0}) =>
+      requireDirect(() => _pullSampleBytesDirect(timeout));
+
+  /// Pulls a chunk of a string stream as raw bytes.
+  ///
+  /// The binary counterpart of [pullChunk] (via `lsl_pull_chunk_buf`).
+  ///
+  /// liblsl keeps pulling until [maxSamples] samples have been read or
+  /// [timeout] expires, so a nonzero [timeout] with a [maxSamples] larger
+  /// than what arrives always waits the full [timeout]. Use `timeout: 0.0`
+  /// to take only what is already buffered.
+  Future<LSLChunk<Uint8List>> pullChunkBytes({
+    int maxSamples = 512,
+    double timeout = 0.0,
+  }) async {
+    if (!_useIsolates) {
+      return _pullChunkBytesDirect(maxSamples, timeout);
+    }
+    final buf = _binaryChunkBuffer(maxSamples);
+    try {
+      final response = await _isolateManagerBang.sendMessage(
+        LSLMessage(LSLMessageType.pullChunkBytes, {
+          'buffer': buf.addresses,
+          'channels': streamInfo.channelCount,
+          'timeout': timeout,
+        }),
+        timeoutSeconds: timeout + 30,
+      );
+      if (!response.success) {
+        throw LSLException('Error pulling binary chunk: ${response.error}');
+      }
+      return _binaryChunkFromBuffer(buf, response.result as int);
+    } finally {
+      buf.free();
+    }
+  }
+
+  /// Synchronously pulls a chunk of a string stream as raw bytes.
+  ///
+  /// **Direct mode only** - throws [LSLException] if `useIsolates: true`.
+  /// See [pullChunkBytes].
+  LSLChunk<Uint8List> pullChunkBytesSync({
+    int maxSamples = 512,
+    double timeout = 0.0,
+  }) => requireDirect(() => _pullChunkBytesDirect(maxSamples, timeout));
+
   /// Pulls a chunk of buffered samples from the inlet.
   ///
   /// **Parameters:**
   /// - [maxSamples]: Upper bound on samples returned per call (default: 512).
-  /// - [timeout]: Only applies while the buffer is empty — once at least one
-  ///   sample is available the call returns immediately with everything
-  ///   buffered (up to [maxSamples]).
+  /// - [timeout]: How long to keep waiting for more samples. liblsl keeps
+  ///   pulling until [maxSamples] samples have been read or [timeout]
+  ///   expires, so a nonzero [timeout] with a [maxSamples] larger than what
+  ///   arrives always waits the full [timeout]. The default `0.0` returns
+  ///   immediately with whatever is already buffered (up to [maxSamples]).
   ///
   /// **Returns:** An [LSLChunk] with one list per sample and one timestamp
   /// per sample; empty if nothing arrived within [timeout].
@@ -754,6 +837,105 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
       timeout,
       _bufferBang.ec,
     );
+  }
+
+  void _requireStringFormat() {
+    if (streamInfo.channelFormat != LSLChannelFormat.string) {
+      throw LSLException(
+        'Binary string pull requires a string stream, not '
+        '${streamInfo.channelFormat}',
+      );
+    }
+  }
+
+  LSLBinaryBuffer _binarySampleBuffer() {
+    _requireStringFormat();
+    return LSLBinaryBuffer.forPull(streamInfo.channelCount);
+  }
+
+  LSLBinaryBuffer _binaryChunkBuffer(int maxSamples) {
+    _requireStringFormat();
+    if (maxSamples < 1) {
+      throw ArgumentError.value(maxSamples, 'maxSamples', 'must be positive');
+    }
+    return LSLBinaryBuffer.forPull(
+      maxSamples * streamInfo.channelCount,
+      timestampCount: maxSamples,
+    );
+  }
+
+  /// Converts a completed binary sample pull into an [LSLSample].
+  ///
+  /// liblsl allocates every slot on success (even on timeout), and frees
+  /// what it allocated itself on failure; the buffer's strings are released
+  /// or discarded accordingly so [LSLBinaryBuffer.free] never double-frees.
+  LSLSample<Uint8List> _binarySampleFromBuffer(
+    LSLBinaryBuffer buf,
+    double timestamp,
+  ) {
+    final errorCode = buf.ec.value;
+    if (errorCode != 0) {
+      buf.discardStrings();
+      throw lslError('Error pulling binary sample', errorCode);
+    }
+    final data = timestamp == 0
+        ? IList<Uint8List>()
+        : IList<Uint8List>(buf.read(streamInfo.channelCount));
+    buf.releaseStrings();
+    return LSLSample<Uint8List>(data, timestamp, errorCode);
+  }
+
+  LSLChunk<Uint8List> _binaryChunkFromBuffer(
+    LSLBinaryBuffer buf,
+    int elements,
+  ) {
+    final errorCode = buf.ec.value;
+    if (errorCode != 0) {
+      buf.discardStrings();
+      throw lslError('Error pulling binary chunk', errorCode);
+    }
+    final channels = streamInfo.channelCount;
+    final sampleCount = elements ~/ channels;
+    final flat = buf.read(elements);
+    buf.releaseStrings();
+    return LSLChunk<Uint8List>(
+      List<List<Uint8List>>.generate(
+        sampleCount,
+        (s) => flat.sublist(s * channels, (s + 1) * channels),
+        growable: false,
+      ),
+      List<double>.generate(
+        sampleCount,
+        (i) => buf.timestamps[i],
+        growable: false,
+      ),
+      errorCode,
+    );
+  }
+
+  LSLSample<Uint8List> _pullSampleBytesDirect(double timeout) {
+    final buf = _binarySampleBuffer();
+    try {
+      final timestamp = lslPullSampleBinary(_inletBang, buf, timeout);
+      return _binarySampleFromBuffer(buf, timestamp);
+    } finally {
+      buf.free();
+    }
+  }
+
+  LSLChunk<Uint8List> _pullChunkBytesDirect(int maxSamples, double timeout) {
+    final buf = _binaryChunkBuffer(maxSamples);
+    try {
+      final elements = lslPullChunkBinary(
+        _inletBang,
+        buf,
+        streamInfo.channelCount,
+        timeout,
+      );
+      return _binaryChunkFromBuffer(buf, elements);
+    } finally {
+      buf.free();
+    }
   }
 
   /// Resolves the chunk pull function for this stream's channel format.
