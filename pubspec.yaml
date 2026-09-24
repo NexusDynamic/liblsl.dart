@@ -15,6 +15,7 @@ workspace:
   - packages/webrtc_coordinator_flutter
   - packages/liblsl_timing
   - packages/liblsl_analysis
+  - packages/signal_core
 dev_dependencies:
   melos: ^8.2.2
 

@@ -1,0 +1,10 @@
+include: package:lints/recommended.yaml
+
+analyzer:
+  exclude:
+    - example/**
+    - tool/**
+    - lib/src/transport/native/hs_serial_bindings.g.dart
+  language:
+    strict-casts: true
+    strict-raw-types: true
