@@ -39,6 +39,10 @@ class LslSession extends SourceSession implements LiveData {
   double _lastT = 0;
   int received = 0;
 
+  /// First and last time stamps received (LSL time), for [measuredRate].
+  double? _firstStamp;
+  double _lastStamp = 0;
+
   bool _closed = false;
   bool _idle = false;
   String? error;
@@ -127,6 +131,14 @@ class LslSession extends SourceSession implements LiveData {
       info.rate > 0 ? math.max(2, 20 / info.rate) : double.infinity;
 
   int get lostSampleCount => _ring?.lost ?? 0;
+
+  /// Samples per second from the time stamps received so far (null until
+  /// there are two).
+  double? get measuredRate {
+    final first = _firstStamp;
+    if (first == null || received < 2 || _lastStamp <= first) return null;
+    return (received - 1) / (_lastStamp - first);
+  }
 
   @override
   String describe() => [
@@ -223,6 +235,8 @@ class LslSession extends SourceSession implements LiveData {
       }
     }
     received += c.length;
+    _firstStamp ??= times.first;
+    _lastStamp = times.last;
     _lastT = times.last - origin;
     _arrived = now;
     if (_idle) {

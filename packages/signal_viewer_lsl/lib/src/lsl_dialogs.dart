@@ -1,9 +1,14 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'lsl.dart';
 import 'lsl_provider.dart';
 import 'package:signal_viewer/signal_viewer.dart';
+import 'package:xml/xml.dart';
+
+import 'lsl_session.dart';
 
 /// Streams on the network, to open in tabs. Looks for streams while open.
 Future<void> showLslStreams(BuildContext context, LslProvider app) async {
@@ -71,18 +76,34 @@ class _LslStreamsDialog extends StatelessWidget {
                       leading: Icon(_icon(s)),
                       title: Text(s.name),
                       subtitle: Text(s.summary),
-                      trailing: app.isOpen(s.key)
-                          ? const Chip(label: Text('Open'))
-                          : app.connecting.contains(s.key)
-                          ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : FilledButton.tonal(
-                              onPressed: () => app.connect(s),
-                              child: const Text('View'),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            tooltip: 'Stream info',
+                            onPressed: () => showLslStreamInfo(
+                              context,
+                              s,
+                              session: app.sessionOf(s.key),
                             ),
+                            icon: const Icon(Icons.info_outline),
+                          ),
+                          app.isOpen(s.key)
+                              ? const Chip(label: Text('Open'))
+                              : app.connecting.contains(s.key)
+                              ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : FilledButton.tonal(
+                                  onPressed: () => app.connect(s),
+                                  child: const Text('View'),
+                                ),
+                        ],
+                      ),
                     ),
                 ],
               );
@@ -452,6 +473,187 @@ class _LslSettingsDialogState extends State<_LslSettingsDialog> {
       title: const Text('LSL settings'),
       content: SizedBox(width: 680, child: SingleChildScrollView(child: body)),
       actions: actions,
+    );
+  }
+}
+
+String _pretty(String xml) {
+  if (xml.isEmpty) return '';
+  try {
+    return XmlDocument.parse(xml).toXmlString(pretty: true, indent: '  ');
+  } catch (_) {
+    return xml;
+  }
+}
+
+String _field(String xml, String name) {
+  if (xml.isEmpty) return '';
+  try {
+    final info = XmlDocument.parse(xml).rootElement;
+    return info.getElement(name)?.innerText.trim() ?? '';
+  } catch (_) {
+    return '';
+  }
+}
+
+/// Everything about [stream]: its header fields, its full info XML, and
+/// for a stream open in [session], the live clock offset and rates.
+Future<void> showLslStreamInfo(
+  BuildContext context,
+  LslStreamDescription stream, {
+  LslSession? session,
+}) => showDialog<void>(
+  context: context,
+  builder: (_) => _LslStreamInfoDialog(stream, session),
+);
+
+class _LslStreamInfoDialog extends StatefulWidget {
+  final LslStreamDescription stream;
+  final LslSession? session;
+  const _LslStreamInfoDialog(this.stream, this.session);
+
+  @override
+  State<_LslStreamInfoDialog> createState() => _LslStreamInfoDialogState();
+}
+
+class _LslStreamInfoDialogState extends State<_LslStreamInfoDialog> {
+  Timer? _timer;
+  double? _offset;
+  String? _offsetError;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.session != null) {
+      _poll();
+      _timer = Timer.periodic(const Duration(seconds: 2), (_) => _poll());
+    }
+  }
+
+  Future<void> _poll() async {
+    final s = widget.session;
+    if (s == null || s.closed) return;
+    try {
+      final o = await s.inlet.timeCorrection();
+      if (mounted) {
+        setState(() {
+          _offset = o;
+          _offsetError = null;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _offsetError = '$e');
+    }
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final s = widget.stream;
+    final session = widget.session;
+    final full = session?.inlet.fullXml ?? '';
+    final xml = full.isNotEmpty ? full : s.xml;
+    String num(double v, [int digits = 3]) => v.toStringAsFixed(digits);
+    final created = double.tryParse(_field(xml, 'created_at'));
+    final rows = <(String, String)>[
+      ('Name', s.name),
+      ('Type', s.type),
+      ('Channels', '${s.channelCount}'),
+      ('Nominal rate', s.rate > 0 ? '${num(s.rate, 2)} Hz' : 'irregular'),
+      ('Format', s.format.name),
+      ('Source ID', s.sourceId.isEmpty ? '—' : s.sourceId),
+      ('Host', s.hostname.isEmpty ? '—' : s.hostname),
+      ('UID', s.uid.isEmpty ? '—' : s.uid),
+      ('Session', _field(xml, 'session_id')),
+      ('Version', _field(xml, 'version')),
+      if (created != null && created > 0)
+        ('Created', '${num(lsl.clock() - created, 1)} s ago'),
+      if (session != null) ...[
+        (
+          'Clock offset',
+          _offsetError != null
+              ? 'unavailable ($_offsetError)'
+              : _offset == null
+              ? 'measuring…'
+              : '${num(_offset! * 1000, 3)} ms',
+        ),
+        (
+          'Measured rate',
+          session.measuredRate == null
+              ? '—'
+              : '${num(session.measuredRate!, 3)} Hz',
+        ),
+        ('Received', '${session.received} samples'),
+        if (session.lostSampleCount > 0)
+          ('Filled gaps', '${session.lostSampleCount} samples'),
+      ],
+    ];
+    return AlertDialog(
+      title: Text(s.name),
+      content: SizedBox(
+        width: 620,
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Table(
+                columnWidths: const {
+                  0: IntrinsicColumnWidth(),
+                  1: FlexColumnWidth(),
+                },
+                children: [
+                  for (final (k, v) in rows)
+                    TableRow(
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.only(right: 16, bottom: 4),
+                          child: Text(k, style: theme.textTheme.labelMedium),
+                        ),
+                        SelectableText(v),
+                      ],
+                    ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Text('Stream info', style: theme.textTheme.titleSmall),
+              if (full.isEmpty)
+                Text(
+                  session == null
+                      ? 'The description (desc: channels and so on) is '
+                            'fetched when the stream is opened.'
+                      : 'The sender gave no description.',
+                  style: theme.textTheme.bodySmall,
+                ),
+              const SizedBox(height: 4),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(8),
+                color: theme.colorScheme.surfaceContainerHighest,
+                child: SelectableText(
+                  xml.isEmpty ? '(none)' : _pretty(xml),
+                  style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Clipboard.setData(ClipboardData(text: xml)),
+          child: const Text('Copy XML'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Close'),
+        ),
+      ],
     );
   }
 }

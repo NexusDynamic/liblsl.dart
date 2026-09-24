@@ -103,7 +103,10 @@ class _NativeLsl implements LslBackend {
     } catch (_) {
       // No metadata (e.g. the outlet is gone again): default labels.
     }
-    return _Inlet(stream, channels, inlet, [info, ?full]);
+    return _Inlet(stream, channels, inlet, [
+      info,
+      ?full,
+    ], full == null ? '' : _xmlOf(full));
   }
 
   @override
@@ -202,6 +205,14 @@ LslFormat _format(LSLChannelFormat f) => switch (f) {
   LSLChannelFormat.undefined => LslFormat.undefined,
 };
 
+String _xmlOf(LSLStreamInfo s) {
+  try {
+    return s.toXml();
+  } catch (_) {
+    return '';
+  }
+}
+
 LslStreamDescription _describe(LSLStreamInfo s) => LslStreamDescription(
   name: s.streamName,
   type: s.streamType.value,
@@ -211,6 +222,7 @@ LslStreamDescription _describe(LSLStreamInfo s) => LslStreamDescription(
   sourceId: s.sourceId,
   hostname: s.hostname ?? '',
   uid: s.uid ?? '',
+  xml: _xmlOf(s),
   handle: s,
 );
 
@@ -265,7 +277,13 @@ class _Inlet implements LslInlet {
   final List<LSLStreamInfo> _infos;
   bool _closed = false;
 
-  _Inlet(this.stream, this.channels, this._inlet, this._infos);
+  @override
+  final String fullXml;
+
+  _Inlet(this.stream, this.channels, this._inlet, this._infos, this.fullXml);
+
+  @override
+  Future<double> timeCorrection() => _inlet.getTimeCorrection(timeout: 2);
 
   @override
   Future<LslChunk> pull(int maxSamples) async {

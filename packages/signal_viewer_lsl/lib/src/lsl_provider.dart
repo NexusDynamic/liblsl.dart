@@ -96,6 +96,10 @@ class LslProvider extends SourceProvider {
   /// Whether the stream [key] is open in a tab.
   bool isOpen(String key) => sessions.any((s) => s.key == key);
 
+  /// The session receiving stream [key], if open.
+  LslSession? sessionOf(String key) =>
+      sessions.where((s) => s.key == key).firstOrNull;
+
   /// Receive [stream] in a new tab.
   Future<void> connect(LslStreamDescription stream) async {
     if (isOpen(stream.key) || !connecting.add(stream.key)) return;
@@ -134,6 +138,19 @@ class LslProvider extends SourceProvider {
         'View streams…',
         narrowLabel: 'LSL streams…',
         onPressed: () => showLslStreams(context, this),
+      ),
+      ViewerAction(
+        'LSL',
+        'Stream info…',
+        onPressed: switch (app.currentTab?.session) {
+          final LslSession s => () => showLslStreamInfo(
+            context,
+            s.inlet.stream,
+            session: s,
+          ),
+          _ => null,
+        },
+        order: 50,
       ),
       ViewerAction(
         'LSL',

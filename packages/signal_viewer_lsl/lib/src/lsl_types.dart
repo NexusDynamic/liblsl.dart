@@ -27,6 +27,11 @@ class LslStreamDescription {
   final String hostname;
   final String uid;
 
+  /// The stream's info as LSL gives it on discovery (`info` XML: name,
+  /// type, host, session, created_at and so on; `desc` may be empty until
+  /// an inlet asks for the full info).
+  final String xml;
+
   /// The backend's native stream info.
   final Object? handle;
 
@@ -39,6 +44,7 @@ class LslStreamDescription {
     this.sourceId = '',
     this.hostname = '',
     this.uid = '',
+    this.xml = '',
     this.handle,
   });
 
@@ -92,6 +98,14 @@ abstract class LslInlet {
 
   /// Everything buffered, up to [maxSamples]. Does not wait.
   Future<LslChunk> pull(int maxSamples);
+
+  /// The stream's full info (`info` XML with `desc`), or empty if the
+  /// sender did not give it.
+  String get fullXml;
+
+  /// The current clock offset: add it to the sender's time stamps to get
+  /// this computer's LSL clock.
+  Future<double> timeCorrection();
 
   Future<void> close();
 }
