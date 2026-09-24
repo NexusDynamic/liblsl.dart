@@ -657,3 +657,95 @@ class _LslStreamInfoDialogState extends State<_LslStreamInfoDialog> {
     );
   }
 }
+
+/// Streams on the network to record: all are chosen at first. Null if
+/// cancelled.
+Future<List<LslStreamDescription>?> showLslRecordStreams(
+  BuildContext context,
+  LslProvider app,
+) async {
+  app.startDiscovery();
+  try {
+    return await showDialog<List<LslStreamDescription>>(
+      context: context,
+      builder: (_) => _LslRecordDialog(app),
+    );
+  } finally {
+    app.stopDiscovery();
+  }
+}
+
+class _LslRecordDialog extends StatefulWidget {
+  final LslProvider app;
+  const _LslRecordDialog(this.app);
+
+  @override
+  State<_LslRecordDialog> createState() => _LslRecordDialogState();
+}
+
+class _LslRecordDialogState extends State<_LslRecordDialog> {
+  /// Streams left out, by key; new ones are in.
+  final Set<String> _skipped = {};
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return ListenableBuilder(
+      listenable: widget.app,
+      builder: (context, _) {
+        final streams = widget.app.streams;
+        final chosen = [
+          for (final s in streams)
+            if (!_skipped.contains(s.key)) s,
+        ];
+        return AlertDialog(
+          title: const Text('Record LSL streams to XDF'),
+          content: SizedBox(
+            width: 560,
+            child: streams.isEmpty
+                ? const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 24),
+                    child: Text('Looking for LSL streams…'),
+                  )
+                : ListView(
+                    shrinkWrap: true,
+                    children: [
+                      Text(
+                        'Time stamps are recorded as sent, with clock '
+                        'offsets, as LabRecorder does; readers (pyxdf, '
+                        'this viewer) synchronise them.',
+                        style: theme.textTheme.bodySmall,
+                      ),
+                      for (final s in streams)
+                        CheckboxListTile(
+                          value: !_skipped.contains(s.key),
+                          onChanged: (v) => setState(
+                            () => v == true
+                                ? _skipped.remove(s.key)
+                                : _skipped.add(s.key),
+                          ),
+                          secondary: Icon(_icon(s)),
+                          title: Text(s.name),
+                          subtitle: Text(s.summary),
+                        ),
+                    ],
+                  ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            FilledButton.icon(
+              onPressed: chosen.isEmpty
+                  ? null
+                  : () => Navigator.pop(context, chosen),
+              icon: const Icon(Icons.fiber_manual_record),
+              label: Text('Record ${chosen.length}'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}

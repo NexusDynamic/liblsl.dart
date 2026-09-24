@@ -302,17 +302,18 @@ class _Inlet implements LslInlet {
     final c = await _inlet.pullChunkTyped(maxSamples: maxSamples);
     if (c.isEmpty) return LslChunk.empty;
     final data = c.data;
-    final Float32List values;
-    if (data is Float32List) {
-      values = data;
+    final List<double> values;
+    if (data is Float32List || data is Float64List) {
+      values = data as List<double>;
     } else {
-      // Other formats become float32, as everything the plot shows is.
+      // Integers as doubles (exact up to 2^53).
       final n = c.sampleCount * c.channelCount;
-      values = Float32List(n);
+      final f = Float64List(n);
       final src = data as List<num>;
       for (var i = 0; i < n; i++) {
-        values[i] = src[i].toDouble();
+        f[i] = src[i].toDouble();
       }
+      values = f;
     }
     return LslChunk(c.timestamps, values: values);
   }

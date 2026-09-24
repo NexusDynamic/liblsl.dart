@@ -87,6 +87,7 @@ class LslSession extends SourceSession implements LiveData {
     return StreamInfo(
       key: s.key,
       name: s.name,
+      type: s.type,
       kind: s.format.isString ? Kind.event : kindFromType(s.type),
       rate: s.format.isString ? 0 : s.rate,
       labels: [for (final c in inlet.channels) c.label],

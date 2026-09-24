@@ -45,6 +45,10 @@ abstract class SourceSession extends ChangeNotifier {
   /// in "EEG · ports 0–3".
   String get memberNoun => 'streams';
 
+  /// Whether it is a recording that can be played back as live streams
+  /// (e.g. over LSL) through [sourceFor].
+  bool get replayable => false;
+
   /// Whether event channels of [info] can be decoded as Manchester
   /// triggers (not for streams whose values are text).
   bool decodable(StreamInfo info) => true;

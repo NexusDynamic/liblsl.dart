@@ -53,6 +53,10 @@ class StreamInfo {
   /// A short name for the stream in the labels of channels merged from
   /// several streams, e.g. `P0` in `P0:ch1`.
   final String tag;
+
+  /// The source's type of the stream (e.g. an LSL stream type such as
+  /// `EEG` or `Markers`); empty if it has none.
+  final String type;
   final Kind kind;
 
   /// Nominal sampling rate in Hz, 0 for irregular streams.
@@ -74,6 +78,7 @@ class StreamInfo {
     required this.key,
     required this.name,
     String? tag,
+    this.type = '',
     required this.kind,
     required this.rate,
     required this.labels,
@@ -119,6 +124,7 @@ class StreamInfo {
     key: key,
     name: name ?? this.name,
     tag: tag,
+    type: type,
     kind: kind ?? this.kind,
     rate: rate,
     labels: labels ?? this.labels,

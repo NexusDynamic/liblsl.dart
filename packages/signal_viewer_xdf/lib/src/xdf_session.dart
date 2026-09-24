@@ -70,6 +70,7 @@ class XdfSession extends SourceSession {
     return StreamInfo(
       key: keyOf(i),
       name: i.name.isEmpty ? 'Stream ${s.id}' : i.name,
+      type: i.type,
       kind: i.format.isString ? Kind.event : kindFromType(i.type),
       rate: s.regular ? i.nominalRate : 0,
       labels: [for (var c = 0; c < n; c++) i.label(c)],
@@ -89,6 +90,9 @@ class XdfSession extends SourceSession {
 
   @override
   bool get groupable => false;
+
+  @override
+  bool get replayable => true;
 
   @override
   String get rememberKey => 'xdf:$name';

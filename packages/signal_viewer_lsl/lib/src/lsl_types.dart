@@ -75,8 +75,10 @@ class LslChunk {
   /// Time stamp of each sample, in seconds on the LSL clock.
   final Float64List times;
 
-  /// `times.length * channelCount` values (numeric streams).
-  final Float32List? values;
+  /// `times.length * channelCount` values (numeric streams): a
+  /// [Float32List] for float32 streams, a [Float64List] for the others
+  /// (so double and integer values keep their precision).
+  final List<double>? values;
 
   /// `times.length * channelCount` strings (string streams).
   final List<String>? strings;
