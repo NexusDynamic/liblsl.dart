@@ -343,15 +343,20 @@ abstract class ChunkedSignalEngine {
         notch: spec.notch,
       );
       for (final col in cols) {
+        // Each run of data on its own: a gap (NaN) would spread through
+        // the filter to all of it.
         var s = 0;
-        while (s < col.length && col[s].isNaN) {
-          s++;
+        while (s < col.length) {
+          while (s < col.length && col[s].isNaN) {
+            s++;
+          }
+          var e = s;
+          while (e < col.length && !col[e].isNaN) {
+            e++;
+          }
+          if (e - s > 1) sos.filtfilt(Float64List.sublistView(col, s, e));
+          s = e;
         }
-        var e = col.length;
-        while (e > s && col[e - 1].isNaN) {
-          e--;
-        }
-        if (e - s > 1) sos.filtfilt(Float64List.sublistView(col, s, e));
         if (!keep) await _giveWay();
       }
     }
