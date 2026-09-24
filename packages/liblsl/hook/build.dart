@@ -111,9 +111,6 @@ void main(List<String> args) async {
           '_WIN32_WINNT': '0x0601',
           '_CRT_SECURE_NO_WARNINGS': null,
           'LSLNOAUTOLINK': null,
-          // temporary hack for windows MSVC 18+
-          // Upstream liblsl will need to update
-          '_SILENCE_EXPERIMENTAL_COROUTIN_DEPRECATION_WARNINGS': null,
         });
         flags.add('/EHsc');
         libraries.addAll(['winmm', 'iphlpapi', 'mswsock', 'ws2_32']);
