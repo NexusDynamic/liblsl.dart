@@ -18,21 +18,50 @@
 
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <meta name="description" content="Lab Streaming Layer stream and XDF recording viewer">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Open and view XDF files (LabRecorder recordings) in your browser, and view live Lab Streaming Layer (LSL) streams through a bridge. Free, open source; files are read locally, never uploaded.">
+  <meta name="keywords" content="XDF viewer, XDF file viewer, XDF reader, open XDF file online, LabRecorder, Lab Streaming Layer, LSL viewer, LSL stream viewer, EEG viewer">
+  <link rel="canonical" href="https://nexusdynamic.org/liblsl.dart/lsl_viewer/">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="LSL Viewer – XDF file viewer and LSL stream viewer">
+  <meta property="og:description" content="View XDF recordings and live Lab Streaming Layer streams in your browser. Free and open source.">
+  <meta property="og:url" content="https://nexusdynamic.org/liblsl.dart/lsl_viewer/">
+  <meta property="og:image" content="https://nexusdynamic.org/liblsl.dart/lsl_viewer/icons/Icon-512.png">
+  <meta name="theme-color" content="#12344D">
 
   <!-- iOS meta tags & icons -->
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="apple-mobile-web-app-title" content="lsl_viewer">
+  <meta name="apple-mobile-web-app-title" content="LSL Viewer">
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
 
   <!-- Favicon -->
   <link rel="icon" type="image/png" href="favicon.png"/>
 
-  <title>LSL Viewer</title>
+  <title>LSL Viewer – XDF file viewer and LSL stream viewer (web app)</title>
   <link rel="manifest" href="manifest.json">
 </head>
 <body>
+  <!-- Shown until the app draws its first frame, and to crawlers and
+       browsers without JavaScript. -->
+  <main id="about" style="font-family: system-ui, sans-serif; max-width: 40em; margin: 3em auto; padding: 0 16px; color: #16202a;">
+    <h1>LSL Viewer: XDF file viewer and Lab Streaming Layer stream viewer</h1>
+    <p>Open <strong>XDF files</strong> (recordings from LabRecorder and
+      other Lab Streaming Layer tools) of any size in your browser, one tab
+      per stream, with filters, re-referencing, power spectra and trigger
+      decoding. Files are read on your computer and never uploaded. Live
+      <strong>LSL streams</strong> can be viewed through a
+      <a href="https://nexusdynamic.org/liblsl.dart/relay.html">WebSocket bridge</a>.</p>
+    <p>Loading the app… It needs JavaScript. Desktop and Android versions:
+      <a href="https://github.com/NexusDynamic/liblsl.dart/releases?q=lsl_viewer&amp;expanded=true">releases</a>.
+      More: <a href="https://nexusdynamic.org/liblsl.dart/">nexusdynamic.org/liblsl.dart</a>.</p>
+  </main>
+  <script>
+    window.addEventListener('flutter-first-frame', function () {
+      var about = document.getElementById('about');
+      if (about) about.remove();
+    });
+  </script>
   <!--
     You can customize the "flutter_bootstrap.js" script.
     This is useful to provide a custom configuration to the Flutter loader
