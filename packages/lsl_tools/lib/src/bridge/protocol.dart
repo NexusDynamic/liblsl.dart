@@ -1,16 +1,33 @@
 /// The LSL bridge protocol: LSL streams over a WebSocket.
 ///
+/// Connecting: `ws://host:port/?token=<token>` (the token only when the
+/// bridge has one). A plain HTTP GET of the same URL answers
+/// `{"streams": [...], "accepts_publish": bool}`.
+///
 /// Text frames are JSON control messages:
-/// - server → client `{"type": "streams", "streams": [...]}`: the streams
-///   shared (on connecting, and when they change);
+/// - server → client `{"type": "streams", "streams": [...],
+///   "accepts_publish": bool}`: the streams shared ([BridgeStream.toJson]),
+///   sent on connecting and again whenever they change (a stream shared or
+///   gone, a client publishing or leaving). Ids are never reused.
 /// - client → server `{"type": "subscribe", "ids": [...]}`: the streams to
 ///   send (replaces the previous subscription);
 /// - client → server `{"type": "ping", "t": <client time>}`, answered by
-///   `{"type": "pong", "t": <the same>, "server": <server LSL time>}`, which
+///   `{"type": "pong", "t": <the same>, "server": <server time>}`, which
 ///   the client uses to map the server's clock onto its own.
+/// - client → server `{"type": "publish", "streams": [...]}`: streams the
+///   client will send samples of, with ids of its choosing. A bridge that
+///   accepts published streams shares each with every client (as a new id)
+///   and may also make it an LSL outlet on its computer. It answers
+///   `{"type": "published", "ids": [...], "shared_ids": {...},
+///   "errors": {...}}`: the ids it took, what each is shared as (client id
+///   to shared id), and why the others were refused (by client id).
+/// - client → server `{"type": "unpublish", "ids": [...]}`: stop
+///   publishing (also when the client disconnects).
 ///
-/// Binary frames are samples ([encodeSamples]): time stamps on the
-/// server's LSL clock (already synchronised to it).
+/// Binary frames are samples ([encodeSamples]) with time stamps on the
+/// server's clock: from server to client for subscribed streams, and from
+/// client to server for published ones (under the client's id). Values
+/// travel as float32.
 library;
 
 import 'dart:convert';

@@ -1021,7 +1021,7 @@ class _BridgeDialogState extends State<_BridgeDialog> {
                     ),
                   ],
                 ),
-                for (final s in b.streams)
+                for (final s in b.others)
                   ListTile(
                     dense: true,
                     leading: Icon(_icon(s.description)),
