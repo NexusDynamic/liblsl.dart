@@ -1,3 +1,3 @@
-[submodule "packages/liblsl/src/liblsl-1.16.2"]
+[submodule "packages/liblsl/src/liblsl-dart_main"]
 	path = packages/liblsl/src/liblsl-dart_main
-	url = https://github.com/zeyus/liblsl.git
+	url = https://github.com/NexusDynamic/liblsl.git
