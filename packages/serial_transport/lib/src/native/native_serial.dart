@@ -267,6 +267,15 @@ Future<void> _ioMain((SendPort, String, int) args) async {
     }
   });
 
+  final ping = RawReceivePort();
+  Completer<void>? pong;
+  ping.handler = (Object? _) => pong?.complete();
+  Future<void> yieldToMessages() {
+    pong = Completer<void>();
+    ping.sendPort.send(null);
+    return pong!.future;
+  }
+
   final buf = malloc<Uint8>(_readBufferSize);
   while (!closing && !failed) {
     final n = hss.hss_read(
@@ -286,10 +295,13 @@ Future<void> _ioMain((SendPort, String, int) args) async {
       toMain.send(['error', error()]);
       failed = true;
     }
-    // Let write and close requests in.
-    await Future<void>.delayed(Duration.zero);
+    // Let write and close requests in: a message to ourselves comes after
+    // those already queued (a timer does not, in every embedder: Flutter's
+    // would starve them).
+    await yieldToMessages();
   }
 
+  ping.close();
   hss.hss_close(handle);
   malloc.free(buf);
   calloc.free(err);

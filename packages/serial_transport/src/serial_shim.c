@@ -304,6 +304,7 @@ int hss_close(intptr_t handle)
 #include <stdlib.h>
 #include <sys/ioctl.h>
 #include <termios.h>
+#include <time.h>
 #include <unistd.h>
 #if defined(__APPLE__)
 #include <IOKit/serial/ioss.h>
@@ -420,11 +421,27 @@ int hss_read(intptr_t handle, uint8_t *buf, int len, int timeout_ms, char *err, 
 {
     int fd = (int)handle;
     struct pollfd pfd = {fd, POLLIN, 0};
-    int ret;
-    do
+    /* A signal (e.g. the Dart VM profiler's SIGPROF, every millisecond or
+       so) interrupts poll(): wait for what is left of the timeout, or the
+       wait never ends. */
+    struct timespec start, now;
+    clock_gettime(CLOCK_MONOTONIC, &start);
+    int ret, left = timeout_ms;
+    for (;;)
     {
-        ret = poll(&pfd, 1, timeout_ms);
-    } while (ret < 0 && errno == EINTR);
+        ret = poll(&pfd, 1, left);
+        if (ret >= 0 || errno != EINTR)
+            break;
+        clock_gettime(CLOCK_MONOTONIC, &now);
+        long spent = (long)(now.tv_sec - start.tv_sec) * 1000 +
+                     (now.tv_nsec - start.tv_nsec) / 1000000;
+        if (spent >= timeout_ms)
+        {
+            ret = 0;
+            break;
+        }
+        left = timeout_ms - (int)spent;
+    }
 
     if (ret < 0)
     {
