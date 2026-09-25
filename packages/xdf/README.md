@@ -4,6 +4,11 @@ Read and write [XDF](https://github.com/sccn/xdf/wiki/Specifications)
 (Extensible Data Format) recordings, the file format of LabRecorder and the
 Lab Streaming Layer. Pure Dart; works on all platforms, including the web.
 
+**Just want to look at an XDF file?** Open it in
+[LSL Viewer](https://nexusdynamic.org/liblsl.dart/lsl_viewer/), a free XDF
+file viewer built on this package. It runs in the browser (the file isn't
+uploaded) and on the desktop.
+
 - `loadXdf(bytes)`: a whole file in memory, like pyxdf's `load_xdf`: clock
   synchronisation (robust fit, clock reset detection), jitter removal and
   effective rates, with pyxdf's algorithms and defaults. Tested against
@@ -23,3 +28,7 @@ for (final s in rec.streams) {
   print('${s.info.name}: ${s.length} samples at ${s.effectiveRate} Hz');
 }
 ```
+
+Coming from Python: `loadXdf` corresponds to pyxdf's `load_xdf` and gives
+the same results on the reference files. `XdfFile` is for files too large to
+load at once.
