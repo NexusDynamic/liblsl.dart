@@ -48,6 +48,12 @@ HSS_EXPORT int hss_list_ports(char *buf, int buf_len);
 /// Returns a handle, or HSS_INVALID_HANDLE on failure.
 HSS_EXPORT intptr_t hss_open(const char *path, char *err, int err_len);
 
+/// Like hss_open(), at `baud` bits per second (0 for the default, 230400;
+/// USB CDC devices ignore it). On POSIX systems the standard rates are
+/// supported, and on macOS any rate.
+HSS_EXPORT intptr_t hss_open_baud(const char *path, int baud, char *err,
+                                  int err_len);
+
 /// Read up to `len` bytes, waiting at most `timeout_ms` for the first byte.
 ///
 /// Returns the number of bytes read, 0 on timeout, or -1 on error or when the

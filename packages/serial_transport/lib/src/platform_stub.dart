@@ -24,8 +24,9 @@ class UnsupportedSerialPortProvider implements SerialPortProvider {
   }) async => null;
 
   @override
-  Future<SerialTransport> open(SerialPortInfo port) => throw UnsupportedError(
-    'No built-in serial ports on this platform. Provide a SerialTransport '
-    '(e.g. from a USB serial plugin on Android).',
-  );
+  Future<SerialTransport> open(SerialPortInfo port, {int? baudRate}) =>
+      throw UnsupportedError(
+        'No built-in serial ports on this platform. Provide a SerialTransport '
+        '(e.g. from a USB serial plugin on Android).',
+      );
 }

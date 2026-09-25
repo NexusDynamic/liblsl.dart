@@ -36,6 +36,24 @@ external int hss_open(
   int err_len,
 );
 
+/// Like hss_open(), at `baud` bits per second (0 for the default, 230400;
+/// USB CDC devices ignore it). On POSIX systems the standard rates are
+/// supported, and on macOS any rate.
+@ffi.Native<
+  ffi.IntPtr Function(
+    ffi.Pointer<ffi.Char>,
+    ffi.Int,
+    ffi.Pointer<ffi.Char>,
+    ffi.Int,
+  )
+>()
+external int hss_open_baud(
+  ffi.Pointer<ffi.Char> path,
+  int baud,
+  ffi.Pointer<ffi.Char> err,
+  int err_len,
+);
+
 /// Read up to `len` bytes, waiting at most `timeout_ms` for the first byte.
 ///
 /// Returns the number of bytes read, 0 on timeout, or -1 on error or when the

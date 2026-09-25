@@ -189,6 +189,11 @@ int hss_list_ports(char *buf, int buf_len)
 
 intptr_t hss_open(const char *path, char *err, int err_len)
 {
+    return hss_open_baud(path, 0, err, err_len);
+}
+
+intptr_t hss_open_baud(const char *path, int baud, char *err, int err_len)
+{
     char full[300];
     /* Required for COM10 and up */
     snprintf(full, sizeof(full), "\\\\.\\%s", path);
@@ -207,8 +212,8 @@ intptr_t hss_open(const char *path, char *err, int err_len)
         CloseHandle(h);
         return HSS_INVALID_HANDLE;
     }
-    /* USB CDC ignores the baud rate, set a standard value for compatibility */
-    dcb.BaudRate = 230400;
+    /* USB CDC ignores the baud rate; 230400 unless asked otherwise */
+    dcb.BaudRate = baud > 0 ? (DWORD)baud : 230400;
     dcb.ByteSize = 8;
     dcb.StopBits = ONESTOPBIT;
     dcb.Parity = NOPARITY;
@@ -300,9 +305,60 @@ int hss_close(intptr_t handle)
 #include <sys/ioctl.h>
 #include <termios.h>
 #include <unistd.h>
+#if defined(__APPLE__)
+#include <IOKit/serial/ioss.h>
+#endif
+
+/* The termios constant for `baud`, or 0 if there is none. */
+static speed_t baud_constant(int baud)
+{
+    switch (baud)
+    {
+    case 1200: return B1200;
+    case 2400: return B2400;
+    case 4800: return B4800;
+    case 9600: return B9600;
+    case 19200: return B19200;
+    case 38400: return B38400;
+    case 57600: return B57600;
+    case 115200: return B115200;
+    case 230400: return B230400;
+#ifdef B460800
+    case 460800: return B460800;
+#endif
+#ifdef B500000
+    case 500000: return B500000;
+#endif
+#ifdef B921600
+    case 921600: return B921600;
+#endif
+#ifdef B1000000
+    case 1000000: return B1000000;
+#endif
+#ifdef B2000000
+    case 2000000: return B2000000;
+#endif
+    default: return 0;
+    }
+}
 
 intptr_t hss_open(const char *path, char *err, int err_len)
 {
+    return hss_open_baud(path, 0, err, err_len);
+}
+
+intptr_t hss_open_baud(const char *path, int baud, char *err, int err_len)
+{
+    if (baud <= 0)
+        baud = 230400;
+    speed_t speed = baud_constant(baud);
+#if !defined(__APPLE__)
+    if (speed == 0)
+    {
+        set_err(err, err_len, "Unsupported baud rate %d", baud);
+        return HSS_INVALID_HANDLE;
+    }
+#endif
     /* O_NONBLOCK so open() does not wait for carrier detect (e.g. /dev/tty.* on macOS) */
     int fd = open(path, O_RDWR | O_NOCTTY | O_NONBLOCK);
     if (fd < 0)
@@ -324,9 +380,11 @@ intptr_t hss_open(const char *path, char *err, int err_len)
     if (what == NULL)
     {
         cfmakeraw(&tty);
-        /* USB CDC ignores the baud rate, set a standard value for compatibility */
-        cfsetispeed(&tty, B230400);
-        cfsetospeed(&tty, B230400);
+        /* USB CDC ignores the baud rate. On macOS a rate without a constant
+           is set with IOSSIOSPEED below. */
+        speed_t standard = speed != 0 ? speed : B230400;
+        cfsetispeed(&tty, standard);
+        cfsetospeed(&tty, standard);
         tty.c_cflag &= ~(CSIZE | PARENB | CSTOPB | CRTSCTS | HUPCL);
         tty.c_cflag |= CS8 | CLOCAL | CREAD;
         tty.c_iflag &= ~(IXON | IXOFF | IXANY);
@@ -334,6 +392,14 @@ intptr_t hss_open(const char *path, char *err, int err_len)
         tty.c_cc[VTIME] = 0;
         if (tcsetattr(fd, TCSANOW, &tty) != 0)
             what = "Failed to set serial parameters";
+#if defined(__APPLE__)
+        else if (speed == 0)
+        {
+            speed_t any = (speed_t)baud;
+            if (ioctl(fd, IOSSIOSPEED, &any) < 0)
+                what = "Failed to set the baud rate";
+        }
+#endif
     }
     if (what != NULL)
     {

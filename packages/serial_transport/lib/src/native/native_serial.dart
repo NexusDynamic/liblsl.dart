@@ -63,9 +63,9 @@ class NativeSerialPortProvider implements SerialPortProvider {
   }
 
   @override
-  Future<SerialTransport> open(SerialPortInfo port) {
+  Future<SerialTransport> open(SerialPortInfo port, {int? baudRate}) {
     _checkSupported();
-    return NativeSerialTransport.open(port.id);
+    return NativeSerialTransport.open(port.id, baudRate: baudRate);
   }
 
   void _checkSupported() {
@@ -121,14 +121,19 @@ class NativeSerialTransport implements SerialTransport {
 
   NativeSerialTransport._(this.path, this._toIo, this._fromIo, this._input);
 
-  /// Open the serial port at [path] (e.g. `/dev/ttyACM0` or `COM3`).
-  static Future<NativeSerialTransport> open(String path) async {
+  /// Open the serial port at [path] (e.g. `/dev/ttyACM0` or `COM3`), at
+  /// [baudRate] if given.
+  static Future<NativeSerialTransport> open(
+    String path, {
+    int? baudRate,
+  }) async {
     final fromIo = ReceivePort('serial $path');
     final messages = StreamIterator(fromIo);
     try {
       await Isolate.spawn(_ioMain, (
         fromIo.sendPort,
         path,
+        baudRate ?? 0,
       ), debugName: 'serial $path');
     } catch (_) {
       fromIo.close();
@@ -225,13 +230,13 @@ class NativeSerialTransport implements SerialTransport {
 
 /// Entry point of the I/O isolate: opens the port, then alternates between
 /// reads (with a short timeout) and handling write/close requests.
-Future<void> _ioMain((SendPort, String) args) async {
-  final (toMain, path) = args;
+Future<void> _ioMain((SendPort, String, int) args) async {
+  final (toMain, path, baud) = args;
   final err = calloc<Char>(_errLen);
   String error() => err.cast<Utf8>().toDartString();
 
   final nativePath = path.toNativeUtf8();
-  final handle = hss.hss_open(nativePath.cast(), err, _errLen);
+  final handle = hss.hss_open_baud(nativePath.cast(), baud, err, _errLen);
   calloc.free(nativePath);
   if (handle == hss.HSS_INVALID_HANDLE) {
     toMain.send(['failed', error()]);

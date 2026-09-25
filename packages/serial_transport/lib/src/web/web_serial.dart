@@ -107,13 +107,13 @@ class WebSerialPortProvider implements SerialPortProvider {
   }
 
   @override
-  Future<SerialTransport> open(SerialPortInfo port) async {
+  Future<SerialTransport> open(SerialPortInfo port, {int? baudRate}) async {
     _checkSupported();
     final handle = port.handle;
     if (handle is! _PortHandle) {
       throw ArgumentError.value(port, 'port', 'not a WebSerial port');
     }
-    return WebSerialTransport._open(handle.port);
+    return WebSerialTransport._open(handle.port, baudRate ?? 230400);
   }
 
   _Serial _checkSupported() {
@@ -168,12 +168,10 @@ class WebSerialTransport implements SerialTransport {
     _readLoop();
   }
 
-  static Future<WebSerialTransport> _open(_SerialPort port) async {
+  static Future<WebSerialTransport> _open(_SerialPort port, int baud) async {
     try {
       // USB CDC ignores the baud rate; the value matches the native library.
-      await port
-          .open(_SerialOptions(baudRate: 230400, bufferSize: 65536))
-          .toDart;
+      await port.open(_SerialOptions(baudRate: baud, bufferSize: 65536)).toDart;
     } catch (e) {
       throw SerialException('Failed to open serial port: $e');
     }

@@ -94,6 +94,33 @@ void main() {
         expect(String.fromCharCodes(fromB), 'pong');
       });
 
+      test('ports open at a chosen baud rate', () async {
+        final a = await provider.open(
+          SerialPortInfo(id: pty.a),
+          baudRate: 9600,
+        );
+        final b = await provider.open(
+          SerialPortInfo(id: pty.b),
+          baudRate: 115200,
+        );
+        addTearDown(a.close);
+        addTearDown(b.close);
+        final got = <int>[];
+        b.input.listen(got.addAll);
+        await a.write('hello'.codeUnits);
+        for (var i = 0; i < 50 && got.length < 5; i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+        }
+        expect(String.fromCharCodes(got), 'hello');
+      });
+
+      test('an unsupported baud rate is refused', () async {
+        await expectLater(
+          provider.open(SerialPortInfo(id: pty.a), baudRate: 12345),
+          throwsA(isA<SerialException>()),
+        );
+      }, testOn: 'linux');
+
       test('a disconnect is reported', () async {
         final a = await provider.open(SerialPortInfo(id: pty.a));
         final done = Completer<void>();

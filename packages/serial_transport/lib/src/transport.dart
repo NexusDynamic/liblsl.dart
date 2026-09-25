@@ -102,8 +102,9 @@ abstract interface class SerialPortProvider {
     bool Function(SerialPortInfo port)? where,
   });
 
-  /// Open [port].
-  Future<SerialTransport> open(SerialPortInfo port);
+  /// Open [port], at [baudRate] bits per second if given (USB CDC devices
+  /// ignore it; UART adapters need it).
+  Future<SerialTransport> open(SerialPortInfo port, {int? baudRate});
 }
 
 /// Thrown when a serial port cannot be opened, read or written.
