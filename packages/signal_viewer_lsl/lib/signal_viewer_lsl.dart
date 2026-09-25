@@ -7,6 +7,7 @@ library;
 
 export 'src/lsl.dart';
 export 'src/lsl_dialogs.dart';
+export 'src/lsl_forward.dart';
 export 'src/lsl_provider.dart';
 export 'src/lsl_recorder.dart';
 export 'src/lsl_replay.dart';

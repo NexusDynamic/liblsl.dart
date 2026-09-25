@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import 'lsl_session.dart';
 import 'lsl_dialogs.dart';
+import 'lsl_forward.dart';
 import 'lsl_recorder.dart';
 import 'lsl_replay.dart';
 import 'lsl_test_outlets.dart';
@@ -52,6 +53,43 @@ class LslProvider extends SourceProvider {
 
   /// Streams being connected to, by key.
   final Set<String> connecting = {};
+
+  /// Streams being forwarded under another name.
+  final List<LslForward> forwards = [];
+
+  /// Forward the stream of [tab] as [name], with only its shown channels
+  /// and its processing if asked.
+  Future<void> forward(
+    TabEntry tab, {
+    required String name,
+    required bool shownOnly,
+    required bool processed,
+  }) async {
+    final session = tab.session;
+    if (session is! LslSession) return;
+    final c = tab.controller;
+    try {
+      forwards.add(
+        await LslForward.start(
+          session,
+          name: name,
+          channels: shownOnly ? ([...c.lanes]..sort()) : null,
+          derived: processed ? c.spec : DerivedSpec.none,
+          options: app.prefs.lsl.outlet,
+        ),
+      );
+      app.setStatus('Forwarding ${session.info.name} as $name');
+    } catch (e) {
+      app.setError('Could not forward ${session.info.name}: $e');
+    }
+    notifyListeners();
+  }
+
+  Future<void> stopForward(LslForward f) async {
+    forwards.remove(f);
+    notifyListeners();
+    await f.close();
+  }
 
   /// Synthetic streams being sent (Test outlets).
   final List<LslSignalGenerator> generators = [];
@@ -167,6 +205,9 @@ class LslProvider extends SourceProvider {
   @override
   void sessionClosed(SourceSession session) {
     if (replay?.session == session) stopReplay();
+    for (final f in [...forwards]) {
+      if (f.session == session) stopForward(f);
+    }
   }
 
   String _replayLabel() {
@@ -315,6 +356,9 @@ class LslProvider extends SourceProvider {
       g.close();
     }
     markers?.close();
+    for (final f in forwards) {
+      f.close();
+    }
     super.dispose();
   }
 
@@ -369,6 +413,16 @@ class LslProvider extends SourceProvider {
           _ => null,
         },
         order: 50,
+      ),
+      ViewerAction(
+        'LSL',
+        forwards.isEmpty
+            ? 'Forward this stream…'
+            : 'Forward… (${forwards.length} forwarded)',
+        onPressed: app.currentTab?.session is LslSession || forwards.isNotEmpty
+            ? () => showLslForward(context, this)
+            : null,
+        order: 55,
       ),
       ViewerAction(
         'LSL',

@@ -204,7 +204,14 @@ class LslSession extends SourceSession implements LiveData {
     }
   }
 
+  /// See every chunk as it arrives, with its time stamps as received
+  /// (e.g. to forward it).
+  final List<void Function(LslChunk chunk)> taps = [];
+
   void _ingest(LslChunk c) {
+    for (final tap in [...taps]) {
+      tap(c);
+    }
     final now = lsl.clock();
     final times = c.times;
     final n = info.channelCount;

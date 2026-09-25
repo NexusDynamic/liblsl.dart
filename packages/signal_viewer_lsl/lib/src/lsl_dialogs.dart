@@ -954,3 +954,124 @@ class _TestOutletsDialogState extends State<_TestOutletsDialog> {
     );
   }
 }
+
+/// Forward the current tab's stream under another name, and the forwards
+/// running.
+Future<void> showLslForward(BuildContext context, LslProvider app) =>
+    showDialog<void>(context: context, builder: (_) => _ForwardDialog(app));
+
+class _ForwardDialog extends StatefulWidget {
+  final LslProvider app;
+  const _ForwardDialog(this.app);
+
+  @override
+  State<_ForwardDialog> createState() => _ForwardDialogState();
+}
+
+class _ForwardDialogState extends State<_ForwardDialog> {
+  late final TabEntry? _tab = widget.app.app.currentTab?.session is LslSession
+      ? widget.app.app.currentTab
+      : null;
+  late final _name = TextEditingController(
+    text: _tab == null ? '' : '${_tab.group.info.name} (forwarded)',
+  );
+  bool _shownOnly = false;
+  bool _processed = false;
+
+  @override
+  void dispose() {
+    _name.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final tab = _tab;
+    return ListenableBuilder(
+      listenable: widget.app,
+      builder: (context, _) => AlertDialog(
+        title: const Text('Forward LSL streams'),
+        content: SizedBox(
+          width: 520,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (tab != null) ...[
+                  Text(
+                    'Publish ${tab.group.info.name} again as a new stream, '
+                    'with the time stamps it arrived with.',
+                    style: theme.textTheme.bodySmall,
+                  ),
+                  TextField(
+                    controller: _name,
+                    decoration: const InputDecoration(labelText: 'Name'),
+                  ),
+                  CheckboxListTile(
+                    contentPadding: EdgeInsets.zero,
+                    value: _shownOnly,
+                    onChanged: (v) => setState(() => _shownOnly = v ?? false),
+                    title: Text(
+                      'Only the ${tab.controller.lanes.length} shown channels',
+                    ),
+                  ),
+                  if (!tab.group.info.irregular)
+                    CheckboxListTile(
+                      contentPadding: EdgeInsets.zero,
+                      value: _processed,
+                      onChanged: (v) => setState(() => _processed = v ?? false),
+                      title: const Text(
+                        "With this tab's reference and filters",
+                      ),
+                      subtitle: Text(tab.controller.referenceSummary),
+                    ),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: FilledButton.tonal(
+                      onPressed: () {
+                        final name = _name.text.trim();
+                        if (name.isEmpty) return;
+                        widget.app.forward(
+                          tab,
+                          name: name,
+                          shownOnly: _shownOnly,
+                          processed: _processed,
+                        );
+                      },
+                      child: const Text('Forward'),
+                    ),
+                  ),
+                ],
+                if (widget.app.forwards.isNotEmpty) ...[
+                  const Divider(height: 24),
+                  Text('Forwarding', style: theme.textTheme.titleSmall),
+                  for (final f in widget.app.forwards)
+                    ListTile(
+                      dense: true,
+                      leading: const Icon(Icons.forward),
+                      title: Text(f.name),
+                      subtitle: Text(
+                        'from ${f.session.info.name} · '
+                        '${f.channels.length} ch · ${f.sent} samples',
+                      ),
+                      trailing: TextButton(
+                        onPressed: () => widget.app.stopForward(f),
+                        child: const Text('Stop'),
+                      ),
+                    ),
+                ],
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+}
