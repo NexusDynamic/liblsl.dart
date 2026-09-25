@@ -17,6 +17,7 @@ dependencies:
   signal_viewer_xdf: ^0.1.0
 
 dev_dependencies:
+  flutter_launcher_icons: ^0.14.4
   flutter_lints: ^6.0.0
   flutter_test:
     sdk: flutter

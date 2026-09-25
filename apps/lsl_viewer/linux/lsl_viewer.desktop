@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=LSL Viewer
+GenericName=XDF and LSL stream viewer
+Comment=View Lab Streaming Layer streams and XDF recordings
+# Edit Exec and Icon to where the bundle is unpacked, then copy this file to
+# ~/.local/share/applications/.
+Exec=/opt/lsl_viewer/lsl_viewer %F
+Icon=/opt/lsl_viewer/data/icon.png
+Terminal=false
+Categories=Science;Education;DataVisualization;
+MimeType=application/x-xdf;
+Keywords=LSL;XDF;EEG;Lab Streaming Layer;LabRecorder;
