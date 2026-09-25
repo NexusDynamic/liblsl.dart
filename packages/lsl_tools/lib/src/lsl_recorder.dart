@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
 
-import 'package:flutter/foundation.dart';
 import 'package:xdf/xdf.dart';
 
 import 'lsl.dart';
@@ -31,7 +30,7 @@ class LslRecordedStream {
 /// clock offsets), each stream's full info as its header, a clock offset
 /// per stream every [offsetInterval], a boundary chunk every
 /// [boundaryInterval], and footers when stopped.
-class LslRecorder extends ChangeNotifier {
+class LslRecorder {
   final XdfWriter _writer;
   final List<LslRecordedStream> streams;
 
@@ -126,7 +125,6 @@ class LslRecorder extends ChangeNotifier {
         _writer.writeBoundary();
         sinceBoundary.reset();
       }
-      notifyListeners();
       await Future<void>.delayed(pullInterval);
     }
   }
@@ -177,6 +175,5 @@ class LslRecorder extends ChangeNotifier {
     for (final s in streams) {
       await s.inlet.close();
     }
-    notifyListeners();
   }
 }

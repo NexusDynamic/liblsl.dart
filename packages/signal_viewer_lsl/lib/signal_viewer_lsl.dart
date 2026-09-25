@@ -1,18 +1,15 @@
 /// Lab Streaming Layer for `signal_viewer`: an [LslProvider] that finds
-/// streams on the network and shows them in tabs, and a web-safe facade
-/// ([lsl]) over `package:liblsl` for inlets and outlets.
+/// streams on the network and shows them in tabs, records, replays,
+/// forwards and bridges them. The LSL facade ([lsl]), recorder and bridge
+/// are `package:lsl_tools`, re-exported here.
 ///
 /// On the web, [LslBackend.supported] is false and nothing loads liblsl.
 library;
 
-export 'src/bridge/client.dart';
-export 'src/bridge/protocol.dart' show BridgeStream;
-export 'src/bridge/server.dart';
-export 'src/lsl.dart';
+export 'package:lsl_tools/lsl_tools.dart';
+
 export 'src/lsl_dialogs.dart';
 export 'src/lsl_forward.dart';
 export 'src/lsl_provider.dart';
-export 'src/lsl_recorder.dart';
 export 'src/lsl_replay.dart';
 export 'src/lsl_session.dart';
-export 'src/lsl_test_outlets.dart';

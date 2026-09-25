@@ -2,7 +2,7 @@ import 'dart:typed_data';
 
 import 'package:signal_viewer/signal_viewer.dart';
 
-import 'lsl.dart';
+import 'package:lsl_tools/lsl_tools.dart';
 import 'lsl_session.dart';
 
 /// Re-publishes a stream received in [session] as a new LSL stream: under

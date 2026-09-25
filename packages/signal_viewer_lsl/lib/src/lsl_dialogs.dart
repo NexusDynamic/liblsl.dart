@@ -4,7 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import 'lsl.dart';
+import 'package:lsl_tools/lsl_tools.dart';
 import 'lsl_provider.dart';
 import 'package:signal_viewer/signal_viewer.dart';
 import 'package:xml/xml.dart';

@@ -1,10 +1,6 @@
-import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:flutter_multicast_lock/flutter_multicast_lock.dart';
 import 'package:liblsl/lsl.dart';
-
-import 'package:permission_handler/permission_handler.dart';
 
 import 'lsl_types.dart';
 
@@ -40,23 +36,15 @@ class _NativeLsl implements LslBackend {
   @override
   Future<void> prepare() => _prepared ??= _prepare();
 
+  @override
+  Future<void> Function()? networkPrep;
+
   Future<void> _prepare() async {
-    if (!Platform.isAndroid) return;
-    // Android 13+ asks for nearby Wi-Fi devices and 16+ for the local
-    // network; older versions grant both with the manifest. Discovery
-    // still works with known peers if they are refused.
     try {
-      await [
-        Permission.nearbyWifiDevices,
-        Permission.accessLocalNetwork,
-      ].request();
-    } catch (_) {}
-    // Without the lock, Android drops multicast packets (discovery).
-    try {
-      await FlutterMulticastLock().acquireMulticastLock(
-        lockName: 'hyprview_lsl',
-      );
-    } catch (_) {}
+      await networkPrep?.call();
+    } catch (_) {
+      // Refused permissions: known peers still work.
+    }
   }
 
   @override
@@ -76,7 +64,7 @@ class _NativeLsl implements LslBackend {
     }
     // The inlet gets its own copy: the discovery's may be freed any time.
     final info = source.copy();
-    final LSLInlet inlet;
+    final LSLInlet<dynamic> inlet;
     try {
       inlet = await LSL.createInlet<dynamic>(
         streamInfo: info,
@@ -273,7 +261,7 @@ class _Inlet implements LslInlet {
   final LslStreamDescription stream;
   @override
   final List<LslChannel> channels;
-  final LSLInlet _inlet;
+  final LSLInlet<dynamic> _inlet;
   final List<LSLStreamInfo> _infos;
   bool _closed = false;
 
@@ -338,18 +326,31 @@ class _Outlet implements LslOutlet {
 
   _Outlet(this.spec, this._outlet, this._info);
 
-  @override
-  Future<void> push(Float32List values, Float64List times) async {
-    if (_closed || times.isEmpty) return;
-    await _outlet.pushChunkTyped(values, timestamps: times);
+  /// Pushes run one after another: liblsl.dart refuses a push while one is
+  /// in flight on the same outlet, and callers (timers, taps) do not wait.
+  Future<void> _queue = Future.value();
+
+  Future<void> _then(Future<void> Function() push) {
+    final next = _queue.then((_) => _closed ? null : push());
+    // A failed push does not hold up the ones after it.
+    _queue = next.catchError((Object _) {});
+    return next;
   }
 
   @override
-  Future<void> pushStrings(List<String> values, List<double> times) async {
-    if (_closed || values.isEmpty) return;
-    await _outlet.pushChunk([
-      for (final v in values) [v],
-    ], timestamps: times);
+  Future<void> push(Float32List values, Float64List times) {
+    if (_closed || times.isEmpty) return Future.value();
+    return _then(() => _outlet.pushChunkTyped(values, timestamps: times));
+  }
+
+  @override
+  Future<void> pushStrings(List<String> values, List<double> times) {
+    if (_closed || values.isEmpty) return Future.value();
+    return _then(
+      () => _outlet.pushChunk([
+        for (final v in values) [v],
+      ], timestamps: times),
+    );
   }
 
   @override
@@ -358,6 +359,7 @@ class _Outlet implements LslOutlet {
   @override
   Future<void> close() async {
     if (_closed) return;
+    await _queue;
     _closed = true;
     await _outlet.destroy();
     _info.destroy();

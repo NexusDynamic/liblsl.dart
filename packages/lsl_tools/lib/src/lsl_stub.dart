@@ -16,6 +16,9 @@ class _Unsupported implements LslBackend {
   Future<void> prepare() async {}
 
   @override
+  Future<void> Function()? networkPrep;
+
+  @override
   double clock() => DateTime.now().microsecondsSinceEpoch / 1e6;
 
   @override

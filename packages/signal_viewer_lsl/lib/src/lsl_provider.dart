@@ -4,16 +4,12 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 
 import 'lsl_session.dart';
-import 'bridge/client.dart';
-import 'bridge/protocol.dart';
-import 'bridge/server.dart';
+import 'package:lsl_tools/lsl_tools.dart';
 import 'lsl_dialogs.dart';
+import 'network_prep.dart';
 import 'lsl_forward.dart';
-import 'lsl_recorder.dart';
 import 'lsl_replay.dart';
-import 'lsl_test_outlets.dart';
 import 'package:signal_viewer/signal_viewer.dart';
-import 'lsl.dart';
 
 /// LSL settings kept in [Preferences.extra].
 extension LslPreferences on Preferences {
@@ -42,6 +38,7 @@ class LslProvider extends SourceProvider {
   /// loaded now only if the settings are not the defaults).
   @override
   Future<void> prepare(Preferences prefs) async {
+    lsl.networkPrep = lslNetworkPrep;
     try {
       lsl.configure(prefs.lsl.network);
     } catch (e) {

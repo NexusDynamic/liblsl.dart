@@ -176,10 +176,14 @@ abstract class LslBackend {
   /// Network configuration; only takes effect before any other LSL call.
   void configure(LslNetworkOptions options);
 
-  /// Ask for what LSL needs on this platform (Android: local network
-  /// permissions and a Wi-Fi multicast lock). Called before LSL is first
-  /// used, so people who never use it are never asked.
+  /// Ask for what LSL needs on this platform, by running [networkPrep]
+  /// once (e.g. an app's Android local network permissions and Wi-Fi
+  /// multicast lock). Called before LSL is first used, so people who never
+  /// use it are never asked.
   Future<void> prepare();
+
+  /// What [prepare] runs, set by the app (see `signal_viewer_lsl`).
+  Future<void> Function()? networkPrep;
 
   /// Seconds on the LSL clock.
   double clock();

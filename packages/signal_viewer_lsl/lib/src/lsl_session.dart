@@ -4,7 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:signal_viewer/signal_viewer.dart';
 
-import 'lsl.dart';
+import 'package:lsl_tools/lsl_tools.dart';
 
 /// A stream received over LSL, shown in one tab.
 ///

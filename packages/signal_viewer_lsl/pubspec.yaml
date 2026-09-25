@@ -19,11 +19,9 @@ dependencies:
   # Local-network permission (iOS, Android) and the Android multicast lock
   # that stream discovery needs.
   flutter_multicast_lock: ^1.2.1
-  liblsl: any
+  lsl_tools: ^0.1.0
   permission_handler: ^13.0.1
   signal_viewer: ^0.1.0
-  web_socket_channel: ^3.0.3
-  xdf: ^0.1.0
   xml: ^6.5.0
 
 dev_dependencies:

@@ -1,0 +1,3 @@
+tags:
+  # Needs a working LSL network stack on loopback.
+  lsl:

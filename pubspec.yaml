@@ -22,6 +22,7 @@ workspace:
   - packages/xdf
   - packages/serial_transport
   - packages/signal_viewer_serial
+  - packages/lsl_tools
   - apps/lsl_viewer
 dev_dependencies:
   melos: ^8.2.2
