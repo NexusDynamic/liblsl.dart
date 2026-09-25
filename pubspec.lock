@@ -1329,6 +1329,13 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.1.6"
+  usb_serial:
+    dependency: "direct overridden"
+    description:
+      path: "third_party/usb_serial"
+      relative: true
+    source: path
+    version: "0.5.2"
   uuid:
     dependency: transitive
     description:

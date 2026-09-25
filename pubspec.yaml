@@ -37,6 +37,10 @@ dependency_overrides:
   # loses drops from e.g. Dolphin; patched copy (as in hyprview).
   desktop_drop:
     path: third_party/desktop_drop
+  # usb_serial 0.5.2 does not build with AGP 9 (jcenter); patched copy
+  # (as in hyprview).
+  usb_serial:
+    path: third_party/usb_serial
   cli_util: ^0.5.2
   test_api: ^0.7.13
 #   meta: ^1.19.0

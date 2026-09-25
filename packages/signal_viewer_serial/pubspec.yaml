@@ -19,6 +19,9 @@ dependencies:
   openbci_cyton: ^0.1.0
   serial_transport: ^0.1.0
   signal_viewer: ^0.1.0
+  # USB serial devices on Android (a patched copy, see the workspace's
+  # third_party/usb_serial).
+  usb_serial: ^0.5.2
 
 dev_dependencies:
   flutter_lints: ^6.0.0

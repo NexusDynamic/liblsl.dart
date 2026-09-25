@@ -1,4 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Serial devices over USB (e.g. the OpenBCI dongle; usb_serial asks
+         for permission). -->
+    <uses-feature android:name="android.hardware.usb.host" android:required="false"/>
     <!-- LSL: TCP/UDP on the local network and multicast discovery (the
          multicast lock is taken by flutter_multicast_lock). -->
     <uses-permission android:name="android.permission.INTERNET"/>

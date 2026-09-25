@@ -3,6 +3,7 @@ import 'package:serial_transport/serial_transport.dart';
 import 'package:signal_viewer/signal_viewer.dart';
 
 import 'cyton_session.dart';
+import 'platform_serial.dart';
 import 'serial_session.dart';
 
 /// Streams of numbers from serial ports (e.g. an Arduino printing sensor
@@ -11,7 +12,7 @@ class SerialStreamProvider extends SourceProvider {
   final SerialPortProvider serial;
 
   SerialStreamProvider({SerialPortProvider? serial})
-    : serial = serial ?? SerialPortProvider.platform();
+    : serial = serial ?? platformSerialPorts();
 
   bool get supported => serial.isSupported;
 

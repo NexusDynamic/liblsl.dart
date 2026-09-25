@@ -4,5 +4,6 @@ library;
 
 export 'src/cyton_session.dart';
 export 'src/line_parser.dart';
+export 'src/platform_serial.dart';
 export 'src/serial_provider.dart';
 export 'src/serial_session.dart';
