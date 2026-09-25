@@ -123,6 +123,17 @@ class _MainWindowState extends State<MainWindow> {
     }
   }
 
+  /// Choose tabs to show below the current one, on its time axis.
+  Future<void> _showBelow() async {
+    final tab = app.currentTab;
+    if (tab == null) return;
+    final chosen = await showTabPicker(context, [
+      for (final t in app.tabs)
+        if (t != tab) t,
+    ], tab.below);
+    if (chosen != null) app.showBelow(tab, chosen);
+  }
+
   void _togglePanel() {
     prefs.panelVisible = !prefs.panelVisible;
     prefs.save();
@@ -131,6 +142,9 @@ class _MainWindowState extends State<MainWindow> {
   /// The providers' menu entries and the source setup, by menu, in the
   /// order the menus first appear.
   Map<String, List<ViewerAction>> _actions(BuildContext context) {
+    SingleActivator ctrl(LogicalKeyboardKey k) => _isApple
+        ? SingleActivator(k, meta: true)
+        : SingleActivator(k, control: true);
     final all = [
       for (final p in app.providers) ...p.actions(context),
       ViewerAction(
@@ -138,6 +152,49 @@ class _MainWindowState extends State<MainWindow> {
         '${config.setupName}…',
         onPressed: app.tabs.isEmpty ? null : _sourceSetup,
         order: 5,
+      ),
+      // The View menu, after the providers' menus.
+      ViewerAction(
+        'View',
+        'Show controls panel',
+        shortcut: ctrl(LogicalKeyboardKey.keyB),
+        onPressed: _togglePanel,
+        checked: prefs.panelVisible,
+        order: 100,
+        wideOnly: true,
+      ),
+      ViewerAction(
+        'View',
+        'Show tabs below…',
+        onPressed: app.tabs.length < 2 ? null : _showBelow,
+        order: 101,
+        wideOnly: true,
+      ),
+      ViewerAction(
+        'View',
+        'Next tab',
+        shortcut: const SingleActivator(
+          LogicalKeyboardKey.pageDown,
+          control: true,
+        ),
+        onPressed: app.tabs.length < 2
+            ? null
+            : () => app.current = app.current + 1,
+        order: 102,
+        wideOnly: true,
+      ),
+      ViewerAction(
+        'View',
+        'Previous tab',
+        shortcut: const SingleActivator(
+          LogicalKeyboardKey.pageUp,
+          control: true,
+        ),
+        onPressed: app.tabs.length < 2
+            ? null
+            : () => app.current = app.current - 1,
+        order: 103,
+        wideOnly: true,
       ),
     ];
     final menus = <String, List<(int, ViewerAction)>>{};
@@ -317,42 +374,6 @@ class _MainWindowState extends State<MainWindow> {
                   menuChildren: _menuItems(actions),
                   child: Text(menu),
                 ),
-              SubmenuButton(
-                menuChildren: [
-                  MenuItemButton(
-                    shortcut: ctrl(LogicalKeyboardKey.keyB),
-                    onPressed: _togglePanel,
-                    leadingIcon: Icon(
-                      prefs.panelVisible
-                          ? Icons.check_box
-                          : Icons.check_box_outline_blank,
-                      size: 18,
-                    ),
-                    child: const Text('Show controls panel'),
-                  ),
-                  MenuItemButton(
-                    shortcut: const SingleActivator(
-                      LogicalKeyboardKey.pageDown,
-                      control: true,
-                    ),
-                    onPressed: app.tabs.length < 2
-                        ? null
-                        : () => app.current = app.current + 1,
-                    child: const Text('Next tab'),
-                  ),
-                  MenuItemButton(
-                    shortcut: const SingleActivator(
-                      LogicalKeyboardKey.pageUp,
-                      control: true,
-                    ),
-                    onPressed: app.tabs.length < 2
-                        ? null
-                        : () => app.current = app.current - 1,
-                    child: const Text('Previous tab'),
-                  ),
-                ],
-                child: const Text('View'),
-              ),
               SubmenuButton(
                 menuChildren: [
                   MenuItemButton(
@@ -549,6 +570,7 @@ class _MainWindowState extends State<MainWindow> {
           ),
         ),
         Expanded(
+          flex: 2,
           child: StreamPlot(
             key: ObjectKey(c),
             controller: c,
@@ -556,6 +578,17 @@ class _MainWindowState extends State<MainWindow> {
             onRename: (ch) => _renameChannel(tab, ch),
           ),
         ),
+        for (final b in tab.below) ...[
+          _belowHeader(tab, b),
+          Expanded(
+            child: StreamPlot(
+              key: ObjectKey(b.controller),
+              controller: b.controller,
+              style: style,
+              onRename: (ch) => _renameChannel(b, ch),
+            ),
+          ),
+        ],
         if (!c.live) OverviewStrip(controller: c, style: style),
         if (!c.live) _scrollRow(c),
       ],
@@ -567,6 +600,39 @@ class _MainWindowState extends State<MainWindow> {
         const VerticalDivider(width: 1),
         SizedBox(width: 320, child: _panel(tab)),
       ],
+    );
+  }
+
+  /// The title of tab [b] shown below [tab], with a button to remove it.
+  Widget _belowHeader(TabEntry tab, TabEntry b) {
+    final theme = Theme.of(context);
+    return Container(
+      height: 24,
+      padding: const EdgeInsets.only(left: 8),
+      decoration: BoxDecoration(
+        border: Border(top: BorderSide(color: theme.dividerColor)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              b.title,
+              style: theme.textTheme.labelMedium,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          IconButton(
+            iconSize: 14,
+            visualDensity: VisualDensity.compact,
+            tooltip: 'Show it only in its own tab',
+            onPressed: () => app.showBelow(tab, [
+              for (final x in tab.below)
+                if (x != b) x,
+            ]),
+            icon: const Icon(Icons.close),
+          ),
+        ],
+      ),
     );
   }
 

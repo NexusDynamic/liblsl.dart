@@ -562,7 +562,23 @@ class StreamController extends ChangeNotifier {
   /// The window moved or changed length: fetch its data now, and measure
   /// quality and power once it stops changing (not for every step of a
   /// drag).
-  void _windowChanged() {
+  /// Tabs shown together share their time window through this.
+  TimeLink? link;
+
+  /// Show the window [t0], [windowS] of another tab (see [TimeLink]):
+  /// recordings take both, even beyond their own data, so the time axes
+  /// line up; live tabs only the length (they all end now).
+  void follow(double t0, double windowS) {
+    final w = math.max(minWindowS, windowS);
+    final sameT0 = source.live || _t0 == t0;
+    if (w == this.windowS && sameT0) return;
+    _settings = _settings.copyWith(windowS: w);
+    if (!source.live) _t0 = t0;
+    _windowChanged(fromLink: true);
+  }
+
+  void _windowChanged({bool fromLink = false}) {
+    if (!fromLink) link?.moved(this);
     _changed(data: true);
     _settleTimer?.cancel();
     _settleTimer = Timer(const Duration(milliseconds: 250), () {
@@ -593,6 +609,8 @@ class StreamController extends ChangeNotifier {
   }
 
   Future<void> _fetchData() async {
+    // A fetch queued before the tab closed.
+    if (_disposed) return;
     if (info.irregular) {
       notifyListeners();
       return;
@@ -616,6 +634,8 @@ class StreamController extends ChangeNotifier {
   }
 
   Future<void> _fetchOverview() async {
+    // A fetch queued before the tab closed.
+    if (_disposed) return;
     if (info.irregular) return;
     try {
       final d = await source.envelope(
@@ -635,6 +655,8 @@ class StreamController extends ChangeNotifier {
   }
 
   Future<void> _fetchPower() async {
+    // A fetch queued before the tab closed.
+    if (_disposed) return;
     _lastPower = DateTime.now();
     if (!powerActive) {
       if (_power != null) {
@@ -714,6 +736,8 @@ class StreamController extends ChangeNotifier {
   static const qualityWindowS = 2.0;
 
   Future<void> _fetchQuality() async {
+    // A fetch queued before the tab closed.
+    if (_disposed) return;
     _lastQuality = DateTime.now();
     final double a, b;
     if (source.live) {
@@ -910,5 +934,33 @@ class _Pipe {
         run(job);
       }
     });
+  }
+}
+
+/// Keeps the time windows of controllers shown together the same: when one
+/// moves or zooms, the others follow.
+class TimeLink {
+  final List<StreamController> members = [];
+
+  void add(StreamController c) {
+    if (members.contains(c)) return;
+    members.add(c);
+    c.link = this;
+    if (members.length > 1) {
+      final first = members.first;
+      c.follow(first.t0, first.windowS);
+    }
+  }
+
+  void remove(StreamController c) {
+    members.remove(c);
+    if (c.link == this) c.link = null;
+  }
+
+  /// [from] moved: the others follow it.
+  void moved(StreamController from) {
+    for (final c in members) {
+      if (c != from) c.follow(from.t0, from.windowS);
+    }
   }
 }

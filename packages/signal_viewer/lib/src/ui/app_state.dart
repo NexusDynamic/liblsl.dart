@@ -17,6 +17,9 @@ class TabEntry {
   final SourceSession session;
   final StreamGroup group;
 
+  /// Tabs shown below this one, on its time axis ([showBelow]).
+  List<TabEntry> below = const [];
+
   TabEntry(this.controller, this.session, this.group);
 
   String get title =>
@@ -82,8 +85,53 @@ class AppState extends ChangeNotifier {
   TabEntry? get currentTab => tabs.isEmpty ? null : tabs[current];
 
   void _syncActive() {
-    for (var i = 0; i < tabs.length; i++) {
-      tabs[i].controller.active = i == current;
+    final shown = {?currentTab, ...?currentTab?.below};
+    for (final t in tabs) {
+      t.controller.active = shown.contains(t);
+    }
+  }
+
+  /// Show [others] below [tab], sharing its time window.
+  void showBelow(TabEntry tab, List<TabEntry> others) {
+    _unlink(tab);
+    tab.below = [
+      for (final o in others)
+        if (o != tab && tabs.contains(o)) o,
+    ];
+    if (tab.below.isNotEmpty) {
+      final link = TimeLink()..add(tab.controller);
+      for (final o in tab.below) {
+        o.controller.link?.remove(o.controller);
+        link.add(o.controller);
+      }
+    }
+    _syncActive();
+    notifyListeners();
+  }
+
+  void _unlink(TabEntry tab) {
+    final link = tab.controller.link;
+    if (link == null) return;
+    for (final c in [...link.members]) {
+      link.remove(c);
+    }
+    tab.below = const [];
+  }
+
+  /// Drop [gone] (closed or replaced tabs) from what is shown below others.
+  void _forget(Iterable<TabEntry> gone) {
+    final g = gone.toSet();
+    for (final t in tabs) {
+      if (g.contains(t)) _unlink(t);
+      if (t.below.any(g.contains)) {
+        showBelow(t, [
+          for (final b in t.below)
+            if (!g.contains(b)) b,
+        ]);
+      }
+    }
+    for (final t in g) {
+      t.controller.link?.remove(t.controller);
     }
   }
 
@@ -172,7 +220,9 @@ class AppState extends ChangeNotifier {
   Future<void> closeSession(SourceSession session) async {
     for (var i = tabs.length - 1; i >= 0; i--) {
       if (tabs[i].session == session) {
-        final t = tabs.removeAt(i);
+        final t = tabs[i];
+        _forget([t]);
+        tabs.removeAt(i);
         _remember(t);
         t.controller.dispose();
       }
@@ -212,6 +262,7 @@ class AppState extends ChangeNotifier {
     for (final t in old) {
       _remember(t);
     }
+    _forget(old);
     final at = old.isEmpty ? tabs.length : tabs.indexOf(old.first);
     tabs.removeWhere((t) => t.session == session);
     final wasCurrent = old.contains(currentTab);
@@ -276,6 +327,7 @@ class AppState extends ChangeNotifier {
     if (i < 0 || i >= tabs.length) return;
     final t = tabs.removeAt(i);
     _remember(t);
+    _forget([t]);
     t.controller.dispose();
     // Close a session with no tabs left.
     if (!tabs.any((x) => x.session == t.session)) await _release(t.session);

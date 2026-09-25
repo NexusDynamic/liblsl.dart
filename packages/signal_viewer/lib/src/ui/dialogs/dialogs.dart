@@ -7,6 +7,7 @@ import '../../model/stream_info.dart';
 import '../../model/view_settings.dart';
 import '../../settings/prefs.dart';
 import '../../viewer/source.dart';
+import '../app_state.dart';
 import '../widgets/widgets.dart';
 
 /// Narrower than this, dialogs use the whole screen and rows stack.
@@ -679,6 +680,69 @@ class _ChannelNamesDialogState extends State<_ChannelNamesDialog> {
       ],
     );
   }
+}
+
+/// Tabs to show below another (from [tabs], [current] ticked). Null if
+/// cancelled.
+Future<List<TabEntry>?> showTabPicker(
+  BuildContext context,
+  List<TabEntry> tabs,
+  List<TabEntry> current,
+) => showDialog<List<TabEntry>>(
+  context: context,
+  builder: (_) => _TabPickerDialog(tabs, current),
+);
+
+class _TabPickerDialog extends StatefulWidget {
+  final List<TabEntry> tabs;
+  final List<TabEntry> current;
+  const _TabPickerDialog(this.tabs, this.current);
+
+  @override
+  State<_TabPickerDialog> createState() => _TabPickerDialogState();
+}
+
+class _TabPickerDialogState extends State<_TabPickerDialog> {
+  late final Set<TabEntry> _chosen = {...widget.current};
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('Show tabs below'),
+    content: SizedBox(
+      width: 480,
+      child: ListView(
+        shrinkWrap: true,
+        children: [
+          Text(
+            'They share the time axis of this tab: zooming or scrolling '
+            'any of them moves all.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          for (final t in widget.tabs)
+            CheckboxListTile(
+              value: _chosen.contains(t),
+              onChanged: (v) => setState(
+                () => v == true ? _chosen.add(t) : _chosen.remove(t),
+              ),
+              title: Text(t.title),
+            ),
+        ],
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('Cancel'),
+      ),
+      FilledButton(
+        onPressed: () => Navigator.pop(context, [
+          for (final t in widget.tabs)
+            if (_chosen.contains(t)) t,
+        ]),
+        child: const Text('OK'),
+      ),
+    ],
+  );
 }
 
 /// Manchester decoder settings.
