@@ -20,7 +20,7 @@ void main() {
       sessionId: 'LSLTestSession',
       unicastMinRTT: 0.1,
       multicastMinRTT: 0.1,
-      portRange: 64,
+      portRange: 128, // bump up for concurrency
       // don't bother checking during the test
       watchdogCheckInterval: 600.0,
       sendSocketBufferSize: 1024,
@@ -196,6 +196,9 @@ void main() {
 
       // Create outlet
       final outlet = lsl_create_outlet(streamInfo, 0, 1);
+      // A null outlet (e.g. out of file descriptors) must fail the test, not
+      // crash the test runner in the push below.
+      expect(outlet, isNot(nullptr), reason: 'lsl_create_outlet failed');
 
       // Create a string sample (as an array of strings)
       final sampleStr = "Test Sample".toNativeUtf8().cast<Char>();
@@ -216,6 +219,158 @@ void main() {
       sourceIdPtr.free();
       sampleStr.free();
       stringArray.free();
+    });
+  });
+
+  group('LSL time correction', () {
+    /// Brings up a loopback outlet + inlet pair and hands them to [body].
+    Future<void> withPair(
+      Future<void> Function(LSLOutlet outlet, LSLInlet<double> inlet) body, {
+      bool useIsolates = true,
+    }) async {
+      final streamName = 'TCStream_${DateTime.now().microsecondsSinceEpoch}';
+      final oStreamInfo = await LSL.createStreamInfo(
+        streamName: streamName,
+        channelCount: 2,
+        channelFormat: LSLChannelFormat.float32,
+        sampleRate: LSL_IRREGULAR_RATE,
+        streamType: LSLContentType.markers,
+      );
+      final outlet = await LSL.createOutlet(
+        streamInfo: oStreamInfo,
+        chunkSize: 1,
+        maxBuffer: 360,
+      );
+      await Future.delayed(const Duration(milliseconds: 50));
+      final streams = await LSL.resolveStreams(waitTime: 2.0, maxStreams: 10);
+      final streamInfo = streams.firstWhereOrNull(
+        (s) => s.streamName == streamName,
+      );
+      expect(streamInfo, isNotNull);
+      final inlet = await LSL.createInlet<double>(
+        maxBuffer: 360,
+        chunkSize: 1,
+        streamInfo: streamInfo!,
+        recover: false,
+        useIsolates: useIsolates,
+      );
+      try {
+        await body(outlet, inlet);
+      } finally {
+        await inlet.destroy();
+        await outlet.destroy();
+        oStreamInfo.destroy();
+        for (final s in streams) {
+          s.destroy();
+        }
+      }
+    }
+
+    for (final useIsolates in [true, false]) {
+      final mode = useIsolates ? 'isolated' : 'direct';
+
+      test('getTimeCorrectionEx agrees with getTimeCorrection ($mode)', () {
+        return withPair(useIsolates: useIsolates, (outlet, inlet) async {
+          final ex = await inlet.getTimeCorrectionEx(timeout: 5.0);
+          final plain = await inlet.getTimeCorrection(timeout: 5.0);
+
+          // Same underlying estimate, refreshed in the background between the
+          // two calls, so this is "close" rather than "identical".
+          expect(ex.offset, closeTo(plain, 0.01));
+          expect(ex.offset.isFinite, isTrue);
+
+          // Full round-trip time of the probe. Loopback, so small but not
+          // zero; the bound is deliberately loose because CI machines stall.
+          expect(ex.uncertainty.isFinite, isTrue);
+          expect(ex.uncertainty, greaterThanOrEqualTo(0.0));
+          expect(ex.uncertainty, lessThan(1.0));
+          expect(ex.bound, closeTo(ex.uncertainty / 2, 1e-12));
+
+          // The remote clock is this machine's clock on loopback, so it should
+          // land near our own reading rather than at some unrelated epoch.
+          expect(ex.remoteTime, closeTo(LSL.localClock(), 60.0));
+        });
+      });
+
+      test('post-processing and smoothing round trip ($mode)', () {
+        return withPair(useIsolates: useIsolates, (outlet, inlet) async {
+          await inlet.setPostProcessing({
+            LSLProcessingOptions.dejitter,
+            LSLProcessingOptions.monotonize,
+          });
+          await inlet.setSmoothingHalftime(30.0);
+          // Back to the default; the coordinator relies on ground-truth stamps.
+          await inlet.setPostProcessing({LSLProcessingOptions.none});
+        });
+      });
+
+      test('wasClockReset is false on a fresh inlet ($mode)', () {
+        return withPair(useIsolates: useIsolates, (outlet, inlet) async {
+          expect(await inlet.wasClockReset(), isFalse);
+        });
+      });
+    }
+
+    test('sync variants work in direct mode', () {
+      return withPair(useIsolates: false, (outlet, inlet) async {
+        final ex = inlet.getTimeCorrectionExSync(timeout: 5.0);
+        expect(ex.offset, closeTo(inlet.getTimeCorrectionSync(), 0.01));
+        expect(ex.uncertainty, greaterThanOrEqualTo(0.0));
+        inlet.setPostProcessingSync({LSLProcessingOptions.none});
+        inlet.setSmoothingHalftimeSync(90.0);
+        expect(inlet.wasClockResetSync(), isFalse);
+      });
+    });
+
+    test('sync variants are rejected in isolated mode', () {
+      return withPair(useIsolates: true, (outlet, inlet) async {
+        expect(
+          () => inlet.getTimeCorrectionExSync(),
+          throwsA(isA<LSLException>()),
+        );
+      });
+    });
+  });
+
+  group('LSLProcessingOptions', () {
+    test('flags combine bitwise', () {
+      expect(<LSLProcessingOptions>{}.nativeFlags, 0);
+      expect({LSLProcessingOptions.none}.nativeFlags, 0);
+      expect({LSLProcessingOptions.clockSync}.nativeFlags, 1);
+      expect(
+        {
+          LSLProcessingOptions.clockSync,
+          LSLProcessingOptions.dejitter,
+          LSLProcessingOptions.monotonize,
+          LSLProcessingOptions.threadSafe,
+        }.nativeFlags,
+        15,
+      );
+    });
+
+    test('round trips through fromValue', () {
+      for (final option in LSLProcessingOptions.values) {
+        expect(LSLProcessingOptions.fromValue(option.value), option);
+        expect(LSLProcessingOptions.fromNative(option.nativeType), option);
+      }
+    });
+  });
+
+  group('LSLTimeCorrection', () {
+    test('bound is half the uncertainty and identity is by value', () {
+      const a = LSLTimeCorrection(
+        offset: 1.5,
+        remoteTime: 100.0,
+        uncertainty: 0.004,
+      );
+      const b = LSLTimeCorrection(
+        offset: 1.5,
+        remoteTime: 100.0,
+        uncertainty: 0.004,
+      );
+      expect(a.bound, closeTo(0.002, 1e-12));
+      expect(a, b);
+      expect(a.hashCode, b.hashCode);
     });
   });
 }

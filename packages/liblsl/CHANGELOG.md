@@ -1,3 +1,137 @@
+# 1.0.0
+
+liblsl.dart now wraps every function exported by the liblsl C library, so it
+has reached API parity with liblsl and moves to 1.0.0.
+
+## New features
+
+- `lsl_time_correction_ex` is now wrapped: `LSLInlet.getTimeCorrectionEx()` /
+  `getTimeCorrectionExSync()` return an `LSLTimeCorrection` carrying the clock
+  `offset`, the `remoteTime` it was measured against, and the `uncertainty`
+  (the probe's full round-trip time; `bound` is half of the RTT, indicating the
+  +/- uncertainty).
+- Inlet time-stamp post-processing: `LSLInlet.setPostProcessing()` /
+  `setPostProcessingSync()` take a `Set<LSLProcessingOptions>`
+  (`none`/`clockSync`/`dejitter`/`monotonize`/`threadSafe`), and
+  `setSmoothingHalftime()` / `setSmoothingHalftimeSync()` tune the dejitter
+  window. Note that `clockSync` rewrites time stamps into the local clock
+  domain and is not compatible with layers that apply the correction
+  themselves, such as `liblsl_coordinator` (or your own application,
+  if it handles the time correction).
+- `LSLInlet.wasClockReset()` / `wasClockResetSync()` report whether the source
+  machine's clock may have been reset, which invalidates an offset fitted over
+  several estimates. Reading it clears the flag.
+- `LSL.lastError()` exposes liblsl's thread-local last-error message.
+- Every exported liblsl function is now reachable from the high-level API:
+  - `LSLOutlet.pushSample` / `pushSampleSync` / `pushSamplePointerSync` take
+    optional `timestamp` (back-date a sample to its capture time) and
+    `pushthrough` arguments (`lsl_push_sample_*t` / `*tp`), for every format
+    including strings.
+  - `pushChunk` / `pushChunkTyped` (and `*Sync`) take `pushthrough`
+    (`lsl_push_chunk_*tp` / `*tnp`).
+  - String streams now support `pushChunk` / `pushChunkSync`
+    (`lsl_push_chunk_str*`).
+  - Binary strings (values that may contain NUL bytes):
+    `LSLOutlet.pushSampleBytes` / `pushChunkBytes` and
+    `LSLInlet.pullSampleBytes` / `pullChunkBytes` (plus `*Sync`), wrapping
+    the `lsl_*_buf` family.
+  - `LSLOutlet.getInfo()` / `getInfoSync()` return the outlet's served
+    stream info (`lsl_get_info`).
+  - `LSLStreamInfo` gains `channelBytes`, `sampleBytes`, `createdAt`,
+    `sessionId`, `protocolVersion`, `matchesQuery()` and `copy()`;
+    `LSL.protocolVersion` reports the library's protocol version.
+  - `LSLXmlNode` gains `prependChildElement`, `prependChildValue`,
+    `appendCopy`, `prependCopy`, `childValueNamed`, `setChildValue`,
+    `removeChild` and `removeChildNamed`.
+
+## Improvements
+
+- On macOS and Linux, loading liblsl raises the process's soft open-file
+  limit (when below 65536) as far as the system allows, so many streams no
+  longer fail with "Too many open files" (macOS allows 256 by default). It
+  only warns if the system refuses; set `LIBLSL_DART_NO_RLIMIT=1` to opt out.
+- Exceptions raised from a nonzero liblsl error code now name the code
+  (`timeout`/`lost`/`argument`/`internal`) and append liblsl's own message when
+  it has one, instead of reporting a bare integer. A timeout code now raises
+  `LSLTimeout` rather than a plain `LSLException`.
+- The published package is much smaller (about 3 MB instead of about 58 MB):
+  the JOSS paper and its analysis are no longer included (they stay in the
+  repository and the Zenodo archive), and the unused experimental
+  `src/wasm-demo` has been removed.
+
+## Fixes
+
+- `pullSample` on int8 streams returned negative values as unsigned
+  (`-3` came back as `253`); it now reads them as signed, matching
+  `pullChunk`.
+
+- Fixed a leaked native continuous resolver for every
+  `LSLStreamResolverContinuousByPredicate` / `...ByProperty`. `create()` made
+  an unfiltered native resolver in the base class and then overwrote its
+  handle with the filtered one, so `destroy()` never freed the first. Each
+  resolver kept sending waves thereby constatly increasing UDP socket count
+  each time a resolver was created. Subclasses now override
+  `createNativeResolver()`, and exactly one native resolver is created per
+  object.
+- The predicate/property strings passed to the continuous resolver are now
+  freed after creation instead of leaking.
+- `create()` on a continuous resolver now throws `LSLException` if liblsl
+  cannot create it (e.g. an invalid predicate), instead of keeping a null
+  handle.
+
+# 0.14.1+0
+
+- Added identities to `LSLInlet`, `LSLOutlet` and `LSLStreamInfo` (`hashCode` and `==`).
+
+# 0.14.0+0
+
+## New features
+
+- Sync/blocking transport support: `LSL.createOutlet`/`LSL.createInlet` (and
+  the `LSLOutlet`/`LSLInlet` constructors) accept
+  `transportOptions: Set<LSLTransportOptions>`, matching
+  `lsl_create_outlet_ex`/`lsl_create_inlet_ex`. `syncBlocking` enables
+  zero-copy blocking socket writes (not available for string streams —
+  `ArgumentError` at creation); `bufsizeInSamples`/`bufsizeInThousandths`
+  change the unit of `maxBuffer`.
+- Chunked transfer API on outlets and inlets, in both direct and isolate
+  modes: `pushChunk`/`pushChunkSync` (`List<List<T>>`),
+  `pushChunkTyped`/`pushChunkTypedSync` (flat `TypedData` fast path, single
+  memmove), `pullChunk`/`pullChunkSync`, `pullChunkTyped`/
+  `pullChunkTypedSync`, and the zero-copy `pullChunkPointerSync`. Chunk
+  results are returned as `LSLChunk<T>`/`LSLChunkTyped`/`LSLChunkPointer`
+  with per-sample timestamps; per-sample timestamps can also be supplied on
+  push. String streams support list-form `pullChunk` only.
+- Standalone benchmark suite (`benchmark/`) comparing
+  direct/isolate/sync-blocking transports for sample and chunk operations,
+  with p50/p95/p99 latency, throughput, loss, and RSS metrics; a new
+  `Benchmark` GitHub workflow stores results per push/tag via
+  github-action-benchmark on `gh-pages` and attaches them to releases.
+
+## Fixes
+
+- Fixed native memory leaks on string streams: pushed samples leaked one
+  UTF-8 copy per channel per push, and pulled samples never released the
+  liblsl-allocated strings (`lsl_destroy_string`).
+- Fixed `ec`/buffer leaks on error paths in `LSLPullSample.pullSample`/
+  `createSample`.
+- Fixed a use-after-free crash when an inlet's `lsl_open_stream` failed at
+  creation and the inlet was later destroyed.
+- `destroy()` is now safe and idempotent after partially failed creation
+  and `LSLReusableBuffer.free()` is now idempotent.
+- Isolate managers `Timer` leak fixed. Response
+  timeout is cancelled on completion and is now configurable.
+- `LSL.createOutlet` default `chunkSize` corrected from `1` to `0`
+  (liblsl semantics: one chunk per push), matching the `LSLOutlet` default.
+
+## Performance
+
+- Hot push paths no longer wrap data in `IList`;
+  `LSLPushSample.listToBuffer` now takes `Iterable<dynamic>`.
+- `lsl_local_clock`, `lsl_have_consumers`, `lsl_samples_available`, and
+  `lsl_inlet_flush` now use `isLeaf` FFI calls; buffer converters are
+  inline-hinted; chunk TypedData copies compile to memmove.
+
 # 0.13.3+0
 
 - Updated build hook to add the flag `-Wl,--allow-shlib-undefined` for Android builds, to prevent an error when building the shared library.

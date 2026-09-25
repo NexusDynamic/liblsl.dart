@@ -17,8 +17,11 @@ Submitted [JOSS paper](./paper/paper.md): markdown version of the JOSS paper.
 - [x] Windows
 - [x] iOS
 - [x] Android
-- [ ] Web - Possibly in the future, see: [`native_assets_cli` build.dart / link.dart web backends and WasmCode and JsCode assets](https://github.com/dart-lang/native/issues/988)
-  - Alternatively, I have been working on the coordinator library, which currently only has an LSL backend implemented, but it might be possible to create a WebSockets version that can be used from a web app. This of course might be useful for WAN-based communication, but this is out of scope for this (LSL) package.
+- [ ] Web - not supported: liblsl is a native library. For browser apps, the
+  [`peer_coordinator`](https://github.com/NexusDynamic/liblsl.dart/tree/main/packages/peer_coordinator)
+  WebSocket transport and the
+  [`lsl_tools`](https://github.com/NexusDynamic/liblsl.dart/tree/main/packages/lsl_tools)
+  LSL bridge can relay streams to and from the browser.
 
 Also confirmed working on:
 
@@ -108,7 +111,7 @@ You will also need the following configured in your `Info.plist` file:
 <plist version="1.0">
 <dict>
     <!-- ... other Info.plist nodes -->
-    <key>NSBonjourServices</key>
+  <key>NSBonjourServices</key>
 	<array>
 		<string>liblsl._tcp</string>
 		<string>liblsl._udp</string>
@@ -119,6 +122,35 @@ You will also need the following configured in your `Info.plist` file:
 </plist>
 ```
 
+### macOS and Linux: open file limit
+
+Every outlet, inlet and resolver uses several sockets, and the default limit on open files per process (256 on macOS, 1024 on most Linux desktops) runs out with a few dozen streams: liblsl then logs `Too many open files` and fails to create outlets and inlets.
+
+So on macOS and Linux, loading liblsl raises the process's soft open-file limit:
+
+- A soft limit of 65536 or more is left untouched.
+- Otherwise it is raised as far as the system allows (the hard limit, and on macOS `kern.maxfilesperproc`), up to 1048576. The hard limit is never changed and the limit is never lowered.
+- If the system refuses (e.g. a sandbox or device management), liblsl prints a warning to stderr and carries on; raise the limit yourself with `ulimit -n`.
+- Set the environment variable `LIBLSL_DART_NO_RLIMIT=1` to leave the limit alone.
+
+The limit is per process, so child processes your app starts inherit the raised limit.
+
+### macOS: network settings
+
+macOS's default TCP buffers are small, which slows high-rate transfers, and `maxfiles` bounds how far the open-file limit can be raised. For demanding setups:
+
+```bash
+sudo sysctl -w net.inet.tcp.mssdflt=1420
+sudo sysctl -w net.inet.tcp.win_scale_factor=7
+sudo sysctl -w net.inet.tcp.sendspace=861275
+sudo sysctl -w net.inet.tcp.recvspace=861275
+sudo sysctl -w net.inet.tcp.autosndbufmax=8388608
+sudo sysctl -w net.inet.tcp.autorcvbufmax=8388608
+sudo sysctl -w net.inet.ip.portrange.first=32768
+sudo launchctl limit maxfiles 65536 200000
+```
+
+These settings last until reboot.
 
 ## API Usage
 
@@ -181,6 +213,119 @@ outlet.destroy();
 
 ```
 
+### Chunked transfer
+
+When throughput matters more than per-sample latency, push and pull whole
+blocks of samples with one native call. Both a convenience list form and a
+flat typed-data fast path (single memmove, no per-element conversion) are
+available:
+
+```dart
+// List form: one List per sample, channelCount values each.
+await outlet.pushChunk([
+  [1.0, 2.0],
+  [3.0, 4.0],
+]);
+
+// Typed fast path: flat, sample-major (Float32List for float32 streams,
+// Int16List for int16, ...). Optional per-sample timestamps.
+final data = Float32List.fromList([1.0, 2.0, 3.0, 4.0]);
+await outlet.pushChunkTyped(data);
+
+// Pulling: with the default timeout of 0.0 this returns everything already
+// buffered (up to maxSamples). A nonzero timeout keeps pulling until
+// maxSamples samples arrive or the timeout expires — it does not return
+// early once some data is there.
+final chunk = await inlet.pullChunk(maxSamples: 512);
+print('${chunk.sampleCount} samples, first ts ${chunk.timestamps.firstOrNull}');
+
+final typed = await inlet.pullChunkTyped(maxSamples: 512);
+final Float32List flat = typed.data as Float32List;
+```
+
+In direct mode (`useIsolates: false`) the `*Sync` variants
+(`pushChunkSync`, `pullChunkTypedSync`, and the zero-copy
+`pullChunkPointerSync`) skip all async overhead. String streams support
+the list forms (`pushChunk`/`pullChunk`) but not the typed ones.
+
+### Explicit timestamps & pushthrough
+
+By default a pushed sample is stamped with the current `LSL.localClock()`.
+When the data was captured earlier (e.g. an event detected a few ms ago, or
+samples read from a device buffer), pass the capture time instead:
+
+```dart
+final capturedAt = LSL.localClock() - latency;
+await outlet.pushSample(['stimulus_onset'], timestamp: capturedAt);
+
+// pushthrough: false lets liblsl batch samples; true (liblsl's default)
+// sends immediately. Works with or without a timestamp.
+await outlet.pushSample([1.0, 2.0], pushthrough: false);
+await outlet.pushChunk(samples, timestamps: perSampleTimes, pushthrough: true);
+```
+
+### Binary string samples
+
+String channels are NUL-terminated in the normal API. To send arbitrary bytes
+(including `0x00`) on a string stream, use the binary variants:
+
+```dart
+await outlet.pushSampleBytes([Uint8List.fromList([0x01, 0x00, 0x02])]);
+final sample = await inlet.pullSampleBytes(timeout: 1.0); // LSLSample<Uint8List>
+
+await outlet.pushChunkBytes(listOfSamplesOfUint8Lists);
+final chunk = await inlet.pullChunkBytes(maxSamples: 64);
+```
+
+The binary chunk pull keeps pulling until `maxSamples` samples have arrived
+or `timeout` expires; use `timeout: 0.0` to take only what is already
+buffered.
+
+### Transport options (sync/blocking transfer, buffer units)
+
+Outlets and inlets accept a set of `LSLTransportOptions` applied at
+creation:
+
+```dart
+final outlet = await LSL.createOutlet(
+  streamInfo: info,
+  transportOptions: {LSLTransportOptions.syncBlocking},
+);
+
+final inlet = await LSL.createInlet<double>(
+  streamInfo: streams[0],
+  // maxBuffer now means samples, not seconds:
+  maxBuffer: 1000,
+  transportOptions: {
+    LSLTransportOptions.bufsizeInSamples,
+    LSLTransportOptions.syncBlocking,
+  },
+);
+```
+
+`syncBlocking` switches the outlet to zero-copy blocking socket writes:
+every push hands the buffer directly to each connected consumer and only
+returns once the OS has accepted the data for all of them. This reduces CPU
+usage and latency jitter for high-bandwidth streams, but:
+
+- each push blocks for as long as the slowest consumer needs (in direct
+  mode this stalls the calling isolate);
+- it is **not** compatible with string-format streams (an `ArgumentError`
+  is thrown at creation);
+- only one thread/isolate may push at a time;
+- `bufsizeInSamples` / `bufsizeInThousandths` change the unit of
+  `maxBuffer` (they are mutually exclusive).
+
+### Benchmarking
+
+A standalone benchmark suite compares the transport modes and operations —
+see [benchmark/README.md](./benchmark/README.md). CI tracks results per
+commit and release on the `gh-pages` branch.
+
+```sh
+dart run benchmark/bin/liblsl_benchmark.dart --smoke
+```
+
 ## Direct FFI usage
 
 If you want to use the FFI directly, you can do so by importing the `native_liblsl.dart` file.
@@ -232,6 +377,8 @@ Set up the environment (for more details, see the [REVIEW_TESTING.md](https://gi
 ```bash
 dart test
 ```
+
+The tests need a few thousand open files; liblsl raises the limit itself (see [the open file limit](#macos-and-linux-open-file-limit)).
 
 ## Contributing
 

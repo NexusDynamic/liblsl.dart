@@ -1,0 +1,318 @@
+name: Release
+
+# One pipeline for every package, started by pushing a `<package>-v<version>`
+# tag (prepare it with `tool/release.sh <package> <version>`):
+#
+#   parse → test ─┬→ pub.dev (packages without `publish_to: none`)
+#                 │     └→ GitHub release ─┬→ Zenodo draft (liblsl only)
+#                 │                        └→ app binaries (lsl_viewer only)
+#                 └→ lsl_viewer builds ────────┘
+#
+# Unscoped tags (v1.2.3) and tags whose version does not match the package's
+# pubspec fail in `parse`, before anything else runs.
+
+on:
+  push:
+    tags: [ '*-v[0-9]*' ]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  parse:
+    runs-on: ubuntu-latest
+    outputs:
+      package: ${{ steps.parse.outputs.package }}
+      version: ${{ steps.parse.outputs.version }}
+      path: ${{ steps.parse.outputs.path }}
+      is_app: ${{ steps.parse.outputs.is_app }}
+      publishable: ${{ steps.parse.outputs.publishable }}
+      prerelease: ${{ steps.parse.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Parse and check tag
+        id: parse
+        run: .github/scripts/parse_release_tag.sh "${{ github.ref_name }}"
+
+      - name: Summary
+        run: |
+          {
+            echo "## Releasing \`${{ steps.parse.outputs.package }}\` ${{ steps.parse.outputs.version }}"
+            echo ""
+            echo "- Path: \`${{ steps.parse.outputs.path }}\`"
+            echo "- Publish to pub.dev: ${{ steps.parse.outputs.publishable }}"
+            echo "- Zenodo: ${{ steps.parse.outputs.package == 'liblsl' }}"
+            echo "- App binaries: ${{ steps.parse.outputs.package == 'lsl_viewer' }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  test:
+    needs: parse
+    uses: ./.github/workflows/test.yml
+
+  # Builds run alongside the tests but are only attached once tests pass.
+  build-lsl-viewer:
+    needs: parse
+    if: needs.parse.outputs.package == 'lsl_viewer'
+    uses: ./.github/workflows/build-lsl-viewer.yml
+    with:
+      version: ${{ needs.parse.outputs.version }}
+      base-href: /${{ github.event.repository.name }}/lsl_viewer/
+    secrets: inherit
+
+  pub-publish:
+    needs: [parse, test]
+    if: needs.parse.outputs.publishable == 'true'
+    runs-on: ubuntu-latest
+    # Optional protection: pub.dev can require this environment, and GitHub can
+    # require a reviewer for it (Settings → Environments → pub.dev).
+    environment: pub.dev
+    permissions:
+      contents: read
+      id-token: write # pub.dev automated publishing (OIDC)
+    steps:
+      # A version uploaded by hand (e.g. a package's first, which pub.dev
+      # requires) or by an earlier attempt of this workflow is not published
+      # again, so its tag still gets a GitHub release.
+      - name: Check pub.dev for this version
+        id: pubdev
+        env:
+          PACKAGE: ${{ needs.parse.outputs.package }}
+          VERSION: ${{ needs.parse.outputs.version }}
+        run: |
+          STATUS="$(curl -s -o /dev/null -w '%{http_code}' "https://pub.dev/api/packages/$PACKAGE/versions/$VERSION")"
+          case "$STATUS" in
+            200)
+              echo "::notice::$PACKAGE $VERSION is already on pub.dev; not publishing it again."
+              echo "published=true" >> "$GITHUB_OUTPUT"
+              ;;
+            404)
+              echo "published=false" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "::error::pub.dev answered HTTP $STATUS for $PACKAGE $VERSION"
+              exit 1
+              ;;
+          esac
+
+      - uses: actions/checkout@v6
+        if: steps.pubdev.outputs.published != 'true'
+        with:
+          # The liblsl C++ sources are in a submodule and must be in the package.
+          submodules: recursive
+
+      - name: Setup Flutter
+        if: steps.pubdev.outputs.published != 'true'
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+          cache-key: "flutter-:os:-:channel:-:version:-:arch:-main"
+          pub-cache-key: "flutter-pub-:os:-:channel:-:version:-:arch:-main"
+
+      - name: Get dependencies
+        if: steps.pubdev.outputs.published != 'true'
+        run: flutter pub get
+
+      # Same as dart-lang/setup-dart does for its publish workflow, which can't
+      # be used here: it doesn't check out submodules, and the workspace needs
+      # Flutter to resolve.
+      - name: Get pub.dev token
+        if: steps.pubdev.outputs.published != 'true'
+        run: |
+          TOKEN="$(curl -sSf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=https://pub.dev" | jq -r '.value')"
+          echo "::add-mask::$TOKEN"
+          echo "PUB_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+          dart pub token add https://pub.dev --env-var PUB_TOKEN
+
+      # `flutter pub publish` works for Flutter and pure Dart packages alike;
+      # `dart pub publish` refuses Flutter ones (webrtc_coordinator_flutter).
+      - name: Dry run
+        if: steps.pubdev.outputs.published != 'true'
+        working-directory: ${{ needs.parse.outputs.path }}
+        run: flutter pub publish --dry-run
+
+      - name: Publish
+        if: steps.pubdev.outputs.published != 'true'
+        working-directory: ${{ needs.parse.outputs.path }}
+        run: flutter pub publish --force
+
+  github-release:
+    needs: [parse, test, pub-publish]
+    # pub-publish is skipped for unpublished packages; that's fine, a failure isn't.
+    if: >-
+      !cancelled()
+      && needs.test.result == 'success'
+      && (needs.pub-publish.result == 'success' || needs.pub-publish.result == 'skipped')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Release notes from CHANGELOG
+        env:
+          PACKAGE: ${{ needs.parse.outputs.package }}
+          VERSION: ${{ needs.parse.outputs.version }}
+          PKG_PATH: ${{ needs.parse.outputs.path }}
+          PUBLISHABLE: ${{ needs.parse.outputs.publishable }}
+        run: |
+          {
+            .github/scripts/changelog_section.sh "$PKG_PATH/CHANGELOG.md" "$VERSION"
+            echo ""
+            if [ "$PUBLISHABLE" = "true" ]; then
+              echo "Published on pub.dev: https://pub.dev/packages/$PACKAGE/versions/$VERSION"
+              echo ""
+            fi
+            echo "Full changelog: https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/$PKG_PATH/CHANGELOG.md"
+          } > release_notes.md
+          cat release_notes.md
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ needs.parse.outputs.package }} ${{ needs.parse.outputs.version }}
+          body_path: release_notes.md
+          prerelease: ${{ needs.parse.outputs.prerelease == 'true' }}
+
+  zenodo:
+    needs: [parse, github-release]
+    # Explicit results: a skipped job upstream would otherwise skip this one too.
+    if: >-
+      !cancelled()
+      && needs.parse.outputs.package == 'liblsl'
+      && needs.github-release.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.parse.outputs.version }}
+      ARCHIVE: liblsl-${{ needs.parse.outputs.version }}.zip
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Build source archive
+        run: |
+          STAGING="liblsl-${VERSION}"
+          mkdir -p "$STAGING"
+          # Package source (paper/, src/ with the liblsl C++ submodule, lib/, test/, …)
+          rsync -a \
+            --exclude '.git' --exclude '.dart_tool' --exclude 'build' --exclude 'coverage' \
+            packages/liblsl/ "$STAGING/"
+          cp CITATION.cff codemeta.json "$STAGING/"
+          zip -qr "$ARCHIVE" "$STAGING"
+          echo "Created $ARCHIVE ($(du -sh "$ARCHIVE" | cut -f1))"
+
+      - name: Attach archive to the GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: ${{ env.ARCHIVE }}
+
+      - name: Upload to Zenodo draft
+        env:
+          ZENODO_TOKEN: ${{ secrets.ZENODO_TOKEN }}
+          ZENODO_DEPOSIT_ID: ${{ secrets.ZENODO_DEPOSIT_ID }}
+        run: |
+          DEPOSIT_URL="https://zenodo.org/api/deposit/depositions/$ZENODO_DEPOSIT_ID"
+          DEPOSIT="$(curl -sSf -H "Authorization: Bearer $ZENODO_TOKEN" "$DEPOSIT_URL")"
+
+          STATUS="$(echo "$DEPOSIT" | python3 -c "import sys,json; print(json.load(sys.stdin)['state'])")"
+          if [ "$STATUS" != "inprogress" ] && [ "$STATUS" != "unsubmitted" ]; then
+            echo "::error::Zenodo deposit $ZENODO_DEPOSIT_ID is not editable (state=$STATUS). Create a new version draft on Zenodo and update ZENODO_DEPOSIT_ID."
+            exit 1
+          fi
+          BUCKET_URL="$(echo "$DEPOSIT" | python3 -c "import sys,json; print(json.load(sys.stdin)['links']['bucket'])")"
+
+          echo "Uploading $ARCHIVE…"
+          curl -sSf -X PUT \
+            -H "Authorization: Bearer $ZENODO_TOKEN" \
+            -H "Content-Type: application/octet-stream" \
+            --data-binary @"$ARCHIVE" \
+            "$BUCKET_URL/$ARCHIVE" > /dev/null
+
+          # Metadata from .zenodo.json (its version is checked against the tag in `parse`).
+          python3 - <<'PYEOF'
+          import json, os, urllib.request
+
+          with open('.zenodo.json') as f:
+              meta = json.load(f)
+
+          req = urllib.request.Request(
+              f"https://zenodo.org/api/deposit/depositions/{os.environ['ZENODO_DEPOSIT_ID']}",
+              data=json.dumps({'metadata': meta}).encode(),
+              method='PUT',
+              headers={
+                  'Authorization': f"Bearer {os.environ['ZENODO_TOKEN']}",
+                  'Content-Type': 'application/json',
+              },
+          )
+          with urllib.request.urlopen(req) as resp:
+              result = json.load(resp)
+              print(f"Metadata updated. DOI: {result.get('doi', 'n/a')}")
+          PYEOF
+
+      - name: Summary
+        run: |
+          {
+            echo "## Zenodo draft updated"
+            echo ""
+            echo "- Archive: \`$ARCHIVE\`"
+            echo "- Deposit: https://zenodo.org/deposit/${{ secrets.ZENODO_DEPOSIT_ID }}"
+            echo ""
+            echo "Review and publish the draft on Zenodo."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  lsl-viewer-assets:
+    needs: [parse, github-release, build-lsl-viewer]
+    if: >-
+      !cancelled()
+      && needs.parse.outputs.package == 'lsl_viewer'
+      && needs.github-release.result == 'success'
+      && needs.build-lsl-viewer.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download builds
+        uses: actions/download-artifact@v4
+        with:
+          pattern: lsl_viewer-*
+          path: dist
+          merge-multiple: true
+
+      - name: Download web site
+        uses: actions/download-artifact@v4
+        with:
+          name: site-lsl_viewer
+          path: site
+
+      - name: Attach builds to the GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/*.apk
+          fail_on_unmatched_files: true
+
+      # Shares gh-pages with the benchmark data (dev/bench), so keep other files.
+      - name: Deploy web build to GitHub Pages
+        if: needs.parse.outputs.prerelease != 'true'
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
+          publish_dir: site
+          destination_dir: lsl_viewer
+          keep_files: true
+          commit_message: "Deploy lsl_viewer ${{ needs.parse.outputs.version }}"

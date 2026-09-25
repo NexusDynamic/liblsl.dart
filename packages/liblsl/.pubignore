@@ -1,0 +1,13 @@
+# Replaces .gitignore for `dart pub publish` in this directory, so its rules
+# are repeated here.
+doc/api/
+paper/jats
+paper/paper.pdf
+paper/analysis/data/*
+src/pugixml/
+
+# Not needed to use the package (and ~58 MB): the JOSS paper and its analysis
+# live in the repository and in the Zenodo archive.
+paper/
+coverage/
+bench.json

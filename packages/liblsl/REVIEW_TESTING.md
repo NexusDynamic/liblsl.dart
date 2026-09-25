@@ -76,7 +76,7 @@ The first time you run the tests, it will take a little longer because of the li
 
 - run `dart test` from the `packages/liblsl` directory, this runs all the tests in the `test` directory.
 
-**Note: The performance tests take some time, you can skip those by running `dart test --exclude=performance` if you want to run the other tests more quickly.**
+**Note: The performance tests take some time, you can skip those by running `dart test --exclude-tags=performance` if you want to run the other tests more quickly.**
 
 Expect to see some error lines from liblsl that say `Stream transmission broke off (Input stream error.); re-connecting..`. This is expected behaviour because we close streams during testing, and liblsl is warning us that the stream was closed.
 

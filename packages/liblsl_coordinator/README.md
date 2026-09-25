@@ -2,25 +2,14 @@
 
 A performance-focused Dart library for multi-layer LSL-based device coordination. This library provides a robust foundation for coordinating multiple devices in real-time applications using Lab Streaming Layer (LSL) with support for different communication layers.
 
-## Important note
+## Open file limit
 
-If you see an error message like: 
-```text
-2025-08-31 16:16:06.339 (  30.482s) [R_TestData      ]      data_receiver.cpp:344    ERR| Stream transmission broke off (kqueue: Too many open files); re-connecting...
-2025-08-31 16:16:06.339 (  30.482s) [R_TestData      ]      resolver_impl.cpp:209    ERR| Could not start a multicast resolve attempt for any of the allowed protocol stacks: open: Too many open files
-````
-
-This can happen (only on OSX?) due to the file descriptor limit being low by default. You can check your limit with:
-
-```bash
-ulimit -n
-```
-
-To increase it, you can run (e.g. to increase to 4096):
-
-```bash
-ulimit -n 4096
-```
+Every LSL outlet, inlet and resolver holds several sockets. On macOS and Linux,
+[`liblsl`](https://pub.dev/packages/liblsl) raises the process's open-file
+limit when it is loaded, so sessions with many nodes and streams no longer run
+into `Too many open files`. If it warns that it could not (e.g. in a sandbox),
+raise the limit yourself with `ulimit -n 4096` before starting the app. See the
+liblsl README for details.
 
 ## Features
 
@@ -43,15 +32,68 @@ The library implements a layered approach where:
 
 ## Getting Started
 
-Add the dependency to your `pubspec.yaml`:
-
-```yaml
-dependencies:
-  liblsl_coordinator: [latest_version]
+```bash
+dart pub add liblsl_coordinator
 ```
 
 ## Usage
 
-### Basic Multi-layer Coordination
+Every node runs the same code: it discovers the others over LSL, one of them
+is elected coordinator, and the rest join as participants.
+
+```dart
+import 'package:liblsl_coordinator/liblsl_coordinator.dart';
+import 'package:liblsl_coordinator/transports/lsl.dart';
+
+Future<void> main() async {
+  final config = CoordinationConfig(
+    name: 'my_experiment',
+    sessionConfig: CoordinationSessionConfig(name: 'session_1', maxNodes: 4),
+    topologyConfig: HierarchicalTopologyConfig(
+      promotionStrategy: PromotionStrategyRandom(),
+      maxNodes: 4,
+    ),
+    streamConfig: CoordinationStreamConfig(
+      name: 'coordination',
+      sampleRate: 50.0,
+    ),
+    transportConfig: LSLTransportConfig(coordinationFrequency: 50.0),
+  );
+
+  final session = PeerSession.create(
+    config,
+    thisNodeConfig: NodeConfigFactory().defaultConfig().copyWith(name: 'node_a'),
+  );
+  await session.initialize();
+  await session.join();
+  print(session.isCoordinator ? 'coordinator' : 'participant');
+
+  // Messages between nodes...
+  session.events.userCoordinationMessages.listen((m) => print(m));
+  await session.sendUserMessage('hello', 'Hello from node_a', {});
+
+  // ...and data streams (the coordinator creates and starts them).
+  if (session.isCoordinator) {
+    await session.createDataStream(
+      DataStreamConfig(
+        name: 'Samples',
+        channels: 2,
+        sampleRate: 100.0,
+        dataType: StreamDataType.double64,
+      ),
+    );
+    await session.startStream('Samples');
+  }
+
+  await session.dispose();
+}
+```
+
+The transport is pluggable: the same session code runs over the in-memory
+transport from [`peer_coordinator`](https://pub.dev/packages/peer_coordinator)
+(`package:peer_coordinator/in_memory.dart`, used by the
+[example](https://github.com/NexusDynamic/liblsl.dart/blob/main/packages/liblsl_coordinator/example/liblsl_coordinator_example.dart)),
+or over WebRTC with
+[`webrtc_coordinator`](https://pub.dev/packages/webrtc_coordinator).
 
 For more information, see the [liblsl.dart](https://github.com/NexusDynamic/liblsl.dart) repository.

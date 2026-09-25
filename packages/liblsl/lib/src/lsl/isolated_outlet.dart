@@ -2,8 +2,12 @@ import 'dart:async';
 import 'dart:ffi';
 
 import 'package:liblsl/native_liblsl.dart';
+import 'package:liblsl/src/ffi/bindings_ex.dart';
+import 'package:liblsl/src/ffi/mem.dart';
 import 'package:liblsl/src/lsl/base.dart';
+import 'package:liblsl/src/lsl/binary_string.dart';
 import 'package:liblsl/src/lsl/exception.dart';
+import 'package:liblsl/src/lsl/push_chunk.dart';
 import 'package:liblsl/src/lsl/push_sample.dart';
 import 'package:liblsl/src/lsl/stream_info.dart';
 import 'package:liblsl/src/lsl/helper.dart';
@@ -17,6 +21,10 @@ class LSLOutletIsolate extends LSLIsolateWorkerBase {
   LSLStreamInfo? _streamInfo;
   late final LSLPushSample _pushFn;
   late final bool _isStreamInfoOwner;
+
+  /// Resolved lazily: string streams have no chunk push and must still be
+  /// able to create outlets.
+  LSLPushChunk? _pushChunkFn;
 
   /// Creates a new outlet isolate worker
   /// The [sendPort] is used to communicate with the main isolate.
@@ -34,6 +42,22 @@ class LSLOutletIsolate extends LSLIsolateWorkerBase {
         return await _waitForConsumer(data);
       case LSLMessageType.pushSample:
         return await _pushSample(data);
+      case LSLMessageType.pushChunk:
+        return await _pushChunk(data);
+      case LSLMessageType.pushSampleBytes:
+        return _pushSampleBytes(data);
+      case LSLMessageType.pushChunkBytes:
+        return _pushChunkBytes(data);
+      case LSLMessageType.getInfo:
+        if (_outlet == null) {
+          throw LSLException('Outlet not created');
+        }
+        final info = lsl_get_info(_outlet!);
+        if (info.isNullPointer) {
+          throw LSLException('Failed to get outlet info');
+        }
+        // Ownership passes to the main isolate, which wraps the address.
+        return info.address;
       case LSLMessageType.destroy:
         _destroy();
         return null;
@@ -76,13 +100,21 @@ class LSLOutletIsolate extends LSLIsolateWorkerBase {
     _pushFn = LSLMapper().streamPush(_streamInfo!);
 
     // Create the outlet
-    _outlet = lsl_create_outlet(
-      _streamInfo!.streamInfo,
-      data['chunkSize'] as int,
-      data['maxBuffer'] as int,
-    );
+    final transportFlags = data['transportFlags'] as int? ?? 0;
+    _outlet = transportFlags == 0
+        ? lsl_create_outlet(
+            _streamInfo!.streamInfo,
+            data['chunkSize'] as int,
+            data['maxBuffer'] as int,
+          )
+        : lslCreateOutletFlags(
+            _streamInfo!.streamInfo,
+            data['chunkSize'] as int,
+            data['maxBuffer'] as int,
+            transportFlags,
+          );
 
-    if (_outlet == null) {
+    if (_outlet == null || _outlet!.isNullPointer) {
       throw LSLException('Error creating outlet');
     }
 
@@ -112,9 +144,98 @@ class LSLOutletIsolate extends LSLIsolateWorkerBase {
     final samplePtr = Pointer.fromAddress(data['pointerAddr'] as int);
 
     // Push the sample
-    final int result = _pushFn(_outlet!, samplePtr);
+    final int result = _pushFn(
+      _outlet!,
+      samplePtr,
+      timestamp: data['timestamp'] as double?,
+      pushthrough: data['pushthrough'] as bool?,
+    );
     if (LSLObj.error(result)) {
       throw LSLException('Error pushing sample: $result');
+    }
+    return result;
+  }
+
+  /// Pushes a binary sample from the main isolate's buffers.
+  int _pushSampleBytes(Map<String, dynamic> data) {
+    if (_outlet == null) {
+      throw LSLException('Outlet not created');
+    }
+    final buf = LSLBinaryBuffer.view(data['buffer'] as Map<String, dynamic>);
+    final result = lslPushSampleBinary(
+      _outlet!,
+      buf.data,
+      buf.lengths,
+      timestamp: data['timestamp'] as double?,
+      pushthrough: data['pushthrough'] as bool?,
+    );
+    if (LSLObj.error(result)) {
+      throw lslError('Error pushing binary sample', result);
+    }
+    return result;
+  }
+
+  /// Pushes a binary chunk from the main isolate's buffers.
+  int _pushChunkBytes(Map<String, dynamic> data) {
+    if (_outlet == null) {
+      throw LSLException('Outlet not created');
+    }
+    final buf = LSLBinaryBuffer.view(data['buffer'] as Map<String, dynamic>);
+    final result = lslPushChunkBinary(
+      _outlet!,
+      buf.data,
+      buf.lengths,
+      buf.elements,
+      timestamp: data['timestamp'] as double?,
+      timestamps: data['hasTimestamps'] as bool ? buf.timestamps : null,
+      pushthrough: data['pushthrough'] as bool?,
+    );
+    if (LSLObj.error(result)) {
+      throw lslError('Error pushing binary chunk', result);
+    }
+    return result;
+  }
+
+  /// Pushes a chunk from the main isolate's shared native buffer.
+  ///
+  /// The main isolate owns the buffer and awaits this response before
+  /// touching it again, so reading it here is race-free.
+  Future<int> _pushChunk(Map<String, dynamic> data) async {
+    if (_outlet == null || _streamInfo == null) {
+      throw LSLException('Outlet not created');
+    }
+    final pushChunkFn = _pushChunkFn ??= LSLMapper().streamPushChunk(
+      _streamInfo!,
+    );
+    final dataPtr = Pointer<NativeType>.fromAddress(data['pointerAddr'] as int);
+    final elements = data['dataElements'] as int;
+    final tsAddr = data['tsPointerAddr'] as int?;
+
+    final timestamp = data['timestamp'] as double?;
+    final pushthrough = data['pushthrough'] as bool?;
+
+    final int result;
+    if (tsAddr != null) {
+      result = pushChunkFn.pushWithTimestamps(
+        _outlet!,
+        dataPtr,
+        elements,
+        Pointer<Double>.fromAddress(tsAddr),
+        pushthrough: pushthrough,
+      );
+    } else if (timestamp == null && pushthrough == null) {
+      result = pushChunkFn.pushNow(_outlet!, dataPtr, elements);
+    } else {
+      result = pushChunkFn.pushWithTimestamp(
+        _outlet!,
+        dataPtr,
+        elements,
+        timestamp ?? 0.0,
+        pushthrough: pushthrough,
+      );
+    }
+    if (LSLObj.error(result)) {
+      throw LSLException('Error pushing chunk: $result');
     }
     return result;
   }

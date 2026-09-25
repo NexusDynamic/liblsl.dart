@@ -1,0 +1,69 @@
+# The hub behind Caddy.
+#
+# The important line in this file is the one that is missing: the `hub` service
+# publishes no ports. Only Caddy is reachable from outside the host, so the
+# authentication handshake is not the only thing between the relay and the
+# internet. Keep it that way.
+#
+#   cp .env.example .env   # then edit it
+#   docker compose up -d
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    # The only service that publishes anything.
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      HUB_DOMAIN: ${HUB_DOMAIN:?set HUB_DOMAIN in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Certificates and ACME account state. Without these a restart re-issues
+      # certificates and will eventually hit Let's Encrypt rate limits.
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - hub
+
+  hub:
+    build:
+      # The repository root: the hub is one package inside a pub workspace.
+      context: ../../..
+      dockerfile: packages/peer_coordinator/deploy/Dockerfile
+    restart: unless-stopped
+    # No `ports:` on purpose. Reachable at hub:8080 on the compose network, and
+    # nowhere else. To reach the admin API from the host, uncomment:
+    #   ports:
+    #     - "127.0.0.1:9090:9090"
+    # The 127.0.0.1 prefix is what keeps it host-local — a plain "9090:9090"
+    # would publish the control API on every interface.
+    environment:
+      HUB_SECRET: ${HUB_SECRET:?set HUB_SECRET in .env}
+      HUB_ADMIN_TOKEN: ${HUB_ADMIN_TOKEN:?set HUB_ADMIN_TOKEN in .env}
+    command:
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+      - --session
+      - ${HUB_SESSION:?set HUB_SESSION in .env}
+      - --session-ttl
+      - ${HUB_SESSION_TTL:-0}
+      - --max-frame-bytes
+      - ${HUB_MAX_FRAME_BYTES:-1048576}
+      - --max-connections
+      - ${HUB_MAX_CONNECTIONS:-64}
+      - --max-peers
+      - ${HUB_MAX_PEERS:-256}
+      - --admin-port
+      - "9090"
+    # Keeps the interactive commands (status, end, open, revoke) usable via
+    # `docker compose attach hub`.
+    stdin_open: true
+    tty: true
+
+volumes:
+  caddy_data:
+  caddy_config:

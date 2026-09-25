@@ -104,20 +104,19 @@ class _AnalysisHomePageState extends State<AnalysisHomePage> {
         type: FileType.custom,
         allowedExtensions: ['tsv'],
         dialogTitle: 'Select TSV files',
-        allowMultiple: true,
         initialDirectory: initialDirectory,
       );
 
-      if (result != null && result.files.isNotEmpty) {
+      if (result.isNotEmpty) {
         // Save the directory for next time
-        final firstFilePath = result.files.first.path;
+        final firstFilePath = result.first.path;
         if (firstFilePath != null) {
           final directory = Directory(firstFilePath).parent.path;
           await _saveLastDirectory(directory);
         }
 
         // Process files synchronously but with progress updates
-        await _processFilesWithProgress(result.files);
+        await _processFilesWithProgress(result);
 
         if (mounted && csvData != null) {
           setState(() {

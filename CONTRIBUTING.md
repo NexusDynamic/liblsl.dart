@@ -37,11 +37,38 @@ LLVM / Clang can be installed from here: https://github.com/llvm/llvm-project/re
 
 ## Testing
 
-Before submitting a PR, please ensure that all tests pass by running `fvm exec melos test`. If your PR changes functionality or is a new feature, make sure that there are associated tests to ensure that it works, and will continue to work in the future.
+Before submitting a PR, please ensure that all tests pass by running `fvm exec melos test`. The LSL-backed tests (`fvm exec melos test:lsl`) need a few thousand open files; liblsl raises the process limit itself when loaded, but if it warns that it could not, run `ulimit -S -n 65536` in the same shell first (see the [liblsl README](packages/liblsl/README.md#macos-and-linux-open-file-limit)). The serial and OpenBCI tests use `socat` for virtual serial ports, and are skipped without it. If your PR changes functionality or is a new feature, make sure that there are associated tests to ensure that it works, and will continue to work in the future.
 
 ## Formatting and linting
 
 In addition to testing, please make sure to run `fvm exec melos format` and `fvm exec melos analyze` to ensure that your code is properly formatted and does not have any linting issues. This will help to keep the codebase clean and consistent.
+
+## Releases (maintainers)
+
+Every package and app is versioned on its own, and released by pushing a tag of the form `<package>-v<version>`, e.g. `liblsl-v1.0.0`, `xdf-v0.2.0` or `lsl_viewer-v0.1.0`. Unscoped tags (`v1.0.0`) are not released.
+
+1. Add a `# <version>` section to the package's `CHANGELOG.md`; it becomes the release notes.
+2. Run `tool/release.sh <package> <version>`. It sets the pubspec version (and, for `liblsl`, the version in `CITATION.cff`, `codemeta.json` and `.zenodo.json`), then prints the commands to commit and tag.
+3. Push the commit to `main`, then push the tag.
+
+The [release workflow](.github/workflows/release.yml) checks that the tag matches the pubspec (and the citation metadata for `liblsl`), runs the full test suite, and only then:
+
+- publishes to pub.dev, for packages without `publish_to: none` (via [automated publishing](https://dart.dev/tools/pub/automated-publishing); each package needs it enabled on pub.dev with the tag pattern `<package>-v{{version}}`). A version already on pub.dev is not published again. pub.dev only offers automated publishing for packages that exist, so a new package's first version is published by hand (`dart pub publish`), and its tag then just creates the GitHub release;
+- creates the GitHub release;
+- for `liblsl`, attaches a source archive (with the liblsl C++ submodule) and uploads it and `.zenodo.json` to the Zenodo draft, which is then published by hand on Zenodo;
+- for `lsl_viewer`, builds Linux, Windows, macOS, Android and web binaries, attaches them to the release and deploys the web build to GitHub Pages (`/lsl_viewer/`). The same builds can be tried without releasing with the *Build lsl_viewer* workflow.
+
+### Published packages
+
+On pub.dev: `liblsl`, `signal_core`, `xdf`, `peer_coordinator`, `webrtc_coordinator`, `webrtc_coordinator_flutter` and `liblsl_coordinator`. Everything else, including `lsl_viewer`, has `publish_to: none`.
+
+Packages depend on each other with normal version constraints (e.g. `peer_coordinator: ^0.3.1`); inside the workspace these resolve to the local packages. When a release needs a new version of another package, release that one first. A new package goes up by hand in dependency order before its tag is pushed:
+
+1. `signal_core`, then `xdf`
+2. `peer_coordinator`, then `webrtc_coordinator`, then `webrtc_coordinator_flutter`
+3. `liblsl_coordinator`, once the `liblsl` version it needs is on pub.dev
+
+Publish Flutter packages with `flutter pub publish`; the release workflow uses it for all packages.
 
 ## Support
 

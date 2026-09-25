@@ -1,0 +1,435 @@
+import 'dart:async';
+import 'dart:io'
+    show InternetAddress, ProcessInfo, RawDatagramSocket, RawSocketEvent;
+
+import 'package:liblsl/lsl.dart';
+import 'package:test/test.dart';
+
+/// Memory-safety and lifecycle regression tests.
+///
+/// The string push/pull paths used to leak one native allocation per channel
+/// per sample (push: UTF-8 copies never freed; pull: liblsl-allocated strings
+/// never released via lsl_destroy_string). The RSS-bounded loop below leaked
+/// tens of MB before the fix, so a generous threshold still catches a
+/// regression without being flaky.
+void main() {
+  setUpAll(() {
+    final apiConfig = LSLApiConfig(
+      ipv6: IPv6Mode.disable,
+      resolveScope: ResolveScope.link,
+      listenAddress: '127.0.0.1',
+      addressesOverride: ['224.0.0.183'],
+      knownPeers: ['127.0.0.1'],
+      sessionId: 'LSLLeakTestSession',
+      unicastMinRTT: 0.1,
+      multicastMinRTT: 0.1,
+      portRange: 64,
+      watchdogCheckInterval: 600.0,
+      sendSocketBufferSize: 1024,
+      receiveSocketBufferSize: 1024,
+      outletBufferReserveMs: 2000,
+      inletBufferReserveMs: 2000,
+    );
+    LSL.setConfigContent(apiConfig);
+  });
+
+  group('lifecycle safety', () {
+    test('repeated outlet create/destroy (direct) does not crash', () async {
+      for (int i = 0; i < 50; i++) {
+        final info = await LSL.createStreamInfo(
+          streamName: 'LeakLifecycleDirect_$i',
+          channelCount: 4,
+        );
+        final outlet = await LSL.createOutlet(
+          streamInfo: info,
+          useIsolates: false,
+        );
+        outlet.pushSampleSync([1.0, 2.0, 3.0, 4.0]);
+        await outlet.destroy();
+        info.destroy();
+      }
+    });
+
+    test('repeated outlet create/destroy (isolated) does not crash', () async {
+      for (int i = 0; i < 10; i++) {
+        final info = await LSL.createStreamInfo(
+          streamName: 'LeakLifecycleIsolated_$i',
+          channelCount: 4,
+        );
+        final outlet = await LSL.createOutlet(streamInfo: info);
+        await outlet.pushSample([1.0, 2.0, 3.0, 4.0]);
+        await outlet.destroy();
+        info.destroy();
+      }
+    });
+
+    test('double destroy is idempotent for outlets and inlets', () async {
+      final info = await LSL.createStreamInfo(
+        streamName: 'LeakDoubleDestroy',
+        channelCount: 2,
+      );
+      final outlet = await LSL.createOutlet(
+        streamInfo: info,
+        useIsolates: false,
+      );
+      await outlet.destroy();
+      await outlet.destroy();
+
+      final producerInfo = await LSL.createStreamInfo(
+        streamName: 'LeakDoubleDestroyInlet',
+        channelCount: 2,
+      );
+      final producer = await LSL.createOutlet(
+        streamInfo: producerInfo,
+        useIsolates: false,
+      );
+      final streams = await LSL.resolveStreamsByProperty(
+        property: LSLStreamProperty.name,
+        value: 'LeakDoubleDestroyInlet',
+        waitTime: 5.0,
+        maxStreams: 1,
+      );
+      final resolved = streams.firstWhereOrNull(
+        (s) => s.streamName == 'LeakDoubleDestroyInlet',
+      );
+      expect(resolved, isNotNull);
+      final inlet = await LSL.createInlet<double>(
+        streamInfo: resolved!,
+        useIsolates: false,
+      );
+      await inlet.destroy();
+      await inlet.destroy();
+
+      await producer.destroy();
+      producerInfo.destroy();
+      resolved.destroy();
+      info.destroy();
+    });
+
+    test('destroy after failed inlet create does not throw', () async {
+      // An inlet on a locally fabricated (never resolved, no producer) stream
+      // fails at lsl_open_stream with a timeout error.
+      final info = await LSL.createStreamInfo(
+        streamName: 'LeakNoSuchStream',
+        channelCount: 2,
+      );
+      final inlet = LSLInlet<double>(
+        info,
+        createTimeout: 0.1,
+        useIsolates: false,
+      );
+      try {
+        await inlet.create();
+      } on LSLException {
+        // expected: no producer to connect to
+      }
+      await inlet.destroy();
+      await inlet.destroy();
+      info.destroy();
+    });
+
+    test('destroy before create returns without error', () async {
+      final info = await LSL.createStreamInfo(
+        streamName: 'LeakNeverCreated',
+        channelCount: 2,
+      );
+      final outlet = LSLOutlet(info, useIsolates: false);
+      await outlet.destroy();
+      final inlet = LSLInlet<double>(info, useIsolates: false);
+      await inlet.destroy();
+      info.destroy();
+    });
+
+    test('repeated empty pulls (timeout 0) do not crash', () async {
+      final info = await LSL.createStreamInfo(
+        streamName: 'LeakEmptyPulls',
+        channelCount: 2,
+      );
+      final outlet = await LSL.createOutlet(
+        streamInfo: info,
+        useIsolates: false,
+      );
+      await Future.delayed(Duration(milliseconds: 100));
+      final streams = await LSL.resolveStreams(waitTime: 2.0, maxStreams: 10);
+      final resolved = streams.firstWhereOrNull(
+        (s) => s.streamName == 'LeakEmptyPulls',
+      );
+      expect(resolved, isNotNull);
+      final inlet = await LSL.createInlet<double>(
+        streamInfo: resolved!,
+        useIsolates: false,
+      );
+      for (int i = 0; i < 1000; i++) {
+        final sample = inlet.pullSampleSync(timeout: 0.0);
+        expect(sample.timestamp, 0);
+      }
+      await inlet.destroy();
+      await outlet.destroy();
+      resolved.destroy();
+      info.destroy();
+    });
+  });
+
+  group('string stream memory', () {
+    test('string push/pull round-trip has bounded RSS growth', () async {
+      const int iterations = 10000;
+      const int channels = 2;
+      // ~1 KiB per channel; before the leak fix this loop leaked
+      // ~2 * iterations * channels * 1 KiB ≈ 40 MiB (push + pull sides).
+      final String payload = 'x' * 1024;
+
+      final info = await LSL.createStreamInfo(
+        streamName: 'LeakStringStream',
+        channelCount: channels,
+        channelFormat: LSLChannelFormat.string,
+        sampleRate: LSL_IRREGULAR_RATE,
+        streamType: LSLContentType.markers,
+      );
+      final outlet = await LSL.createOutlet(
+        streamInfo: info,
+        useIsolates: false,
+      );
+      await Future.delayed(Duration(milliseconds: 100));
+      final streams = await LSL.resolveStreams(waitTime: 2.0, maxStreams: 10);
+      final resolved = streams.firstWhereOrNull(
+        (s) => s.streamName == 'LeakStringStream',
+      );
+      expect(resolved, isNotNull);
+      final inlet = await LSL.createInlet<String>(
+        streamInfo: resolved!,
+        useIsolates: false,
+      );
+
+      // Warm up buffers/allocator before measuring.
+      for (int i = 0; i < 100; i++) {
+        outlet.pushSampleSync([payload, payload]);
+      }
+      int drained = 0;
+      while (inlet.pullSampleSync(timeout: 0.5).isNotEmpty) {
+        drained++;
+      }
+      expect(drained, greaterThan(0));
+
+      final int rssBefore = ProcessInfo.currentRss;
+      int received = 0;
+      for (int i = 0; i < iterations; i++) {
+        outlet.pushSampleSync([payload, payload]);
+        final sample = inlet.pullSampleSync(timeout: 0.5);
+        if (sample.isNotEmpty) {
+          received++;
+          expect(sample[0].length, payload.length);
+        }
+      }
+      // Drain anything still buffered so pull-side allocations are exercised.
+      while (inlet.pullSampleSync(timeout: 0.2).isNotEmpty) {
+        received++;
+      }
+      final int rssAfter = ProcessInfo.currentRss;
+      final int growthMiB = (rssAfter - rssBefore) ~/ (1024 * 1024);
+
+      expect(received, greaterThan(iterations ~/ 2));
+      // Generous bound: the pre-fix leak was ~40 MiB deterministic growth.
+      expect(
+        growthMiB,
+        lessThan(25),
+        reason:
+            'RSS grew ${growthMiB}MiB over $iterations string samples — '
+            'possible native memory leak in string push/pull',
+      );
+
+      await inlet.destroy();
+      await outlet.destroy();
+      resolved.destroy();
+      info.destroy();
+    }, timeout: Timeout(Duration(minutes: 3)));
+
+    test(
+      'string chunk push / binary chunk pull has bounded RSS growth',
+      () async {
+        const int iterations = 1000;
+        const int chunkSamples = 10;
+        const int channels = 2;
+        // A leak of either side's per-element copies would be
+        // ~iterations * chunkSamples * channels * 1 KiB ≈ 20 MiB per side.
+        final String payload = 'y' * 1024;
+        final chunk = List.generate(chunkSamples, (_) => [payload, payload]);
+
+        final info = await LSL.createStreamInfo(
+          streamName: 'LeakStringChunkStream',
+          channelCount: channels,
+          channelFormat: LSLChannelFormat.string,
+          sampleRate: LSL_IRREGULAR_RATE,
+          streamType: LSLContentType.markers,
+        );
+        final outlet = await LSL.createOutlet(
+          streamInfo: info,
+          useIsolates: false,
+        );
+        await Future.delayed(Duration(milliseconds: 100));
+        final streams = await LSL.resolveStreams(waitTime: 2.0, maxStreams: 10);
+        final resolved = streams.firstWhereOrNull(
+          (s) => s.streamName == 'LeakStringChunkStream',
+        );
+        expect(resolved, isNotNull);
+        final inlet = await LSL.createInlet<String>(
+          streamInfo: resolved!,
+          useIsolates: false,
+        );
+
+        // maxSamples well above what is buffered: liblsl allocates every
+        // slot of the binary pull buffer, filled or not. timeout 0 takes
+        // only what is buffered (a nonzero one would wait it out in full).
+        // Drains until nothing has arrived for a while: samples can still be
+        // in flight after a momentarily empty pull (notably on macOS).
+        int pullAvailable() {
+          int n = 0;
+          final deadline = DateTime.now().add(Duration(seconds: 10));
+          var lastData = DateTime.now();
+          while (DateTime.now().isBefore(deadline)) {
+            final c = inlet.pullChunkBytesSync(maxSamples: 64);
+            n += c.sampleCount;
+            if (c.isNotEmpty) {
+              lastData = DateTime.now();
+            } else if (n > 0 &&
+                DateTime.now().difference(lastData) >
+                    Duration(milliseconds: 500)) {
+              return n;
+            }
+          }
+          return n;
+        }
+
+        for (int i = 0; i < 20; i++) {
+          outlet.pushChunkSync(chunk);
+        }
+        expect(pullAvailable(), greaterThan(0));
+
+        /// Pushes and pulls [iterations] chunks, then drains; returns the
+        /// number of samples received.
+        int round() {
+          int received = 0;
+          for (int i = 0; i < iterations; i++) {
+            outlet.pushChunkSync(chunk, pushthrough: true);
+            final c = inlet.pullChunkBytesSync(maxSamples: 64);
+            received += c.sampleCount;
+            if (c.isNotEmpty) {
+              expect(c.samples.first[0].length, payload.length);
+            }
+          }
+          return received + pullAvailable();
+        }
+
+        // A first round brings the transfer buffers up to their working size:
+        // where delivery lags (e.g. macOS runners) most of the ~20 MiB pushed
+        // is queued at once. That is a one-off high-water mark; a leak grows
+        // again in every round, so the second, identical round is measured.
+        round();
+        final int rssBefore = ProcessInfo.currentRss;
+        final int received = round();
+        final int rssAfter = ProcessInfo.currentRss;
+        final int growthMiB = (rssAfter - rssBefore) ~/ (1024 * 1024);
+
+        expect(received, greaterThan(iterations * chunkSamples ~/ 2));
+        expect(
+          growthMiB,
+          lessThan(15),
+          reason:
+              'RSS grew ${growthMiB}MiB over $iterations string chunks — '
+              'possible native memory leak in string chunk push or binary '
+              'chunk pull',
+        );
+
+        await inlet.destroy();
+        await outlet.destroy();
+        resolved.destroy();
+        info.destroy();
+      },
+      timeout: Timeout(Duration(minutes: 3)),
+    );
+  });
+
+  group('continuous resolver lifecycle', () {
+    // Filtered continuous resolvers used to create an unfiltered native
+    // resolver in the base create() and then overwrite the handle with the
+    // filtered one. destroy() freed only the second, so the first kept sending
+    // resolve waves until the process exited, one more per resolver created.
+    final resolverFactories = <String, LSLStreamResolverContinuous Function()>{
+      'unfiltered': () => LSLStreamResolverContinuous(forgetAfter: 1.0),
+      'by predicate': () => LSLStreamResolverContinuousByPredicate(
+        predicate: "name='LeakResolverNoSuchStream'",
+        forgetAfter: 1.0,
+      ),
+      'by property': () => LSLStreamResolverContinuousByProperty(
+        property: LSLStreamProperty.name,
+        value: 'LeakResolverNoSuchStream',
+        forgetAfter: 1.0,
+      ),
+    };
+
+    for (final entry in resolverFactories.entries) {
+      test('${entry.key} creates exactly one native resolver', () {
+        final baseline = LSLStreamResolverContinuous.liveNativeResolvers;
+        for (int i = 0; i < 50; i++) {
+          final resolver = entry.value()..create();
+          expect(LSLStreamResolverContinuous.liveNativeResolvers, baseline + 1);
+          resolver.destroy();
+          expect(LSLStreamResolverContinuous.liveNativeResolvers, baseline);
+        }
+      });
+    }
+
+    // Tagged `lsl`: it counts datagrams on a real loopback port, so another
+    // test file resolving at the same time would be counted too. Run with
+    // `dart test --tags lsl --concurrency=1` (melos `test:lsl`).
+    test('destroyed resolvers stop sending resolve queries', () async {
+      // The leak test config makes 127.0.0.1 a known peer, so every resolve
+      // wave sends a unicast query to each port in the range. Listen on the
+      // top port, which no outlet in this file gets near.
+      const int basePort = 16572;
+      const int portRange = 64;
+      final socket = await RawDatagramSocket.bind(
+        InternetAddress.loopbackIPv4,
+        basePort + portRange - 1,
+      );
+      var queries = 0;
+      final subscription = socket.listen((event) {
+        if (event != RawSocketEvent.read) return;
+        final datagram = socket.receive();
+        if (datagram != null &&
+            String.fromCharCodes(datagram.data).startsWith('LSL:shortinfo')) {
+          queries++;
+        }
+      });
+
+      try {
+        final resolvers = [
+          for (final factory in resolverFactories.values) factory()..create(),
+        ];
+        await Future.delayed(Duration(seconds: 2));
+        expect(
+          queries,
+          greaterThan(0),
+          reason: 'live resolvers should query the known peer',
+        );
+
+        for (final resolver in resolvers) {
+          resolver.destroy();
+        }
+        // Let any wave already in flight land before counting.
+        await Future.delayed(Duration(seconds: 1));
+        queries = 0;
+        await Future.delayed(Duration(seconds: 3));
+        expect(
+          queries,
+          0,
+          reason:
+              'received $queries resolve queries after every resolver was '
+              'destroyed; a native continuous resolver is still running',
+        );
+      } finally {
+        await subscription.cancel();
+        socket.close();
+      }
+    }, tags: ['lsl']);
+  });
+}

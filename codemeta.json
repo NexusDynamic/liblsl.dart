@@ -58,10 +58,10 @@
     "givenName": "Luke Daniel"
   },
   "dateCreated": "2025-03-01",
-  "dateModified": "2026-05-22",
+  "dateModified": "2026-09-25",
   "datePublished": "2025-03-12",
   "description": "A Dart (and Flutter) native library for working with Lab Streaming Layer (LSL / liblsl).",
-  "downloadUrl": "https://pub.dev/api/archives/liblsl-0.13.0.tar.gz",
+  "downloadUrl": "https://pub.dev/api/archives/liblsl-1.0.0.tar.gz",
   "identifier": [
     {
       "type": "PropertyValue",
@@ -105,7 +105,7 @@
     "https://pub.dev/packages/logging",
     "https://pub.dev/packages/meta"
   ],
-  "version": "0.13.2",
+  "version": "1.0.0",
   "continuousIntegration": "https://github.com/NexusDynamic/liblsl.dart/actions/workflows/test.yml",
   "developmentStatus": "active",
   "issueTracker": "https://github.com/NexusDynamic/liblsl.dart/issues"

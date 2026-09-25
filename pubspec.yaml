@@ -3,21 +3,52 @@ publish_to: none
 homepage: https://zeyus.com/
 repository: https://github.com/NexusDynamic/liblsl.dart
 environment:
-  sdk: ^3.9.0
+  sdk: ^3.12.2
   flutter: ^3.27.1
 workspace:
   - packages/liblsl
+  - packages/peer_coordinator
+  - packages/peer_coordinator/example
   - packages/liblsl_test
   - packages/liblsl_coordinator
+  - packages/webrtc_coordinator
+  - packages/webrtc_coordinator_flutter
   - packages/liblsl_timing
   - packages/liblsl_analysis
+  - packages/signal_core
+  - packages/signal_viewer
+  - packages/signal_viewer_lsl
+  - packages/signal_viewer_xdf
+  - packages/xdf
+  - packages/serial_transport
+  - packages/signal_viewer_serial
+  - packages/lsl_tools
+  - packages/openbci_cyton
+  - apps/lsl_viewer
 dev_dependencies:
-  melos: ^7.0.0
+  melos: ^8.2.2
 
+# for now, this is required
+# native_toolchain_c requires a higher
+# meta version, melos requires a higher cli_util
+# and test_api is incompatible between the two versions of test and flutter_test.
+dependency_overrides:
+  # desktop_drop 0.8.4 prefers the portal transfer key on Linux, which
+  # loses drops from e.g. Dolphin; patched copy (as in hyprview).
+  desktop_drop:
+    path: third_party/desktop_drop
+  # usb_serial 0.5.2 does not build with AGP 9 (jcenter); patched copy
+  # (as in hyprview).
+  usb_serial:
+    path: third_party/usb_serial
+  cli_util: ^0.5.2
+  test_api: ^0.7.13
+#   meta: ^1.19.0
 
 melos:
   packages:
     - packages/**
+    - apps/**
   command:
     version:
       # Only allow versioning to happen on main branch.
@@ -26,11 +57,6 @@ melos:
       # releaseUrl: true
       # includeCommitId: true
       # linkToCommits: true
-    bootstrap:
-      environment:
-        sdk: ^3.9.0
-        flutter: ^3.27.1
-        test: any
   scripts:
     lint:all:
       steps:
@@ -47,25 +73,68 @@ melos:
       exec: dart format . --set-exit-if-changed
       description: Run `dart format` checks for all packages.
     test:select:
-      exec: flutter test --exclude-tags "performance"
+      # 2>&1: melos labels a child's stderr "ERROR:" (once per nesting level),
+      # and liblsl logs its normal messages to stderr.
+      exec: flutter test --exclude-tags "performance,benchmark,lsl" 2>&1
       packageFilters:
         dirExists: test
+        flutter: true
         ignore:
           # for now, this doesn't pass in the Dart VM
           # the app works when built in release mode
           - liblsl_test
-      description: Run `flutter test` for selected packages.
+      description: Run `flutter test` for selected Flutter packages.
+    test:dart:
+      # Exit code 79 is "no tests ran": packages whose tests are all
+      # lsl-tagged (e.g. lsl_tools) have nothing left once those are excluded.
+      # `\$` because melos runs this through a second (outer) shell.
+      # 2>&1: see test:select.
+      # One package at a time: the workspace shares one
+      # .dart_tool/native_assets.yaml, which each `dart test` rewrites with
+      # only its own package's native assets, so concurrent runs can load
+      # another package's (e.g. serial_transport missing for lsl_tools).
+      exec:
+        command: dart test --exclude-tags "performance,benchmark,lsl" 2>&1 || [ \$? -eq 79 ]
+        concurrency: 1
+      packageFilters:
+        dirExists: test
+        flutter: false
+      description: >-
+        Run `dart test` for pure-Dart packages. `lsl` is excluded because those
+        tests need a real LSL network stack on loopback; run `test:lsl` for those.
+    test:lsl:
+      # --concurrency=1 serialises test *files* within the package; the melos
+      # `concurrency: 1` below serialises across packages. Both are needed:
+      # these tests bind real sockets and resolve peers machine-wide, so any
+      # two running at once interfere (and see test:dart on native assets).
+      # Exit code 79: packages with no lsl-tagged tests report "No tests match
+      # the requested tag selectors", which is not a failure. (`\$` because
+      # melos runs this through a second, outer shell.)
+      exec:
+        command: dart test --tags "lsl" --concurrency=1 2>&1 || [ \$? -eq 79 ]
+        concurrency: 1
+      packageFilters:
+        dirExists: test
+        flutter: false
+      description: >-
+        Run LSL-backed integration tests serially. These bind loopback sockets and
+        are timing-sensitive, so they must not run concurrently with each other.
     test:performance:
-      exec: flutter test --tags "performance"
-      concurrency: 1
+      exec:
+        command: flutter test --concurrency=1 --tags "performance" 2>&1
+        concurrency: 1
       packageFilters:
         dirExists: test
         ignore:
           - liblsl_test
       description: Run performance tests for selected packages (without concurrency).
     test:
-      run: melos run test:select --no-select
-      description: Run all Flutter tests in this project.
+      steps:
+        - test:select
+        # --no-select: scripts with exec options otherwise ask which package
+        # to run in.
+        - melos run test:dart --no-select
+      description: Run all non-LSL tests in this project.
     upgrade: melos exec flutter pub upgrade
     coverage:
       steps:

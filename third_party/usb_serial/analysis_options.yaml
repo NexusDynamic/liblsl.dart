@@ -1,0 +1,19 @@
+# https://www.dartlang.org/guides/language/analysis-options
+# Source of linter options:
+# http://dart-lang.github.io/linter/lints/options/options.html
+linter:
+  rules:
+    - hash_and_equals
+    - valid_regexps
+    - always_declare_return_types
+    - empty_constructor_bodies
+    - annotate_overrides
+    - avoid_init_to_null
+    - one_member_abstracts
+    - slash_for_doc_comments
+    - unnecessary_brace_in_string_interps
+
+analyzer:
+  exclude:
+    - test/test.dart
+    - test/echo_port.dart

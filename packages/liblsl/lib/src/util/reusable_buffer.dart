@@ -32,9 +32,14 @@ abstract class LSLReusableBuffer<T extends NativeType> {
   }
 
   void free() {
-    buffer.free();
-    ec.free();
+    if (_freed) {
+      return;
+    }
     _freed = true;
+    if (!buffer.isNullPointer) {
+      buffer.free();
+    }
+    ec.free();
   }
 }
 
@@ -84,7 +89,13 @@ class LSLReusableBufferString extends LSLReusableBuffer<Pointer<Char>> {
   /// Creates a reusable String buffer of the given capacity.
   /// see [LSLReusableBuffer]
   LSLReusableBufferString(int capacity)
-    : super(capacity, allocate<Pointer<Char>>(capacity));
+    : super(capacity, allocate<Pointer<Char>>(capacity)) {
+    // malloc does not zero memory; null-init so consumers can tell unwritten
+    // entries from pointers that must be released.
+    for (int i = 0; i < capacity; i++) {
+      buffer[i] = nullPtr<Char>();
+    }
+  }
 }
 
 class LSLReusableBufferVoid extends LSLReusableBuffer<Void> {

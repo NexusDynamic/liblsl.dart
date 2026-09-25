@@ -1,0 +1,21 @@
+# Regenerate with `dart run ffigen --config ffigen.yaml`.
+name: HsSerialBindings
+description: |
+  Bindings for the serial port shim in `src/serial_shim.h`.
+output: 'lib/src/native/serial_bindings.g.dart'
+headers:
+  entry-points:
+    - 'src/serial_shim.h'
+  include-directives:
+    - 'src/serial_shim.h'
+functions:
+  include:
+    - 'hss_.*'
+macros:
+  include:
+    - 'HSS_INVALID_HANDLE'
+ffi-native:
+  asset-id: 'package:serial_transport/src/native/serial_bindings.g.dart'
+comments:
+  style: any
+  length: full

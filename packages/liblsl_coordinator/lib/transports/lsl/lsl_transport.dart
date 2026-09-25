@@ -18,6 +18,9 @@ class LSLTransportConfig implements ITransportConfig {
   /// Frequency (in Hz) at which coordination messages are sent.
   final double coordinationFrequency;
 
+  @override
+  LSLTransport createTransport() => LSLTransport(config: this);
+
   /// Creates a new [LSLTransportConfig] with the given parameters.
   /// If [lslApiConfig] is not provided, a default configuration is used.
   /// The [coordinationFrequency] (Hz) must be greater than 0.
@@ -25,7 +28,7 @@ class LSLTransportConfig implements ITransportConfig {
     LSLApiConfig? lslApiConfig,
     this.coordinationFrequency = 100.0,
   }) : super() {
-    this.lslApiConfig = lslApiConfig ?? LSLApiConfig(ipv6: IPv6Mode.disable);
+    this.lslApiConfig = lslApiConfig ?? LSLApiConfig();
   }
 
   @override
@@ -188,6 +191,16 @@ class LSLTransport<T extends LSLTransportConfig> extends LSLResource
   /// Managed resources (outlets, inlets, discovery instances, etc.)
   final Map<String, IResource> _resources = {};
 
+  @override
+  NetworkStreamFactory get streamFactory => LSLNetworkStreamFactory();
+
+  // Null: liblsl already runs a time_receiver per inlet and reports the result
+  // through lsl_time_correction, which the inlet isolate caches and attaches to
+  // every sample. A second estimator here would duplicate it, less accurately
+  // and over the coordination stream instead of LSL's dedicated UDP service.
+  @override
+  PeerClockOffsets? get clockOffsets => null;
+
   /// Creates a new [LSLTransport] with the given [config].
   /// If no configuration is provided, a default configuration is used.
   LSLTransport({T? config})
@@ -300,11 +313,11 @@ class LSLTransport<T extends LSLTransportConfig> extends LSLResource
   }
 
   /// Creates a managed discovery resource
+  @override
   Future<LslDiscovery> createDiscovery({
     required NetworkStreamConfig streamConfig,
     required CoordinationConfig coordinationConfig,
     required String id,
-    String? predicate,
     IResourceManager? manager,
   }) async {
     _ensureCreated();
@@ -312,7 +325,6 @@ class LSLTransport<T extends LSLTransportConfig> extends LSLResource
       streamConfig: streamConfig,
       coordinationConfig: coordinationConfig,
       id: id,
-      predicate: predicate,
       manager: manager ?? this,
     );
     await discovery.create();
@@ -350,40 +362,6 @@ class LSLTransport<T extends LSLTransportConfig> extends LSLResource
     _disposed = true;
     _created = false;
     _initialized = false;
-  }
-
-  @override
-  Future<NetworkStream> createStream(
-    NetworkStreamConfig streamConfig, {
-    CoordinationSession? coordinationSession,
-  }) async {
-    _ensureCreated();
-
-    if (coordinationSession == null) {
-      throw ArgumentError('CoordinationSession is required for LSL transport');
-    }
-
-    if (coordinationSession is! LSLCoordinationSession) {
-      throw ArgumentError(
-        'LSL transport requires LSLCoordinationSession, got ${coordinationSession.runtimeType}',
-      );
-    }
-
-    // Use the factory to create the appropriate stream type
-    final factory = LSLNetworkStreamFactory();
-
-    if (streamConfig is CoordinationStreamConfig) {
-      return await factory.createCoordinationStream(
-        streamConfig,
-        coordinationSession,
-      );
-    } else if (streamConfig is DataStreamConfig) {
-      return await factory.createDataStream(streamConfig, coordinationSession);
-    } else {
-      throw ArgumentError(
-        'Unknown stream config type: ${streamConfig.runtimeType}',
-      );
-    }
   }
 
   @override

@@ -1,14 +1,18 @@
 import 'dart:async';
 import 'dart:ffi';
 
-import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:liblsl/lsl.dart';
 import 'package:liblsl/native_liblsl.dart';
 import 'package:liblsl/src/lsl/base.dart';
 import 'package:liblsl/src/lsl/isolate_manager.dart';
 import 'package:liblsl/src/lsl/lsl_io_mixin.dart';
+import 'dart:typed_data';
+
+import 'package:liblsl/src/lsl/binary_string.dart';
 import 'package:liblsl/src/lsl/push_sample.dart';
+import 'package:liblsl/src/ffi/bindings_ex.dart';
 import 'package:liblsl/src/ffi/mem.dart';
+import 'package:liblsl/src/util/chunk_buffer.dart';
 
 /// A unified LSL outlet that supports both isolated and direct execution modes.
 ///
@@ -51,8 +55,25 @@ class LSLOutlet extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// Maximum buffer size in seconds.
   /// This is how many seconds of samples are stored in the outlet's buffer.
   /// Default is 360 seconds (6 minutes).
+  /// The unit changes when [transportOptions] contains
+  /// [LSLTransportOptions.bufsizeInSamples] (samples) or
+  /// [LSLTransportOptions.bufsizeInThousandths] (value * 0.001).
   @override
   final int maxBuffer;
+
+  /// Transport flags applied at creation via `lsl_create_outlet_ex`.
+  ///
+  /// An empty set (the default) uses the legacy `lsl_create_outlet` call and
+  /// changes no behavior.
+  ///
+  /// [LSLTransportOptions.syncBlocking] makes every push write the sample
+  /// buffer directly to all connected consumers, blocking until the data has
+  /// been handed to the OS for each of them. This lowers CPU usage for
+  /// high-bandwidth streams but pushes block for as long as the slowest
+  /// consumer's socket needs — in direct mode that stalls the calling
+  /// isolate. It is incompatible with string-format streams, only one thread
+  /// may push at a time, and pushthrough/chunking flags are ignored.
+  final Set<LSLTransportOptions> transportOptions;
 
   /// Push function for converting Dart types to raw data.
   /// This is initialized based on the [streamInfo] type.
@@ -61,8 +82,24 @@ class LSLOutlet extends LSLObj with LSLIOMixin, LSLExecutionMixin {
 
   LSLPushSample get nativePush => _pushFn;
 
+  /// Chunk push function; resolved lazily on first chunk push so that
+  /// undefined-format outlets (which have no chunk push) keep working for
+  /// single-sample use.
+  LSLPushChunk? _pushChunkFn;
+
+  /// Reusable native chunk buffer; lazily allocated on first chunk push.
+  LSLChunkBuffer? _chunkBuffer;
+
+  /// Guards the shared chunk buffer against concurrent isolated chunk ops.
+  bool _chunkOpInFlight = false;
+
   /// Buffer for storing sample data before pushing.
-  late final Pointer<NativeType> _buffer;
+  /// Null until [create]/[createFromPointer] has set up the push buffer, so
+  /// [destroy] stays safe when creation failed part-way.
+  Pointer<NativeType>? _buffer;
+
+  Pointer<NativeType> get _bufferBang =>
+      _buffer ?? (throw LSLException('Outlet buffer not initialized'));
 
   /// Whether the outlet is created using isolates or direct FFI calls.
   @override
@@ -104,6 +141,7 @@ class LSLOutlet extends LSLObj with LSLIOMixin, LSLExecutionMixin {
     this.streamInfo, {
     this.chunkSize = 0,
     this.maxBuffer = 360,
+    this.transportOptions = const {},
     bool useIsolates = true,
   }) : _useIsolates = useIsolates;
 
@@ -121,10 +159,34 @@ class LSLOutlet extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// **See also:** [destroy] to clean up resources
   @override
   Future<LSLOutlet> create() async {
+    validateTransportOptions(transportOptions, streamInfo);
     _managed = true;
     super.create();
     // Create the outlet based on the execution mode
     return _useIsolates ? _createIsolated() : _createDirect();
+  }
+
+  /// Validates a transport-option set against a stream's channel format.
+  ///
+  /// **Throws:** [ArgumentError] for combinations liblsl does not support.
+  static void validateTransportOptions(
+    Set<LSLTransportOptions> options,
+    LSLStreamInfo streamInfo,
+  ) {
+    if (options.contains(LSLTransportOptions.syncBlocking) &&
+        streamInfo.channelFormat == LSLChannelFormat.string) {
+      throw ArgumentError(
+        'LSLTransportOptions.syncBlocking is incompatible with '
+        'string/variable-length channel formats',
+      );
+    }
+    if (options.contains(LSLTransportOptions.bufsizeInSamples) &&
+        options.contains(LSLTransportOptions.bufsizeInThousandths)) {
+      throw ArgumentError(
+        'bufsizeInSamples and bufsizeInThousandths are mutually exclusive '
+        'interpretations of maxBuffer',
+      );
+    }
   }
 
   /// Creates an outlet from an existing lsl_outlet pointer.
@@ -170,9 +232,22 @@ class LSLOutlet extends LSLObj with LSLIOMixin, LSLExecutionMixin {
     }
     _outlet = null;
     _isolateManager = null;
-    if (!_buffer.isNullPointer) {
-      _buffer.free();
+    final buffer = _buffer;
+    _buffer = null;
+    if (buffer != null && !buffer.isNullPointer) {
+      // Release any per-element allocations (string samples) still held.
+      _pushFn.cleanupBuffer(buffer, streamInfo.channelCount);
+      buffer.free();
     }
+    final chunkBuffer = _chunkBuffer;
+    if (chunkBuffer != null && !chunkBuffer.freed) {
+      _pushChunkFn?.cleanupBuffer(
+        chunkBuffer.data,
+        chunkBuffer.capacitySamples * streamInfo.channelCount,
+      );
+      chunkBuffer.free();
+    }
+    _chunkBuffer = null;
   }
 
   /// Waits for a consumer (e.g. LabRecorder, another inlet) to connect to the
@@ -219,6 +294,12 @@ class LSLOutlet extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// - [data]: List of values that will be used to initialize the sample.
   ///   The type should match the channel format and length should match
   ///   the channel count.
+  /// - [timestamp]: Optional capture time in [LSL.localClock] seconds
+  ///   (0.0/null = now). Use this to back-date a sample to when it was
+  ///   actually acquired rather than when it was pushed.
+  /// - [pushthrough]: Optionally override the outlet's chunking for this
+  ///   sample; `true` sends it immediately, `false` lets liblsl batch it with
+  ///   subsequent samples (liblsl's default is `true`).
   ///
   /// **Execution:**
   /// - Isolated mode: Async message passing to worker isolate
@@ -227,9 +308,13 @@ class LSLOutlet extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// **Returns:** Error code (0 = success).
   ///
   /// **See also:** [pushSampleSync] for zero-overhead direct calls
-  Future<int> pushSample(Iterable<dynamic> data) => _useIsolates
-      ? _pushSampleIsolated(data)
-      : Future.value(_pushSampleDirect(data));
+  Future<int> pushSample(
+    Iterable<dynamic> data, {
+    double? timestamp,
+    bool? pushthrough,
+  }) => _useIsolates
+      ? _pushSampleIsolated(data, timestamp, pushthrough)
+      : Future.value(_pushSampleDirect(data, timestamp, pushthrough));
 
   /// Synchronously pushes a sample to the outlet.
   ///
@@ -248,11 +333,185 @@ class LSLOutlet extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   ///   outlet.pushSampleSync(data); // Zero async overhead
   /// }
   /// ```
+  /// See [pushSample] for [timestamp] and [pushthrough] semantics.
+  ///
   /// **Returns:** Error code (0 = success).
   /// **See also:** [pushSample] for async operations
   /// **Throws:** [LSLException] if `useIsolates: true` or data validation fails.
-  int pushSampleSync(Iterable<dynamic> data) =>
-      requireDirect(() => _pushSampleDirect(data));
+  int pushSampleSync(
+    Iterable<dynamic> data, {
+    double? timestamp,
+    bool? pushthrough,
+  }) => requireDirect(() => _pushSampleDirect(data, timestamp, pushthrough));
+
+  /// Pushes a chunk of samples to the outlet.
+  ///
+  /// **Parameters:**
+  /// - [samples]: One list of `channelCount` values per sample.
+  /// - [timestamp]: Optional capture time of the *last* sample (0.0/null =
+  ///   now); earlier samples are spaced backwards by the sampling rate.
+  /// - [timestamps]: Optional per-sample timestamps (length must equal
+  ///   `samples.length`); mutually exclusive with [timestamp].
+  /// - [pushthrough]: Optionally override the outlet's chunking for this
+  ///   push (`true` = send immediately).
+  ///
+  /// Chunk transfer trades per-sample latency for throughput: one native
+  /// call (and, with a matching `chunkSize`, one network write) moves the
+  /// whole block. Works for every format except undefined (`void`); string
+  /// values must not contain NUL bytes (see [pushChunkBytes]).
+  ///
+  /// **Returns:** Error code (0 = success).
+  ///
+  /// **See also:** [pushChunkSync], [pushChunkTyped]
+  Future<int> pushChunk(
+    List<List<dynamic>> samples, {
+    double? timestamp,
+    List<double>? timestamps,
+    bool? pushthrough,
+  }) => _useIsolates
+      ? _pushChunkIsolated(samples, timestamp, timestamps, pushthrough)
+      : Future.value(
+          _pushChunkDirect(samples, timestamp, timestamps, pushthrough),
+        );
+
+  /// Synchronously pushes a chunk of samples to the outlet.
+  ///
+  /// **Direct mode only** - throws [LSLException] if `useIsolates: true`.
+  /// See [pushChunk] for parameter semantics.
+  int pushChunkSync(
+    List<List<dynamic>> samples, {
+    double? timestamp,
+    List<double>? timestamps,
+    bool? pushthrough,
+  }) => requireDirect(
+    () => _pushChunkDirect(samples, timestamp, timestamps, pushthrough),
+  );
+
+  /// Pushes a chunk from a flat [TypedData] buffer (fast path).
+  ///
+  /// [data] must be the typed list matching the stream's channel format
+  /// (e.g. [Float32List] for float32) holding `sampleCount * channelCount`
+  /// values in sample-major order. This copies with a single memmove instead
+  /// of per-element conversion. See [pushChunk] for timestamp semantics.
+  ///
+  /// **Returns:** Error code (0 = success).
+  Future<int> pushChunkTyped(
+    TypedData data, {
+    double? timestamp,
+    Float64List? timestamps,
+    bool? pushthrough,
+  }) => _useIsolates
+      ? _pushChunkTypedIsolated(data, timestamp, timestamps, pushthrough)
+      : Future.value(
+          _pushChunkTypedDirect(data, timestamp, timestamps, pushthrough),
+        );
+
+  /// Synchronously pushes a chunk from a flat [TypedData] buffer.
+  ///
+  /// **Direct mode only** - throws [LSLException] if `useIsolates: true`.
+  /// See [pushChunkTyped].
+  int pushChunkTypedSync(
+    TypedData data, {
+    double? timestamp,
+    Float64List? timestamps,
+    bool? pushthrough,
+  }) => requireDirect(
+    () => _pushChunkTypedDirect(data, timestamp, timestamps, pushthrough),
+  );
+
+  /// Pushes one sample of binary strings (string-format streams only).
+  ///
+  /// Unlike [pushSample], each value is sent as raw bytes with an explicit
+  /// length, so it may contain `0x00` bytes. Inlets can read it back with
+  /// [LSLInlet.pullSampleBytes] (or as text with [LSLInlet.pullSample] when
+  /// the bytes are valid NUL-free UTF-8). See [pushSample] for [timestamp]
+  /// and [pushthrough].
+  ///
+  /// **Returns:** Error code (0 = success).
+  /// **Throws:** [LSLException] if the stream is not string-format or the
+  /// value count does not match the channel count.
+  Future<int> pushSampleBytes(
+    List<Uint8List> data, {
+    double? timestamp,
+    bool? pushthrough,
+  }) => _useIsolates
+      ? _pushSampleBytesIsolated(data, timestamp, pushthrough)
+      : Future.value(_pushSampleBytesDirect(data, timestamp, pushthrough));
+
+  /// Synchronously pushes one sample of binary strings.
+  ///
+  /// **Direct mode only** - throws [LSLException] if `useIsolates: true`.
+  /// See [pushSampleBytes].
+  int pushSampleBytesSync(
+    List<Uint8List> data, {
+    double? timestamp,
+    bool? pushthrough,
+  }) =>
+      requireDirect(() => _pushSampleBytesDirect(data, timestamp, pushthrough));
+
+  /// Pushes a chunk of binary-string samples (string-format streams only).
+  ///
+  /// The binary counterpart of [pushChunk]: [samples] holds one list of
+  /// `channelCount` byte strings per sample. See [pushChunk] for [timestamp],
+  /// [timestamps] and [pushthrough].
+  ///
+  /// **Returns:** Error code (0 = success).
+  Future<int> pushChunkBytes(
+    List<List<Uint8List>> samples, {
+    double? timestamp,
+    List<double>? timestamps,
+    bool? pushthrough,
+  }) => _useIsolates
+      ? _pushChunkBytesIsolated(samples, timestamp, timestamps, pushthrough)
+      : Future.value(
+          _pushChunkBytesDirect(samples, timestamp, timestamps, pushthrough),
+        );
+
+  /// Synchronously pushes a chunk of binary-string samples.
+  ///
+  /// **Direct mode only** - throws [LSLException] if `useIsolates: true`.
+  /// See [pushChunkBytes].
+  int pushChunkBytesSync(
+    List<List<Uint8List>> samples, {
+    double? timestamp,
+    List<double>? timestamps,
+    bool? pushthrough,
+  }) => requireDirect(
+    () => _pushChunkBytesDirect(samples, timestamp, timestamps, pushthrough),
+  );
+
+  /// Gets a fresh copy of the stream info the outlet is serving, as liblsl
+  /// sees it (including `createdAt`, `hostname`, `sessionId` and the full
+  /// description).
+  ///
+  /// The returned object owns its native handle: call
+  /// [LSLStreamInfo.destroy] when done.
+  Future<LSLStreamInfoWithMetadata> getInfo() async {
+    if (!_useIsolates) {
+      return _getInfoDirect();
+    }
+    final response = await _isolateManagerBang.sendMessage(
+      LSLMessage(LSLMessageType.getInfo, {}),
+    );
+    if (!response.success) {
+      throw LSLException('Error getting outlet info: ${response.error}');
+    }
+    return LSLStreamInfoWithMetadata.fromStreamInfoAddr(response.result as int);
+  }
+
+  /// Synchronously gets a copy of the outlet's stream info.
+  ///
+  /// **Direct mode only** - throws [LSLException] if `useIsolates: true`.
+  /// See [getInfo].
+  LSLStreamInfoWithMetadata getInfoSync() => requireDirect(_getInfoDirect);
+
+  LSLStreamInfoWithMetadata _getInfoDirect() {
+    final info = lsl_get_info(_outletBang);
+    if (info.isNullPointer) {
+      throw LSLException('Failed to get outlet info');
+    }
+    return LSLStreamInfoWithMetadata.fromStreamInfo(info);
+  }
 
   /// Checks if consumers are currently connected to the outlet.
   /// **Execution:**
@@ -261,13 +520,13 @@ class LSLOutlet extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// **Returns:** `true` if consumers are connected, `false` otherwise.
   Future<bool> hasConsumers() => _useIsolates
       ? _hasConsumersIsolated()
-      : Future.value(lsl_have_consumers(_outletBang) != 0);
+      : Future.value(lslHaveConsumersFast(_outletBang) != 0);
 
   /// Synchronously checks if consumers are currently connected to the outlet.
   /// **Direct mode only** - throws [LSLException] if `useIsolates: true`.
   /// **Returns:** `true` if consumers are connected, `false` otherwise.
   bool hasConsumersSync() =>
-      requireDirect(() => lsl_have_consumers(_outletBang) != 0);
+      requireDirect(() => lslHaveConsumersFast(_outletBang) != 0);
 
   /// Sets up the push buffer for sample data.
   /// This allocates memory based on the channel count and initializes the push
@@ -276,10 +535,11 @@ class LSLOutlet extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   void _setupPushBuffer() {
     // Initialize the push function and buffer
     _pushFn = LSLMapper().streamPush(streamInfo);
-    _buffer = _pushFn.allocBuffer(streamInfo.channelCount);
-    if (_buffer.isNullPointer && _pushFn is! LSLPushSampleVoid) {
+    final buffer = _pushFn.allocBuffer(streamInfo.channelCount);
+    if (buffer.isNullPointer && _pushFn is! LSLPushSampleVoid) {
       throw LSLException('Failed to allocate memory for buffer');
     }
+    _buffer = buffer;
   }
 
   /// Creates the outlet directly using FFI calls.
@@ -288,9 +548,17 @@ class LSLOutlet extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// **Throws:** [LSLException] if outlet creation fails.
   Future<LSLOutlet> _createDirect() async {
     _setupPushBuffer();
-    // Create the outlet using FFI
-    _outlet = lsl_create_outlet(streamInfo.streamInfo, chunkSize, maxBuffer);
-    if (_outlet == null) {
+    // Create the outlet using FFI; the legacy call is kept for an empty
+    // option set so default behavior is byte-for-byte unchanged.
+    _outlet = transportOptions.isEmpty
+        ? lsl_create_outlet(streamInfo.streamInfo, chunkSize, maxBuffer)
+        : lslCreateOutletFlags(
+            streamInfo.streamInfo,
+            chunkSize,
+            maxBuffer,
+            transportOptions.nativeFlags,
+          );
+    if (_outlet == null || _outletBang.isNullPointer) {
       throw LSLException('Failed to create outlet');
     }
 
@@ -306,12 +574,7 @@ class LSLOutlet extends LSLObj with LSLIOMixin, LSLExecutionMixin {
     _isolateManager = LSLOutletIsolateManager();
     await _isolateManagerBang.init();
 
-    // Initialize the push function and buffer
-    _pushFn = LSLMapper().streamPush(streamInfo);
-    _buffer = _pushFn.allocBuffer(streamInfo.channelCount);
-    if (_buffer.isNullPointer && _pushFn is! LSLPushSampleVoid) {
-      throw LSLException('Failed to allocate memory for buffer');
-    }
+    _setupPushBuffer();
 
     // Send message to create outlet in the isolate
     final response = await _isolateManagerBang.sendMessage(
@@ -319,6 +582,7 @@ class LSLOutlet extends LSLObj with LSLIOMixin, LSLExecutionMixin {
         'streamInfo': LSLSerializer.serializeStreamInfo(streamInfo),
         'chunkSize': chunkSize,
         'maxBuffer': maxBuffer,
+        'transportFlags': transportOptions.nativeFlags,
       }),
     );
 
@@ -363,21 +627,36 @@ class LSLOutlet extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// - [data]: List of values to push
   /// **Returns:** Error code (0 = success).
   /// **Throws:** [LSLException] if pushing the sample fails.
-  Future<int> _pushSampleIsolated(Iterable<dynamic> data) async {
+  Future<int> _pushSampleIsolated(
+    Iterable<dynamic> data,
+    double? timestamp,
+    bool? pushthrough,
+  ) async {
     _validateSampleData(data);
 
+    final buffer = _bufferBang;
     // Set the sample data in the buffer
-    _pushFn.listToBuffer(IList(data), _buffer);
+    _pushFn.listToBuffer(data, buffer);
 
-    final response = await _isolateManagerBang.sendMessage(
-      LSLMessage(LSLMessageType.pushSample, {'pointerAddr': _buffer.address}),
-    );
+    try {
+      final response = await _isolateManagerBang.sendMessage(
+        LSLMessage(LSLMessageType.pushSample, {
+          'pointerAddr': buffer.address,
+          'timestamp': timestamp,
+          'pushthrough': pushthrough,
+        }),
+      );
 
-    if (!response.success) {
-      throw LSLException('Error pushing sample: ${response.error}');
+      if (!response.success) {
+        throw LSLException('Error pushing sample: ${response.error}');
+      }
+
+      return response.result as int;
+    } finally {
+      // The worker has finished reading the buffer once the response arrives,
+      // so per-element allocations (string samples) can be released here.
+      _pushFn.cleanupBuffer(buffer, streamInfo.channelCount);
     }
-
-    return response.result as int;
   }
 
   /// Pushes a sample directly using FFI calls.
@@ -386,29 +665,461 @@ class LSLOutlet extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// - [data]: List of values to push
   /// **Returns:** Error code (0 = success).
   /// **Throws:** [LSLException] if pushing the sample fails.
-  int _pushSampleDirect(Iterable<dynamic> data) {
+  int _pushSampleDirect(
+    Iterable<dynamic> data,
+    double? timestamp,
+    bool? pushthrough,
+  ) {
     _validateSampleData(data);
 
+    final buffer = _bufferBang;
     // Set the sample data in the buffer
-    _pushFn.listToBuffer(IList(data), _buffer);
+    _pushFn.listToBuffer(data, buffer);
 
-    // Push the sample
-    final result = _pushFn(_outletBang, _buffer);
+    try {
+      // Push the sample (liblsl copies the data before returning)
+      final result = _pushFn(
+        _outletBang,
+        buffer,
+        timestamp: timestamp,
+        pushthrough: pushthrough,
+      );
+      if (LSLObj.error(result)) {
+        throw LSLException('Error pushing sample: $result');
+      }
+      return result;
+    } finally {
+      _pushFn.cleanupBuffer(buffer, streamInfo.channelCount);
+    }
+  }
+
+  /// Writes [data] into the outlet's push buffer and returns the pointer.
+  ///
+  /// **Note:** for string streams the per-element allocations made here are
+  /// only released on the next push/cleanup or in [destroy]; prefer
+  /// [pushSample]/[pushSampleSync] for string data.
+  Pointer<NativeType> dataToBufferPointer(Iterable<dynamic> data) {
+    _validateSampleData(data);
+    // Set the sample data in the buffer
+    _pushFn.listToBuffer(data, _bufferBang);
+    return _bufferBang;
+  }
+
+  /// Pushes a sample already written to [pointer] (see
+  /// [dataToBufferPointer]). See [pushSample] for [timestamp] and
+  /// [pushthrough] semantics.
+  int pushSamplePointerSync(
+    Pointer<NativeType> pointer, {
+    double? timestamp,
+    bool? pushthrough,
+  }) {
+    return _pushFn(
+      _outletBang,
+      pointer,
+      timestamp: timestamp,
+      pushthrough: pushthrough,
+    );
+  }
+
+  /// Resolves the chunk push function (throws [LSLException] for the
+  /// undefined format, which has no chunk push).
+  LSLPushChunk _ensurePushChunkFn() =>
+      _pushChunkFn ??= LSLMapper().streamPushChunk(streamInfo);
+
+  /// Lazily allocates/grows the reusable chunk buffer.
+  LSLChunkBuffer _ensureChunkBuffer(int samples) {
+    final pushFn = _ensurePushChunkFn();
+    final buf = _chunkBuffer ??= LSLChunkBuffer(
+      streamInfo.channelCount,
+      pushFn.allocBuffer,
+    );
+    buf.ensureCapacity(samples);
+    return buf;
+  }
+
+  /// Validates list-form chunk data; returns the sample count.
+  int _validateChunkLists(
+    List<List<dynamic>> samples,
+    double? timestamp,
+    List<double>? timestamps,
+  ) {
+    if (samples.isEmpty) {
+      throw ArgumentError('Chunk must contain at least one sample');
+    }
+    if (timestamp != null && timestamps != null) {
+      throw ArgumentError('timestamp and timestamps are mutually exclusive');
+    }
+    final channels = streamInfo.channelCount;
+    for (final sample in samples) {
+      if (sample.length != channels) {
+        throw ArgumentError(
+          'Each sample must have $channels values (got ${sample.length})',
+        );
+      }
+    }
+    if (timestamps != null && timestamps.length != samples.length) {
+      throw ArgumentError(
+        'timestamps length (${timestamps.length}) must equal sample count '
+        '(${samples.length})',
+      );
+    }
+    return samples.length;
+  }
+
+  /// Validates typed-data chunk input; returns the sample count.
+  int _validateChunkTyped(
+    TypedData data,
+    double? timestamp,
+    Float64List? timestamps,
+  ) {
+    final pushFn = _ensurePushChunkFn();
+    if (!pushFn.typedDataMatches(data)) {
+      throw ArgumentError(
+        'Expected ${pushFn.typedDataName} for '
+        '${streamInfo.channelFormat} streams, got ${data.runtimeType}',
+      );
+    }
+    if (timestamp != null && timestamps != null) {
+      throw ArgumentError('timestamp and timestamps are mutually exclusive');
+    }
+    final channels = streamInfo.channelCount;
+    final elements = data.lengthInBytes ~/ data.elementSizeInBytes;
+    if (elements == 0 || elements % channels != 0) {
+      throw ArgumentError(
+        'Data length ($elements) must be a non-zero multiple of the channel '
+        'count ($channels)',
+      );
+    }
+    final sampleCount = elements ~/ channels;
+    if (timestamps != null && timestamps.length != sampleCount) {
+      throw ArgumentError(
+        'timestamps length (${timestamps.length}) must equal sample count '
+        '($sampleCount)',
+      );
+    }
+    return sampleCount;
+  }
+
+  /// Pushes the filled chunk buffer via the appropriate native call, then
+  /// releases any per-element allocations (string chunks).
+  int _pushChunkBuffer(
+    LSLPushChunk pushFn,
+    LSLChunkBuffer buf,
+    int sampleCount,
+    double? timestamp,
+    List<double>? timestamps,
+    bool? pushthrough,
+  ) {
+    final elements = sampleCount * streamInfo.channelCount;
+    int result;
+    try {
+      if (timestamps != null) {
+        final ts = buf.timestamps;
+        for (int i = 0; i < sampleCount; i++) {
+          ts[i] = timestamps[i];
+        }
+        result = pushFn.pushWithTimestamps(
+          _outletBang,
+          buf.data,
+          elements,
+          ts,
+          pushthrough: pushthrough,
+        );
+      } else if (timestamp == null && pushthrough == null) {
+        result = pushFn.pushNow(_outletBang, buf.data, elements);
+      } else {
+        result = pushFn.pushWithTimestamp(
+          _outletBang,
+          buf.data,
+          elements,
+          timestamp ?? 0.0,
+          pushthrough: pushthrough,
+        );
+      }
+    } finally {
+      pushFn.cleanupBuffer(buf.data, elements);
+    }
     if (LSLObj.error(result)) {
-      throw LSLException('Error pushing sample: $result');
+      throw LSLException('Error pushing chunk: $result');
     }
     return result;
   }
 
-  Pointer<NativeType> dataToBufferPointer(Iterable<dynamic> data) {
-    _validateSampleData(data);
-    // Set the sample data in the buffer
-    _pushFn.listToBuffer(IList(data), _buffer);
-    return _buffer;
+  int _pushChunkDirect(
+    List<List<dynamic>> samples,
+    double? timestamp,
+    List<double>? timestamps,
+    bool? pushthrough,
+  ) {
+    final sampleCount = _validateChunkLists(samples, timestamp, timestamps);
+    final pushFn = _ensurePushChunkFn();
+    final buf = _ensureChunkBuffer(sampleCount);
+    pushFn.flatListToBuffer(samples.expand((s) => s), buf.data);
+    return _pushChunkBuffer(
+      pushFn,
+      buf,
+      sampleCount,
+      timestamp,
+      timestamps,
+      pushthrough,
+    );
   }
 
-  int pushSamplePointerSync(Pointer<NativeType> pointer) {
-    return _pushFn(_outletBang, pointer);
+  int _pushChunkTypedDirect(
+    TypedData data,
+    double? timestamp,
+    Float64List? timestamps,
+    bool? pushthrough,
+  ) {
+    final sampleCount = _validateChunkTyped(data, timestamp, timestamps);
+    final pushFn = _ensurePushChunkFn();
+    final buf = _ensureChunkBuffer(sampleCount);
+    pushFn.typedDataToBuffer(
+      data,
+      buf.data,
+      sampleCount * streamInfo.channelCount,
+    );
+    return _pushChunkBuffer(
+      pushFn,
+      buf,
+      sampleCount,
+      timestamp,
+      timestamps,
+      pushthrough,
+    );
+  }
+
+  Future<int> _pushChunkIsolated(
+    List<List<dynamic>> samples,
+    double? timestamp,
+    List<double>? timestamps,
+    bool? pushthrough,
+  ) async {
+    final sampleCount = _validateChunkLists(samples, timestamp, timestamps);
+    final pushFn = _ensurePushChunkFn();
+    if (_chunkOpInFlight) {
+      // Checked before filling: the buffer is still being read by the worker.
+      throw LSLException('Concurrent chunk operation on the same outlet');
+    }
+    final buf = _ensureChunkBuffer(sampleCount);
+    pushFn.flatListToBuffer(samples.expand((s) => s), buf.data);
+    return _sendPushChunkMessage(
+      pushFn,
+      buf,
+      sampleCount,
+      timestamp,
+      timestamps,
+      pushthrough,
+    );
+  }
+
+  Future<int> _pushChunkTypedIsolated(
+    TypedData data,
+    double? timestamp,
+    Float64List? timestamps,
+    bool? pushthrough,
+  ) async {
+    final sampleCount = _validateChunkTyped(data, timestamp, timestamps);
+    final pushFn = _ensurePushChunkFn();
+    if (_chunkOpInFlight) {
+      throw LSLException('Concurrent chunk operation on the same outlet');
+    }
+    final buf = _ensureChunkBuffer(sampleCount);
+    pushFn.typedDataToBuffer(
+      data,
+      buf.data,
+      sampleCount * streamInfo.channelCount,
+    );
+    return _sendPushChunkMessage(
+      pushFn,
+      buf,
+      sampleCount,
+      timestamp,
+      timestamps,
+      pushthrough,
+    );
+  }
+
+  /// Sends the filled chunk buffer's addresses to the worker isolate.
+  ///
+  /// The buffer is shared memory: the request/response protocol guarantees
+  /// the worker has finished reading before the buffer is reused, and
+  /// [_chunkOpInFlight] converts concurrent misuse into an error instead of
+  /// silent data corruption.
+  Future<int> _sendPushChunkMessage(
+    LSLPushChunk pushFn,
+    LSLChunkBuffer buf,
+    int sampleCount,
+    double? timestamp,
+    List<double>? timestamps,
+    bool? pushthrough,
+  ) async {
+    final elements = sampleCount * streamInfo.channelCount;
+    if (_chunkOpInFlight) {
+      throw LSLException('Concurrent chunk operation on the same outlet');
+    }
+    _chunkOpInFlight = true;
+    try {
+      int? tsAddr;
+      if (timestamps != null) {
+        final ts = buf.timestamps;
+        for (int i = 0; i < sampleCount; i++) {
+          ts[i] = timestamps[i];
+        }
+        tsAddr = ts.address;
+      }
+      final response = await _isolateManagerBang.sendMessage(
+        LSLMessage(LSLMessageType.pushChunk, {
+          'pointerAddr': buf.data.address,
+          'dataElements': elements,
+          'timestamp': timestamp,
+          'tsPointerAddr': tsAddr,
+          'pushthrough': pushthrough,
+        }),
+      );
+      if (!response.success) {
+        throw LSLException('Error pushing chunk: ${response.error}');
+      }
+      return response.result as int;
+    } finally {
+      // The worker has finished reading once the response arrives.
+      pushFn.cleanupBuffer(buf.data, elements);
+      _chunkOpInFlight = false;
+    }
+  }
+
+  /// Throws unless this is a string-format stream (the only format the
+  /// binary `_buf` functions accept).
+  void _requireStringFormat() {
+    if (streamInfo.channelFormat != LSLChannelFormat.string) {
+      throw LSLException(
+        'Binary string push requires a string stream, not '
+        '${streamInfo.channelFormat}',
+      );
+    }
+  }
+
+  LSLBinaryBuffer _binarySampleBuffer(List<Uint8List> data) {
+    _requireStringFormat();
+    _validateSampleData(data);
+    return LSLBinaryBuffer.forPush(data);
+  }
+
+  LSLBinaryBuffer _binaryChunkBuffer(
+    List<List<Uint8List>> samples,
+    double? timestamp,
+    List<double>? timestamps,
+  ) {
+    _requireStringFormat();
+    final sampleCount = _validateChunkLists(samples, timestamp, timestamps);
+    final buf = LSLBinaryBuffer.forPush(
+      samples.expand((s) => s),
+      timestampCount: timestamps == null ? 0 : sampleCount,
+    );
+    if (timestamps != null) {
+      for (int i = 0; i < sampleCount; i++) {
+        buf.timestamps[i] = timestamps[i];
+      }
+    }
+    return buf;
+  }
+
+  int _pushSampleBytesDirect(
+    List<Uint8List> data,
+    double? timestamp,
+    bool? pushthrough,
+  ) {
+    final buf = _binarySampleBuffer(data);
+    try {
+      final result = lslPushSampleBinary(
+        _outletBang,
+        buf.data,
+        buf.lengths,
+        timestamp: timestamp,
+        pushthrough: pushthrough,
+      );
+      if (LSLObj.error(result)) {
+        throw lslError('Error pushing binary sample', result);
+      }
+      return result;
+    } finally {
+      buf.free();
+    }
+  }
+
+  Future<int> _pushSampleBytesIsolated(
+    List<Uint8List> data,
+    double? timestamp,
+    bool? pushthrough,
+  ) async {
+    final buf = _binarySampleBuffer(data);
+    try {
+      final response = await _isolateManagerBang.sendMessage(
+        LSLMessage(LSLMessageType.pushSampleBytes, {
+          'buffer': buf.addresses,
+          'timestamp': timestamp,
+          'pushthrough': pushthrough,
+        }),
+      );
+      if (!response.success) {
+        throw LSLException('Error pushing binary sample: ${response.error}');
+      }
+      return response.result as int;
+    } finally {
+      // The worker has finished reading once the response arrives.
+      buf.free();
+    }
+  }
+
+  int _pushChunkBytesDirect(
+    List<List<Uint8List>> samples,
+    double? timestamp,
+    List<double>? timestamps,
+    bool? pushthrough,
+  ) {
+    final buf = _binaryChunkBuffer(samples, timestamp, timestamps);
+    try {
+      final result = lslPushChunkBinary(
+        _outletBang,
+        buf.data,
+        buf.lengths,
+        buf.elements,
+        timestamp: timestamp,
+        timestamps: timestamps == null ? null : buf.timestamps,
+        pushthrough: pushthrough,
+      );
+      if (LSLObj.error(result)) {
+        throw lslError('Error pushing binary chunk', result);
+      }
+      return result;
+    } finally {
+      buf.free();
+    }
+  }
+
+  Future<int> _pushChunkBytesIsolated(
+    List<List<Uint8List>> samples,
+    double? timestamp,
+    List<double>? timestamps,
+    bool? pushthrough,
+  ) async {
+    final buf = _binaryChunkBuffer(samples, timestamp, timestamps);
+    try {
+      final response = await _isolateManagerBang.sendMessage(
+        LSLMessage(LSLMessageType.pushChunkBytes, {
+          'buffer': buf.addresses,
+          'timestamp': timestamp,
+          'hasTimestamps': timestamps != null,
+          'pushthrough': pushthrough,
+        }),
+      );
+      if (!response.success) {
+        throw LSLException('Error pushing binary chunk: ${response.error}');
+      }
+      return response.result as int;
+    } finally {
+      buf.free();
+    }
   }
 
   /// Checks if consumers are connected in isolated mode.
@@ -433,12 +1144,34 @@ class LSLOutlet extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// **Parameters:**
   /// - [data]: List of values to validate
   /// **Throws:** [LSLException] if validation fails.
+  @pragma('vm:prefer-inline')
   void _validateSampleData(Iterable<dynamic> data) {
     if (data.length != streamInfo.channelCount) {
       throw LSLException(
         'Data length (${data.length}) does not match channel count (${streamInfo.channelCount})',
       );
     }
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    streamInfo,
+    chunkSize,
+    maxBuffer,
+    _useIsolates,
+    _outlet?.address,
+  );
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is LSLOutlet &&
+        other.runtimeType == runtimeType &&
+        other.streamInfo == streamInfo &&
+        other.chunkSize == chunkSize &&
+        other.maxBuffer == maxBuffer &&
+        other._useIsolates == _useIsolates &&
+        other._outlet?.address == _outlet?.address;
   }
 
   @override

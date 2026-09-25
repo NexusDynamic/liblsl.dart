@@ -1,0 +1,23 @@
+name: xdf
+description: >-
+  Read and write XDF (Extensible Data Format) recordings, as made by
+  LabRecorder: whole files in memory like pyxdf (clock synchronisation,
+  dejittering), or large files indexed for fast viewing. Pure Dart,
+  web-safe.
+version: 0.1.0
+homepage: https://zeyus.com/
+repository: https://github.com/NexusDynamic/liblsl.dart
+issue_tracker: https://github.com/NexusDynamic/liblsl.dart/issues
+
+resolution: workspace
+
+environment:
+  sdk: ^3.10.0
+
+dependencies:
+  signal_core: ^0.1.0
+  xml: ^6.5.0
+
+dev_dependencies:
+  lints: ^6.0.0
+  test: ^1.28.0

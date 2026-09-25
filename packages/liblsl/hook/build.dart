@@ -5,7 +5,7 @@ import 'package:hooks/hooks.dart';
 import 'package:native_toolchain_c/native_toolchain_c.dart';
 
 /// The default name prefix for dynamic libraries per [OS].
-const _dylibPrefix = {
+Map<OS, String> _dylibPrefix = {
   OS.android: 'lib',
   OS.fuchsia: 'lib',
   OS.iOS: 'lib',
@@ -54,8 +54,8 @@ void main(List<String> args) async {
   await build(args, (input, output) async {
     if (input.config.buildCodeAssets) {
       // This needs to be manually copied from CMakeLists.txt.
-      const String libLSLVersion = '1.17.5';
-      const String libLSLBranch = '9f0b6122';
+      const String libLSLVersion = '1.18.0.b2-zpatch';
+      const String libLSLBranch = 'dart_main';
       const String libLSLPath = 'src/liblsl-$libLSLBranch';
       const String pugixmlPath = 'src/pugixml';
       final OS targetOs = input.config.code.targetOS;
@@ -116,44 +116,50 @@ void main(List<String> args) async {
         libraries.addAll(['winmm', 'iphlpapi', 'mswsock', 'ws2_32']);
       }
 
+      final sources = <String>[
+        '$libLSLPath/src/buildinfo.cpp',
+        '$libLSLPath/src/api_config.cpp',
+        '$libLSLPath/src/cancellation.cpp',
+        '$libLSLPath/src/common.cpp',
+        '$libLSLPath/src/consumer_queue.cpp',
+        '$libLSLPath/src/data_receiver.cpp',
+        '$libLSLPath/src/info_receiver.cpp',
+        '$libLSLPath/src/inlet_connection.cpp',
+        '$libLSLPath/src/lsl_resolver_c.cpp',
+        '$libLSLPath/src/lsl_inlet_c.cpp',
+        '$libLSLPath/src/lsl_outlet_c.cpp',
+        '$libLSLPath/src/lsl_streaminfo_c.cpp',
+        '$libLSLPath/src/lsl_xml_element_c.cpp',
+        '$libLSLPath/src/netinterfaces.cpp',
+        '$libLSLPath/src/resolver_impl.cpp',
+        '$libLSLPath/src/resolve_attempt_udp.cpp',
+        '$libLSLPath/src/sample.cpp',
+        '$libLSLPath/src/send_buffer.cpp',
+        '$libLSLPath/src/socket_utils.cpp',
+        '$libLSLPath/src/stream_info_impl.cpp',
+        '$libLSLPath/src/stream_outlet_impl.cpp',
+        '$libLSLPath/src/tcp_server.cpp',
+        '$libLSLPath/src/time_postprocessor.cpp',
+        '$libLSLPath/src/time_receiver.cpp',
+        '$libLSLPath/src/udp_server.cpp',
+        '$libLSLPath/src/util/cast.cpp',
+        '$libLSLPath/src/util/endian.cpp',
+        '$libLSLPath/src/util/inireader.cpp',
+        '$libLSLPath/src/util/strfuns.cpp',
+        '$pugixmlPath/src/pugixml.cpp',
+        '$libLSLPath/thirdparty/loguru/loguru.cpp',
+      ];
+      // Raises the soft open-file limit on load (see the file for details).
+      if (targetOs == OS.macOS || targetOs == OS.linux) {
+        sources.add('src/dart/fd_limit.cpp');
+      }
+
       final builder = CBuilder.library(
         name: packageName,
         assetName: 'native_liblsl.dart',
         pic: true,
         std: 'c++17',
-        sources: [
-          '$libLSLPath/src/buildinfo.cpp',
-          '$libLSLPath/src/api_config.cpp',
-          '$libLSLPath/src/cancellation.cpp',
-          '$libLSLPath/src/common.cpp',
-          '$libLSLPath/src/consumer_queue.cpp',
-          '$libLSLPath/src/data_receiver.cpp',
-          '$libLSLPath/src/info_receiver.cpp',
-          '$libLSLPath/src/inlet_connection.cpp',
-          '$libLSLPath/src/lsl_resolver_c.cpp',
-          '$libLSLPath/src/lsl_inlet_c.cpp',
-          '$libLSLPath/src/lsl_outlet_c.cpp',
-          '$libLSLPath/src/lsl_streaminfo_c.cpp',
-          '$libLSLPath/src/lsl_xml_element_c.cpp',
-          '$libLSLPath/src/netinterfaces.cpp',
-          '$libLSLPath/src/resolver_impl.cpp',
-          '$libLSLPath/src/resolve_attempt_udp.cpp',
-          '$libLSLPath/src/sample.cpp',
-          '$libLSLPath/src/send_buffer.cpp',
-          '$libLSLPath/src/socket_utils.cpp',
-          '$libLSLPath/src/stream_info_impl.cpp',
-          '$libLSLPath/src/stream_outlet_impl.cpp',
-          '$libLSLPath/src/tcp_server.cpp',
-          '$libLSLPath/src/time_postprocessor.cpp',
-          '$libLSLPath/src/time_receiver.cpp',
-          '$libLSLPath/src/udp_server.cpp',
-          '$libLSLPath/src/util/cast.cpp',
-          '$libLSLPath/src/util/endian.cpp',
-          '$libLSLPath/src/util/inireader.cpp',
-          '$libLSLPath/src/util/strfuns.cpp',
-          '$pugixmlPath/src/pugixml.cpp',
-          '$libLSLPath/thirdparty/loguru/loguru.cpp',
-        ],
+        sources: sources,
         language: Language.cpp,
         includes: [
           '$libLSLPath/lslboost',

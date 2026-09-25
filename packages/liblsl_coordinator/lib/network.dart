@@ -1,3 +1,7 @@
-export 'src/network/coordination_session.dart';
-export 'src/network/node.dart';
-export 'src/network/network_topology.dart';
+/// Moved to `package:peer_coordinator/network.dart`.
+///
+/// Re-exported so existing imports keep working; prefer importing from
+/// `package:peer_coordinator` directly in new code.
+library;
+
+export 'package:peer_coordinator/network.dart';

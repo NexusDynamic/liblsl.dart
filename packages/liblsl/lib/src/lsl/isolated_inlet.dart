@@ -2,8 +2,11 @@ import 'dart:async';
 import 'dart:ffi';
 
 import 'package:liblsl/native_liblsl.dart';
+import 'package:liblsl/src/ffi/bindings_ex.dart';
 import 'package:liblsl/src/ffi/mem.dart';
+import 'package:liblsl/src/lsl/binary_string.dart';
 import 'package:liblsl/src/lsl/exception.dart';
+import 'package:liblsl/src/lsl/pull_chunk.dart';
 import 'package:liblsl/src/lsl/pull_sample.dart';
 import 'package:liblsl/src/lsl/sample.dart';
 import 'package:liblsl/src/lsl/stream_info.dart';
@@ -11,7 +14,6 @@ import 'package:liblsl/src/lsl/helper.dart';
 import 'package:liblsl/src/lsl/structs.dart';
 import 'package:liblsl/src/lsl/isolate_manager.dart';
 import 'package:liblsl/src/meta/todo.dart';
-import 'package:meta/meta.dart';
 
 /// Implementation of inlet functionality for the isolate
 class LSLInletIsolate extends LSLIsolateWorkerBase {
@@ -19,6 +21,9 @@ class LSLInletIsolate extends LSLIsolateWorkerBase {
   LSLStreamInfo? _streamInfo;
   late final LSLPullSample _pullFn;
   late final bool _isStreamInfoOwner;
+
+  /// Resolved lazily on the first chunk pull.
+  LSLPullChunk? _pullChunkFn;
 
   final Map<LSLMessageType, FutureOr Function(Map<String, dynamic>)> _handlers =
       {};
@@ -38,7 +43,12 @@ class LSLInletIsolate extends LSLIsolateWorkerBase {
     _handlers[LSLMessageType.timeCorrection] = _timeCorrection;
     _handlers[LSLMessageType.samplesAvailable] = _samplesAvailable;
     _handlers[LSLMessageType.destroy] = _destroy;
-    _handlers[LSLMessageType.pullChunk] = pullChunk;
+    _handlers[LSLMessageType.pullChunk] = _pullChunk;
+    _handlers[LSLMessageType.setPostProcessing] = _setPostProcessing;
+    _handlers[LSLMessageType.setSmoothingHalftime] = _setSmoothingHalftime;
+    _handlers[LSLMessageType.wasClockReset] = _wasClockReset;
+    _handlers[LSLMessageType.pullSampleBytes] = _pullSampleBytes;
+    _handlers[LSLMessageType.pullChunkBytes] = _pullChunkBytes;
     _handlers[LSLMessageType.getFullInfo] = (Map<String, dynamic> data) async {
       if (_inlet == null) {
         throw LSLException('Inlet not created');
@@ -49,7 +59,7 @@ class LSLInletIsolate extends LSLIsolateWorkerBase {
       final result = ec.value;
       ec.free();
       if (result != 0) {
-        throw LSLException('Error getting full info: $result');
+        throw lslError('Error getting full info', result);
       }
       return fullInfoPtr.address;
     };
@@ -70,9 +80,56 @@ class LSLInletIsolate extends LSLIsolateWorkerBase {
     }
   }
 
-  @protected
-  /// Not yet implemented.
-  external Future<dynamic> pullChunk(Map<String, dynamic> data);
+  /// Pulls a chunk into the main isolate's shared native buffers.
+  ///
+  /// The main isolate owns the buffers and awaits this response before
+  /// reading them, so writing here is race-free. Returns the number of data
+  /// elements pulled (`samples * channels`).
+  Future<int> _pullChunk(Map<String, dynamic> data) async {
+    if (_inlet == null || _streamInfo == null) {
+      throw LSLException('Inlet not created');
+    }
+    final pullChunkFn = _pullChunkFn ??= LSLMapper().streamPullChunk(
+      _streamInfo!,
+    );
+    return pullChunkFn.pullInto(
+      _inlet!,
+      Pointer<NativeType>.fromAddress(data['dataPointerAddr'] as int),
+      Pointer<Double>.fromAddress(data['tsPointerAddr'] as int),
+      data['maxSamples'] as int,
+      _streamInfo!.channelCount,
+      data['timeout'] as double,
+      Pointer<Int32>.fromAddress(data['ecPointerAddr'] as int),
+    );
+  }
+
+  /// Pulls a binary sample into the main isolate's buffers; returns the
+  /// timestamp. The main isolate reads and releases the strings liblsl
+  /// allocated once this response arrives.
+  double _pullSampleBytes(Map<String, dynamic> data) {
+    if (_inlet == null) {
+      throw LSLException('Inlet not created');
+    }
+    return lslPullSampleBinary(
+      _inlet!,
+      LSLBinaryBuffer.view(data['buffer'] as Map<String, dynamic>),
+      data['timeout'] as double,
+    );
+  }
+
+  /// Pulls a binary chunk into the main isolate's buffers; returns the
+  /// number of data elements written.
+  int _pullChunkBytes(Map<String, dynamic> data) {
+    if (_inlet == null) {
+      throw LSLException('Inlet not created');
+    }
+    return lslPullChunkBinary(
+      _inlet!,
+      LSLBinaryBuffer.view(data['buffer'] as Map<String, dynamic>),
+      data['channels'] as int,
+      data['timeout'] as double,
+    );
+  }
 
   /// Creates an inlet for the specified stream info.
   /// The [data] parameter contains the necessary information to create the
@@ -110,14 +167,23 @@ class LSLInletIsolate extends LSLIsolateWorkerBase {
     _pullFn = LSLMapper().streamPull(_streamInfo!);
 
     // Create the inlet
-    _inlet = lsl_create_inlet(
-      _streamInfo!.streamInfo,
-      data['maxBufferSize'] as int,
-      data['maxChunkLength'] as int,
-      data['recover'] as bool ? 1 : 0,
-    );
+    final transportFlags = data['transportFlags'] as int? ?? 0;
+    _inlet = transportFlags == 0
+        ? lsl_create_inlet(
+            _streamInfo!.streamInfo,
+            data['maxBufferSize'] as int,
+            data['maxChunkLength'] as int,
+            data['recover'] as bool ? 1 : 0,
+          )
+        : lslCreateInletFlags(
+            _streamInfo!.streamInfo,
+            data['maxBufferSize'] as int,
+            data['maxChunkLength'] as int,
+            data['recover'] as bool ? 1 : 0,
+            transportFlags,
+          );
 
-    if (_inlet == null) {
+    if (_inlet == null || _inlet!.isNullPointer) {
       throw LSLException('Error creating inlet');
     }
 
@@ -129,7 +195,7 @@ class LSLInletIsolate extends LSLIsolateWorkerBase {
     ec.free();
 
     if (result != 0) {
-      throw LSLException('Error opening stream: $result');
+      throw lslError('Error opening stream', result);
     }
 
     return {
@@ -179,16 +245,64 @@ class LSLInletIsolate extends LSLIsolateWorkerBase {
   }
 
   @Todo('zeyus', 'handle timeout code')
-  /// Time correction
-  Future<double> _timeCorrection(Map<String, dynamic> data) async {
+  /// Time correction, as `[offset, remoteTime, uncertainty]`.
+  ///
+  /// Always the extended form: liblsl's plain `lsl_time_correction` delegates
+  /// to this one internally, so returning all three values is free. The
+  /// out-parameter slots are allocated here rather than shared with the main
+  /// isolate, matching how the `getFullInfo` handler allocates its error code.
+  Future<List<double>> _timeCorrection(Map<String, dynamic> data) async {
     final timeout = data['timeout'] as double;
     final ecPtr = Pointer<Int32>.fromAddress(data['ecPointerAddr'] as int);
-    final timeCorrection = lsl_time_correction(_inlet!, timeout, ecPtr);
-    final result = ecPtr.value;
-    if (result != 0) {
-      throw LSLException('Error getting time correction: $result');
+    final scratch = allocate<Double>(2);
+    try {
+      final offset = lsl_time_correction_ex(
+        _inlet!,
+        scratch,
+        scratch + 1,
+        timeout,
+        ecPtr,
+      );
+      final result = ecPtr.value;
+      if (result != 0) {
+        throw lslError('Error getting time correction', result);
+      }
+      return <double>[offset, scratch[0], scratch[1]];
+    } finally {
+      scratch.free();
     }
-    return timeCorrection;
+  }
+
+  /// Enables automatic post-processing of incoming time stamps.
+  Future<void> _setPostProcessing(Map<String, dynamic> data) async {
+    if (_inlet == null) {
+      throw LSLException('Inlet not created');
+    }
+    final flags = data['flags'] as int;
+    final result = lsl_set_postprocessing(_inlet!, flags);
+    if (result != 0) {
+      throw lslError('Error setting post-processing', result);
+    }
+  }
+
+  /// Overrides the half-time of the time-stamp smoothing window.
+  Future<void> _setSmoothingHalftime(Map<String, dynamic> data) async {
+    if (_inlet == null) {
+      throw LSLException('Inlet not created');
+    }
+    final value = data['value'] as double;
+    final result = lsl_smoothing_halftime(_inlet!, value);
+    if (result != 0) {
+      throw lslError('Error setting smoothing halftime', result);
+    }
+  }
+
+  /// Whether the source clock was reset since the last check.
+  Future<bool> _wasClockReset(Map<String, dynamic>? data) async {
+    if (_inlet == null) {
+      throw LSLException('Inlet not created');
+    }
+    return lsl_was_clock_reset(_inlet!) != 0;
   }
 
   /// Cleans up the inlet and stream info.

@@ -1,5 +1,6 @@
 import 'dart:ffi';
 import 'package:ffi/ffi.dart';
+import 'package:meta/meta.dart';
 import 'package:liblsl/native_liblsl.dart';
 import 'package:liblsl/src/lsl/base.dart';
 import 'package:liblsl/src/lsl/exception.dart';
@@ -194,6 +195,14 @@ class LSLStreamResolverContinuous extends LSLStreamResolver {
   /// to be available.
   LSLStreamResolverContinuous({this.forgetAfter = 5.0, super.maxStreams = 5});
 
+  /// Number of native continuous resolvers created by this wrapper and not
+  /// yet destroyed. Each one runs its own background resolve waves in liblsl
+  /// until destroyed, so this should return to its baseline once every
+  /// resolver has been destroyed.
+  @visibleForTesting
+  static int get liveNativeResolvers => _liveNativeResolvers;
+  static int _liveNativeResolvers = 0;
+
   @override
   /// Creates the resolver and allocates the stream info buffer.
   /// This method initializes the resolver with the specified [forgetAfter]
@@ -203,9 +212,24 @@ class LSLStreamResolverContinuous extends LSLStreamResolver {
   LSLStreamResolverContinuous create() {
     super.create();
 
-    _resolver = lsl_create_continuous_resolver(forgetAfter);
+    // Exactly one native resolver per object. Subclasses choose which kind
+    // through [createNativeResolver]; they must not create one themselves, or
+    // the first handle is overwritten and its resolve waves never stop.
+    final resolver = createNativeResolver();
+    if (resolver == nullptr) {
+      destroy();
+      throw LSLException('Could not create continuous resolver ($this)');
+    }
+    _resolver = resolver;
+    _liveNativeResolvers++;
     return this;
   }
+
+  /// Creates the native continuous resolver. Called exactly once, by
+  /// [create].
+  @protected
+  lsl_continuous_resolver createNativeResolver() =>
+      lsl_create_continuous_resolver(forgetAfter);
 
   /// Resolves streams available on the network found since the last call to
   /// [resolve]. It will return all streams that are currently available,
@@ -249,6 +273,7 @@ class LSLStreamResolverContinuous extends LSLStreamResolver {
     if (_resolver != null) {
       lsl_destroy_continuous_resolver(_resolver!);
       _resolver = null;
+      _liveNativeResolvers--;
     }
     super.destroy();
   }
@@ -280,20 +305,28 @@ class LSLStreamResolverContinuousByPredicate
   }) : super();
 
   @override
-  LSLStreamResolverContinuous create() {
-    super.create();
-
-    _resolver = lsl_create_continuous_resolver_bypred(
-      predicate.toNativeUtf8().cast<Char>(),
-      forgetAfter,
-    );
-    return this;
+  @protected
+  lsl_continuous_resolver createNativeResolver() {
+    // liblsl copies the predicate into its query, so it can be freed here.
+    final nativePredicate = predicate.toNativeUtf8(allocator: allocate);
+    try {
+      return lsl_create_continuous_resolver_bypred(
+        nativePredicate.cast<Char>(),
+        forgetAfter,
+      );
+    } finally {
+      nativePredicate.free();
+    }
   }
 
   @override
   String toString() {
     return 'LSLStreamResolverContinuousByPredicate{predicate: $predicate, maxStreams: $maxStreams, forgetAfter: $forgetAfter}';
   }
+
+  @override
+  // ignore: unnecessary_overrides
+  LSLStreamResolverContinuous create() => super.create();
 
   @override
   // ignore: unnecessary_overrides
@@ -325,21 +358,31 @@ class LSLStreamResolverContinuousByProperty
   }) : super();
 
   @override
-  LSLStreamResolverContinuous create() {
-    super.create();
-
-    _resolver = lsl_create_continuous_resolver_byprop(
-      property.lslName.toNativeUtf8().cast<Char>(),
-      value.toNativeUtf8().cast<Char>(),
-      forgetAfter,
-    );
-    return this;
+  @protected
+  lsl_continuous_resolver createNativeResolver() {
+    // liblsl copies both strings into its query, so they can be freed here.
+    final nativeProperty = property.lslName.toNativeUtf8(allocator: allocate);
+    final nativeValue = value.toNativeUtf8(allocator: allocate);
+    try {
+      return lsl_create_continuous_resolver_byprop(
+        nativeProperty.cast<Char>(),
+        nativeValue.cast<Char>(),
+        forgetAfter,
+      );
+    } finally {
+      nativeProperty.free();
+      nativeValue.free();
+    }
   }
 
   @override
   String toString() {
     return 'LSLStreamResolverContinuousByProperty{property: $property, value: $value, maxStreams: $maxStreams, forgetAfter: $forgetAfter}';
   }
+
+  @override
+  // ignore: unnecessary_overrides
+  LSLStreamResolverContinuous create() => super.create();
 
   @override
   // ignore: unnecessary_overrides
