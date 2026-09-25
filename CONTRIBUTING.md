@@ -58,6 +58,18 @@ The [release workflow](.github/workflows/release.yml) checks that the tag matche
 - for `liblsl`, attaches a source archive (with the liblsl C++ submodule) and uploads it and `.zenodo.json` to the Zenodo draft, which is then published by hand on Zenodo;
 - for `lsl_viewer`, builds Linux, Windows, macOS, Android and web binaries, attaches them to the release and deploys the web build to GitHub Pages (`/lsl_viewer/`). The same builds can be tried without releasing with the *Build lsl_viewer* workflow.
 
+### Published packages
+
+On pub.dev: `liblsl`, `signal_core`, `xdf`, `peer_coordinator`, `webrtc_coordinator`, `webrtc_coordinator_flutter` and `liblsl_coordinator`. Everything else, including `lsl_viewer`, has `publish_to: none`.
+
+Packages depend on each other with normal version constraints (e.g. `peer_coordinator: ^0.3.1`); inside the workspace these resolve to the local packages. When a release needs a new version of another package, release that one first. A new package goes up by hand in dependency order before its tag is pushed:
+
+1. `signal_core`, then `xdf`
+2. `peer_coordinator`, then `webrtc_coordinator`, then `webrtc_coordinator_flutter`
+3. `liblsl_coordinator`, once the `liblsl` version it needs is on pub.dev
+
+Publish Flutter packages with `flutter pub publish`; the release workflow uses it for all packages.
+
 ## Support
 
 Please see the [SUPPORT.md](./SUPPORT.md) file for information on how to get support for liblsl.dart and where to ask questions or discuss potential features.
