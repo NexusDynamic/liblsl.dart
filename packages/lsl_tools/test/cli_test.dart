@@ -174,6 +174,50 @@ void main() {
     expect(await relaying, 0);
   });
 
+  test('publish: streams from here reach a relay\'s clients', () async {
+    final g = await LslSignalGenerator.start(
+      name: 'cli_pub_$id',
+      channels: 2,
+      rate: 100,
+    );
+    addTearDown(g.close);
+    final server = await LslBridgeServer.start(
+      const [],
+      port: 0,
+      acceptPublish: true,
+      localOutlets: false,
+    );
+    addTearDown(server.close);
+    final url = Uri.parse('ws://127.0.0.1:${server.port}');
+    final stop = Completer<void>();
+    final out = StringBuffer();
+    final publishing = runLslCli(
+      ['publish', '$url', '-s', 'cli_pub_$id'],
+      stop: stop.future,
+      out: out,
+    );
+    final viewer = await LslBridgeClient.connect(url);
+    BridgeStream? shared;
+    for (var i = 0; i < 150 && shared == null; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      shared = viewer.streams
+          .where((s) => s.description.name == 'cli_pub_$id')
+          .firstOrNull;
+    }
+    expect(shared, isNotNull, reason: '$out');
+    expect(shared!.description.channelCount, 2);
+    final inlet = viewer.open(shared);
+    var received = 0;
+    for (var i = 0; i < 150 && received < 100; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      received += (await inlet.pull(1000)).length;
+    }
+    expect(received, greaterThanOrEqualTo(100));
+    await viewer.close();
+    stop.complete();
+    expect(await publishing, 0);
+  });
+
   test('replay an XDF file', () async {
     final path = '${dir.path}/replay.xdf';
     final w = XdfWriter(File(path).openWrite());

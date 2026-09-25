@@ -44,6 +44,7 @@ Future<int> runLslCli(
     _Share(o, stop),
     _Share(o, stop, relay: true),
     _Bridge(o, stop),
+    _Publish(o, stop),
     _Generate(o, stop),
     _Replay(o, stop),
     _Cyton(o, stop),
@@ -473,6 +474,154 @@ class _Bridge extends _Base {
     if (client.closed) out.writeln('The bridge closed: ${client.error}');
     await changes.cancel();
     await republisher.close();
+    await client.close();
+    return 0;
+  }
+}
+
+class _Publish extends _Base {
+  final Future<void>? stop;
+  _Publish(super.out, this.stop) {
+    streamOption();
+    argParser
+      ..addOption('token')
+      ..addOption(
+        'rescan',
+        help:
+            'Look for new matching streams every this many seconds and '
+            'publish them too.',
+      );
+  }
+
+  @override
+  String get name => 'publish';
+
+  @override
+  String get description =>
+      'Publish streams from here on a bridge or relay (`lsl share --accept`, '
+      '`lsl relay`), e.g. from a lab behind a firewall to a relay on a '
+      'server.';
+
+  @override
+  String get invocation => 'lsl publish ws://host:8765 [-s stream]...';
+
+  @override
+  Future<int> run() async {
+    final rest = argResults!.rest;
+    if (rest.length != 1) usageException('The bridge\'s address.');
+    var text = rest.single;
+    if (!text.contains('://')) text = 'ws://$text';
+    final client = await LslBridgeClient.connect(
+      Uri.parse(text),
+      token: argResults!['token'] as String? ?? '',
+    );
+    if (client.streams.isEmpty) {
+      await client.onStreams.first.timeout(
+        const Duration(seconds: 5),
+        onTimeout: () => const [],
+      );
+    }
+    if (!client.acceptsPublish) {
+      out.writeln('The bridge does not accept streams (use --accept there).');
+      await client.close();
+      return 1;
+    }
+    // Published stream by uid: its inlet here and outlet there.
+    final relays = <String, (LslInlet, LslOutlet)>{};
+    Future<void> add(List<LslStreamDescription> found) async {
+      for (final s in found) {
+        // Skip what came from a bridge, which would go round in circles.
+        if (relays.containsKey(s.uid) || s.sourceId.startsWith('bridge:')) {
+          continue;
+        }
+        final inlet = await lsl.openInlet(
+          s,
+          const LslInletOptions(clockSync: true),
+        );
+        final strings = s.format.isString;
+        final outlet = await client.publish(
+          LslOutletSpec(
+            name: s.name,
+            type: s.type,
+            channelCount: strings ? 1 : s.channelCount,
+            rate: s.rate,
+            format: strings ? LslFormat.string : LslFormat.float32,
+            sourceId: s.sourceId,
+            channels: inlet.channels,
+          ),
+        );
+        relays[s.uid] = (inlet, outlet);
+        out.writeln('Publishing ${s.name}');
+      }
+    }
+
+    await add(await _find(patterns));
+    if (relays.isEmpty) out.writeln('No matching streams yet.');
+    final every = double.tryParse(argResults!['rescan'] as String? ?? '');
+    var scanning = false;
+    final rescan = every == null || every <= 0
+        ? null
+        : Timer.periodic(Duration(milliseconds: (every * 1000).round()), (
+            _,
+          ) async {
+            if (scanning) return;
+            scanning = true;
+            try {
+              await add(await _find(patterns, wait: Duration.zero));
+            } catch (e) {
+              out.writeln('Could not publish: $e');
+            } finally {
+              scanning = false;
+            }
+          });
+    if (relays.isEmpty && rescan == null) {
+      await client.close();
+      return 1;
+    }
+    var pulling = false;
+    final timer = Timer.periodic(const Duration(milliseconds: 20), (_) async {
+      if (pulling) return;
+      pulling = true;
+      try {
+        for (final (inlet, outlet) in [...relays.values]) {
+          final c = await inlet.pull(4096);
+          if (c.length == 0) continue;
+          // Clock-synced inlet: time stamps are on this computer's clock,
+          // which the client maps onto the bridge's.
+          if (c.strings != null) {
+            final ch = inlet.stream.channelCount;
+            await outlet.pushStrings([
+              for (var i = 0; i < c.length; i++) c.strings![i * ch],
+            ], c.times);
+          } else {
+            await outlet.push(
+              c.values is Float32List
+                  ? c.values! as Float32List
+                  : Float32List.fromList(c.values!),
+              c.times,
+            );
+          }
+        }
+      } catch (_) {
+        // A stream went away; the others go on.
+      } finally {
+        pulling = false;
+      }
+    });
+    await Future.any([
+      _untilStopped(stop),
+      Future.doWhile(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+        return !client.closed;
+      }),
+    ]);
+    timer.cancel();
+    rescan?.cancel();
+    if (client.closed) out.writeln('The bridge closed: ${client.error}');
+    for (final (inlet, outlet) in relays.values) {
+      await outlet.close();
+      await inlet.close();
+    }
     await client.close();
     return 0;
   }
