@@ -88,7 +88,10 @@ melos:
           - liblsl_test
       description: Run `flutter test` for selected Flutter packages.
     test:dart:
-      exec: dart test --exclude-tags "performance,benchmark,lsl"
+      # Exit code 79 is "no tests ran": packages whose tests are all
+      # lsl-tagged (e.g. lsl_tools) have nothing left once those are excluded.
+      # `\$` because melos runs this through a second (outer) shell.
+      exec: dart test --exclude-tags "performance,benchmark,lsl" || [ \$? -eq 79 ]
       packageFilters:
         dirExists: test
         flutter: false
@@ -100,9 +103,10 @@ melos:
       # `concurrency: 1` below serialises across packages. Both are needed:
       # these tests bind real sockets and resolve peers machine-wide, so any
       # two running at once interfere.
-      # `|| true`: packages with no lsl-tagged tests exit non-zero with
-      # "No tests match the requested tag selectors", which is not a failure.
-      exec: dart test --tags "lsl" --concurrency=1 || true
+      # Exit code 79: packages with no lsl-tagged tests report "No tests match
+      # the requested tag selectors", which is not a failure. (`\$` because
+      # melos runs this through a second, outer shell.)
+      exec: dart test --tags "lsl" --concurrency=1 || [ \$? -eq 79 ]
       concurrency: 1
       packageFilters:
         dirExists: test

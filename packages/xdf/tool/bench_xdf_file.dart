@@ -16,7 +16,12 @@ Future<void> main(List<String> args) async {
     const ch = 32, rate = 500, seconds = 3600, block = 32;
     w.addStream(
       1,
-      XdfStreamInfo(name: 'EEG', type: 'EEG', channelCount: ch, nominalRate: 500),
+      XdfStreamInfo(
+        name: 'EEG',
+        type: 'EEG',
+        channelCount: ch,
+        nominalRate: 500,
+      ),
     );
     w.addStream(
       2,

@@ -21,6 +21,11 @@ Future<LslStreamDescription> _find(LslDiscovery d, String name) async {
   throw StateError('$name not found');
 }
 
+/// Whether `socat` can create a virtual serial port pair here.
+final _hasSocat =
+    !Platform.isWindows &&
+    Process.runSync('sh', ['-c', 'command -v socat']).exitCode == 0;
+
 void main() {
   final id = DateTime.now().microsecondsSinceEpoch;
   final dir = Directory.systemTemp.createTempSync('lsl_cli');
@@ -193,5 +198,5 @@ void main() {
     stop.complete();
     expect(await running, 0, reason: '$out');
     fake.stop();
-  });
+  }, skip: _hasSocat ? false : 'socat not available');
 }

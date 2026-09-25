@@ -9,7 +9,7 @@ on:
   # Reused by release.yml: nothing is published unless this passes.
   workflow_call:
   schedule:
-    # Nightly, for the LSL integration job only.
+    # Nightly, to catch breakage from dependency or runner updates.
     - cron: '0 3 * * *'
 
 jobs:
@@ -20,6 +20,11 @@ jobs:
       - uses: actions/checkout@v6
         with:
           submodules: recursive
+
+      # socat provides the virtual serial port pairs used by the serial and
+      # OpenBCI tests (they skip without it).
+      - name: Install socat
+        run: sudo apt-get update && sudo apt-get install -y socat
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -43,6 +48,11 @@ jobs:
 
       - name: Run tests
         run: melos run test
+
+      # LSL-backed tests bind loopback sockets and resolve peers machine-wide,
+      # so they run on their own, serially.
+      - name: Run LSL tests
+        run: melos run test:lsl
 
       # The transport-neutral core must stay compilable for the browser.
       # Catches dart:io / dart:isolate / dart:ffi creeping into the core, and
@@ -82,31 +92,6 @@ jobs:
         working-directory: packages/liblsl
         run: dart test --exclude-tags "performance,benchmark,lsl"
 
-  # LSL-backed integration tests bind loopback sockets and depend on multicast
-  # resolution timing, so they are kept out of the PR path. Run them on demand
-  # and nightly.
-  lsl-integration:
-    runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
-
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          submodules: recursive
-
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          cache: true
-          cache-key: "flutter-:os:-:channel:-:version:-:arch:-main"
-          pub-cache-key: "flutter-pub-:os:-:channel:-:version:-:arch:-main"
-
-      - name: Install melos
-        run: dart pub global activate melos
-
-      - name: Bootstrap packages
-        run: melos bootstrap
-
-      - name: Run LSL integration tests
-        run: melos run test:lsl
+      - name: Run liblsl LSL tests
+        working-directory: packages/liblsl
+        run: dart test --tags "lsl" --concurrency=1
