@@ -73,7 +73,9 @@ melos:
       exec: dart format . --set-exit-if-changed
       description: Run `dart format` checks for all packages.
     test:select:
-      exec: flutter test --exclude-tags "performance,benchmark,lsl"
+      # 2>&1: melos labels a child's stderr "ERROR:" (once per nesting level),
+      # and liblsl logs its normal messages to stderr.
+      exec: flutter test --exclude-tags "performance,benchmark,lsl" 2>&1
       packageFilters:
         dirExists: test
         flutter: true
@@ -86,12 +88,13 @@ melos:
       # Exit code 79 is "no tests ran": packages whose tests are all
       # lsl-tagged (e.g. lsl_tools) have nothing left once those are excluded.
       # `\$` because melos runs this through a second (outer) shell.
+      # 2>&1: see test:select.
       # One package at a time: the workspace shares one
       # .dart_tool/native_assets.yaml, which each `dart test` rewrites with
       # only its own package's native assets, so concurrent runs can load
       # another package's (e.g. serial_transport missing for lsl_tools).
       exec:
-        command: dart test --exclude-tags "performance,benchmark,lsl" || [ \$? -eq 79 ]
+        command: dart test --exclude-tags "performance,benchmark,lsl" 2>&1 || [ \$? -eq 79 ]
         concurrency: 1
       packageFilters:
         dirExists: test
@@ -108,7 +111,7 @@ melos:
       # the requested tag selectors", which is not a failure. (`\$` because
       # melos runs this through a second, outer shell.)
       exec:
-        command: dart test --tags "lsl" --concurrency=1 || [ \$? -eq 79 ]
+        command: dart test --tags "lsl" --concurrency=1 2>&1 || [ \$? -eq 79 ]
         concurrency: 1
       packageFilters:
         dirExists: test
@@ -118,7 +121,7 @@ melos:
         are timing-sensitive, so they must not run concurrently with each other.
     test:performance:
       exec:
-        command: flutter test --concurrency=1 --tags "performance"
+        command: flutter test --concurrency=1 --tags "performance" 2>&1
         concurrency: 1
       packageFilters:
         dirExists: test
