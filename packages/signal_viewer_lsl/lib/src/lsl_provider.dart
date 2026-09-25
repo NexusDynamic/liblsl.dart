@@ -130,7 +130,7 @@ class LslProvider extends SourceProvider {
   }
 
   /// Streams being forwarded under another name.
-  final List<LslForward> forwards = [];
+  final List<LslForwarding> forwards = [];
 
   /// Forward the stream of [tab] as [name], with only its shown channels
   /// and its processing if asked.
@@ -141,26 +141,40 @@ class LslProvider extends SourceProvider {
     required bool processed,
   }) async {
     final session = tab.session;
-    if (session is! LslSession) return;
     final c = tab.controller;
+    if (!c.live) return;
+    final info = tab.group.info;
+    final channels = shownOnly ? ([...c.lanes]..sort()) : null;
+    final derived = processed ? c.spec : DerivedSpec.none;
+    await lsl.prepare();
     try {
       forwards.add(
-        await LslForward.start(
-          session,
-          name: name,
-          channels: shownOnly ? ([...c.lanes]..sort()) : null,
-          derived: processed ? c.spec : DerivedSpec.none,
-          options: app.prefs.lsl.outlet,
-        ),
+        // LSL streams keep the time stamps they arrived with.
+        session is LslSession
+            ? await LslForward.start(
+                session,
+                name: name,
+                channels: channels,
+                derived: derived,
+                options: app.prefs.lsl.outlet,
+              )
+            : await LslSourceForward.start(
+                session,
+                info,
+                name: name,
+                channels: channels,
+                derived: derived,
+                options: app.prefs.lsl.outlet,
+              ),
       );
-      app.setStatus('Forwarding ${session.info.name} as $name');
+      app.setStatus('Forwarding ${info.name} as $name');
     } catch (e) {
-      app.setError('Could not forward ${session.info.name}: $e');
+      app.setError('Could not forward ${info.name}: $e');
     }
     notifyListeners();
   }
 
-  Future<void> stopForward(LslForward f) async {
+  Future<void> stopForward(LslForwarding f) async {
     forwards.remove(f);
     notifyListeners();
     await f.close();
@@ -281,7 +295,7 @@ class LslProvider extends SourceProvider {
   void sessionClosed(SourceSession session) {
     if (replay?.session == session) stopReplay();
     for (final f in [...forwards]) {
-      if (f.session == session) stopForward(f);
+      if (f.source == session) stopForward(f);
     }
   }
 
@@ -508,7 +522,8 @@ class LslProvider extends SourceProvider {
         forwards.isEmpty
             ? 'Forward this stream…'
             : 'Forward… (${forwards.length} forwarded)',
-        onPressed: app.currentTab?.session is LslSession || forwards.isNotEmpty
+        onPressed:
+            (app.currentTab?.controller.live ?? false) || forwards.isNotEmpty
             ? () => showLslForward(context, this)
             : null,
         order: 55,

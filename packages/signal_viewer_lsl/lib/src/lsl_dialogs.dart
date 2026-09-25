@@ -1197,7 +1197,8 @@ class _ForwardDialog extends StatefulWidget {
 }
 
 class _ForwardDialogState extends State<_ForwardDialog> {
-  late final TabEntry? _tab = widget.app.app.currentTab?.session is LslSession
+  late final TabEntry? _tab =
+      widget.app.app.currentTab?.controller.live ?? false
       ? widget.app.app.currentTab
       : null;
   late final _name = TextEditingController(
@@ -1228,8 +1229,13 @@ class _ForwardDialogState extends State<_ForwardDialog> {
               children: [
                 if (tab != null) ...[
                   Text(
-                    'Publish ${tab.group.info.name} again as a new stream, '
-                    'with the time stamps it arrived with.',
+                    tab.session is LslSession
+                        ? 'Publish ${tab.group.info.name} again as a new '
+                              'stream, with the time stamps it arrived with.'
+                        : 'Publish ${tab.group.info.name} as an LSL stream '
+                              'with its ${tab.group.info.channelCount} '
+                              'channels (all its ports, if merged), stamped '
+                              'on the LSL clock.',
                     style: theme.textTheme.bodySmall,
                   ),
                   TextField(
@@ -1280,7 +1286,7 @@ class _ForwardDialogState extends State<_ForwardDialog> {
                       leading: const Icon(Icons.forward),
                       title: Text(f.name),
                       subtitle: Text(
-                        'from ${f.session.info.name} · '
+                        'from ${f.from} · '
                         '${f.channels.length} ch · ${f.sent} samples',
                       ),
                       trailing: TextButton(
