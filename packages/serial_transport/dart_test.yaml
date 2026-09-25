@@ -1,0 +1,10 @@
+tags:
+  pty:
+    # Virtual serial ports through socat (Linux and macOS).
+    timeout: 2x
+
+override_platforms:
+  chrome:
+    settings:
+      executable:
+        linux: chromium
