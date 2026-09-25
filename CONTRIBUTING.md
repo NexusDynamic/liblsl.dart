@@ -53,7 +53,7 @@ Every package and app is versioned on its own, and released by pushing a tag of 
 
 The [release workflow](.github/workflows/release.yml) checks that the tag matches the pubspec (and the citation metadata for `liblsl`), runs the full test suite, and only then:
 
-- publishes to pub.dev, for packages without `publish_to: none` (via [automated publishing](https://dart.dev/tools/pub/automated-publishing); each package needs it enabled on pub.dev with the tag pattern `<package>-v{{version}}`);
+- publishes to pub.dev, for packages without `publish_to: none` (via [automated publishing](https://dart.dev/tools/pub/automated-publishing); each package needs it enabled on pub.dev with the tag pattern `<package>-v{{version}}`). A version already on pub.dev is not published again. pub.dev only offers automated publishing for packages that exist, so a new package's first version is published by hand (`dart pub publish`), and its tag then just creates the GitHub release;
 - creates the GitHub release;
 - for `liblsl`, attaches a source archive (with the liblsl C++ submodule) and uploads it and `.zenodo.json` to the Zenodo draft, which is then published by hand on Zenodo;
 - for `lsl_viewer`, builds Linux, Windows, macOS, Android and web binaries, attaches them to the release and deploys the web build to GitHub Pages (`/lsl_viewer/`). The same builds can be tried without releasing with the *Build lsl_viewer* workflow.

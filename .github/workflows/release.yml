@@ -75,12 +75,38 @@ jobs:
       contents: read
       id-token: write # pub.dev automated publishing (OIDC)
     steps:
+      # A version uploaded by hand (e.g. a package's first, which pub.dev
+      # requires) or by an earlier attempt of this workflow is not published
+      # again, so its tag still gets a GitHub release.
+      - name: Check pub.dev for this version
+        id: pubdev
+        env:
+          PACKAGE: ${{ needs.parse.outputs.package }}
+          VERSION: ${{ needs.parse.outputs.version }}
+        run: |
+          STATUS="$(curl -s -o /dev/null -w '%{http_code}' "https://pub.dev/api/packages/$PACKAGE/versions/$VERSION")"
+          case "$STATUS" in
+            200)
+              echo "::notice::$PACKAGE $VERSION is already on pub.dev; not publishing it again."
+              echo "published=true" >> "$GITHUB_OUTPUT"
+              ;;
+            404)
+              echo "published=false" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "::error::pub.dev answered HTTP $STATUS for $PACKAGE $VERSION"
+              exit 1
+              ;;
+          esac
+
       - uses: actions/checkout@v6
+        if: steps.pubdev.outputs.published != 'true'
         with:
           # The liblsl C++ sources are in a submodule and must be in the package.
           submodules: recursive
 
       - name: Setup Flutter
+        if: steps.pubdev.outputs.published != 'true'
         uses: subosito/flutter-action@v2
         with:
           channel: stable
@@ -89,12 +115,14 @@ jobs:
           pub-cache-key: "flutter-pub-:os:-:channel:-:version:-:arch:-main"
 
       - name: Get dependencies
+        if: steps.pubdev.outputs.published != 'true'
         run: flutter pub get
 
       # Same as dart-lang/setup-dart does for its publish workflow, which can't
       # be used here: it doesn't check out submodules, and the workspace needs
       # Flutter to resolve.
       - name: Get pub.dev token
+        if: steps.pubdev.outputs.published != 'true'
         run: |
           TOKEN="$(curl -sSf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
             "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=https://pub.dev" | jq -r '.value')"
@@ -103,10 +131,12 @@ jobs:
           dart pub token add https://pub.dev --env-var PUB_TOKEN
 
       - name: Dry run
+        if: steps.pubdev.outputs.published != 'true'
         working-directory: ${{ needs.parse.outputs.path }}
         run: dart pub publish --dry-run
 
       - name: Publish
+        if: steps.pubdev.outputs.published != 'true'
         working-directory: ${{ needs.parse.outputs.path }}
         run: dart pub publish --force
 
