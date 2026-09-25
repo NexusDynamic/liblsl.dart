@@ -11,6 +11,12 @@ import 'format.dart';
 import 'load.dart' show canDropSamples;
 import 'stream_info.dart';
 import 'sync.dart';
+import 'xdf_background_stub.dart'
+    // First: dart2wasm also reports dart:isolate.
+    if (dart.library.js_interop) 'xdf_background_stub.dart'
+    if (dart.library.isolate) 'xdf_background_io.dart'
+    as background;
+import 'xdf_source.dart';
 
 const bool _isWeb = bool.fromEnvironment('dart.library.js_interop');
 
@@ -127,13 +133,13 @@ class _Clock {
 
 /// One stream of an [XdfFile]: its header, and how its samples map to
 /// time.
-class XdfStreamIndex implements StreamTiming {
-  /// Its position among the file's streams; [ChannelRef.stream] of its
-  /// channels.
+class XdfStreamIndex implements StreamTiming, XdfStreamView {
+  @override
   final int slot;
 
-  /// Its id in the file.
+  @override
   final int id;
+  @override
   final XdfStreamInfo info;
   XdfStreamFooter? footer;
 
@@ -159,6 +165,7 @@ class XdfStreamIndex implements StreamTiming {
   List<List<String>>? _strings;
 
   /// Samples read so far.
+  @override
   int sampleCount = 0;
 
   /// Gaps longer than this (seconds) start a new segment.
@@ -208,6 +215,7 @@ class XdfStreamIndex implements StreamTiming {
   int get length => regular ? _ordinals : sampleCount;
 
   /// Time just after the last sample, from the start of the recording.
+  @override
   double get t1 {
     if (regular) return t0 + (_gridRate > 0 ? _ordinals / _gridRate : 0);
     return sampleCount == 0 ? t0 : _synced()[sampleCount - 1] - _origin;
@@ -763,7 +771,7 @@ class XdfEvents {
 /// (a gap, or a clock reset), a segment starts where pyxdf puts it (within
 /// a sample), but drifts within the segment if its rate differs from the
 /// stream's overall effective rate; [loadXdf] has exact time stamps.
-class XdfFile extends ChunkedSignalEngine {
+class XdfFile extends ChunkedSignalEngine implements XdfRecordingSource {
   final XdfFileOptions options;
   final XdfIndexer _indexer;
   final _progress = StreamController<void>.broadcast();
@@ -778,6 +786,19 @@ class XdfFile extends ChunkedSignalEngine {
         derivedCacheCount: options.derivedCacheCount,
         filteredCacheBytes: options.filteredCacheBytes,
       );
+
+  /// Open the file [spec] describes in a background isolate where there are
+  /// isolates (not on the web), so indexing and decoding do not hold up the
+  /// caller; otherwise the same as [open].
+  static Future<XdfRecordingSource> openInBackground(
+    ByteSourceSpec spec, {
+    XdfFileOptions options = const XdfFileOptions(),
+  }) {
+    if (spec is BlobSourceSpec || !background.isolatesSupported) {
+      return open(spec.open(), options: options);
+    }
+    return background.openInIsolate(spec, options);
+  }
 
   /// Open [source] and index it on the current isolate. Returns once the
   /// first part is read (the stream headers, normally).
@@ -819,15 +840,16 @@ class XdfFile extends ChunkedSignalEngine {
   @override
   ChunkedSignalIndex get chunkIndex => _indexer;
 
-  /// Fires while indexing runs, and when it is done.
+  @override
   Stream<void> get onIndex => _progress.stream;
 
-  /// Completes once the whole file is indexed.
+  @override
   Future<void> get indexed => _indexed.future;
 
+  @override
   bool get complete => _indexer.complete;
 
-  /// Indexing progress, 0-1.
+  @override
   double get progress => _indexer.progress;
 
   /// The file header's `info` element.
@@ -835,15 +857,16 @@ class XdfFile extends ChunkedSignalEngine {
 
   /// The streams, in the order of their headers; a stream's position is
   /// its [XdfStreamIndex.slot].
+  @override
   List<XdfStreamIndex> get streams => _indexer.streams;
 
-  /// The recorder's LSL time of time 0.
+  @override
   double get origin => _indexer.origin;
 
-  /// Seconds from the first to the last sample of any stream.
+  @override
   double get duration => _indexer.duration;
 
-  /// The samples of irregular stream [slot] so far.
+  @override
   XdfEvents events(int slot) {
     final s = _indexer.streams[slot];
     if (s.regular) throw ArgumentError('Stream $slot is regular');
@@ -883,6 +906,7 @@ class XdfFile extends ChunkedSignalEngine {
     }
   }
 
+  @override
   Future<void> close() async {
     if (isClosed) return;
     await closeEngine();

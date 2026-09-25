@@ -16,3 +16,4 @@ export 'src/stream_info.dart';
 export 'src/sync.dart';
 export 'src/writer.dart';
 export 'src/xdf_file.dart';
+export 'src/xdf_source.dart';

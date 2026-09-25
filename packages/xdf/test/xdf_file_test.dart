@@ -239,4 +239,56 @@ void main() {
     }
     await f.close();
   });
+
+  test('openInBackground answers like a file on this isolate', () async {
+    const path = 'test/fixtures/clock_resets.xdf';
+    final local = await _open(File(path).readAsBytesSync());
+    final bg = await XdfFile.openInBackground(const ByteSourceSpec.path(path));
+    await bg.indexed;
+    expect(bg.complete, isTrue);
+    expect(bg.duration, closeTo(local.duration, 1e-9));
+    expect(bg.origin, closeTo(local.origin, 1e-9));
+    expect(bg.streams, hasLength(local.streams.length));
+    for (final s in local.streams) {
+      final b = bg.streams[s.slot];
+      expect(b.info.name, s.info.name);
+      expect(b.sampleCount, s.sampleCount);
+      expect(b.t0, closeTo(s.t0, 1e-9));
+      expect(b.samplingRate, closeTo(s.samplingRate, 1e-9));
+      if (s.regular) {
+        final r = ReadRequest(
+          channels: [ChannelRef(s.slot, 0)],
+          t0: s.t0 + 10,
+          t1: s.t0 + 20,
+        );
+        final a = await local.read(r);
+        final c = await bg.read(r);
+        expect(c.channels[0], a.channels[0]);
+        final e = await bg.envelope(
+          EnvelopeRequest(
+            channels: [ChannelRef(s.slot, 0)],
+            t0: 0,
+            t1: bg.duration,
+            bins: 100,
+          ),
+        );
+        expect(
+          e.min[0],
+          (await local.envelope(
+            EnvelopeRequest(
+              channels: [ChannelRef(s.slot, 0)],
+              t0: 0,
+              t1: local.duration,
+              bins: 100,
+            ),
+          )).min[0],
+        );
+      } else {
+        expect(bg.events(s.slot).times, local.events(s.slot).times);
+        expect(bg.events(s.slot).strings, local.events(s.slot).strings);
+      }
+    }
+    await bg.close();
+    await local.close();
+  });
 }

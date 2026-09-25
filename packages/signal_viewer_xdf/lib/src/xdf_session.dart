@@ -12,7 +12,8 @@ class XdfSession extends SourceSession {
   /// Path on disk (desktop and mobile), for recent files.
   final String? path;
 
-  final XdfFile file;
+  /// The recording, indexed in a background isolate where possible.
+  final XdfRecordingSource file;
   late final StreamSubscription<void> _indexSub;
   late final StreamSubscription<DerivedProgress> _derivedSub;
   double? _derivedProgress;
@@ -41,8 +42,8 @@ class XdfSession extends SourceSession {
     String? path,
     int? cacheBytes,
   }) async {
-    final file = await XdfFile.open(
-      spec.open(),
+    final file = await XdfFile.openInBackground(
+      spec,
       options: cacheBytes == null
           ? const XdfFileOptions()
           : XdfFileOptions(cacheBytes: cacheBytes),
@@ -64,7 +65,7 @@ class XdfSession extends SourceSession {
       if (s.sampleCount > 0) _info(s),
   ];
 
-  static StreamInfo _info(XdfStreamIndex s) {
+  static StreamInfo _info(XdfStreamView s) {
     final i = s.info;
     final n = i.channelCount;
     return StreamInfo(
@@ -79,7 +80,7 @@ class XdfSession extends SourceSession {
     );
   }
 
-  XdfStreamIndex streamOf(StreamInfo info) =>
+  XdfStreamView streamOf(StreamInfo info) =>
       file.streams[info.channels.first.stream];
 
   @override
@@ -141,7 +142,7 @@ class XdfStreamSource implements StreamSource {
 
   XdfStreamSource(this.session, this.info);
 
-  XdfStreamIndex get _stream => session.streamOf(info);
+  XdfStreamView get _stream => session.streamOf(info);
 
   @override
   bool get live => false;
