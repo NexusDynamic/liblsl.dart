@@ -304,17 +304,28 @@ void main() {
         }
         expect(pullAvailable(), greaterThan(0));
 
-        final int rssBefore = ProcessInfo.currentRss;
-        int received = 0;
-        for (int i = 0; i < iterations; i++) {
-          outlet.pushChunkSync(chunk, pushthrough: true);
-          final c = inlet.pullChunkBytesSync(maxSamples: 64);
-          received += c.sampleCount;
-          if (c.isNotEmpty) {
-            expect(c.samples.first[0].length, payload.length);
+        /// Pushes and pulls [iterations] chunks, then drains; returns the
+        /// number of samples received.
+        int round() {
+          int received = 0;
+          for (int i = 0; i < iterations; i++) {
+            outlet.pushChunkSync(chunk, pushthrough: true);
+            final c = inlet.pullChunkBytesSync(maxSamples: 64);
+            received += c.sampleCount;
+            if (c.isNotEmpty) {
+              expect(c.samples.first[0].length, payload.length);
+            }
           }
+          return received + pullAvailable();
         }
-        received += pullAvailable();
+
+        // A first round brings the transfer buffers up to their working size:
+        // where delivery lags (e.g. macOS runners) most of the ~20 MiB pushed
+        // is queued at once. That is a one-off high-water mark; a leak grows
+        // again in every round, so the second, identical round is measured.
+        round();
+        final int rssBefore = ProcessInfo.currentRss;
+        final int received = round();
         final int rssAfter = ProcessInfo.currentRss;
         final int growthMiB = (rssAfter - rssBefore) ~/ (1024 * 1024);
 
