@@ -4,7 +4,10 @@ name: Build lsl_viewer
 # is not published to the App Store). Called by release.yml for lsl_viewer-v*
 # tags; can also be run by hand to try the builds without releasing.
 # Each target is uploaded as a workflow artifact named lsl_viewer-<target>;
-# the unzipped web build is also uploaded as site-lsl_viewer.
+# the unzipped web build is also uploaded as site-lsl_viewer. Desktop targets
+# also build the `lsl` command line tool (packages/lsl_tools): it goes in the
+# viewer's archive under cli/ (Linux, Windows) and in its own
+# lsl-cli-<version>-<target> archive.
 
 on:
   workflow_call:
@@ -129,22 +132,37 @@ jobs:
             *)       flutter build "${{ matrix.target }}" --release ;;
           esac
 
+      # A bundle: bin/lsl[.exe] and lib/ with liblsl (from its build hook).
+      - name: Build lsl command line tool
+        if: contains(fromJSON('["linux", "windows", "macos"]'), matrix.target)
+        working-directory: packages/lsl_tools
+        run: |
+          dart build cli -o build/lsl-cli
+          build/lsl-cli/bundle/bin/lsl --help
+
       - name: Package
         working-directory: apps/lsl_viewer/build
         run: |
           mkdir -p "$GITHUB_WORKSPACE/dist"
           DIST="$GITHUB_WORKSPACE/dist"
+          CLI="$GITHUB_WORKSPACE/packages/lsl_tools/build/lsl-cli/bundle"
+          CLI_NAME="lsl-cli-$VERSION-${{ matrix.target }}"
           case "${{ matrix.target }}" in
             linux)
+              cp -r "$CLI" linux/x64/release/bundle/cli
               tar -C linux/x64/release/bundle -czf "$DIST/$NAME-x64.tar.gz" .
+              tar -C "$CLI" -czf "$DIST/$CLI_NAME-x64.tar.gz" .
               ;;
             windows)
+              cp -r "$CLI" windows/x64/runner/Release/cli
               (cd windows/x64/runner/Release && 7z a -tzip "$DIST/$NAME-x64.zip" .)
+              (cd "$CLI" && 7z a -tzip "$DIST/$CLI_NAME-x64.zip" .)
               ;;
             macos)
               # Unsigned: users need to right-click → Open the first time.
               APP="$(find macos/Build/Products/Release -maxdepth 1 -name '*.app' | head -n1)"
               ditto -c -k --keepParent "$APP" "$DIST/$NAME.zip"
+              (cd "$CLI" && zip -qr "$DIST/$CLI_NAME-$(uname -m).zip" .)
               ;;
             android)
               for apk in app/outputs/flutter-apk/app-*-release.apk; do
