@@ -7,7 +7,7 @@
 /// afterwards, and it cannot differ between nodes in the same process.
 ///
 /// Every node in an LSL test therefore has to live in *one* process under
-/// *one* config — which is exactly what `example/multi_node_test.dart` does.
+/// *one* config — which is exactly what `example/liblsl_coordinator_example.dart` does.
 /// Do not try to give nodes different LSL configs; instead isolate tests from
 /// each other with [uniqueSessionName].
 library;
@@ -20,7 +20,7 @@ import 'package:liblsl_coordinator/transports/lsl.dart';
 
 /// Multicast group used by the coordination tests.
 ///
-/// Kept distinct from the group used by `example/multi_node_test.dart`
+/// Kept distinct from the group used by `example/liblsl_coordinator_example.dart`
 /// (224.0.0.183) and `benchmark/latency_bench.dart` (224.0.0.184) so a stray
 /// example or benchmark process on the same machine cannot be discovered by,
 /// or interfere with, a test run.

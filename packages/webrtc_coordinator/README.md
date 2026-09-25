@@ -1,11 +1,11 @@
 # webrtc_coordinator
 
 A genuinely peer-to-peer transport for
-[`peer_coordinator`](../peer_coordinator): coordination and data over WebRTC
+[`peer_coordinator`](https://pub.dev/packages/peer_coordinator): coordination and data over WebRTC
 data channels, with the hub demoted to discovery and connection setup.
 
 Pure Dart. It ships no WebRTC implementation — you supply an `RtcPeerAdapter`.
-[`webrtc_coordinator_flutter`](../webrtc_coordinator_flutter) provides one
+[`webrtc_coordinator_flutter`](https://pub.dev/packages/webrtc_coordinator_flutter) provides one
 backed by `flutter_webrtc`; `package:webrtc_coordinator/testing.dart` provides a
 fake for headless tests.
 

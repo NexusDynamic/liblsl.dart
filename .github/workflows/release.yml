@@ -130,15 +130,17 @@ jobs:
           echo "PUB_TOKEN=$TOKEN" >> "$GITHUB_ENV"
           dart pub token add https://pub.dev --env-var PUB_TOKEN
 
+      # `flutter pub publish` works for Flutter and pure Dart packages alike;
+      # `dart pub publish` refuses Flutter ones (webrtc_coordinator_flutter).
       - name: Dry run
         if: steps.pubdev.outputs.published != 'true'
         working-directory: ${{ needs.parse.outputs.path }}
-        run: dart pub publish --dry-run
+        run: flutter pub publish --dry-run
 
       - name: Publish
         if: steps.pubdev.outputs.published != 'true'
         working-directory: ${{ needs.parse.outputs.path }}
-        run: dart pub publish --force
+        run: flutter pub publish --force
 
   github-release:
     needs: [parse, test, pub-publish]

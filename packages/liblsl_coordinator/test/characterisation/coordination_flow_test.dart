@@ -3,7 +3,7 @@
 /// This is the green baseline the transport extraction has to preserve. It
 /// drives real [LSLCoordinationSession]s over loopback and asserts on election,
 /// join, the data path, stream lifecycle and clean teardown — everything the
-/// existing `example/multi_node_test.dart` exercises but never checks.
+/// existing `example/liblsl_coordinator_example.dart` exercises but never checks.
 ///
 /// See `test/support/lsl_harness.dart` for why every node has to live in one
 /// process under one process-global LSL config.
@@ -385,7 +385,7 @@ void main() {
       //     Timeout waiting for phase {accepting, ready}
       //
       // — indistinguishable from "no coordinator could be reached". That is
-      // why example/multi_node_test.dart:184 has to string-match 'rejected',
+      // why example/liblsl_coordinator_example.dart:184 has to string-match 'rejected',
       // and why it never actually matches.
       //
       // The fix belongs with the coordinator-loss work: give the participant a

@@ -27,6 +27,7 @@ final Logger _logger = Logger('webrtc_coordinator_flutter.adapter');
 /// ```dart
 /// RtcTransportConfig(
 ///   hubUri: Uri.parse('ws://hub.local:8080'),
+///   credentials: HubCredentials(session: 'lab', secret: hubSecret),
 ///   adapterFactory: flutterWebrtcAdapterFactory,
 /// )
 /// ```

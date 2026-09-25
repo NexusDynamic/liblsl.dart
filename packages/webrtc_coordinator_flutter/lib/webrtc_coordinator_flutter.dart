@@ -9,6 +9,7 @@
 /// final config = CoordinationConfig(
 ///   transportConfig: RtcTransportConfig(
 ///     hubUri: Uri.parse('ws://hub.local:8080'),
+///     credentials: HubCredentials(session: 'lab', secret: hubSecret),
 ///     adapterFactory: flutterWebrtcAdapterFactory,
 ///   ),
 /// );

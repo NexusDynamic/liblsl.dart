@@ -542,7 +542,7 @@ void main() {
     test(
       'a join rejection for me throws so the session can surface it',
       () async {
-        // The session turns this into a failed join(); example/multi_node_test
+        // The session turns this into a failed join(); example/liblsl_coordinator_example
         // detects it by string-matching 'rejected'.
         await expectLater(
           handler.handleMessage(

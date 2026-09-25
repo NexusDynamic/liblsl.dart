@@ -57,6 +57,8 @@ The coordination logic never names a backend. You pick one by choosing an
 |---|---|---|
 | In-memory | `package:peer_coordinator/in_memory.dart` | tests, and any N-nodes-in-one-process setup |
 | Lab Streaming Layer | `package:liblsl_coordinator/transports/lsl.dart` | low-latency LAN, research hardware |
+| WebSocket hub | `package:peer_coordinator/websocket.dart` | across networks and the web, relayed through a hub |
+| WebRTC | `package:webrtc_coordinator/transports/webrtc.dart` | peer-to-peer data channels, with the hub only for setup ([`webrtc_coordinator`](https://pub.dev/packages/webrtc_coordinator)) |
 
 ```dart
 import 'package:peer_coordinator/peer_coordinator.dart';
@@ -101,6 +103,30 @@ session.events.nodeJoined.listen((e) => print('joined: ${e.node.id}'));
 session.events.streamStart.listen((e) => print('start: ${e.streamName}'));
 session.events.userMessages.listen((e) => print(e.payload));
 ```
+
+## Running a hub
+
+The WebSocket and WebRTC transports need a hub: a small relay that
+authenticates peers with a shared session secret and, for WebRTC, carries only
+discovery and signalling. Run one with:
+
+```sh
+dart run peer_coordinator:hub --session MyGame --secret-file ./secret
+```
+
+and point clients at it:
+
+```dart
+import 'package:peer_coordinator/websocket.dart';
+
+WebSocketTransportConfig(
+  hubUri: Uri.parse('ws://localhost:8080'),
+  credentials: HubCredentials(session: 'MyGame', secret: '...'),
+)
+```
+
+For a deployment behind TLS, see
+[`deploy/`](https://github.com/NexusDynamic/liblsl.dart/tree/main/packages/peer_coordinator/deploy).
 
 ## Writing a transport
 
