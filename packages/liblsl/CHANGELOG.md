@@ -128,6 +128,10 @@ has reached API parity with liblsl and moves to 1.0.0.
   `lsl_inlet_flush` now use `isLeaf` FFI calls; buffer converters are
   inline-hinted; chunk TypedData copies compile to memmove.
 
+# 0.13.3+0
+
+- Updated build hook to add the flag `-Wl,--allow-shlib-undefined` for Android builds, to prevent an error when building the shared library.
+
 # 0.13.2+0
 
 - Zenodo DOI: [10.5281/zenodo.20340248](https://doi.org/10.5281/zenodo.20340248)
