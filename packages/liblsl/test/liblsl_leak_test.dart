@@ -279,13 +279,22 @@ void main() {
         // maxSamples well above what is buffered: liblsl allocates every
         // slot of the binary pull buffer, filled or not. timeout 0 takes
         // only what is buffered (a nonzero one would wait it out in full).
+        // Drains until nothing has arrived for a while: samples can still be
+        // in flight after a momentarily empty pull (notably on macOS).
         int pullAvailable() {
           int n = 0;
-          final deadline = DateTime.now().add(Duration(seconds: 2));
+          final deadline = DateTime.now().add(Duration(seconds: 10));
+          var lastData = DateTime.now();
           while (DateTime.now().isBefore(deadline)) {
             final c = inlet.pullChunkBytesSync(maxSamples: 64);
             n += c.sampleCount;
-            if (c.isEmpty && n > 0) return n;
+            if (c.isNotEmpty) {
+              lastData = DateTime.now();
+            } else if (n > 0 &&
+                DateTime.now().difference(lastData) >
+                    Duration(milliseconds: 500)) {
+              return n;
+            }
           }
           return n;
         }
