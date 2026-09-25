@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LSL over the network: WebSocket bridge and relay setup guide</title>
+  <meta name="description" content="How to share Lab Streaming Layer (LSL) streams across networks and with web browsers: lsl share, lsl bridge, lsl publish and lsl relay, tokens, TLS (wss://) with Caddy or nginx, and LSL Viewer.">
+  <link rel="canonical" href="https://nexusdynamic.org/liblsl.dart/relay.html">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="LSL over the network: WebSocket bridge and relay setup guide">
+  <meta property="og:description" content="How to share Lab Streaming Layer (LSL) streams across networks and with web browsers: lsl share, lsl bridge, lsl publish and lsl relay, tokens, TLS (wss://) with Caddy or nginx, and LSL Viewer.">
+  <meta property="og:url" content="https://nexusdynamic.org/liblsl.dart/relay.html">
+  <meta property="og:image" content="https://nexusdynamic.org/liblsl.dart/icon.png">
+  <link rel="icon" type="image/png" href="icon.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <nav class="top"><div class="wrap">
+    <a href="./">LSL Viewer</a>
+    <a href="lsl_viewer/">Open the web app</a>
+    <a href="https://github.com/NexusDynamic/liblsl.dart">GitHub</a>
+  </div></nav>
+  <main class="wrap">
+<h1 id="sharing-lsl-streams-over-the-network-bridge-and-relay">Sharing LSL streams over the network: bridge and relay</h1>
+<p>Lab Streaming Layer finds streams with multicast, so it only works where
+multicast reaches: usually one local network. A web browser can't use LSL
+at all, because it has no raw sockets. The <strong>LSL bridge</strong> in <code>lsl_tools</code> carries
+streams over a WebSocket instead:</p>
+<ul>
+<li><strong>Across networks:</strong> another building, a VPN, a cloud server.</li>
+<li><strong>To browsers:</strong> the <a href="https://nexusdynamic.org/liblsl.dart/lsl_viewer/">web version of LSL Viewer</a>
+  can view live streams and publish its own.</li>
+<li><strong>Between browsers:</strong> as a relay, what one client publishes the others
+  receive, e.g. an XDF recording replayed in one browser and viewed in
+  another.</li>
+</ul>
+<p>You can run it from the <strong>LSL Viewer</strong> desktop app (no command line needed)
+or with the <strong><code>lsl</code> command line tool</strong>.</p>
+<h2 id="contents">Contents</h2>
+<ul>
+<li><a href="#which-setup-do-i-need">Which setup do I need?</a></li>
+<li><a href="#getting-the-tools">Getting the tools</a></li>
+<li><a href="#quick-start-view-lab-streams-in-a-browser">Quick start: view lab streams in a browser</a></li>
+<li><a href="#setup-1-streams-from-one-lsl-network-to-another">Setup 1: streams from one LSL network to another</a></li>
+<li><a href="#setup-2-a-browser-publishes-into-lsl">Setup 2: a browser publishes into LSL</a></li>
+<li><a href="#setup-3-a-relay-between-browsers">Setup 3: a relay between browsers</a></li>
+<li><a href="#security-tokens-origins-and-tls">Security: tokens, origins and TLS</a></li>
+<li><a href="#running-a-relay-on-a-server-wss">Running a relay on a server (wss://)</a></li>
+<li><a href="#command-reference">Command reference</a></li>
+<li><a href="#limitations">Limitations</a></li>
+<li><a href="#troubleshooting">Troubleshooting</a></li>
+</ul>
+<h2 id="which-setup-do-i-need">Which setup do I need?</h2>
+<table>
+<thead>
+<tr>
+<th>You want to…</th>
+<th>Run this where the streams are</th>
+<th>Clients connect with</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>See lab streams in a browser</td>
+<td><code>lsl share</code> (or viewer: <em>Share</em>)</td>
+<td>Viewer: <em>LSL &gt; Connect to an LSL bridge…</em></td>
+</tr>
+<tr>
+<td>Get lab streams into LSL on another network</td>
+<td><code>lsl share</code></td>
+<td><code>lsl bridge ws://host:8765</code> (or viewer: <em>Publish its streams on LSL here</em>)</td>
+</tr>
+<tr>
+<td>Get a browser's streams (serial device, replayed XDF) into LSL</td>
+<td><code>lsl share --accept</code> (or viewer: <em>Share + accept</em>)</td>
+<td>Viewer in the browser: <em>Forward…</em> or <em>Replay…</em></td>
+</tr>
+<tr>
+<td>Pass streams between browsers, no LSL anywhere</td>
+<td><code>lsl relay</code> (or viewer: <em>Relay only</em>)</td>
+<td>Viewers: <em>Connect</em>, then <em>Forward</em>/<em>Replay</em> and <em>View</em></td>
+</tr>
+<tr>
+<td>Send lab streams out to a relay on a server (the lab accepts no incoming connections)</td>
+<td><code>lsl publish wss://relay…</code> in the lab</td>
+<td>Anyone connected to the relay</td>
+</tr>
+</tbody>
+</table>
+<pre><code class="language-text">Setup 1   [LSL network A] ──lsl share──▶ ws ──▶ lsl bridge ──▶ [LSL network B]
+                                          └───▶ browser (LSL Viewer on the web)
+
+Setup 2   browser ──publish──▶ ws ──▶ lsl share --accept ──▶ [LSL on that computer]
+                                                        └──▶ other clients
+
+Setup 3   browser A ──publish──▶ ws ──▶ lsl relay ──▶ ws ──▶ browser B, C, lsl bridge…
+          [LSL lab] ──lsl publish──▶ ┘
+</code></pre>
+<p>Streams that clients publish are always shared with every other client. On
+a <em>share</em> or <em>share + accept</em> server they also become ordinary LSL streams
+on that computer. A <em>relay</em> only passes them between clients, so it doesn't
+need LSL.</p>
+<h2 id="getting-the-tools">Getting the tools</h2>
+<ul>
+<li><strong>LSL Viewer (desktop):</strong> download from the
+  <a href="https://github.com/NexusDynamic/liblsl.dart/releases">releases page</a>
+  (<code>lsl_viewer &lt;version&gt;</code>). The sharing controls are under
+  <em>LSL &gt; Share or relay streams…</em>.</li>
+<li><strong><code>lsl</code> command line tool:</strong> each LSL Viewer release also has
+  <code>lsl-cli-&lt;version&gt;-&lt;os&gt;</code> archives. Unpack one and run <code>bin/lsl</code>
+  (<code>bin\lsl.exe</code> on Windows). Keep the <code>lib/</code> folder next to <code>bin/</code>, because
+  it holds liblsl. The Linux and Windows viewer archives also include it
+  under <code>cli/</code>.</li>
+<li><strong>From source:</strong> in a clone of this repository, run
+  <code>dart run lsl_tools:lsl &lt;command&gt;</code> from <code>packages/lsl_tools</code>. Alternatively,
+  <code>dart build cli</code> builds the same bundle as the releases.</li>
+</ul>
+<p>In the examples below, <code>lsl</code> means whichever of these you use.</p>
+<h2 id="quick-start-view-lab-streams-in-a-browser">Quick start: view lab streams in a browser</h2>
+<p>On a computer on the lab network (where the LSL streams are):</p>
+<pre><code class="language-sh">lsl share --token choose-a-secret
+# Sharing EEG, Markers on port 8765 (address 0.0.0.0)
+</code></pre>
+<p>Or in LSL Viewer: <em>LSL &gt; Share or relay streams…</em>, choose <strong>Share</strong>, set a
+token, then click <strong>Share</strong>. The panel lists the addresses to connect to.</p>
+<p>Then, in a browser, open LSL Viewer:</p>
+<ul>
+<li><strong>The same computer:</strong> use the
+  <a href="https://nexusdynamic.org/liblsl.dart/lsl_viewer/">hosted web viewer</a>.
+  Choose <em>Connect to an LSL bridge…</em>, enter <code>ws://localhost:8765</code> and the
+  token.</li>
+<li><strong>Another computer:</strong> the hosted viewer is an <code>https://</code> page, and
+  browsers only let it reach <strong><code>wss://</code></strong> addresses (see
+  <a href="#running-a-relay-on-a-server-wss">Running a relay on a server</a>). Use the
+  desktop viewer, or serve the web build over plain <code>http://</code> on your own
+  network. A plain <code>http://</code> page can connect to <code>ws://lab-pc:8765</code>.</li>
+</ul>
+<p>Click <strong>View</strong> next to a stream to open it in a tab.</p>
+<h2 id="setup-1-streams-from-one-lsl-network-to-another">Setup 1: streams from one LSL network to another</h2>
+<p>On network A (where the streams are):</p>
+<pre><code class="language-sh">lsl share -s EEG -s Markers --token s3cret
+</code></pre>
+<ul>
+<li><strong><code>-s</code></strong> picks streams by name or type, and <code>*</code> is a wildcard. Without
+  <code>-s</code> every stream is shared.</li>
+<li><strong><code>--rescan 5</code></strong> also shares matching streams that appear later.</li>
+<li><strong>In the viewer:</strong> tick <em>Share every LSL stream, also new ones</em>.</li>
+</ul>
+<p>On network B:</p>
+<pre><code class="language-sh">lsl bridge ws://lab-pc.example.org:8765 --token s3cret --suffix &quot; (lab)&quot;
+</code></pre>
+<ul>
+<li><strong>What <code>bridge</code> does:</strong> it publishes each shared stream as an LSL stream
+  on network B, named with the suffix. LabRecorder, your analysis scripts or
+  another viewer can then use it as if it were local.</li>
+<li><strong>It follows the bridge:</strong> streams that appear or go away there appear or
+  go away here.</li>
+<li><strong>In the viewer:</strong> use <em>Connect to an LSL bridge…</em>, then switch on
+  <em>Publish its streams on LSL here</em>.</li>
+</ul>
+<p>Port 8765 (or the one you pick with <code>-p</code>) must be reachable from network B:
+open it in the firewall, forward it on the router, or use a VPN.</p>
+<h2 id="setup-2-a-browser-publishes-into-lsl">Setup 2: a browser publishes into LSL</h2>
+<p>On the computer that should receive the streams:</p>
+<pre><code class="language-sh">lsl share --accept --token s3cret
+</code></pre>
+<p>In the browser, <em>Connect to an LSL bridge…</em> that computer, then:</p>
+<ul>
+<li><strong>Live device:</strong> open it (e.g. a Cyton over WebSerial) and use
+  <em>LSL &gt; Forward this stream…</em>, choosing <em>LSL on &lt;host&gt; (through its
+  bridge)</em>.</li>
+<li><strong>XDF recording:</strong> open the file, move to where playback should start,
+  then either:</li>
+<li>use <em>LSL &gt; Replay this recording from here</em> for every stream, or</li>
+<li>use <em>Forward…</em> on one stream's tab.</li>
+</ul>
+<p>The streams appear as LSL streams on the <code>--accept</code> computer (look for them
+with <code>lsl list</code>). Other clients of the bridge see them too.</p>
+<h2 id="setup-3-a-relay-between-browsers">Setup 3: a relay between browsers</h2>
+<pre><code class="language-sh">lsl relay --token s3cret
+</code></pre>
+<p>Every client connects to the relay:</p>
+<ul>
+<li>One publishes, with <em>Forward…</em> or <em>Replay…</em> as in Setup 2.</li>
+<li>The others see the published stream in <em>Connect to an LSL bridge…</em> and
+  click <strong>View</strong>.</li>
+<li><code>lsl bridge ws://relay:8765</code> on a native computer turns them into LSL
+  streams there.</li>
+</ul>
+<p>A relay needs no LSL on its computer, so it can run on a server with no lab
+network (next sections). In the viewer, use <em>Share or relay streams…</em> and
+choose <strong>Relay only</strong>.</p>
+<h2 id="security-tokens-origins-and-tls">Security: tokens, origins and TLS</h2>
+<p>The bridge is built for a trusted group, such as a lab or a class. It is not
+meant to be exposed to the open internet unattended.</p>
+<ul>
+<li><strong>Token:</strong> with <code>--token</code>, clients must give it to connect. The viewer can
+  generate a random one. Anyone who has it can see every stream and publish
+  new ones.</li>
+<li><strong>The token travels in the URL</strong> (<code>?token=</code>). Over plain <code>ws://</code> anyone on
+  the path can read it. Use <code>wss://</code> (TLS) outside a network you trust, and
+  keep it out of proxy access logs.</li>
+<li><strong>Origins:</strong> <code>--allow-origin https://nexusdynamic.org</code> (repeatable) makes
+  browsers on other websites unable to connect. Native clients such as
+  <code>lsl bridge</code> and the desktop viewer send no origin and are not affected.</li>
+<li><strong>Binding:</strong> <code>--host 127.0.0.1</code> listens only on this computer, which is
+  what you want behind a reverse proxy.</li>
+</ul>
+<h2 id="running-a-relay-on-a-server-wss">Running a relay on a server (wss://)</h2>
+<p>Browsers on <code>https://</code> pages, including the hosted viewer, need <code>wss://</code>.
+The bridge speaks plain <code>ws://</code>. Put a reverse proxy with a certificate in
+front of it.</p>
+<p>On the server:</p>
+<pre><code class="language-sh">lsl relay --host 127.0.0.1 --port 8765 --token &quot;$(openssl rand -hex 16)&quot; \
+  --allow-origin https://nexusdynamic.org
+</code></pre>
+<p><strong><a href="https://caddyserver.com">Caddy</a></strong> gets and renews the certificate itself.
+In the <code>Caddyfile</code>:</p>
+<pre><code class="language-caddy">relay.example.org {
+    reverse_proxy 127.0.0.1:8765
+}
+</code></pre>
+<p><strong>nginx</strong> (with a certificate from e.g. certbot):</p>
+<pre><code class="language-nginx">server {
+    listen 443 ssl;
+    server_name relay.example.org;
+    # ssl_certificate / ssl_certificate_key ...
+
+    location / {
+        proxy_pass http://127.0.0.1:8765;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection &quot;upgrade&quot;;
+        proxy_read_timeout 1h;
+        access_log off;   # the token is in the URL
+    }
+}
+</code></pre>
+<p>Clients then connect to <code>wss://relay.example.org</code> with the token.</p>
+<p>To keep the relay running, use a systemd unit such as:</p>
+<pre><code class="language-ini">[Service]
+ExecStart=/opt/lsl-cli/bin/lsl relay --host 127.0.0.1 --token &lt;token&gt;
+Restart=always
+</code></pre>
+<p>To send a lab's LSL streams to the relay, run this on a lab computer. It
+connects out, so the lab needs no open ports:</p>
+<pre><code class="language-sh">lsl publish wss://relay.example.org --token &lt;token&gt; -s EEG -s Markers --rescan 5
+</code></pre>
+<p>Everyone connected to the relay then sees them. <code>lsl bridge
+wss://relay.example.org</code> elsewhere turns them back into LSL streams.</p>
+<h2 id="command-reference">Command reference</h2>
+<p><code>lsl share</code> shares LSL streams, and with <code>--accept</code> takes published ones.</p>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Default</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>-s, --stream</code></td>
+<td>all</td>
+<td>Streams by name or type (<code>*</code> wildcard); repeatable</td>
+</tr>
+<tr>
+<td><code>-p, --port</code></td>
+<td>8765</td>
+<td>Port (0: any free port)</td>
+</tr>
+<tr>
+<td><code>--host</code></td>
+<td>0.0.0.0</td>
+<td>Address to listen on (<code>127.0.0.1</code>: this computer only)</td>
+</tr>
+<tr>
+<td><code>--token</code></td>
+<td>none</td>
+<td>Clients must give it</td>
+</tr>
+<tr>
+<td><code>--allow-origin</code></td>
+<td>any</td>
+<td>Browser origins allowed; repeatable</td>
+</tr>
+<tr>
+<td><code>--accept</code></td>
+<td>off</td>
+<td>Clients may publish streams: shared with the others and published on LSL here</td>
+</tr>
+<tr>
+<td><code>--[no-]local-outlets</code></td>
+<td>on</td>
+<td>With <code>--accept</code>, publish clients' streams on LSL here</td>
+</tr>
+<tr>
+<td><code>--relay</code></td>
+<td>off</td>
+<td>Same as <code>lsl relay</code></td>
+</tr>
+<tr>
+<td><code>--rescan</code></td>
+<td>off</td>
+<td>Every this many seconds, also share new matching streams</td>
+</tr>
+</tbody>
+</table>
+<p><code>lsl relay</code> passes streams between clients only. It takes <code>-p</code>, <code>--host</code>,
+<code>--token</code> and <code>--allow-origin</code>.</p>
+<p><code>lsl publish &lt;ws://host:port&gt;</code> publishes LSL streams from here on a
+bridge that accepts them (<code>--accept</code> or a relay). It takes <code>-s</code> (default:
+all), <code>--token</code> and <code>--rescan</code> (see above). It skips streams that came from
+a bridge, so they don't go round in circles.</p>
+<p><code>lsl bridge &lt;ws://host:port&gt;</code> publishes a bridge's streams on LSL here, and
+follows them as they come and go.</p>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Default</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>-s, --stream</code></td>
+<td>all</td>
+<td>Stream names (<code>*</code> wildcard); repeatable</td>
+</tr>
+<tr>
+<td><code>--token</code></td>
+<td>none</td>
+<td>The bridge's token</td>
+</tr>
+<tr>
+<td><code>--suffix</code></td>
+<td>none</td>
+<td>Added to the names published here</td>
+</tr>
+</tbody>
+</table>
+<p><code>--peer &lt;address&gt;</code> goes before any command and looks for LSL streams on a
+computer multicast doesn't reach, e.g. <code>lsl --peer 10.0.0.5 share</code>.</p>
+<p>The library API is <code>LslBridgeServer.start</code>, <code>LslBridgeClient.connect</code> and
+<code>LslBridgeRepublisher.start</code> in <code>package:lsl_tools/lsl_tools.dart</code>. The
+protocol (JSON control messages and binary sample frames) is documented in
+<code>lib/src/bridge/protocol.dart</code>.</p>
+<h2 id="limitations">Limitations</h2>
+<ul>
+<li><strong>Values travel as 32-bit floats.</strong> <code>double64</code> and <code>int64</code> streams lose
+  precision, and string streams keep only their first channel.</li>
+<li><strong>Time stamps:</strong> each client estimates the offset between its clock and
+  the server's from pings every 2 s, keeping the fastest round trip of the
+  last 10, and converts time stamps to its own clock. Expect accuracy of
+  about half the network's round-trip asymmetry, typically well under a
+  millisecond on a LAN and a few ms over the internet. Record on the
+  computer with the devices when timing matters.</li>
+<li><strong>No automatic reconnect.</strong> If the connection drops, connect again.</li>
+<li><strong>Trusted groups only:</strong> see
+  <a href="#security-tokens-origins-and-tls">Security</a>.</li>
+</ul>
+<h2 id="troubleshooting">Troubleshooting</h2>
+<ul>
+<li><strong>The browser can't connect and the console mentions "mixed content" or
+  "insecure":</strong> the page is <code>https://</code> and the address is <code>ws://</code>. Use
+  <code>wss://</code> behind a proxy, or <code>ws://localhost</code> on the same computer.</li>
+<li><strong>Connection refused or timed out:</strong> the port is blocked. Check the
+  firewall on the sharing computer, and whether it listens on
+  <code>127.0.0.1</code> only (<code>--host</code>).</li>
+<li><strong>403 Forbidden:</strong> the token is wrong, or the page's origin isn't in
+  <code>--allow-origin</code>.</li>
+<li><strong><code>lsl share</code> says <em>No streams to share.</em>:</strong> no LSL streams were found in
+  2 s. Check with <code>lsl list</code>, use <code>--peer</code> where multicast doesn't reach, or
+  use <code>--accept</code>/<code>relay</code> to start without any.</li>
+<li><strong>Chrome asks to allow access to devices on the local network:</strong> this is
+  Chrome's Local Network Access check for public pages reaching private
+  addresses. Allow it, or use the desktop viewer.</li>
+</ul>
+  </main>
+  <footer><div class="wrap">
+    Part of <a href="https://github.com/NexusDynamic/liblsl.dart">liblsl.dart</a>.
+    MIT licensed. Source of this page:
+    <a href="https://github.com/NexusDynamic/liblsl.dart/blob/main/packages/lsl_tools/doc/relay.md">packages/lsl_tools/doc/relay.md</a>.
+  </div></footer>
+</body>
+</html>
