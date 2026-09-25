@@ -43,6 +43,21 @@ Before submitting a PR, please ensure that all tests pass by running `fvm exec m
 
 In addition to testing, please make sure to run `fvm exec melos format` and `fvm exec melos analyze` to ensure that your code is properly formatted and does not have any linting issues. This will help to keep the codebase clean and consistent.
 
+## Releases (maintainers)
+
+Every package and app is versioned on its own, and released by pushing a tag of the form `<package>-v<version>`, e.g. `liblsl-v1.0.0`, `xdf-v0.2.0` or `lsl_viewer-v0.1.0`. Unscoped tags (`v1.0.0`) are not released.
+
+1. Add a `# <version>` section to the package's `CHANGELOG.md`; it becomes the release notes.
+2. Run `tool/release.sh <package> <version>`. It sets the pubspec version (and, for `liblsl`, the version in `CITATION.cff`, `codemeta.json` and `.zenodo.json`), then prints the commands to commit and tag.
+3. Push the commit to `main`, then push the tag.
+
+The [release workflow](.github/workflows/release.yml) checks that the tag matches the pubspec (and the citation metadata for `liblsl`), runs the full test suite, and only then:
+
+- publishes to pub.dev, for packages without `publish_to: none` (via [automated publishing](https://dart.dev/tools/pub/automated-publishing); each package needs it enabled on pub.dev with the tag pattern `<package>-v{{version}}`);
+- creates the GitHub release;
+- for `liblsl`, attaches a source archive (with the liblsl C++ submodule) and uploads it and `.zenodo.json` to the Zenodo draft, which is then published by hand on Zenodo;
+- for `lsl_viewer`, builds Linux, Windows, macOS, Android and web binaries, attaches them to the release and deploys the web build to GitHub Pages (`/lsl_viewer/`). The same builds can be tried without releasing with the *Build lsl_viewer* workflow.
+
 ## Support
 
 Please see the [SUPPORT.md](./SUPPORT.md) file for information on how to get support for liblsl.dart and where to ask questions or discuss potential features.

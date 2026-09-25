@@ -1,4 +1,7 @@
-# 0.15.0+1
+# 1.0.0
+
+liblsl.dart now wraps every function exported by the liblsl C library, so it
+has reached API parity with liblsl and moves to 1.0.0.
 
 ## New features
 
@@ -47,6 +50,10 @@
   (`timeout`/`lost`/`argument`/`internal`) and append liblsl's own message when
   it has one, instead of reporting a bare integer. A timeout code now raises
   `LSLTimeout` rather than a plain `LSLException`.
+- The published package is much smaller (about 3 MB instead of about 58 MB):
+  the JOSS paper and its analysis are no longer included (they stay in the
+  repository and the Zenodo archive), and the unused experimental
+  `src/wasm-demo` has been removed.
 
 ## Fixes
 

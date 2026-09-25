@@ -6,6 +6,8 @@ on:
   pull_request:
     branches: [ main ]
   workflow_dispatch:
+  # Reused by release.yml: nothing is published unless this passes.
+  workflow_call:
   schedule:
     # Nightly, for the LSL integration job only.
     - cron: '0 3 * * *'
@@ -48,6 +50,37 @@ jobs:
       - name: Check core is web-safe
         working-directory: packages/peer_coordinator
         run: dart compile js -o /tmp/web_check.js tool/web_safety_check.dart
+
+  # liblsl compiles the C++ library from the src/liblsl-dart_main submodule
+  # through its build hook, with a different toolchain on each OS. Ubuntu is
+  # covered by `test` above; this makes sure macOS (clang) and Windows (MSVC)
+  # still build and run before anything is released.
+  liblsl-native:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+          cache-key: "flutter-:os:-:channel:-:version:-:arch:-main"
+          pub-cache-key: "flutter-pub-:os:-:channel:-:version:-:arch:-main"
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Run liblsl tests
+        working-directory: packages/liblsl
+        run: dart test --exclude-tags "performance,benchmark,lsl"
 
   # LSL-backed integration tests bind loopback sockets and depend on multicast
   # resolution timing, so they are kept out of the PR path. Run them on demand
