@@ -57,11 +57,6 @@ melos:
       # releaseUrl: true
       # includeCommitId: true
       # linkToCommits: true
-    bootstrap:
-      environment:
-        sdk: ^3.9.0
-        flutter: ^3.27.1
-        test: any
   scripts:
     lint:all:
       steps:
