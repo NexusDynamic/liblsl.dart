@@ -734,12 +734,14 @@ Future<List<LslStreamDescription>?> showLslStreamPicker(
   required String verb,
   IconData icon = Icons.check,
   Widget? extra,
+  bool allowNone = false,
 }) async {
   app.startDiscovery();
   try {
     return await showDialog<List<LslStreamDescription>>(
       context: context,
-      builder: (_) => _StreamPickerDialog(app, title, note, verb, icon, extra),
+      builder: (_) =>
+          _StreamPickerDialog(app, title, note, verb, icon, extra, allowNone),
     );
   } finally {
     app.stopDiscovery();
@@ -753,6 +755,7 @@ class _StreamPickerDialog extends StatefulWidget {
   final String verb;
   final IconData icon;
   final Widget? extra;
+  final bool allowNone;
   const _StreamPickerDialog(
     this.app,
     this.title,
@@ -760,6 +763,7 @@ class _StreamPickerDialog extends StatefulWidget {
     this.verb,
     this.icon,
     this.extra,
+    this.allowNone,
   );
 
   @override
@@ -817,7 +821,7 @@ class _StreamPickerDialogState extends State<_StreamPickerDialog> {
               child: const Text('Cancel'),
             ),
             FilledButton.icon(
-              onPressed: chosen.isEmpty
+              onPressed: chosen.isEmpty && !widget.allowNone
                   ? null
                   : () => Navigator.pop(context, chosen),
               icon: Icon(widget.icon),
@@ -834,6 +838,7 @@ class _StreamPickerDialogState extends State<_StreamPickerDialog> {
 Future<void> showLslShare(BuildContext context, LslProvider app) async {
   final port = TextEditingController(text: '8765');
   final token = TextEditingController();
+  final accept = ValueNotifier(false);
   try {
     final chosen = await showLslStreamPicker(
       context,
@@ -845,23 +850,41 @@ Future<void> showLslShare(BuildContext context, LslProvider app) async {
           'ws://<this computer>:<port>.',
       verb: 'Share',
       icon: Icons.share,
-      extra: Row(
+      allowNone: true,
+      extra: Column(
         children: [
-          SizedBox(
-            width: 100,
-            child: TextField(
-              controller: port,
-              decoration: const InputDecoration(labelText: 'Port'),
-              keyboardType: TextInputType.number,
-            ),
+          Row(
+            children: [
+              SizedBox(
+                width: 100,
+                child: TextField(
+                  controller: port,
+                  decoration: const InputDecoration(labelText: 'Port'),
+                  keyboardType: TextInputType.number,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: TextField(
+                  controller: token,
+                  decoration: const InputDecoration(
+                    labelText: 'Token (optional)',
+                    helperText: 'Clients must give it to connect',
+                  ),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: TextField(
-              controller: token,
-              decoration: const InputDecoration(
-                labelText: 'Token (optional)',
-                helperText: 'Clients must give it to connect',
+          ValueListenableBuilder(
+            valueListenable: accept,
+            builder: (context, on, _) => CheckboxListTile(
+              contentPadding: EdgeInsets.zero,
+              value: on,
+              onChanged: (v) => accept.value = v ?? false,
+              title: const Text('Let clients publish streams here'),
+              subtitle: const Text(
+                'E.g. a browser forwarding a serial device: its streams '
+                'become LSL streams on this computer.',
               ),
             ),
           ),
@@ -873,10 +896,12 @@ Future<void> showLslShare(BuildContext context, LslProvider app) async {
       chosen,
       port: int.tryParse(port.text.trim()) ?? 8765,
       token: token.text.trim(),
+      acceptPublish: accept.value,
     );
   } finally {
     port.dispose();
     token.dispose();
+    accept.dispose();
   }
 }
 
@@ -1207,6 +1232,11 @@ class _ForwardDialogState extends State<_ForwardDialog> {
   bool _shownOnly = false;
   bool _processed = false;
 
+  /// Where to: null for LSL here, or a bridge.
+  late LslBridgeClient? _via = widget.app.supported
+      ? null
+      : widget.app.publishingBridges.firstOrNull;
+
   @override
   void dispose() {
     _name.dispose();
@@ -1260,17 +1290,61 @@ class _ForwardDialogState extends State<_ForwardDialog> {
                       ),
                       subtitle: Text(tab.controller.referenceSummary),
                     ),
+                  Row(
+                    children: [
+                      const Text('To '),
+                      Expanded(
+                        child: DropdownButton<int>(
+                          isExpanded: true,
+                          value: _via == null
+                              ? -1
+                              : widget.app.publishingBridges.indexOf(_via!),
+                          items: [
+                            if (widget.app.supported)
+                              const DropdownMenuItem(
+                                value: -1,
+                                child: Text('LSL on this computer'),
+                              ),
+                            for (final (i, b)
+                                in widget.app.publishingBridges.indexed)
+                              DropdownMenuItem(
+                                value: i,
+                                child: Text(
+                                  'LSL on ${b.url.host} (through its bridge)',
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                          ],
+                          onChanged: (i) => setState(
+                            () => _via = i == null || i < 0
+                                ? null
+                                : widget.app.publishingBridges[i],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (!widget.app.supported &&
+                      widget.app.publishingBridges.isEmpty)
+                    Text(
+                      'LSL is not available here: connect to a bridge that '
+                      'lets clients publish (LSL > Connect to an LSL '
+                      'bridge…).',
+                      style: TextStyle(color: theme.colorScheme.error),
+                    ),
                   Align(
                     alignment: Alignment.centerRight,
                     child: FilledButton.tonal(
                       onPressed: () {
                         final name = _name.text.trim();
                         if (name.isEmpty) return;
+                        if (_via == null && !widget.app.supported) return;
                         widget.app.forward(
                           tab,
                           name: name,
                           shownOnly: _shownOnly,
                           processed: _processed,
+                          via: _via,
                         );
                       },
                       child: const Text('Forward'),

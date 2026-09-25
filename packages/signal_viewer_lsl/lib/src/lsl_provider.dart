@@ -65,6 +65,7 @@ class LslProvider extends SourceProvider {
     List<LslStreamDescription> streams, {
     int port = 8765,
     String token = '',
+    bool acceptPublish = false,
   }) async {
     await stopSharing();
     try {
@@ -72,6 +73,8 @@ class LslProvider extends SourceProvider {
         streams,
         port: port,
         token: token,
+        acceptPublish: acceptPublish,
+        outletOptions: app.prefs.lsl.outlet,
         options: app.prefs.lsl.inlet,
       );
       _shareTimer = Timer.periodic(
@@ -132,13 +135,24 @@ class LslProvider extends SourceProvider {
   /// Streams being forwarded under another name.
   final List<LslForwarding> forwards = [];
 
+  /// Bridges that take streams to publish on their computer.
+  List<LslBridgeClient> get publishingBridges => [
+    for (final b in bridges)
+      if (!b.closed && b.acceptsPublish) b,
+  ];
+
+  /// Whether streams can be forwarded somewhere: LSL here, or a bridge.
+  bool get canForward => supported || publishingBridges.isNotEmpty;
+
   /// Forward the stream of [tab] as [name], with only its shown channels
-  /// and its processing if asked.
+  /// and its processing if asked: over LSL here, or [via] a bridge (as an
+  /// LSL stream on its computer).
   Future<void> forward(
     TabEntry tab, {
     required String name,
     required bool shownOnly,
     required bool processed,
+    LslBridgeClient? via,
   }) async {
     final session = tab.session;
     final c = tab.controller;
@@ -146,7 +160,8 @@ class LslProvider extends SourceProvider {
     final info = tab.group.info;
     final channels = shownOnly ? ([...c.lanes]..sort()) : null;
     final derived = processed ? c.spec : DerivedSpec.none;
-    await lsl.prepare();
+    final create = via?.publish;
+    if (via == null) await lsl.prepare();
     try {
       forwards.add(
         // LSL streams keep the time stamps they arrived with.
@@ -157,6 +172,7 @@ class LslProvider extends SourceProvider {
                 channels: channels,
                 derived: derived,
                 options: app.prefs.lsl.outlet,
+                create: create,
               )
             : await LslSourceForward.start(
                 session,
@@ -165,9 +181,13 @@ class LslProvider extends SourceProvider {
                 channels: channels,
                 derived: derived,
                 options: app.prefs.lsl.outlet,
+                create: create,
               ),
       );
-      app.setStatus('Forwarding ${info.name} as $name');
+      app.setStatus(
+        'Forwarding ${info.name} as $name'
+        '${via == null ? '' : ' through ${via.url}'}',
+      );
     } catch (e) {
       app.setError('Could not forward ${info.name}: $e');
     }
@@ -469,6 +489,18 @@ class LslProvider extends SourceProvider {
       onPressed: () => showLslBridge(context, this),
       order: 5,
     ),
+    ViewerAction(
+      'LSL',
+      forwards.isEmpty
+          ? 'Forward this stream…'
+          : 'Forward… (${forwards.length} forwarded)',
+      onPressed:
+          (canForward && (app.currentTab?.controller.live ?? false)) ||
+              forwards.isNotEmpty
+          ? () => showLslForward(context, this)
+          : null,
+      order: 55,
+    ),
     if (supported) ...[
       ViewerAction(
         'LSL',
@@ -516,17 +548,6 @@ class LslProvider extends SourceProvider {
           _ => null,
         },
         order: 50,
-      ),
-      ViewerAction(
-        'LSL',
-        forwards.isEmpty
-            ? 'Forward this stream…'
-            : 'Forward… (${forwards.length} forwarded)',
-        onPressed:
-            (app.currentTab?.controller.live ?? false) || forwards.isNotEmpty
-            ? () => showLslForward(context, this)
-            : null,
-        order: 55,
       ),
       if (LslBridgeServer.supported)
         ViewerAction(
@@ -580,7 +601,8 @@ class LslProvider extends SourceProvider {
         Tooltip(
           message:
               'Sharing ${sharing.streams.length} LSL streams on port '
-              '${sharing.port} (${sharing.clientCount} connected)',
+              '${sharing.port} (${sharing.clientCount} connected)'
+              '${sharing.acceptsPublish ? ', publishing ${sharing.published.length} from clients' : ''}',
           child: const Padding(
             padding: EdgeInsets.only(left: 8),
             child: Icon(Icons.share, size: 14),

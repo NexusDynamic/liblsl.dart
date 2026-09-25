@@ -7,6 +7,10 @@ import 'package:signal_viewer/signal_viewer.dart';
 import 'package:lsl_tools/lsl_tools.dart';
 import 'lsl_session.dart';
 
+/// Makes the outlet a forward publishes to: an LSL outlet here, or one on
+/// a bridge's computer ([LslBridgeClient.publish]).
+typedef OutletFactory = Future<LslOutlet> Function(LslOutletSpec spec);
+
 /// A stream being published again over LSL (see [LslForward] and
 /// [LslSourceForward]).
 abstract interface class LslForwarding {
@@ -72,6 +76,7 @@ class LslForward implements LslForwarding {
     List<int>? channels,
     DerivedSpec derived = DerivedSpec.none,
     LslOutletOptions options = const LslOutletOptions(),
+    OutletFactory? create,
   }) async {
     final info = session.info;
     final stream = session.inlet.stream;
@@ -79,7 +84,7 @@ class LslForward implements LslForwarding {
     final chosen = strings
         ? const [0]
         : (channels ?? [for (var c = 0; c < info.channelCount; c++) c]);
-    final outlet = await lsl.createOutlet(
+    final outlet = await (create ?? (s) => lsl.createOutlet(s, options))(
       LslOutletSpec(
         name: name,
         type: stream.type,
@@ -103,7 +108,6 @@ class LslForward implements LslForwarding {
           },
         },
       ),
-      options,
     );
     return LslForward._(
       session,
@@ -216,6 +220,7 @@ class LslSourceForward implements LslForwarding {
     List<int>? channels,
     DerivedSpec derived = DerivedSpec.none,
     LslOutletOptions options = const LslOutletOptions(),
+    OutletFactory? create,
   }) async {
     // A source of its own: its processing state is not the tab's.
     final stream = session.sourceFor(info);
@@ -223,7 +228,7 @@ class LslSourceForward implements LslForwarding {
     final chosen = text
         ? const [0]
         : (channels ?? [for (var c = 0; c < info.channelCount; c++) c]);
-    final outlet = await lsl.createOutlet(
+    final outlet = await (create ?? (s) => lsl.createOutlet(s, options))(
       LslOutletSpec(
         name: name,
         type: info.type.isEmpty ? info.kind.label : info.type,
@@ -244,7 +249,6 @@ class LslSourceForward implements LslForwarding {
           },
         },
       ),
-      options,
     );
     return LslSourceForward._(
       session,

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import '../lsl.dart';
 import 'protocol.dart';
@@ -13,7 +14,9 @@ Future<LslBridgeServer> start(
   List<LslStreamDescription> streams, {
   required int port,
   required String token,
+  required bool acceptPublish,
   required LslInletOptions options,
+  required LslOutletOptions outletOptions,
 }) async {
   final inlets = <LslInlet>[];
   try {
@@ -23,7 +26,7 @@ Future<LslBridgeServer> start(
       inlets.add(await lsl.openInlet(s, options.copyWith(clockSync: true)));
     }
     final server = await HttpServer.bind(InternetAddress.anyIPv4, port);
-    return _Server(server, inlets, token);
+    return _Server(server, inlets, token, acceptPublish, outletOptions);
   } catch (_) {
     for (final i in inlets) {
       await i.close();
@@ -35,6 +38,9 @@ Future<LslBridgeServer> start(
 class _Client {
   final WebSocket socket;
   Set<int> subscribed = {};
+
+  /// Streams this client publishes here, by its id.
+  final Map<int, LslOutlet> outlets = {};
   _Client(this.socket);
 }
 
@@ -50,8 +56,19 @@ class _Server implements LslBridgeServer {
   @override
   int sent = 0;
 
-  _Server(this._http, this._inlets, this.token)
-    : _shared = [
+  @override
+  final bool acceptsPublish;
+  final LslOutletOptions outletOptions;
+  @override
+  int received = 0;
+
+  _Server(
+    this._http,
+    this._inlets,
+    this.token,
+    this.acceptsPublish,
+    this.outletOptions,
+  ) : _shared = [
         for (final (k, i) in _inlets.indexed)
           BridgeStream(
             k + 1,
@@ -72,6 +89,82 @@ class _Server implements LslBridgeServer {
 
   @override
   int get clientCount => _clients.length;
+
+  @override
+  List<String> get published => [
+    for (final c in _clients)
+      for (final o in c.outlets.values) o.spec.name,
+  ];
+
+  /// Create outlets for the streams [client] publishes (a `publish`
+  /// message), and tell it which it got.
+  Future<void> _publish(_Client client, List<Object?> streams) async {
+    final ok = <int>[];
+    final errors = <String, String>{};
+    for (final raw in streams) {
+      final s = BridgeStream.fromJson((raw! as Map).cast<String, Object?>());
+      final d = s.description;
+      try {
+        if (!acceptsPublish) {
+          throw StateError('This bridge does not accept streams');
+        }
+        if (client.outlets.containsKey(s.id)) {
+          throw StateError('Already published');
+        }
+        client.outlets[s.id] = await lsl.createOutlet(
+          LslOutletSpec(
+            name: d.name,
+            type: d.type,
+            channelCount: d.format.isString ? 1 : d.channelCount,
+            rate: d.rate,
+            format: d.format.isString ? LslFormat.string : LslFormat.float32,
+            sourceId: d.sourceId.isEmpty ? 'bridge:${d.name}' : d.sourceId,
+            channels: s.channels,
+            desc: {
+              'bridge': {'published_by': '${client.hashCode}'},
+            },
+          ),
+          outletOptions,
+        );
+        ok.add(s.id);
+      } catch (e) {
+        errors['${s.id}'] = '$e';
+      }
+    }
+    client.socket.add(
+      jsonEncode({'type': 'published', 'ids': ok, 'errors': errors}),
+    );
+  }
+
+  Future<void> _unpublish(_Client client, Iterable<int> ids) async {
+    for (final id in [...ids]) {
+      await client.outlets.remove(id)?.close();
+    }
+  }
+
+  /// Samples of a stream [client] publishes.
+  void _samples(_Client client, List<int> bytes) {
+    final (id, chunk) = decodeSamples(
+      bytes is Uint8List ? bytes : Uint8List.fromList(bytes),
+    );
+    final outlet = client.outlets[id];
+    if (outlet == null || chunk.length == 0) return;
+    received += chunk.length;
+    if (chunk.strings != null) {
+      final ch = (chunk.strings!.length / chunk.length).round();
+      outlet.pushStrings([
+        for (var i = 0; i < chunk.length; i++) chunk.strings![i * ch],
+      ], chunk.times);
+    } else {
+      final v = chunk.values!;
+      outlet.push(v is Float32List ? v : Float32List.fromList(v), chunk.times);
+    }
+  }
+
+  void _gone(_Client client) {
+    _clients.remove(client);
+    _unpublish(client, client.outlets.keys);
+  }
 
   Future<void> _onRequest(HttpRequest request) async {
     if (token.isNotEmpty && request.uri.queryParameters['token'] != token) {
@@ -98,11 +191,15 @@ class _Server implements LslBridgeServer {
       jsonEncode({
         'type': 'streams',
         'streams': [for (final s in _shared) s.toJson()],
+        'accepts_publish': acceptsPublish,
       }),
     );
     socket.listen(
       (message) {
-        if (message is! String) return;
+        if (message is! String) {
+          _samples(client, message as List<int>);
+          return;
+        }
         final m = jsonDecode(message) as Map<String, Object?>;
         switch (m['type']) {
           case 'subscribe':
@@ -114,10 +211,17 @@ class _Server implements LslBridgeServer {
             socket.add(
               jsonEncode({'type': 'pong', 't': m['t'], 'server': lsl.clock()}),
             );
+          case 'publish':
+            _publish(client, (m['streams'] as List?) ?? const []);
+          case 'unpublish':
+            _unpublish(client, [
+              for (final id in (m['ids'] as List?) ?? const [])
+                (id as num).toInt(),
+            ]);
         }
       },
-      onDone: () => _clients.remove(client),
-      onError: (Object _) => _clients.remove(client),
+      onDone: () => _gone(client),
+      onError: (Object _) => _gone(client),
     );
   }
 
@@ -157,7 +261,8 @@ class _Server implements LslBridgeServer {
     if (_closed) return;
     _closed = true;
     _timer.cancel();
-    for (final c in _clients) {
+    for (final c in [..._clients]) {
+      await _unpublish(c, c.outlets.keys);
       await c.socket.close();
     }
     await _http.close(force: true);

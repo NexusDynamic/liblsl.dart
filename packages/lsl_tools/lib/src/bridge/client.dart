@@ -16,6 +16,13 @@ class LslBridgeClient {
   final WebSocketChannel _channel;
   final _streams = StreamController<List<BridgeStream>>.broadcast();
   List<BridgeStream> streams = const [];
+
+  /// Whether the bridge lets this client publish streams ([publish]).
+  bool acceptsPublish = false;
+
+  /// Streams published here, by id, waiting for the bridge's answer.
+  final Map<int, Completer<void>> _publishing = {};
+  int _nextPublish = 1;
   final Map<int, _BridgeInlet> _inlets = {};
   late final StreamSubscription<Object?> _sub;
   Timer? _pingTimer;
@@ -66,7 +73,22 @@ class LslBridgeClient {
     if (message is String) {
       final m = jsonDecode(message) as Map<String, Object?>;
       switch (m['type']) {
+        case 'published':
+          final ok = {
+            for (final id in (m['ids'] as List?) ?? const [])
+              (id as num).toInt(),
+          };
+          final errors = (m['errors'] as Map?) ?? const {};
+          for (final e in errors.entries) {
+            _publishing
+                .remove(int.parse('${e.key}'))
+                ?.completeError(StateError('${e.value}'));
+          }
+          for (final id in ok) {
+            _publishing.remove(id)?.complete();
+          }
         case 'streams':
+          acceptsPublish = m['accepts_publish'] == true;
           streams = [
             for (final s in m['streams']! as List)
               BridgeStream.fromJson(
@@ -110,6 +132,69 @@ class LslBridgeClient {
   void _release(_BridgeInlet inlet) {
     if (_inlets[inlet.bridged.id] == inlet) _inlets.remove(inlet.bridged.id);
     _subscribe();
+  }
+
+  /// Publish a stream on the bridge's computer: it becomes an LSL outlet
+  /// there (if the bridge [acceptsPublish]). Time stamps given on this
+  /// computer's clock ([lsl] `clock()`) arrive on the bridge's.
+  Future<LslOutlet> publish(LslOutletSpec spec) async {
+    if (_closed) throw StateError('The bridge is closed');
+    final id = _nextPublish++;
+    final done = _publishing[id] = Completer<void>();
+    _channel.sink.add(
+      jsonEncode({
+        'type': 'publish',
+        'streams': [
+          BridgeStream(
+            id,
+            LslStreamDescription(
+              name: spec.name,
+              type: spec.type,
+              channelCount: spec.channelCount,
+              rate: spec.rate,
+              format: spec.format,
+              sourceId: spec.sourceId,
+            ),
+            spec.channels,
+            '',
+          ).toJson(),
+        ],
+      }),
+    );
+    await done.future.timeout(
+      const Duration(seconds: 5),
+      onTimeout: () {
+        _publishing.remove(id);
+        throw TimeoutException('The bridge did not answer');
+      },
+    );
+    return _BridgeOutlet(this, id, spec);
+  }
+
+  void _send(int id, LslChunk chunk, int channels) {
+    if (_closed) return;
+    // This computer's time to the bridge's.
+    final times = Float64List(chunk.length);
+    for (var i = 0; i < chunk.length; i++) {
+      times[i] = chunk.times[i] + offset;
+    }
+    _channel.sink.add(
+      encodeSamples(
+        id,
+        LslChunk(times, values: chunk.values, strings: chunk.strings),
+        channels,
+      ),
+    );
+  }
+
+  void _unpublish(int id) {
+    if (_closed) return;
+    _channel.sink.add(
+      jsonEncode({
+        'type': 'unpublish',
+        'ids': [id],
+      }),
+    );
   }
 
   void _end(String reason) {
@@ -176,4 +261,43 @@ class _BridgeInlet implements LslInlet {
 
   @override
   Future<void> close() async => _client._release(this);
+}
+
+/// A stream this client publishes on the bridge.
+class _BridgeOutlet implements LslOutlet {
+  final LslBridgeClient _client;
+  final int _id;
+  @override
+  final LslOutletSpec spec;
+  bool _closed = false;
+
+  _BridgeOutlet(this._client, this._id, this.spec);
+
+  @override
+  Future<void> push(Float32List values, Float64List times) async {
+    if (_closed || times.isEmpty) return;
+    _client._send(_id, LslChunk(times, values: values), spec.channelCount);
+  }
+
+  @override
+  Future<void> pushStrings(List<String> values, List<double> times) async {
+    if (_closed || values.isEmpty) return;
+    _client._send(
+      _id,
+      LslChunk(Float64List.fromList(times), strings: values),
+      1,
+    );
+  }
+
+  /// Whether the bridge is still there (who reads the stream there is not
+  /// known here).
+  @override
+  Future<bool> hasConsumers() async => !_closed && !_client.closed;
+
+  @override
+  Future<void> close() async {
+    if (_closed) return;
+    _closed = true;
+    _client._unpublish(_id);
+  }
 }

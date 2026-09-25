@@ -19,7 +19,10 @@ In a browser, LSL itself is not available (liblsl needs the system's
 sockets and threads): serial devices and XDF files work, and live LSL
 streams can be viewed through a bridge (LSL > Connect to an LSL bridge…,
 shared from a desktop with "Share streams over the network…" or
-`lsl share`).
+`lsl share`). The other way round, a browser can forward its tabs (e.g. a
+Cyton on WebSerial) through a bridge that lets clients publish ("Let
+clients publish streams here", or `lsl share --accept`): they become LSL
+streams on the bridge's computer.
 
 Each tab has filters, re-referencing, power, signal quality and trigger
 decoding; the source setup (View menu) overrides a stream's type and

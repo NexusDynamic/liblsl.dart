@@ -9,13 +9,24 @@ abstract class LslBridgeServer {
   static bool get supported => platform.supported;
 
   /// Share [streams] on [port] (0 for any free port), to clients that give
-  /// [token] (when not empty).
+  /// [token] (when not empty). With [acceptPublish], clients can also
+  /// publish streams here: each becomes an LSL outlet on this computer
+  /// (e.g. a serial device a browser reads).
   static Future<LslBridgeServer> start(
     List<LslStreamDescription> streams, {
     int port = 8765,
     String token = '',
+    bool acceptPublish = false,
     LslInletOptions options = const LslInletOptions(),
-  }) => platform.start(streams, port: port, token: token, options: options);
+    LslOutletOptions outletOptions = const LslOutletOptions(),
+  }) => platform.start(
+    streams,
+    port: port,
+    token: token,
+    acceptPublish: acceptPublish,
+    options: options,
+    outletOptions: outletOptions,
+  );
 
   /// The port it listens on.
   int get port;
@@ -28,6 +39,15 @@ abstract class LslBridgeServer {
 
   /// Samples sent so far, to all clients.
   int get sent;
+
+  /// Whether clients may publish streams here.
+  bool get acceptsPublish;
+
+  /// Names of the streams clients publish here now.
+  List<String> get published;
+
+  /// Samples received from clients' published streams.
+  int get received;
 
   Future<void> close();
 }

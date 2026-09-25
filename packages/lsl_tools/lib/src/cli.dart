@@ -274,7 +274,13 @@ class _Share extends _Base {
     streamOption();
     argParser
       ..addOption('port', abbr: 'p', defaultsTo: '8765')
-      ..addOption('token', help: 'Clients must give it to connect.');
+      ..addOption('token', help: 'Clients must give it to connect.')
+      ..addFlag(
+        'accept',
+        help:
+            'Let clients publish streams here (e.g. a browser reading a '
+            'serial device): each becomes an LSL stream on this computer.',
+      );
   }
 
   @override
@@ -287,8 +293,12 @@ class _Share extends _Base {
 
   @override
   Future<int> run() async {
-    final streams = await _find(patterns);
-    if (streams.isEmpty) {
+    final accept = argResults!['accept'] as bool;
+    // Only accepting: share nothing unless streams are named.
+    final streams = accept && patterns.isEmpty
+        ? const <LslStreamDescription>[]
+        : await _find(patterns);
+    if (streams.isEmpty && !accept) {
       out.writeln('No streams to share.');
       return 1;
     }
@@ -296,9 +306,11 @@ class _Share extends _Base {
       streams,
       port: int.tryParse(argResults!['port'] as String) ?? 8765,
       token: argResults!['token'] as String? ?? '',
+      acceptPublish: accept,
     );
     out.writeln(
-      'Sharing ${streams.map((s) => s.name).join(', ')} on port '
+      'Sharing ${streams.isEmpty ? 'no streams' : streams.map((s) => s.name).join(', ')}'
+      '${accept ? ', accepting published streams,' : ''} on port '
       '${server.port}',
     );
     await _untilStopped(stop);

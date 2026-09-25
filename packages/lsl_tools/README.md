@@ -19,6 +19,8 @@ dart run lsl_tools:lsl info EEG
 dart run lsl_tools:lsl record session.xdf -s EEG -s Markers   # Ctrl-C stops
 dart run lsl_tools:lsl share --port 8765 --token secret      # on the lab network
 dart run lsl_tools:lsl bridge ws://lab-pc:8765 --token secret # elsewhere
+dart run lsl_tools:lsl share --accept                        # take streams
+                                        # clients publish (e.g. a browser)
 dart run lsl_tools:lsl replay session.xdf --loop
 dart run lsl_tools:lsl generate -c 8 -r 500
 ```
