@@ -60,29 +60,47 @@ class LslProvider extends SourceProvider {
   /// Bridges connected to.
   final List<LslBridgeClient> bridges = [];
 
-  /// Share [streams] over a WebSocket on [port].
+  /// Share [streams] over a WebSocket on [host]:[port]; with [shareAll],
+  /// also every stream that appears later. With [acceptPublish] clients can
+  /// publish streams, which are shared with the other clients and, with
+  /// [localOutlets], also published on LSL here.
   Future<void> share(
     List<LslStreamDescription> streams, {
     int port = 8765,
+    String host = '0.0.0.0',
     String token = '',
     bool acceptPublish = false,
+    bool localOutlets = true,
+    bool shareAll = false,
+    List<String> allowedOrigins = const [],
   }) async {
     await stopSharing();
+    if (streams.isNotEmpty || shareAll || (acceptPublish && localOutlets)) {
+      await lsl.prepare();
+    }
     try {
-      bridgeServer = await LslBridgeServer.start(
+      final server = bridgeServer = await LslBridgeServer.start(
         streams,
         port: port,
+        host: host,
         token: token,
         acceptPublish: acceptPublish,
+        localOutlets: acceptPublish && localOutlets,
+        allowedOrigins: allowedOrigins,
         outletOptions: app.prefs.lsl.outlet,
         options: app.prefs.lsl.inlet,
       );
+      _shareChanges = server.onChange.listen((_) => notifyListeners());
+      // Counters change all the time; the rest is announced.
       _shareTimer = Timer.periodic(
-        const Duration(seconds: 2),
+        const Duration(seconds: 1),
         (_) => notifyListeners(),
       );
+      if (shareAll) _shareNew(server);
       app.setStatus(
-        'Sharing ${streams.length} LSL streams on port ${bridgeServer!.port}',
+        acceptPublish && !localOutlets && streams.isEmpty && !shareAll
+            ? 'Relaying streams on port ${server.port}'
+            : 'Sharing ${streams.length} LSL streams on port ${server.port}',
       );
     } catch (e) {
       app.setError('Could not share streams: $e');
@@ -91,14 +109,72 @@ class LslProvider extends SourceProvider {
   }
 
   Timer? _shareTimer;
+  StreamSubscription<void>? _shareChanges;
+  LslDiscovery? _shareDiscovery;
+  Timer? _shareScan;
+
+  /// Whether streams that appear are shared too.
+  bool get sharingAll => _shareScan != null;
+
+  void _shareNew(LslBridgeServer server) {
+    final d = _shareDiscovery = lsl.discover();
+    var busy = false;
+    Future<void> scan() async {
+      if (busy || bridgeServer != server) return;
+      busy = true;
+      try {
+        for (final s in await d.streams()) {
+          if (bridgeServer != server) break;
+          await server.share(s);
+        }
+      } catch (_) {
+        // A stream that went away while being opened; next time.
+      } finally {
+        busy = false;
+      }
+    }
+
+    _shareScan = Timer.periodic(const Duration(seconds: 2), (_) => scan());
+    scan();
+  }
 
   Future<void> stopSharing() async {
     final s = bridgeServer;
     if (s == null) return;
     bridgeServer = null;
     _shareTimer?.cancel();
+    _shareScan?.cancel();
+    _shareScan = null;
+    _shareDiscovery?.close();
+    _shareDiscovery = null;
+    await _shareChanges?.cancel();
     notifyListeners();
     await s.close();
+  }
+
+  /// Bridges whose streams are published on LSL here.
+  final Map<LslBridgeClient, LslBridgeRepublisher> republishers = {};
+
+  /// Publish the streams of bridge [b] on LSL here, or stop.
+  Future<void> toggleRepublish(LslBridgeClient b) async {
+    final r = republishers.remove(b);
+    if (r != null) {
+      notifyListeners();
+      await r.close();
+      return;
+    }
+    try {
+      final started = await LslBridgeRepublisher.start(
+        b,
+        options: app.prefs.lsl.outlet,
+      );
+      republishers[b] = started;
+      started.onChange.listen((_) => notifyListeners());
+      app.setStatus('Publishing the streams of ${b.url} on LSL here');
+    } catch (e) {
+      app.setError('Could not publish the streams of ${b.url}: $e');
+    }
+    notifyListeners();
   }
 
   /// Connect to the bridge at [url]; returns an error message, or null.
@@ -116,6 +192,7 @@ class LslProvider extends SourceProvider {
 
   Future<void> disconnectBridge(LslBridgeClient b) async {
     bridges.remove(b);
+    await republishers.remove(b)?.close();
     for (final s in [...sessions]) {
       if (s.inlet.stream.uid.startsWith('bridge:${b.url.host}:')) {
         await app.closeSession(s);
@@ -488,7 +565,13 @@ class LslProvider extends SourceProvider {
       f.close();
     }
     _shareTimer?.cancel();
+    _shareScan?.cancel();
+    _shareDiscovery?.close();
+    _shareChanges?.cancel();
     bridgeServer?.close();
+    for (final r in republishers.values) {
+      r.close();
+    }
     for (final b in bridges) {
       b.close();
     }
@@ -581,12 +664,13 @@ class LslProvider extends SourceProvider {
         ViewerAction(
           'LSL',
           bridgeServer == null
-              ? 'Share streams over the network…'
-              : 'Stop sharing (port ${bridgeServer!.port}, '
-                    '${bridgeServer!.clientCount} connected)',
-          onPressed: bridgeServer == null
-              ? () => showLslShare(context, this)
-              : stopSharing,
+              ? 'Share or relay streams…'
+              : 'Sharing (port ${bridgeServer!.port}, '
+                    '${bridgeServer!.clientCount} connected)…',
+          narrowLabel: bridgeServer == null
+              ? 'Share or relay LSL streams…'
+              : 'LSL sharing (${bridgeServer!.clientCount} connected)…',
+          onPressed: () => showLslShare(context, this),
           order: 57,
         ),
       ViewerAction(
@@ -630,7 +714,7 @@ class LslProvider extends SourceProvider {
           message:
               'Sharing ${sharing.streams.length} LSL streams on port '
               '${sharing.port} (${sharing.clientCount} connected)'
-              '${sharing.acceptsPublish ? ', publishing ${sharing.published.length} from clients' : ''}',
+              '${sharing.acceptsPublish ? ', relaying ${sharing.published.length} from clients' : ''}',
           child: const Padding(
             padding: EdgeInsets.only(left: 8),
             child: Icon(Icons.share, size: 14),

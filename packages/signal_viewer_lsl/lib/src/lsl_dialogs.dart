@@ -834,74 +834,364 @@ class _StreamPickerDialogState extends State<_StreamPickerDialog> {
   }
 }
 
-/// Share streams over the network: choose them, the port and a token.
+/// Where the relay guide is published.
+const lslRelayGuideUrl = 'https://nexusdynamic.org/liblsl.dart/relay.html';
+
+/// What a sharing server does.
+enum _ShareMode {
+  /// LSL streams here to clients.
+  share('Share', 'Send LSL streams on this network to clients elsewhere.'),
+
+  /// That, and clients' streams to each other and to LSL here.
+  both(
+    'Share + accept',
+    'Also let clients publish streams (a browser replaying a recording or '
+        'reading a serial device): they reach the other clients and LSL '
+        'on this computer.',
+  ),
+
+  /// Clients' streams to each other only.
+  relay(
+    'Relay only',
+    'Pass streams between clients only; nothing from or to LSL here.',
+  );
+
+  final String label;
+  final String help;
+  const _ShareMode(this.label, this.help);
+}
+
+/// Share streams over the network or relay them between clients: the
+/// settings, or while sharing, who is connected and what is shared.
 Future<void> showLslShare(BuildContext context, LslProvider app) async {
-  final port = TextEditingController(text: '8765');
-  final token = TextEditingController();
-  final accept = ValueNotifier(false);
+  app.startDiscovery();
   try {
-    final chosen = await showLslStreamPicker(
-      context,
-      app,
-      title: 'Share LSL streams over the network',
-      note:
-          'Other computers (on any network that reaches this one) and '
-          'browsers connect with "Connect to an LSL bridge…" at '
-          'ws://<this computer>:<port>.',
-      verb: 'Share',
-      icon: Icons.share,
-      allowNone: true,
-      extra: Column(
-        children: [
-          Row(
-            children: [
-              SizedBox(
-                width: 100,
-                child: TextField(
-                  controller: port,
-                  decoration: const InputDecoration(labelText: 'Port'),
-                  keyboardType: TextInputType.number,
+    await showDialog<void>(context: context, builder: (_) => _ShareDialog(app));
+  } finally {
+    app.stopDiscovery();
+  }
+}
+
+class _ShareDialog extends StatefulWidget {
+  final LslProvider app;
+  const _ShareDialog(this.app);
+
+  @override
+  State<_ShareDialog> createState() => _ShareDialogState();
+}
+
+class _ShareDialogState extends State<_ShareDialog> {
+  final _port = TextEditingController(text: '8765');
+  final _token = TextEditingController();
+  final _origins = TextEditingController();
+  _ShareMode _mode = _ShareMode.share;
+  bool _localOnly = false;
+  bool _all = true;
+
+  /// Streams left out, by key, when not sharing all.
+  final Set<String> _skipped = {};
+  bool _starting = false;
+  List<String> _addresses = const [];
+  LslBridgeServer? _addressesOf;
+
+  @override
+  void dispose() {
+    _port.dispose();
+    _token.dispose();
+    _origins.dispose();
+    super.dispose();
+  }
+
+  void _generateToken() {
+    final r = math.Random.secure();
+    _token.text = [
+      for (var i = 0; i < 12; i++) r.nextInt(256).toRadixString(16),
+    ].map((h) => h.padLeft(2, '0')).join();
+  }
+
+  Future<void> _start() async {
+    final app = widget.app;
+    final relay = _mode == _ShareMode.relay;
+    setState(() => _starting = true);
+    await app.share(
+      relay || _all
+          ? const []
+          : [
+              for (final s in app.streams)
+                if (!_skipped.contains(s.key)) s,
+            ],
+      port: int.tryParse(_port.text.trim()) ?? 8765,
+      host: _localOnly ? '127.0.0.1' : '0.0.0.0',
+      token: _token.text.trim(),
+      acceptPublish: _mode != _ShareMode.share,
+      localOutlets: !relay,
+      shareAll: !relay && _all,
+      allowedOrigins: [
+        for (final o in _origins.text.split(RegExp(r'[\s,]+')))
+          if (o.isNotEmpty) o,
+      ],
+    );
+    if (mounted) setState(() => _starting = false);
+  }
+
+  /// The addresses clients can connect to, looked up once per server.
+  void _lookUpAddresses(LslBridgeServer server) {
+    if (_addressesOf == server) return;
+    _addressesOf = server;
+    server.localAddresses().then((a) {
+      if (mounted && _addressesOf == server) setState(() => _addresses = a);
+    });
+  }
+
+  Widget _form(ThemeData theme) {
+    final app = widget.app;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SegmentedButton<_ShareMode>(
+          showSelectedIcon: false,
+          segments: [
+            for (final m in _ShareMode.values)
+              ButtonSegment(value: m, label: Text(m.label)),
+          ],
+          selected: {_mode},
+          onSelectionChanged: (m) => setState(() => _mode = m.first),
+        ),
+        const SizedBox(height: 6),
+        Text(_mode.help, style: theme.textTheme.bodySmall),
+        const SizedBox(height: 8),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 90,
+              child: TextField(
+                controller: _port,
+                decoration: const InputDecoration(labelText: 'Port'),
+                keyboardType: TextInputType.number,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: TextField(
+                controller: _token,
+                decoration: InputDecoration(
+                  labelText: 'Token (optional)',
+                  helperText: 'Clients must give it to connect',
+                  suffixIcon: IconButton(
+                    tooltip: 'Make a random token',
+                    icon: const Icon(Icons.casino_outlined),
+                    onPressed: _generateToken,
+                  ),
                 ),
               ),
-              const SizedBox(width: 12),
+            ),
+          ],
+        ),
+        CheckboxListTile(
+          contentPadding: EdgeInsets.zero,
+          dense: true,
+          value: _localOnly,
+          onChanged: (v) => setState(() => _localOnly = v ?? false),
+          title: const Text('Only from this computer'),
+          subtitle: const Text(
+            'Listen on 127.0.0.1, e.g. behind a reverse proxy that adds '
+            'wss:// (TLS)',
+          ),
+        ),
+        ExpansionTile(
+          tilePadding: EdgeInsets.zero,
+          title: Text('Browser origins', style: theme.textTheme.bodyMedium),
+          children: [
+            TextField(
+              controller: _origins,
+              decoration: const InputDecoration(
+                labelText: 'Allowed origins (optional)',
+                hintText: 'https://nexusdynamic.org',
+                helperText:
+                    'Browsers on other sites are refused; apps and the '
+                    'command line are not affected',
+              ),
+            ),
+          ],
+        ),
+        if (_mode != _ShareMode.relay) ...[
+          CheckboxListTile(
+            contentPadding: EdgeInsets.zero,
+            dense: true,
+            value: _all,
+            onChanged: (v) => setState(() => _all = v ?? true),
+            title: const Text('Share every LSL stream, also new ones'),
+          ),
+          if (!_all) ...[
+            if (app.streams.isEmpty)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 12),
+                child: Text('Looking for LSL streams…'),
+              ),
+            for (final s in app.streams)
+              CheckboxListTile(
+                dense: true,
+                value: !_skipped.contains(s.key),
+                onChanged: (v) => setState(
+                  () =>
+                      v == true ? _skipped.remove(s.key) : _skipped.add(s.key),
+                ),
+                secondary: Icon(_icon(s)),
+                title: Text(s.name),
+                subtitle: Text(s.summary),
+              ),
+          ],
+        ],
+      ],
+    );
+  }
+
+  Widget _status(ThemeData theme, LslBridgeServer server) {
+    final app = widget.app;
+    _lookUpAddresses(server);
+    final token = _token.text.trim();
+    final shared = server.streams;
+    final clients = server.clients;
+    final relayOnly = server.acceptsPublish && !server.localOutlets;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          relayOnly
+              ? 'Relaying streams between clients'
+              : server.acceptsPublish
+              ? 'Sharing LSL streams and accepting published ones'
+              : 'Sharing LSL streams',
+          style: theme.textTheme.titleSmall,
+        ),
+        const SizedBox(height: 6),
+        Text(
+          'Connect from the viewer (LSL > Connect to an LSL bridge…) or '
+          '`lsl bridge` with:',
+          style: theme.textTheme.bodySmall,
+        ),
+        for (final a in _addresses)
+          Row(
+            children: [
               Expanded(
-                child: TextField(
-                  controller: token,
-                  decoration: const InputDecoration(
-                    labelText: 'Token (optional)',
-                    helperText: 'Clients must give it to connect',
+                child: SelectableText(
+                  'ws://$a:${server.port}',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontFamily: 'monospace',
                   ),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Copy',
+                iconSize: 18,
+                visualDensity: VisualDensity.compact,
+                icon: const Icon(Icons.copy),
+                onPressed: () => Clipboard.setData(
+                  ClipboardData(text: 'ws://$a:${server.port}'),
                 ),
               ),
             ],
           ),
-          ValueListenableBuilder(
-            valueListenable: accept,
-            builder: (context, on, _) => CheckboxListTile(
-              contentPadding: EdgeInsets.zero,
-              value: on,
-              onChanged: (v) => accept.value = v ?? false,
-              title: const Text('Let clients publish streams here'),
-              subtitle: const Text(
-                'E.g. a browser forwarding a serial device: its streams '
-                'become LSL streams on this computer.',
-              ),
+        if (token.isNotEmpty)
+          SelectableText('Token: $token', style: theme.textTheme.bodySmall),
+        const SizedBox(height: 4),
+        Text(
+          'The web viewer on an https:// page can only reach wss:// '
+          'addresses (or this computer as ws://localhost): put a reverse '
+          'proxy with TLS in front. See $lslRelayGuideUrl',
+          style: theme.textTheme.bodySmall,
+        ),
+        const Divider(height: 20),
+        Text(
+          '${clients.length} connected · ${server.sent} samples sent'
+          '${server.acceptsPublish ? ' · ${server.received} received' : ''}',
+          style: theme.textTheme.bodySmall,
+        ),
+        for (final c in clients)
+          ListTile(
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.computer, size: 18),
+            title: Text(c.address),
+            subtitle: Text(
+              'receives ${c.subscriptions} streams'
+              '${c.published.isEmpty ? '' : ' · publishes ${c.published.join(', ')}'}',
             ),
           ),
+        if (!relayOnly) ...[
+          const Divider(height: 20),
+          Text(
+            app.sharingAll
+                ? 'Shared (${shared.length}; new streams too)'
+                : 'Shared (${shared.length})',
+            style: theme.textTheme.titleSmall,
+          ),
+          for (final s in shared)
+            ListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(_icon(s), size: 18),
+              title: Text(s.name),
+              subtitle: Text(s.summary),
+              trailing: app.sharingAll
+                  ? null
+                  : TextButton(
+                      onPressed: () => server.unshare(s),
+                      child: const Text('Stop'),
+                    ),
+            ),
         ],
-      ),
+        if (server.published.isNotEmpty) ...[
+          const Divider(height: 20),
+          Text('Published by clients', style: theme.textTheme.titleSmall),
+          for (final name in server.published)
+            ListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.podcasts, size: 18),
+              title: Text(name),
+            ),
+        ],
+      ],
     );
-    if (chosen == null) return;
-    await app.share(
-      chosen,
-      port: int.tryParse(port.text.trim()) ?? 8765,
-      token: token.text.trim(),
-      acceptPublish: accept.value,
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return ListenableBuilder(
+      listenable: widget.app,
+      builder: (context, _) {
+        final server = widget.app.bridgeServer;
+        return AlertDialog(
+          title: const Text('Share or relay LSL streams'),
+          content: SizedBox(
+            width: 560,
+            child: SingleChildScrollView(
+              child: server == null ? _form(theme) : _status(theme, server),
+            ),
+          ),
+          actions: [
+            if (server != null)
+              TextButton(
+                onPressed: widget.app.stopSharing,
+                child: const Text('Stop'),
+              ),
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Close'),
+            ),
+            if (server == null)
+              FilledButton.icon(
+                onPressed: _starting ? null : _start,
+                icon: const Icon(Icons.share),
+                label: Text(_mode == _ShareMode.relay ? 'Relay' : 'Share'),
+              ),
+          ],
+        );
+      },
     );
-  } finally {
-    port.dispose();
-    token.dispose();
-    accept.dispose();
   }
 }
 
@@ -1021,6 +1311,22 @@ class _BridgeDialogState extends State<_BridgeDialog> {
                     ),
                   ],
                 ),
+                if (widget.app.supported && !b.closed)
+                  SwitchListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    value: widget.app.republishers.containsKey(b),
+                    onChanged: (_) => widget.app.toggleRepublish(b),
+                    title: const Text('Publish its streams on LSL here'),
+                    subtitle: Text(switch (widget.app.republishers[b]) {
+                      final r? when r.names.isNotEmpty =>
+                        '${r.names.length} published · ${r.sent} samples',
+                      null =>
+                        'As `lsl bridge` does: every stream it shares, as '
+                            'they come and go',
+                      _ => 'Waiting for streams',
+                    }),
+                  ),
                 for (final s in b.others)
                   ListTile(
                     dense: true,

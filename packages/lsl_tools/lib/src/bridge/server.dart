@@ -83,6 +83,10 @@ abstract class LslBridgeServer {
   /// Samples received from clients' published streams.
   int get received;
 
+  /// This computer's addresses that clients on other computers can try
+  /// (IPv4, loopback last), for showing how to connect.
+  Future<List<String>> localAddresses();
+
   /// Fires when clients or streams come or go.
   Stream<void> get onChange;
 

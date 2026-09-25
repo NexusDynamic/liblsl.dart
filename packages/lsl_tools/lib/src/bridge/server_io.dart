@@ -132,6 +132,22 @@ class _Server implements LslBridgeServer {
   Stream<void> get onChange => _changes.stream;
 
   @override
+  Future<List<String>> localAddresses() async {
+    if (host != '0.0.0.0') return [host];
+    final found = <String>[];
+    try {
+      for (final i in await NetworkInterface.list(
+        type: InternetAddressType.IPv4,
+      )) {
+        found.addAll(i.addresses.map((a) => a.address));
+      }
+    } catch (_) {
+      // Not allowed here (some sandboxes): loopback only.
+    }
+    return [...found, '127.0.0.1'];
+  }
+
+  @override
   List<LslStreamDescription> get streams => [
     for (final s in _shared.values)
       if (s.inlet != null) s.inlet!.stream,
