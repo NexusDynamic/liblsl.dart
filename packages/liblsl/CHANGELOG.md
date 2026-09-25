@@ -46,6 +46,10 @@ has reached API parity with liblsl and moves to 1.0.0.
 
 ## Improvements
 
+- On macOS and Linux, loading liblsl raises the process's soft open-file
+  limit (when below 65536) as far as the system allows, so many streams no
+  longer fail with "Too many open files" (macOS allows 256 by default). It
+  only warns if the system refuses; set `LIBLSL_DART_NO_RLIMIT=1` to opt out.
 - Exceptions raised from a nonzero liblsl error code now name the code
   (`timeout`/`lost`/`argument`/`internal`) and append liblsl's own message when
   it has one, instead of reporting a bare integer. A timeout code now raises

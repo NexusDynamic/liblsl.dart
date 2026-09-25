@@ -122,9 +122,22 @@ You will also need the following configured in your `Info.plist` file:
 </plist>
 ```
 
-### macOS
+### macOS and Linux: open file limit
 
-macOS allows a process only 256 open files by default, and every outlet, inlet and resolver uses several sockets. An app with many streams (or the test suite) can run out, which shows up as `Too many open files` in liblsl's log and outlet or inlet creation failing. macOS's default TCP buffers are also small, which slows high-rate transfers. If you run into either, raise the limits:
+Every outlet, inlet and resolver uses several sockets, and the default limit on open files per process (256 on macOS, 1024 on most Linux desktops) runs out with a few dozen streams: liblsl then logs `Too many open files` and fails to create outlets and inlets.
+
+So on macOS and Linux, loading liblsl raises the process's soft open-file limit:
+
+- A soft limit of 65536 or more is left untouched.
+- Otherwise it is raised as far as the system allows (the hard limit, and on macOS `kern.maxfilesperproc`), up to 1048576. The hard limit is never changed and the limit is never lowered.
+- If the system refuses (e.g. a sandbox or device management), liblsl prints a warning to stderr and carries on; raise the limit yourself with `ulimit -n`.
+- Set the environment variable `LIBLSL_DART_NO_RLIMIT=1` to leave the limit alone.
+
+The limit is per process, so child processes your app starts inherit the raised limit.
+
+### macOS: network settings
+
+macOS's default TCP buffers are small, which slows high-rate transfers, and `maxfiles` bounds how far the open-file limit can be raised. For demanding setups:
 
 ```bash
 sudo sysctl -w net.inet.tcp.mssdflt=1420
@@ -135,11 +148,9 @@ sudo sysctl -w net.inet.tcp.autosndbufmax=8388608
 sudo sysctl -w net.inet.tcp.autorcvbufmax=8388608
 sudo sysctl -w net.inet.ip.portrange.first=32768
 sudo launchctl limit maxfiles 65536 200000
-ulimit -S -n 65536   # per shell: run in the shell that starts your app or tests
 ```
 
-The `sysctl` and `launchctl` settings last until reboot.
-
+These settings last until reboot.
 
 ## API Usage
 
@@ -367,7 +378,7 @@ Set up the environment (for more details, see the [REVIEW_TESTING.md](https://gi
 dart test
 ```
 
-On macOS, raise the open file limit first (`ulimit -S -n 65536`, see [macOS](#macos)); the default of 256 is not enough for the suite.
+The tests need a few thousand open files; liblsl raises the limit itself (see [the open file limit](#macos-and-linux-open-file-limit)).
 
 ## Contributing
 

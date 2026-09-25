@@ -37,7 +37,7 @@ LLVM / Clang can be installed from here: https://github.com/llvm/llvm-project/re
 
 ## Testing
 
-Before submitting a PR, please ensure that all tests pass by running `fvm exec melos test`. The LSL-backed tests (`fvm exec melos test:lsl`) need a higher open file limit than macOS's default of 256: run `ulimit -S -n 65536` in the same shell first (see the macOS section of the [liblsl README](packages/liblsl/README.md#macos) for the full set of network settings). The serial and OpenBCI tests use `socat` for virtual serial ports, and are skipped without it. If your PR changes functionality or is a new feature, make sure that there are associated tests to ensure that it works, and will continue to work in the future.
+Before submitting a PR, please ensure that all tests pass by running `fvm exec melos test`. The LSL-backed tests (`fvm exec melos test:lsl`) need a few thousand open files; liblsl raises the process limit itself when loaded, but if it warns that it could not, run `ulimit -S -n 65536` in the same shell first (see the [liblsl README](packages/liblsl/README.md#macos-and-linux-open-file-limit)). The serial and OpenBCI tests use `socat` for virtual serial ports, and are skipped without it. If your PR changes functionality or is a new feature, make sure that there are associated tests to ensure that it works, and will continue to work in the future.
 
 ## Formatting and linting
 

@@ -88,10 +88,9 @@ jobs:
       - name: Get dependencies
         run: flutter pub get
 
-      # macOS defaults to 256 open files per process, which the liblsl tests
-      # (sockets for every outlet, inlet and resolver in one test process)
-      # run out of, and small TCP buffers slow loopback transfers. Same
-      # settings as recommended for running LSL on macOS.
+      # Small default TCP buffers slow loopback transfers, and maxfiles bounds
+      # how far liblsl can raise its open-file limit. Same settings as
+      # recommended for running LSL on macOS (see the liblsl README).
       - name: Tune macOS for LSL
         if: runner.os == 'macOS'
         run: |
@@ -104,18 +103,13 @@ jobs:
           sudo sysctl -w net.inet.ip.portrange.first=32768
           sudo launchctl limit maxfiles 65536 200000
 
-      # ulimit only applies to the step's own shell, so it is raised in the
-      # steps that run tests (a no-op where the limit is already higher).
+      # The open-file limit is deliberately left at the runner's default:
+      # liblsl raises it itself when loaded (src/dart/fd_limit.cpp), and
+      # liblsl_fd_limit_test.dart checks that it did.
       - name: Run liblsl tests
         working-directory: packages/liblsl
-        shell: bash
-        run: |
-          ulimit -S -n 65536 2>/dev/null || ulimit -S -n "$(ulimit -H -n)" || true
-          dart test --exclude-tags "performance,benchmark,lsl"
+        run: dart test --exclude-tags "performance,benchmark,lsl"
 
       - name: Run liblsl LSL tests
         working-directory: packages/liblsl
-        shell: bash
-        run: |
-          ulimit -S -n 65536 2>/dev/null || ulimit -S -n "$(ulimit -H -n)" || true
-          dart test --tags "lsl" --concurrency=1
+        run: dart test --tags "lsl" --concurrency=1
