@@ -115,6 +115,7 @@ class _LogSliderState extends State<LogSlider> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     final lo = _log(widget.min),
         hi = _log(math.max(widget.max, widget.min * 1.0001));
     final pos = _log(widget.value.clamp(widget.min, widget.max)).clamp(lo, hi);
@@ -134,19 +135,16 @@ class _LogSliderState extends State<LogSlider> {
           ),
         ),
         SizedBox(
-          width: 128,
+          width: 80,
           child: TextField(
             controller: _text,
             focusNode: _focus,
             textAlign: TextAlign.right,
-            decoration: InputDecoration(
+            style: theme.textTheme.bodyMedium,
+            decoration: const InputDecoration(
               isDense: true,
-              suffixText: widget.suffix,
-              border: const OutlineInputBorder(),
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 6,
-                vertical: 8,
-              ),
+              border: OutlineInputBorder(),
+              contentPadding: EdgeInsets.symmetric(horizontal: 6, vertical: 8),
             ),
             onSubmitted: _submit,
             onTapOutside: (_) {
@@ -157,6 +155,24 @@ class _LogSliderState extends State<LogSlider> {
             },
           ),
         ),
+        // The unit sits beside the box rather than inside it, so a long unit
+        // from the stream's metadata cannot squeeze the number out.
+        if (widget.suffix.isNotEmpty)
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 64),
+            child: Tooltip(
+              message: widget.suffix,
+              child: Padding(
+                padding: const EdgeInsets.only(left: 4),
+                child: Text(
+                  widget.suffix,
+                  style: theme.textTheme.labelSmall,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ),
+          ),
       ],
     );
   }

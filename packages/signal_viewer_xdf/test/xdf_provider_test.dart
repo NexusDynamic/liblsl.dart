@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:signal_viewer/signal_viewer.dart';
 import 'package:signal_viewer_xdf/signal_viewer_xdf.dart';
@@ -61,6 +62,55 @@ void main() {
 
     await tester.runAsync(() => state.closeSession(session));
     expect(state.tabs, isEmpty);
+    await tester.pumpWidget(const SizedBox());
+    state.dispose();
+    await tester.pump(const Duration(seconds: 2));
+  });
+
+  testWidgets('plain shortcut keys go to a focused text field', (tester) async {
+    tester.view.physicalSize = const Size(1400, 860);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final prefs = Preferences()..panelVisible = true;
+    final state = AppState(
+      prefs,
+      providers: [XdfProvider()],
+      config: const ViewerConfig(title: 'Test', heading: 'Test viewer'),
+    );
+    await tester.pumpWidget(MaterialApp(home: MainWindow(state: state)));
+    await tester.runAsync(
+      () => state.openFiles([
+        fileAtPath('../xdf/test/fixtures/clock_resets.xdf')!,
+      ]),
+    );
+    final session = state.sessions.single as XdfSession;
+    await tester.runAsync(() => session.file.indexed);
+    await _settle(
+      tester,
+      () =>
+          state.tabs.length == 2 &&
+          state.tabs.every((t) => t.controller.settled),
+    );
+    state.current = 1;
+    await tester.pump();
+    final c = state.tabs.last.controller;
+
+    // Unfocused, "-" widens the time window.
+    var window = c.windowS;
+    await tester.sendKeyEvent(LogicalKeyboardKey.minus);
+    await tester.pump();
+    expect(c.windowS, greaterThan(window));
+
+    // In a text field it is left for the field.
+    await tester.tap(find.byType(TextField).first);
+    await tester.pump();
+    window = c.windowS;
+    await tester.sendKeyEvent(LogicalKeyboardKey.minus);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+    await tester.pump();
+    expect(c.windowS, window);
+
+    await tester.runAsync(() => state.closeSession(session));
     await tester.pumpWidget(const SizedBox());
     state.dispose();
     await tester.pump(const Duration(seconds: 2));

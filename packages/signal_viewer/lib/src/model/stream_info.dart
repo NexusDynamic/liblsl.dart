@@ -136,4 +136,32 @@ class StreamInfo {
   );
 }
 
-String prettyUnit(String unit) => unit.toLowerCase() == 'uv' ? 'µV' : unit;
+/// The usual symbol for [unit], so spelled-out units from stream metadata
+/// (e.g. "microvolts") fit in labels; unknown units are returned as they are.
+String prettyUnit(String unit) =>
+    _unitSymbols[unit.trim().toLowerCase()] ?? unit;
+
+const _unitSymbols = {
+  'uv': 'µV',
+  'µv': 'µV',
+  'μv': 'µV',
+  'microvolt': 'µV',
+  'microvolts': 'µV',
+  'nv': 'nV',
+  'nanovolt': 'nV',
+  'nanovolts': 'nV',
+  'mv': 'mV',
+  'millivolt': 'mV',
+  'millivolts': 'mV',
+  'v': 'V',
+  'volt': 'V',
+  'volts': 'V',
+  'celsius': '°C',
+  'degc': '°C',
+  'degree': '°',
+  'degrees': '°',
+  'percent': '%',
+  'seconds': 's',
+  'milliseconds': 'ms',
+  'hertz': 'Hz',
+};

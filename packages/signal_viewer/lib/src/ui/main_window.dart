@@ -253,6 +253,37 @@ class _MainWindowState extends State<MainWindow> {
     };
   }
 
+  /// Whether the focused widget is a text field, which needs plain keys
+  /// (arrows, Home/End, `-`, `+`) for itself.
+  bool get _typing {
+    final ctx = FocusManager.instance.primaryFocus?.context;
+    return ctx != null &&
+        (ctx.widget is EditableText ||
+            ctx.findAncestorWidgetOfExactType<EditableText>() != null);
+  }
+
+  /// Runs the matching shortcut, like [CallbackShortcuts], except that keys
+  /// without a modifier go to a focused text field instead.
+  KeyEventResult _onKey(FocusNode node, KeyEvent event) {
+    final typing = _typing;
+    final keys = HardwareKeyboard.instance;
+    for (final MapEntry(key: activator, value: callback)
+        in _shortcuts().entries) {
+      if (typing &&
+          activator is SingleActivator &&
+          !activator.control &&
+          !activator.meta &&
+          !activator.alt) {
+        continue;
+      }
+      if (activator.accepts(event, keys)) {
+        callback();
+        return KeyEventResult.handled;
+      }
+    }
+    return KeyEventResult.ignored;
+  }
+
   // -- build ----------------------------------------------------------------
 
   @override
@@ -269,8 +300,10 @@ class _MainWindowState extends State<MainWindow> {
             _statusBar(),
           ],
         );
-        return CallbackShortcuts(
-          bindings: _shortcuts(),
+        return Focus(
+          canRequestFocus: false,
+          skipTraversal: true,
+          onKeyEvent: _onKey,
           child: Focus(
             autofocus: true,
             child: fileDropTarget(
