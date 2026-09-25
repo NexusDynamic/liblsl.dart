@@ -61,6 +61,12 @@ jobs:
         working-directory: packages/peer_coordinator
         run: dart compile js -o /tmp/web_check.js tool/web_safety_check.dart
 
+      # What the viewer uses in a browser (LSL facade, bridge client and
+      # republisher) must not reach dart:io or dart:ffi.
+      - name: Check lsl_tools is web-safe
+        working-directory: packages/lsl_tools
+        run: dart compile js -o /tmp/lsl_tools_web_check.js tool/web_safety_check.dart
+
   # liblsl compiles the C++ library from the src/liblsl-dart_main submodule
   # through its build hook, with a different toolchain on each OS. Ubuntu is
   # covered by `test` above; this makes sure macOS (clang) and Windows (MSVC)

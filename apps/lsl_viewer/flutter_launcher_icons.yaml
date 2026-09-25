@@ -1,0 +1,36 @@
+# Regenerate the app icons after replacing assets/icon/*.png:
+#   dart run flutter_launcher_icons
+# icon.png: the full icon, 1024x1024 (web, macOS, Windows, Linux).
+# icon_square.png: the same without rounded corners or transparency (iOS
+#   rounds it itself).
+# foreground.png: Android's adaptive icon foreground, transparent, with the
+#   artwork inside the middle ~66% (the rest may be cropped).
+# Linux has no generator: linux/runner/my_application.cc loads
+# data/icon.png from the bundle, which CMakeLists.txt copies from
+# assets/icon/icon.png.
+flutter_launcher_icons:
+  image_path: "assets/icon/icon.png"
+
+  android: true
+  min_sdk_android: 21
+  adaptive_icon_background: "#12344D"
+  adaptive_icon_foreground: "assets/icon/foreground.png"
+
+  ios: true
+  image_path_ios: "assets/icon/icon_square.png"
+  remove_alpha_ios: true
+
+  web:
+    generate: true
+    image_path: "assets/icon/icon.png"
+    background_color: "#12344D"
+    theme_color: "#12344D"
+
+  windows:
+    generate: true
+    image_path: "assets/icon/icon.png"
+    icon_size: 256
+
+  macos:
+    generate: true
+    image_path: "assets/icon/icon.png"

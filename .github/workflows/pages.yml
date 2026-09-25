@@ -1,0 +1,47 @@
+name: Pages site
+
+# Builds the landing page and guides (site/, rendered with site/build.py) and
+# publishes them at the root of gh-pages. That branch also holds the web
+# viewer (lsl_viewer/, from release.yml) and benchmark data (dev/bench), so
+# keep_files leaves them in place.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - "packages/lsl_tools/doc/**"
+      - "apps/lsl_viewer/assets/icon/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: gh-pages-site
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build
+        run: |
+          pip install "markdown>=3.5,<4"
+          python3 site/build.py
+
+      - name: Deploy
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
+          publish_dir: _site
+          keep_files: true
+          commit_message: "Deploy site from ${{ github.sha }}"

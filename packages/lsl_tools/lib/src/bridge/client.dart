@@ -20,6 +20,19 @@ class LslBridgeClient {
   /// Whether the bridge lets this client publish streams ([publish]).
   bool acceptsPublish = false;
 
+  /// Ids in [streams] of the streams this client publishes: the bridge
+  /// shares them with everyone, this client included.
+  final Set<int> ownIds = {};
+
+  /// The shared streams other than the ones this client publishes.
+  List<BridgeStream> get others => [
+    for (final s in streams)
+      if (!ownIds.contains(s.id)) s,
+  ];
+
+  /// Our publish id to the id the bridge shares the stream as.
+  final Map<int, int> _sharedAs = {};
+
   /// Streams published here, by id, waiting for the bridge's answer.
   final Map<int, Completer<void>> _publishing = {};
   int _nextPublish = 1;
@@ -78,6 +91,12 @@ class LslBridgeClient {
             for (final id in (m['ids'] as List?) ?? const [])
               (id as num).toInt(),
           };
+          final shared = (m['shared_ids'] as Map?) ?? const {};
+          for (final e in shared.entries) {
+            final id = (e.value as num).toInt();
+            _sharedAs[int.parse('${e.key}')] = id;
+            ownIds.add(id);
+          }
           final errors = (m['errors'] as Map?) ?? const {};
           for (final e in errors.entries) {
             _publishing
@@ -96,6 +115,14 @@ class LslBridgeClient {
                 host: url.host,
               ),
           ];
+          final ids = {for (final s in streams) s.id};
+          ownIds.retainAll(ids);
+          // Streams no longer shared end once what arrived is read.
+          for (final i in _inlets.values) {
+            if (!ids.contains(i.bridged.id)) {
+              i._error ??= '${i.bridged.description.name} is no longer shared';
+            }
+          }
           if (!_streams.isClosed) _streams.add(streams);
         case 'pong':
           final sent = (m['t']! as num).toDouble();
@@ -188,6 +215,8 @@ class LslBridgeClient {
   }
 
   void _unpublish(int id) {
+    final shared = _sharedAs.remove(id);
+    if (shared != null) ownIds.remove(shared);
     if (_closed) return;
     _channel.sink.add(
       jsonEncode({

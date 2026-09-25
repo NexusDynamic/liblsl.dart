@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LSL Viewer – free XDF file viewer and Lab Streaming Layer stream viewer</title>
+  <meta name="description" content="Open and view XDF files (LabRecorder recordings) in your browser or on the desktop, and view live Lab Streaming Layer (LSL) streams. Record to XDF, replay XDF over LSL, and relay streams over WebSockets. Free and open source for Windows, macOS, Linux, Android and the web.">
+  <meta name="keywords" content="XDF viewer, XDF file viewer, XDF reader, open XDF file, LabRecorder, Lab Streaming Layer, LSL viewer, LSL stream viewer, EEG viewer, liblsl, pyxdf alternative, Dart, Flutter">
+  <link rel="canonical" href="https://nexusdynamic.org/liblsl.dart/">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="LSL Viewer – XDF file viewer and LSL stream viewer">
+  <meta property="og:description" content="View XDF recordings and live Lab Streaming Layer streams in the browser or on the desktop. Free and open source.">
+  <meta property="og:url" content="https://nexusdynamic.org/liblsl.dart/">
+  <meta property="og:image" content="https://nexusdynamic.org/liblsl.dart/icon.png">
+  <meta name="twitter:card" content="summary">
+  <link rel="icon" type="image/png" href="icon.png">
+  <link rel="stylesheet" href="style.css">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "LSL Viewer",
+    "alternateName": ["XDF viewer", "LSL stream viewer"],
+    "description": "Viewer for XDF recordings (LabRecorder) and live Lab Streaming Layer (LSL) streams: filtering, re-referencing, power spectra, signal quality, trigger decoding, recording to XDF, replaying XDF over LSL, and a WebSocket bridge/relay for LSL.",
+    "applicationCategory": "Science",
+    "operatingSystem": "Windows, macOS, Linux, Android, Web browser",
+    "url": "https://nexusdynamic.org/liblsl.dart/",
+    "installUrl": "https://nexusdynamic.org/liblsl.dart/lsl_viewer/",
+    "downloadUrl": "https://github.com/NexusDynamic/liblsl.dart/releases?q=lsl_viewer&expanded=true",
+    "softwareHelp": "https://nexusdynamic.org/liblsl.dart/relay.html",
+    "codeRepository": "https://github.com/NexusDynamic/liblsl.dart",
+    "license": "https://opensource.org/licenses/MIT",
+    "isAccessibleForFree": true,
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+  }
+  </script>
+</head>
+<body>
+  <header class="hero">
+    <div class="wrap">
+      <div class="brand">
+        <img src="icon.png" alt="" width="72" height="72">
+        <h1>LSL Viewer: XDF file viewer and Lab Streaming Layer stream viewer</h1>
+      </div>
+      <p class="tagline">
+        Open <strong>XDF recordings</strong> (the files LabRecorder writes)
+        of any size, right in your browser, and watch <strong>live LSL
+        streams</strong> (EEG, markers, motion, audio, anything). Free and
+        open source, on Windows, macOS, Linux, Android and the web.
+      </p>
+      <div class="buttons">
+        <a class="button" href="lsl_viewer/">Open the web app</a>
+        <a class="button secondary" href="https://github.com/NexusDynamic/liblsl.dart/releases?q=lsl_viewer&amp;expanded=true">Download for desktop / Android</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <!-- screenshot -->
+    <figure>
+      <img src="screenshot.png" alt="LSL Viewer showing EEG channels from an XDF recording" width="1600" height="900" loading="lazy">
+    </figure>
+    <!-- /screenshot -->
+
+    <section>
+      <h2>What it does</h2>
+      <div class="grid">
+        <div class="card">
+          <h3>XDF viewer and reader</h3>
+          <p>
+            Open <code>.xdf</code> files from LabRecorder and other LSL
+            recorders, with one tab per stream. Big files are indexed once
+            and stay fast to scroll and zoom. In the browser the file is read
+            locally and never uploaded.
+          </p>
+        </div>
+        <div class="card">
+          <h3>Live LSL stream viewer</h3>
+          <p>
+            Find the LSL streams on your network and view them live, with
+            filters, re-referencing, power spectra, signal quality and
+            trigger decoding.
+          </p>
+        </div>
+        <div class="card">
+          <h3>Record and replay</h3>
+          <p>
+            Record LSL streams to XDF (as LabRecorder does), and replay an
+            XDF recording as LSL streams in real time to test your pipeline
+            without the hardware.
+          </p>
+        </div>
+        <div class="card">
+          <h3>LSL over the internet</h3>
+          <p>
+            Share streams over a WebSocket bridge, view them in a browser,
+            publish from a browser, or relay between browsers.
+            <a href="relay.html">Set up a bridge or relay</a>.
+          </p>
+        </div>
+        <div class="card">
+          <h3>Devices</h3>
+          <p>
+            OpenBCI Cyton (+ Daisy) and serial devices that print numbers
+            (e.g. an Arduino): on desktop, on Android over USB, and in Chrome
+            or Edge with WebSerial.
+          </p>
+        </div>
+        <div class="card">
+          <h3>Command line</h3>
+          <p>
+            The <code>lsl</code> tool lists, records, shares, bridges,
+            relays, replays and generates streams. It comes with each
+            desktop release.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Get it</h2>
+      <ul>
+        <li><strong>Web:</strong> <a href="lsl_viewer/">open LSL Viewer in your browser</a>. No install; XDF files, serial devices, and LSL through a <a href="relay.html">bridge</a>.</li>
+        <li><strong>Windows, macOS, Linux, Android:</strong> from the <a href="https://github.com/NexusDynamic/liblsl.dart/releases?q=lsl_viewer&amp;expanded=true">releases page</a> (<code>lsl_viewer</code> releases). The desktop archives also contain the <code>lsl</code> command line tool, which is also available on its own as <code>lsl-cli-…</code>.</li>
+        <li><strong>From source:</strong> <code>flutter run</code> in <a href="https://github.com/NexusDynamic/liblsl.dart/tree/main/apps/lsl_viewer">apps/lsl_viewer</a>.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>For developers</h2>
+      <div class="grid">
+        <div class="card">
+          <h3><a href="https://pub.dev/packages/xdf">xdf</a></h3>
+          <p>Read and write XDF files in pure Dart, on every platform including the web. It uses pyxdf's clock synchronisation, dejittering and defaults, and is tested against pyxdf.</p>
+        </div>
+        <div class="card">
+          <h3><a href="https://pub.dev/packages/liblsl">liblsl</a></h3>
+          <p>Dart and Flutter bindings for Lab Streaming Layer, with full parity with the C library (<a href="https://joss.theoj.org/papers/2d813b551058e59edacefd35ea281e40">JOSS paper</a>).</p>
+        </div>
+        <div class="card">
+          <h3><a href="https://github.com/NexusDynamic/liblsl.dart/tree/main/packages/lsl_tools">lsl_tools</a></h3>
+          <p>Record to XDF, the WebSocket bridge and relay, test outlets, and the <code>lsl</code> command line tool.</p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Questions</h2>
+      <h3>How do I open an XDF file?</h3>
+      <p>Go to the <a href="lsl_viewer/">web app</a> and choose <em>Open recording…</em>, or drop the <code>.xdf</code> file onto the window. On the desktop you can also pass the file on the command line.</p>
+      <h3>Can I view LSL streams in a browser?</h3>
+      <p>Browsers can't use LSL directly. Run <code>lsl share</code> (or <em>Share or relay streams…</em> in the desktop app) on the lab computer and connect to it from the web app. See the <a href="relay.html">bridge and relay guide</a>.</p>
+      <h3>Is it free?</h3>
+      <p>Yes. It is MIT licensed, with source on <a href="https://github.com/NexusDynamic/liblsl.dart">GitHub</a>.</p>
+    </section>
+  </main>
+
+  <footer><div class="wrap">
+    Part of <a href="https://github.com/NexusDynamic/liblsl.dart">liblsl.dart</a>.
+    Lab Streaming Layer is at <a href="https://labstreaminglayer.org">labstreaminglayer.org</a>.
+  </div></footer>
+</body>
+</html>

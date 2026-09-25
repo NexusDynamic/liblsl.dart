@@ -38,3 +38,4 @@ doc/api/
 *.log
 
 .cache/
+_site/

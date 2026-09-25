@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 
 import '../model/view_settings.dart';
@@ -52,8 +53,43 @@ class _MainWindowState extends State<MainWindow> {
     for (final p in app.providers) {
       p.start();
     }
+    if (touchPlatform) {
+      _mice.addListener(_inputChanged);
+      HardwareKeyboard.instance.addHandler(_sawKey);
+    }
     final picked = [for (final p in widget.initialFiles) ?fileAtPath(p)];
     if (picked.isNotEmpty) app.openFiles(picked);
+  }
+
+  MouseTracker get _mice => RendererBinding.instance.mouseTracker;
+  bool _keyboard = false;
+
+  /// Whether keyboard and mouse help is useful: always on desktop, and on
+  /// phones and tablets once a mouse is connected or a hardware key was
+  /// pressed (there is no way to ask whether a keyboard is attached).
+  bool get _keysOrMouse =>
+      !touchPlatform || _keyboard || _mice.mouseIsConnected;
+
+  void _inputChanged() {
+    if (mounted) setState(() {});
+  }
+
+  bool _sawKey(KeyEvent event) {
+    if (!_keyboard) {
+      _keyboard = true;
+      HardwareKeyboard.instance.removeHandler(_sawKey);
+      // Not during the key's dispatch.
+      WidgetsBinding.instance.addPostFrameCallback((_) => _inputChanged());
+      WidgetsBinding.instance.scheduleFrame();
+    }
+    return false;
+  }
+
+  @override
+  void dispose() {
+    _mice.removeListener(_inputChanged);
+    HardwareKeyboard.instance.removeHandler(_sawKey);
+    super.dispose();
   }
 
   bool get _opensFiles => app.fileExtensions.isNotEmpty;
@@ -253,6 +289,37 @@ class _MainWindowState extends State<MainWindow> {
     };
   }
 
+  /// Whether the focused widget is a text field, which needs plain keys
+  /// (arrows, Home/End, `-`, `+`) for itself.
+  bool get _typing {
+    final ctx = FocusManager.instance.primaryFocus?.context;
+    return ctx != null &&
+        (ctx.widget is EditableText ||
+            ctx.findAncestorWidgetOfExactType<EditableText>() != null);
+  }
+
+  /// Runs the matching shortcut, like [CallbackShortcuts], except that keys
+  /// without a modifier go to a focused text field instead.
+  KeyEventResult _onKey(FocusNode node, KeyEvent event) {
+    final typing = _typing;
+    final keys = HardwareKeyboard.instance;
+    for (final MapEntry(key: activator, value: callback)
+        in _shortcuts().entries) {
+      if (typing &&
+          activator is SingleActivator &&
+          !activator.control &&
+          !activator.meta &&
+          !activator.alt) {
+        continue;
+      }
+      if (activator.accepts(event, keys)) {
+        callback();
+        return KeyEventResult.handled;
+      }
+    }
+    return KeyEventResult.ignored;
+  }
+
   // -- build ----------------------------------------------------------------
 
   @override
@@ -269,8 +336,10 @@ class _MainWindowState extends State<MainWindow> {
             _statusBar(),
           ],
         );
-        return CallbackShortcuts(
-          bindings: _shortcuts(),
+        return Focus(
+          canRequestFocus: false,
+          skipTraversal: true,
+          onKeyEvent: _onKey,
           child: Focus(
             autofocus: true,
             child: fileDropTarget(
@@ -376,10 +445,11 @@ class _MainWindowState extends State<MainWindow> {
                 ),
               SubmenuButton(
                 menuChildren: [
-                  MenuItemButton(
-                    onPressed: () => showHelp(context),
-                    child: const Text('Keyboard and mouse'),
-                  ),
+                  if (_keysOrMouse)
+                    MenuItemButton(
+                      onPressed: () => showHelp(context),
+                      child: const Text('Keyboard and mouse'),
+                    ),
                   MenuItemButton(
                     onPressed: () => showAbout(context, config),
                     child: const Text('About'),
@@ -457,10 +527,11 @@ class _MainWindowState extends State<MainWindow> {
               value: () => showPreferences(context, prefs),
               child: const Text('Preferences…'),
             ),
-            PopupMenuItem(
-              value: () => showHelp(context),
-              child: const Text('Keyboard and mouse'),
-            ),
+            if (_keysOrMouse)
+              PopupMenuItem(
+                value: () => showHelp(context),
+                child: const Text('Keyboard and mouse'),
+              ),
             PopupMenuItem(
               value: () => showAbout(context, config),
               child: const Text('About'),

@@ -3,6 +3,7 @@ library;
 
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:lsl_tools/cli.dart';
 import 'package:lsl_tools/lsl_tools.dart';
@@ -112,6 +113,109 @@ void main() {
     stopShare.complete();
     expect(await bridging, 0);
     expect(await sharing, 0);
+  });
+
+  test('relay: a stream a client publishes reaches LSL elsewhere', () async {
+    final stopRelay = Completer<void>(), stopBridge = Completer<void>();
+    final relayOut = StringBuffer(), bridgeOut = StringBuffer();
+    final relaying = runLslCli(
+      ['relay', '-p', '0', '--host', '127.0.0.1'],
+      stop: stopRelay.future,
+      out: relayOut,
+    );
+    String? port;
+    for (var i = 0; i < 100 && port == null; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      port = RegExp(r'on port (\d+)').firstMatch('$relayOut')?.group(1);
+    }
+    expect(port, isNotNull, reason: '$relayOut');
+    final url = Uri.parse('ws://127.0.0.1:$port');
+    // The bridge starts before anything is published, and follows.
+    final bridging = runLslCli(
+      ['bridge', '$url', '--suffix', '_relayed'],
+      stop: stopBridge.future,
+      out: bridgeOut,
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    final client = await LslBridgeClient.connect(url);
+    final outlet = await client.publish(
+      LslOutletSpec(
+        name: 'cli_relay_$id',
+        type: 'EEG',
+        channelCount: 2,
+        rate: 100,
+        sourceId: 'cli_relay_$id',
+      ),
+    );
+    final d = lsl.discover();
+    final inlet = await lsl.openInlet(
+      await _find(d, 'cli_relay_${id}_relayed'),
+      const LslInletOptions(dejitter: false),
+    );
+    expect(inlet.stream.channelCount, 2);
+    var received = 0;
+    for (var i = 0; i < 150 && received < 100; i++) {
+      final t = lsl.clock();
+      await outlet.push(
+        Float32List.fromList([1, 2, 3, 4]),
+        Float64List.fromList([t, t + 0.01]),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      received += (await inlet.pull(1000)).length;
+    }
+    expect(received, greaterThanOrEqualTo(100), reason: '$bridgeOut');
+    expect('$bridgeOut', contains('Publishing cli_relay_${id}_relayed'));
+    await inlet.close();
+    d.close();
+    await client.close();
+    stopBridge.complete();
+    stopRelay.complete();
+    expect(await bridging, 0);
+    expect(await relaying, 0);
+  });
+
+  test('publish: streams from here reach a relay\'s clients', () async {
+    final g = await LslSignalGenerator.start(
+      name: 'cli_pub_$id',
+      channels: 2,
+      rate: 100,
+    );
+    addTearDown(g.close);
+    final server = await LslBridgeServer.start(
+      const [],
+      port: 0,
+      acceptPublish: true,
+      localOutlets: false,
+    );
+    addTearDown(server.close);
+    final url = Uri.parse('ws://127.0.0.1:${server.port}');
+    final stop = Completer<void>();
+    final out = StringBuffer();
+    final publishing = runLslCli(
+      ['publish', '$url', '-s', 'cli_pub_$id'],
+      stop: stop.future,
+      out: out,
+    );
+    final viewer = await LslBridgeClient.connect(url);
+    BridgeStream? shared;
+    for (var i = 0; i < 150 && shared == null; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      shared = viewer.streams
+          .where((s) => s.description.name == 'cli_pub_$id')
+          .firstOrNull;
+    }
+    expect(shared, isNotNull, reason: '$out');
+    expect(shared!.description.channelCount, 2);
+    final inlet = viewer.open(shared);
+    var received = 0;
+    for (var i = 0; i < 150 && received < 100; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      received += (await inlet.pull(1000)).length;
+    }
+    expect(received, greaterThanOrEqualTo(100));
+    await viewer.close();
+    stop.complete();
+    expect(await publishing, 0);
   });
 
   test('replay an XDF file', () async {
