@@ -10,6 +10,9 @@ It is `signal_viewer` with two source providers:
   each in a tab.
 - `XdfProvider` (`signal_viewer_xdf`): open .xdf files of any size, a tab
   per stream.
+- `SerialStreamProvider` (`signal_viewer_serial`): serial devices that
+  print lines of numbers (e.g. an Arduino), on desktop and in browsers
+  with WebSerial.
 
 Each tab has filters, re-referencing, power, signal quality and trigger
 decoding; the source setup (View menu) overrides a stream's type and

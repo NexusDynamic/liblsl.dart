@@ -13,6 +13,7 @@ dependencies:
     sdk: flutter
   signal_viewer: ^0.1.0
   signal_viewer_lsl: ^0.1.0
+  signal_viewer_serial: ^0.1.0
   signal_viewer_xdf: ^0.1.0
 
 dev_dependencies:
