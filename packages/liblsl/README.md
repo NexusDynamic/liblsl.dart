@@ -122,6 +122,24 @@ You will also need the following configured in your `Info.plist` file:
 </plist>
 ```
 
+### macOS
+
+macOS allows a process only 256 open files by default, and every outlet, inlet and resolver uses several sockets. An app with many streams (or the test suite) can run out, which shows up as `Too many open files` in liblsl's log and outlet or inlet creation failing. macOS's default TCP buffers are also small, which slows high-rate transfers. If you run into either, raise the limits:
+
+```bash
+sudo sysctl -w net.inet.tcp.mssdflt=1420
+sudo sysctl -w net.inet.tcp.win_scale_factor=7
+sudo sysctl -w net.inet.tcp.sendspace=861275
+sudo sysctl -w net.inet.tcp.recvspace=861275
+sudo sysctl -w net.inet.tcp.autosndbufmax=8388608
+sudo sysctl -w net.inet.tcp.autorcvbufmax=8388608
+sudo sysctl -w net.inet.ip.portrange.first=32768
+sudo launchctl limit maxfiles 65536 200000
+ulimit -S -n 65536   # per shell: run in the shell that starts your app or tests
+```
+
+The `sysctl` and `launchctl` settings last until reboot.
+
 
 ## API Usage
 
@@ -348,6 +366,8 @@ Set up the environment (for more details, see the [REVIEW_TESTING.md](https://gi
 ```bash
 dart test
 ```
+
+On macOS, raise the open file limit first (`ulimit -S -n 65536`, see [macOS](#macos)); the default of 256 is not enough for the suite.
 
 ## Contributing
 

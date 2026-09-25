@@ -1,3 +1,10 @@
+# One test file at a time. Files run as isolates in one process, so their
+# outlets, inlets and resolvers share its file-descriptor limit (256 by
+# default on macOS); running them together exhausts it, outlet creation fails
+# and later tests crash. It also keeps RSS-based leak checks and machine-wide
+# stream resolution from seeing other files' streams.
+concurrency: 1
+
 tags:
   # Tests that count traffic on real loopback sockets. Run on their own with
   # --concurrency=1; see `melos run test:lsl`.

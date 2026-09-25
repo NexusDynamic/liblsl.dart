@@ -86,7 +86,13 @@ melos:
       # Exit code 79 is "no tests ran": packages whose tests are all
       # lsl-tagged (e.g. lsl_tools) have nothing left once those are excluded.
       # `\$` because melos runs this through a second (outer) shell.
-      exec: dart test --exclude-tags "performance,benchmark,lsl" || [ \$? -eq 79 ]
+      # One package at a time: the workspace shares one
+      # .dart_tool/native_assets.yaml, which each `dart test` rewrites with
+      # only its own package's native assets, so concurrent runs can load
+      # another package's (e.g. serial_transport missing for lsl_tools).
+      exec:
+        command: dart test --exclude-tags "performance,benchmark,lsl" || [ \$? -eq 79 ]
+        concurrency: 1
       packageFilters:
         dirExists: test
         flutter: false
@@ -97,12 +103,13 @@ melos:
       # --concurrency=1 serialises test *files* within the package; the melos
       # `concurrency: 1` below serialises across packages. Both are needed:
       # these tests bind real sockets and resolve peers machine-wide, so any
-      # two running at once interfere.
+      # two running at once interfere (and see test:dart on native assets).
       # Exit code 79: packages with no lsl-tagged tests report "No tests match
       # the requested tag selectors", which is not a failure. (`\$` because
       # melos runs this through a second, outer shell.)
-      exec: dart test --tags "lsl" --concurrency=1 || [ \$? -eq 79 ]
-      concurrency: 1
+      exec:
+        command: dart test --tags "lsl" --concurrency=1 || [ \$? -eq 79 ]
+        concurrency: 1
       packageFilters:
         dirExists: test
         flutter: false
@@ -110,8 +117,9 @@ melos:
         Run LSL-backed integration tests serially. These bind loopback sockets and
         are timing-sensitive, so they must not run concurrently with each other.
     test:performance:
-      exec: flutter test --concurrency=1 --tags "performance"
-      concurrency: 1
+      exec:
+        command: flutter test --concurrency=1 --tags "performance"
+        concurrency: 1
       packageFilters:
         dirExists: test
         ignore:
@@ -120,7 +128,9 @@ melos:
     test:
       steps:
         - test:select
-        - test:dart
+        # --no-select: scripts with exec options otherwise ask which package
+        # to run in.
+        - melos run test:dart --no-select
       description: Run all non-LSL tests in this project.
     upgrade: melos exec flutter pub upgrade
     coverage:

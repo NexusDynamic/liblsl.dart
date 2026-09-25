@@ -196,6 +196,9 @@ void main() {
 
       // Create outlet
       final outlet = lsl_create_outlet(streamInfo, 0, 1);
+      // A null outlet (e.g. out of file descriptors) must fail the test, not
+      // crash the test runner in the push below.
+      expect(outlet, isNot(nullptr), reason: 'lsl_create_outlet failed');
 
       // Create a string sample (as an array of strings)
       final sampleStr = "Test Sample".toNativeUtf8().cast<Char>();

@@ -52,7 +52,7 @@ jobs:
       # LSL-backed tests bind loopback sockets and resolve peers machine-wide,
       # so they run on their own, serially.
       - name: Run LSL tests
-        run: melos run test:lsl
+        run: melos run test:lsl --no-select
 
       # The transport-neutral core must stay compilable for the browser.
       # Catches dart:io / dart:isolate / dart:ffi creeping into the core, and
@@ -88,10 +88,34 @@ jobs:
       - name: Get dependencies
         run: flutter pub get
 
+      # macOS defaults to 256 open files per process, which the liblsl tests
+      # (sockets for every outlet, inlet and resolver in one test process)
+      # run out of, and small TCP buffers slow loopback transfers. Same
+      # settings as recommended for running LSL on macOS.
+      - name: Tune macOS for LSL
+        if: runner.os == 'macOS'
+        run: |
+          sudo sysctl -w net.inet.tcp.mssdflt=1420
+          sudo sysctl -w net.inet.tcp.win_scale_factor=7
+          sudo sysctl -w net.inet.tcp.sendspace=861275
+          sudo sysctl -w net.inet.tcp.recvspace=861275
+          sudo sysctl -w net.inet.tcp.autosndbufmax=8388608
+          sudo sysctl -w net.inet.tcp.autorcvbufmax=8388608
+          sudo sysctl -w net.inet.ip.portrange.first=32768
+          sudo launchctl limit maxfiles 65536 200000
+
+      # ulimit only applies to the step's own shell, so it is raised in the
+      # steps that run tests (a no-op where the limit is already higher).
       - name: Run liblsl tests
         working-directory: packages/liblsl
-        run: dart test --exclude-tags "performance,benchmark,lsl"
+        shell: bash
+        run: |
+          ulimit -S -n 65536 2>/dev/null || ulimit -S -n "$(ulimit -H -n)" || true
+          dart test --exclude-tags "performance,benchmark,lsl"
 
       - name: Run liblsl LSL tests
         working-directory: packages/liblsl
-        run: dart test --tags "lsl" --concurrency=1
+        shell: bash
+        run: |
+          ulimit -S -n 65536 2>/dev/null || ulimit -S -n "$(ulimit -H -n)" || true
+          dart test --tags "lsl" --concurrency=1
