@@ -1,13 +1,9 @@
 name: serial_transport
-description: >-
-  Serial ports for Dart on desktop (a native shim built by a build hook)
-  and the web (WebSerial), behind one interface that apps can implement
-  for other platforms (e.g. Android USB serial).
+description: Single serial port transport shim for liblsl.dart.
 version: 0.1.0
 homepage: https://zeyus.com/
 repository: https://github.com/NexusDynamic/liblsl.dart
 issue_tracker: https://github.com/NexusDynamic/liblsl.dart/issues
-publish_to: 'none'
 
 resolution: workspace
 

@@ -13,6 +13,14 @@ Subpackages:
 - [liblsl_timing](./packages/liblsl_timing): App based multi-device latency, sync and interactive timing tests with automatic device coordination via LSL
 - [liblsl_analysis](./packages/liblsl_analysis): Analysis of results from the timing tests in [liblsl_timing](./packages/liblsl_timing)
 
+### XDF and LSL stream viewer application
+
+The [xdf](./packages/xdf) package (available at [xdf on pub.dev](https://pub.dev/packages/xdf)) is a Dart implementation of the XDF file format, which is a cross-platform, open-source file format for storing time series data.
+
+There is now a cross-platform (including web for XDF, LSL over web can be done via a bridge, but it's a little more complicated) application for viewing LSL streams and saving them to XDF files, or viewing and replaying XDF files over LSL streams.
+
+The live web version is available at [https://nexusdynamic.org/liblsl.dart/lsl_viewer/](https://nexusdynamic.org/liblsl.dart/lsl_viewer/). The source code is in the [lsl_viewer](./apps/lsl_viewer) package, and the latest release is available at [https://github.com/NexusDynamic/liblsl.dart/releases](https://github.com/NexusDynamic/liblsl.dart/releases) - these releases are named `lsl_viewer <version>`. Built applications exist for MacOS, Windows, Linux, and Android and Web.
+
 ## Getting Started
 
 You're most likely interested in the [liblsl](./packages/liblsl) package, which is the main package for liblsl.dart. You can find installation instructions and usage examples in the [README](./packages/liblsl/README.md) of that package. API documentation, and the Dart package are available on pub.dev: [https://pub.dev/packages/liblsl](https://pub.dev/packages/liblsl).

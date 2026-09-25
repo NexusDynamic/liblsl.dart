@@ -1,8 +1,8 @@
 # LSL Viewer
 
 View Lab Streaming Layer streams live and XDF recordings (e.g. from
-LabRecorder), on desktop, mobile and the web (XDF only: browsers cannot
-use LSL).
+LabRecorder), on desktop, mobile and the web (XDF only, lsl functionality
+is available through a bridge server).
 
 It is `signal_viewer` with two source providers:
 
@@ -32,5 +32,3 @@ channel names.
 flutter run -d linux            # or macos, windows, chrome, a device
 flutter run -d linux -a recording.xdf
 ```
-
-hyprview is the same viewer with the Hyperscanner provider added.
