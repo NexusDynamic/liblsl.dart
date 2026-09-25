@@ -5,6 +5,9 @@
 /// On the web, [LslBackend.supported] is false and nothing loads liblsl.
 library;
 
+export 'src/bridge/client.dart';
+export 'src/bridge/protocol.dart' show BridgeStream;
+export 'src/bridge/server.dart';
 export 'src/lsl.dart';
 export 'src/lsl_dialogs.dart';
 export 'src/lsl_forward.dart';

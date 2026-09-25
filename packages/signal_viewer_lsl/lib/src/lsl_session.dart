@@ -87,6 +87,10 @@ class LslSession extends SourceSession implements LiveData {
     LslInletOptions options,
   ) async => LslSession._(await lsl.openInlet(stream, options), options);
 
+  /// A session on an inlet from elsewhere, e.g. a bridge.
+  factory LslSession.fromInlet(LslInlet inlet, LslInletOptions options) =>
+      LslSession._(inlet, options);
+
   static StreamInfo _info(LslInlet inlet) {
     final s = inlet.stream;
     final n = s.channelCount;

@@ -22,6 +22,7 @@ dependencies:
   liblsl: any
   permission_handler: ^13.0.1
   signal_viewer: ^0.1.0
+  web_socket_channel: ^3.0.3
   xdf: ^0.1.0
   xml: ^6.5.0
 

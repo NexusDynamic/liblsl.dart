@@ -4,6 +4,9 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 
 import 'lsl_session.dart';
+import 'bridge/client.dart';
+import 'bridge/protocol.dart';
+import 'bridge/server.dart';
 import 'lsl_dialogs.dart';
 import 'lsl_forward.dart';
 import 'lsl_recorder.dart';
@@ -53,6 +56,81 @@ class LslProvider extends SourceProvider {
 
   /// Streams being connected to, by key.
   final Set<String> connecting = {};
+
+  /// Streams shared over the network, while sharing.
+  LslBridgeServer? bridgeServer;
+
+  /// Bridges connected to.
+  final List<LslBridgeClient> bridges = [];
+
+  /// Share [streams] over a WebSocket on [port].
+  Future<void> share(
+    List<LslStreamDescription> streams, {
+    int port = 8765,
+    String token = '',
+  }) async {
+    await stopSharing();
+    try {
+      bridgeServer = await LslBridgeServer.start(
+        streams,
+        port: port,
+        token: token,
+        options: app.prefs.lsl.inlet,
+      );
+      _shareTimer = Timer.periodic(
+        const Duration(seconds: 2),
+        (_) => notifyListeners(),
+      );
+      app.setStatus(
+        'Sharing ${streams.length} LSL streams on port ${bridgeServer!.port}',
+      );
+    } catch (e) {
+      app.setError('Could not share streams: $e');
+    }
+    notifyListeners();
+  }
+
+  Timer? _shareTimer;
+
+  Future<void> stopSharing() async {
+    final s = bridgeServer;
+    if (s == null) return;
+    bridgeServer = null;
+    _shareTimer?.cancel();
+    notifyListeners();
+    await s.close();
+  }
+
+  /// Connect to the bridge at [url]; returns an error message, or null.
+  Future<String?> connectBridge(Uri url, {String token = ''}) async {
+    try {
+      final b = await LslBridgeClient.connect(url, token: token);
+      bridges.add(b);
+      b.onStreams.listen((_) => notifyListeners(), onDone: notifyListeners);
+      notifyListeners();
+      return null;
+    } catch (e) {
+      return 'Could not connect: $e';
+    }
+  }
+
+  Future<void> disconnectBridge(LslBridgeClient b) async {
+    bridges.remove(b);
+    for (final s in [...sessions]) {
+      if (s.inlet.stream.uid.startsWith('bridge:${b.url.host}:')) {
+        await app.closeSession(s);
+      }
+    }
+    await b.close();
+    notifyListeners();
+  }
+
+  /// View bridged [stream] in a new tab.
+  void viewBridged(LslBridgeClient b, BridgeStream stream) {
+    if (isOpen(stream.description.key)) return;
+    app.addSession(LslSession.fromInlet(b.open(stream), app.prefs.lsl.inlet));
+    notifyListeners();
+  }
 
   /// Streams being forwarded under another name.
   final List<LslForward> forwards = [];
@@ -359,6 +437,11 @@ class LslProvider extends SourceProvider {
     for (final f in forwards) {
       f.close();
     }
+    _shareTimer?.cancel();
+    bridgeServer?.close();
+    for (final b in bridges) {
+      b.close();
+    }
     super.dispose();
   }
 
@@ -366,6 +449,15 @@ class LslProvider extends SourceProvider {
 
   @override
   List<ViewerAction> actions(BuildContext context) => [
+    // Also on the web, where LSL itself is not available.
+    ViewerAction(
+      'LSL',
+      bridges.isEmpty
+          ? 'Connect to an LSL bridge…'
+          : 'LSL bridges (${bridges.length})…',
+      onPressed: () => showLslBridge(context, this),
+      order: 5,
+    ),
     if (supported) ...[
       ViewerAction(
         'LSL',
@@ -424,6 +516,18 @@ class LslProvider extends SourceProvider {
             : null,
         order: 55,
       ),
+      if (LslBridgeServer.supported)
+        ViewerAction(
+          'LSL',
+          bridgeServer == null
+              ? 'Share streams over the network…'
+              : 'Stop sharing (port ${bridgeServer!.port}, '
+                    '${bridgeServer!.clientCount} connected)',
+          onPressed: bridgeServer == null
+              ? () => showLslShare(context, this)
+              : stopSharing,
+          order: 57,
+        ),
       ViewerAction(
         'LSL',
         'Test outlets…',
@@ -458,7 +562,18 @@ class LslProvider extends SourceProvider {
   List<Widget> status(BuildContext context) {
     final r = recorder;
     final replaying = replay;
+    final sharing = bridgeServer;
     return [
+      if (sharing != null)
+        Tooltip(
+          message:
+              'Sharing ${sharing.streams.length} LSL streams on port '
+              '${sharing.port} (${sharing.clientCount} connected)',
+          child: const Padding(
+            padding: EdgeInsets.only(left: 8),
+            child: Icon(Icons.share, size: 14),
+          ),
+        ),
       if (replaying != null)
         Tooltip(
           message: 'Replaying ${replaying.session.label} over LSL',
@@ -500,6 +615,12 @@ class LslProvider extends SourceProvider {
         onPressed: () => showLslStreams(context, this),
         icon: const Icon(Icons.hub_outlined),
         label: const Text('View an LSL stream…'),
+      )
+    else
+      OutlinedButton.icon(
+        onPressed: () => showLslBridge(context, this),
+        icon: const Icon(Icons.hub_outlined),
+        label: const Text('Connect to an LSL bridge…'),
       ),
   ];
 }

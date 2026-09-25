@@ -711,27 +711,61 @@ class _LslStreamInfoDialogState extends State<_LslStreamInfoDialog> {
 Future<List<LslStreamDescription>?> showLslRecordStreams(
   BuildContext context,
   LslProvider app,
-) async {
+) => showLslStreamPicker(
+  context,
+  app,
+  title: 'Record LSL streams to XDF',
+  note:
+      'Time stamps are recorded as sent, with clock offsets, as LabRecorder '
+      'does; readers (pyxdf, this viewer) synchronise them.',
+  verb: 'Record',
+  icon: Icons.fiber_manual_record,
+);
+
+/// Streams on the network to choose from (all at first), under [title]
+/// with a [note] and [extra] settings; the button says [verb] and the
+/// number chosen. Null if cancelled.
+Future<List<LslStreamDescription>?> showLslStreamPicker(
+  BuildContext context,
+  LslProvider app, {
+  required String title,
+  String note = '',
+  required String verb,
+  IconData icon = Icons.check,
+  Widget? extra,
+}) async {
   app.startDiscovery();
   try {
     return await showDialog<List<LslStreamDescription>>(
       context: context,
-      builder: (_) => _LslRecordDialog(app),
+      builder: (_) => _StreamPickerDialog(app, title, note, verb, icon, extra),
     );
   } finally {
     app.stopDiscovery();
   }
 }
 
-class _LslRecordDialog extends StatefulWidget {
+class _StreamPickerDialog extends StatefulWidget {
   final LslProvider app;
-  const _LslRecordDialog(this.app);
+  final String title;
+  final String note;
+  final String verb;
+  final IconData icon;
+  final Widget? extra;
+  const _StreamPickerDialog(
+    this.app,
+    this.title,
+    this.note,
+    this.verb,
+    this.icon,
+    this.extra,
+  );
 
   @override
-  State<_LslRecordDialog> createState() => _LslRecordDialogState();
+  State<_StreamPickerDialog> createState() => _StreamPickerDialogState();
 }
 
-class _LslRecordDialogState extends State<_LslRecordDialog> {
+class _StreamPickerDialogState extends State<_StreamPickerDialog> {
   /// Streams left out, by key; new ones are in.
   final Set<String> _skipped = {};
 
@@ -747,37 +781,34 @@ class _LslRecordDialogState extends State<_LslRecordDialog> {
             if (!_skipped.contains(s.key)) s,
         ];
         return AlertDialog(
-          title: const Text('Record LSL streams to XDF'),
+          title: Text(widget.title),
           content: SizedBox(
             width: 560,
-            child: streams.isEmpty
-                ? const Padding(
+            child: ListView(
+              shrinkWrap: true,
+              children: [
+                if (widget.note.isNotEmpty)
+                  Text(widget.note, style: theme.textTheme.bodySmall),
+                ?widget.extra,
+                if (streams.isEmpty)
+                  const Padding(
                     padding: EdgeInsets.symmetric(vertical: 24),
                     child: Text('Looking for LSL streams…'),
-                  )
-                : ListView(
-                    shrinkWrap: true,
-                    children: [
-                      Text(
-                        'Time stamps are recorded as sent, with clock '
-                        'offsets, as LabRecorder does; readers (pyxdf, '
-                        'this viewer) synchronise them.',
-                        style: theme.textTheme.bodySmall,
-                      ),
-                      for (final s in streams)
-                        CheckboxListTile(
-                          value: !_skipped.contains(s.key),
-                          onChanged: (v) => setState(
-                            () => v == true
-                                ? _skipped.remove(s.key)
-                                : _skipped.add(s.key),
-                          ),
-                          secondary: Icon(_icon(s)),
-                          title: Text(s.name),
-                          subtitle: Text(s.summary),
-                        ),
-                    ],
                   ),
+                for (final s in streams)
+                  CheckboxListTile(
+                    value: !_skipped.contains(s.key),
+                    onChanged: (v) => setState(
+                      () => v == true
+                          ? _skipped.remove(s.key)
+                          : _skipped.add(s.key),
+                    ),
+                    secondary: Icon(_icon(s)),
+                    title: Text(s.name),
+                    subtitle: Text(s.summary),
+                  ),
+              ],
+            ),
           ),
           actions: [
             TextButton(
@@ -788,12 +819,208 @@ class _LslRecordDialogState extends State<_LslRecordDialog> {
               onPressed: chosen.isEmpty
                   ? null
                   : () => Navigator.pop(context, chosen),
-              icon: const Icon(Icons.fiber_manual_record),
-              label: Text('Record ${chosen.length}'),
+              icon: Icon(widget.icon),
+              label: Text('${widget.verb} ${chosen.length}'),
             ),
           ],
         );
       },
+    );
+  }
+}
+
+/// Share streams over the network: choose them, the port and a token.
+Future<void> showLslShare(BuildContext context, LslProvider app) async {
+  final port = TextEditingController(text: '8765');
+  final token = TextEditingController();
+  try {
+    final chosen = await showLslStreamPicker(
+      context,
+      app,
+      title: 'Share LSL streams over the network',
+      note:
+          'Other computers (on any network that reaches this one) and '
+          'browsers connect with "Connect to an LSL bridge…" at '
+          'ws://<this computer>:<port>.',
+      verb: 'Share',
+      icon: Icons.share,
+      extra: Row(
+        children: [
+          SizedBox(
+            width: 100,
+            child: TextField(
+              controller: port,
+              decoration: const InputDecoration(labelText: 'Port'),
+              keyboardType: TextInputType.number,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: TextField(
+              controller: token,
+              decoration: const InputDecoration(
+                labelText: 'Token (optional)',
+                helperText: 'Clients must give it to connect',
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (chosen == null) return;
+    await app.share(
+      chosen,
+      port: int.tryParse(port.text.trim()) ?? 8765,
+      token: token.text.trim(),
+    );
+  } finally {
+    port.dispose();
+    token.dispose();
+  }
+}
+
+/// Connect to an LSL bridge and view its streams.
+Future<void> showLslBridge(BuildContext context, LslProvider app) =>
+    showDialog<void>(context: context, builder: (_) => _BridgeDialog(app));
+
+class _BridgeDialog extends StatefulWidget {
+  final LslProvider app;
+  const _BridgeDialog(this.app);
+
+  @override
+  State<_BridgeDialog> createState() => _BridgeDialogState();
+}
+
+class _BridgeDialogState extends State<_BridgeDialog> {
+  final _url = TextEditingController(text: 'ws://');
+  final _token = TextEditingController();
+  bool _connecting = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _url.dispose();
+    _token.dispose();
+    super.dispose();
+  }
+
+  Future<void> _connect() async {
+    var text = _url.text.trim();
+    if (!text.contains('://')) text = 'ws://$text';
+    final url = Uri.tryParse(text);
+    if (url == null || url.host.isEmpty) {
+      setState(() => _error = 'Not a ws:// address');
+      return;
+    }
+    setState(() {
+      _connecting = true;
+      _error = null;
+    });
+    final e = await widget.app.connectBridge(url, token: _token.text.trim());
+    if (mounted) {
+      setState(() {
+        _connecting = false;
+        _error = e;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return ListenableBuilder(
+      listenable: widget.app,
+      builder: (context, _) => AlertDialog(
+        title: const Text('LSL bridges'),
+        content: SizedBox(
+          width: 560,
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _url,
+                      decoration: const InputDecoration(
+                        labelText: 'Bridge address',
+                        hintText: 'ws://192.168.1.20:8765',
+                      ),
+                      onSubmitted: (_) => _connect(),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  SizedBox(
+                    width: 140,
+                    child: TextField(
+                      controller: _token,
+                      decoration: const InputDecoration(labelText: 'Token'),
+                      onSubmitted: (_) => _connect(),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton.tonal(
+                    onPressed: _connecting ? null : _connect,
+                    child: const Text('Connect'),
+                  ),
+                ],
+              ),
+              if (_error != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Text(
+                    _error!,
+                    style: TextStyle(color: theme.colorScheme.error),
+                  ),
+                ),
+              for (final b in widget.app.bridges) ...[
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '${b.url}'
+                        '${b.closed ? ' (disconnected: ${b.error})' : ''}',
+                        style: theme.textTheme.titleSmall,
+                      ),
+                    ),
+                    Text(
+                      'clock offset ${(b.offset * 1000).toStringAsFixed(1)} ms',
+                      style: theme.textTheme.bodySmall,
+                    ),
+                    TextButton(
+                      onPressed: () => widget.app.disconnectBridge(b),
+                      child: const Text('Disconnect'),
+                    ),
+                  ],
+                ),
+                for (final s in b.streams)
+                  ListTile(
+                    dense: true,
+                    leading: Icon(_icon(s.description)),
+                    title: Text(s.description.name),
+                    subtitle: Text(s.description.summary),
+                    trailing: widget.app.isOpen(s.description.key)
+                        ? const Chip(label: Text('Open'))
+                        : FilledButton.tonal(
+                            onPressed: b.closed
+                                ? null
+                                : () => widget.app.viewBridged(b, s),
+                            child: const Text('View'),
+                          ),
+                  ),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
     );
   }
 }
