@@ -33,6 +33,7 @@ export 'src/ui/dialogs/dialogs.dart';
 export 'src/ui/main_window.dart';
 export 'src/ui/panel/controls_panel.dart';
 export 'src/ui/panel/quick_bar.dart';
+export 'src/ui/plot/alt_views.dart';
 export 'src/ui/plot/overview_strip.dart';
 export 'src/ui/plot/stream_plot.dart';
 export 'src/ui/plot/trace_painter.dart';

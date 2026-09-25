@@ -204,6 +204,7 @@ class KindDefaults {
     Kind.eeg: KindDefaults(highpass: 0.5),
     Kind.emg: KindDefaults(highpass: 20),
     Kind.imu: KindDefaults(scaleMode: ScaleMode.perChannel),
+    Kind.audio: KindDefaults(scaleMode: ScaleMode.auto),
     Kind.event: KindDefaults(),
     Kind.other: KindDefaults(scaleMode: ScaleMode.perChannel),
   };

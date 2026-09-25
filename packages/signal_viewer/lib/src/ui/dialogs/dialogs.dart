@@ -117,7 +117,13 @@ class _PreferencesDialogState extends State<_PreferencesDialog> {
           style: theme.textTheme.bodySmall,
         ),
         const SizedBox(height: 8),
-        for (final kind in [Kind.eeg, Kind.emg, Kind.imu, Kind.other])
+        for (final kind in [
+          Kind.eeg,
+          Kind.emg,
+          Kind.imu,
+          Kind.audio,
+          Kind.other,
+        ])
           _kindCard(kind),
         const SizedBox(height: 16),
         Text('Memory', style: theme.textTheme.titleSmall),

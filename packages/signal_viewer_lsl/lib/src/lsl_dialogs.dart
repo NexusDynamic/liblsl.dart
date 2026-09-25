@@ -29,6 +29,7 @@ IconData _icon(LslStreamDescription s) {
   return switch (kindFromType(s.type)) {
     Kind.eeg || Kind.emg => Icons.show_chart,
     Kind.imu => Icons.threed_rotation,
+    Kind.audio => Icons.graphic_eq,
     Kind.event => Icons.flag_outlined,
     Kind.other => Icons.stream,
   };

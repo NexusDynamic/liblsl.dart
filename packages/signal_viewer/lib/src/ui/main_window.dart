@@ -11,7 +11,7 @@ import 'dialogs/dialogs.dart';
 import 'panel/controls_panel.dart';
 import 'panel/quick_bar.dart';
 import 'plot/overview_strip.dart';
-import 'plot/stream_plot.dart';
+import 'plot/alt_views.dart';
 import 'plot/trace_painter.dart';
 import 'stream_controller.dart';
 import 'widgets/widgets.dart';
@@ -571,7 +571,7 @@ class _MainWindowState extends State<MainWindow> {
         ),
         Expanded(
           flex: 2,
-          child: StreamPlot(
+          child: TabPlot(
             key: ObjectKey(c),
             controller: c,
             style: style,
@@ -581,7 +581,7 @@ class _MainWindowState extends State<MainWindow> {
         for (final b in tab.below) ...[
           _belowHeader(tab, b),
           Expanded(
-            child: StreamPlot(
+            child: TabPlot(
               key: ObjectKey(b.controller),
               controller: b.controller,
               style: style,

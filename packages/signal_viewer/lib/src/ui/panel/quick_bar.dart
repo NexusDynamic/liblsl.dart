@@ -59,7 +59,29 @@ class QuickBar extends StatelessWidget {
           if (v != null) c.setWindow(v);
         },
       ),
-      if (!isEvent)
+      if (c.views.length > 1) ...[
+        ChipMenu<PlotView>(
+          icon: switch (c.view) {
+            PlotView.traces => Icons.show_chart,
+            PlotView.spectrogram => Icons.graphic_eq,
+            PlotView.xy => Icons.scatter_plot,
+          },
+          tooltip: 'View',
+          label: c.view.label,
+          selected: c.view,
+          choices: [for (final v in c.views) (v.label, v)],
+          onSelected: c.setView,
+        ),
+        if (c.view == PlotView.spectrogram)
+          _channelChip('Channel', c.spectrogramChannel, (ch) {
+            c.setView(PlotView.spectrogram, channel: ch);
+          }),
+        if (c.view == PlotView.xy) ...[
+          _channelChip('X', c.xChannel, (ch) => c.setView(PlotView.xy, x: ch)),
+          _channelChip('Y', c.yChannel, (ch) => c.setView(PlotView.xy, y: ch)),
+        ],
+      ],
+      if (!isEvent && c.view == PlotView.traces)
         ChipMenu<double?>(
           icon: Icons.height,
           tooltip: 'Amplitude per lane',
@@ -143,6 +165,19 @@ class QuickBar extends StatelessWidget {
           ?trailing,
         ],
       ),
+    );
+  }
+
+  Widget _channelChip(String name, int channel, ValueChanged<int> onSelected) {
+    final info = controller.info;
+    return ChipMenu<int>(
+      tooltip: name,
+      label: '$name: ${info.labels[channel.clamp(0, info.channelCount - 1)]}',
+      selected: channel,
+      choices: [
+        for (var c = 0; c < info.channelCount; c++) (info.labels[c], c),
+      ],
+      onSelected: onSelected,
     );
   }
 

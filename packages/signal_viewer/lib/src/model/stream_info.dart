@@ -6,6 +6,7 @@ enum Kind {
   eeg('EEG'),
   emg('EMG'),
   imu('IMU'),
+  audio('Audio'),
   event('Event'),
   other('Other');
 
@@ -31,6 +32,7 @@ Kind kindFromType(String type) => switch (type.trim().toLowerCase()) {
   'mocap' ||
   'orientation' ||
   'position' => Kind.imu,
+  'audio' || 'sound' || 'microphone' || 'mic' => Kind.audio,
   'event' ||
   'events' ||
   'markers' ||

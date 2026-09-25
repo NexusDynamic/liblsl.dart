@@ -565,6 +565,47 @@ class StreamController extends ChangeNotifier {
   /// Tabs shown together share their time window through this.
   TimeLink? link;
 
+  // -- view -------------------------------------------------------------------
+
+  late PlotView _view = info.kind == Kind.audio && !info.irregular
+      ? PlotView.spectrogram
+      : PlotView.traces;
+
+  /// Channel of the spectrogram.
+  int spectrogramChannel = 0;
+
+  /// Channels of the XY view: by default ones labelled x and y.
+  late int xChannel = _labelled('x') ?? 0;
+  late int yChannel = _labelled('y') ?? (info.channelCount > 1 ? 1 : 0);
+
+  int? _labelled(String axis) {
+    for (var c = 0; c < info.channelCount; c++) {
+      final l = info.labels[c].toLowerCase();
+      if (l == axis || l.endsWith('_$axis') || l.endsWith('.$axis')) return c;
+    }
+    return null;
+  }
+
+  /// How the tab shows its data.
+  PlotView get view => _view;
+
+  /// The views this stream can be shown in.
+  List<PlotView> get views => [
+    PlotView.traces,
+    if (!info.irregular && info.kind != Kind.event) ...[
+      PlotView.spectrogram,
+      if (info.channelCount > 1) PlotView.xy,
+    ],
+  ];
+
+  void setView(PlotView v, {int? channel, int? x, int? y}) {
+    _view = v;
+    if (channel != null) spectrogramChannel = channel;
+    if (x != null) xChannel = x;
+    if (y != null) yChannel = y;
+    notifyListeners();
+  }
+
   /// Show the window [t0], [windowS] of another tab (see [TimeLink]):
   /// recordings take both, even beyond their own data, so the time axes
   /// line up; live tabs only the length (they all end now).
@@ -963,4 +1004,14 @@ class TimeLink {
       if (c != from) c.follow(from.t0, from.windowS);
     }
   }
+}
+
+/// How a tab shows its data.
+enum PlotView {
+  traces('Traces'),
+  spectrogram('Spectrogram'),
+  xy('XY');
+
+  final String label;
+  const PlotView(this.label);
 }
