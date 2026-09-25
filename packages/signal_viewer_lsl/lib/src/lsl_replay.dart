@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:signal_viewer/signal_viewer.dart';
 
 import 'package:lsl_tools/lsl_tools.dart';
+import 'lsl_forward.dart';
 
 class _Replayed {
   final StreamInfo info;
@@ -26,7 +27,8 @@ class _Replayed {
 
 /// Plays a recording ([SourceSession.replayable]) over LSL in real time: an
 /// outlet per stream, named as in the recording, whose samples are stamped
-/// with the time they are sent.
+/// with the time they are sent. The outlets are made here, or on a bridge's
+/// computer when given its [LslBridgeClient.publish] as the outlet factory.
 class LslReplay extends ChangeNotifier {
   final SourceSession session;
   final List<_Replayed> _streams;
@@ -41,6 +43,9 @@ class LslReplay extends ChangeNotifier {
   Timer? _timer;
   DateTime _lastNotify = DateTime.now();
 
+  /// Samples sent so far, over all streams.
+  int sent = 0;
+
   /// Seconds read ahead at a time.
   static const blockS = 2.0;
 
@@ -49,23 +54,29 @@ class LslReplay extends ChangeNotifier {
     _timer = Timer.periodic(const Duration(milliseconds: 20), (_) => _tick());
   }
 
-  /// Start replaying [session] from [from] seconds.
+  /// Start replaying [session] from [from] seconds: all its streams, or
+  /// only [only], each named as recorded or as [name] gives. Outlets are
+  /// made with [create] (default: LSL here).
   static Future<LslReplay> start(
     SourceSession session, {
     double from = 0,
     bool loop = false,
     LslOutletOptions options = const LslOutletOptions(),
+    List<StreamInfo>? only,
+    String Function(StreamInfo info)? name,
+    OutletFactory? create,
   }) async {
+    create ??= (spec) => lsl.createOutlet(spec, options);
     final streams = <_Replayed>[];
     var end = 0.0;
     try {
-      for (final info in session.streams) {
+      for (final info in only ?? session.streams) {
         final source = session.sourceFor(info);
         end = math.max(end, source.end);
         final strings = info.irregular && source.events().text != null;
-        final outlet = await lsl.createOutlet(
+        final outlet = await create(
           LslOutletSpec(
-            name: info.name,
+            name: name?.call(info) ?? info.name,
             type: info.type.isEmpty ? info.kind.label : info.type,
             // String outlets carry one channel (the first).
             channelCount: strings ? 1 : info.channelCount,
@@ -80,7 +91,6 @@ class LslReplay extends ChangeNotifier {
               'acquisition': {'replay_of': session.label},
             },
           ),
-          options,
         );
         final r = _Replayed(info, source, outlet, from);
         if (info.irregular) {
@@ -171,6 +181,7 @@ class LslReplay extends ChangeNotifier {
     }
     s.pushed = w.start + z / rate;
     if (n == 0) return;
+    sent += n;
     s.outlet.push(
       Float32List.sublistView(values, 0, n * ch),
       Float64List.sublistView(times, 0, n),
@@ -207,6 +218,7 @@ class LslReplay extends ChangeNotifier {
       }
     }
     if (times.isEmpty) return;
+    sent += times.length;
     if (e.text != null) {
       s.outlet.pushStrings(strings, times);
     } else {
@@ -222,4 +234,52 @@ class LslReplay extends ChangeNotifier {
       await s.outlet.close();
     }
   }
+}
+
+/// One stream of a recording replayed from a position under another name,
+/// listed with the forwards (Forward on a recording's tab).
+class LslReplayForward implements LslForwarding {
+  final LslReplay replay;
+  final StreamInfo info;
+  @override
+  final String name;
+
+  LslReplayForward._(this.replay, this.info, this.name);
+
+  /// Replay [info] of [session] from [from] seconds as [name].
+  static Future<LslReplayForward> start(
+    SourceSession session,
+    StreamInfo info, {
+    required String name,
+    required double from,
+    bool loop = false,
+    LslOutletOptions options = const LslOutletOptions(),
+    OutletFactory? create,
+  }) async {
+    final r = await LslReplay.start(
+      session,
+      from: from,
+      loop: loop,
+      options: options,
+      only: [info],
+      name: (_) => name,
+      create: create,
+    );
+    return LslReplayForward._(r, info, name);
+  }
+
+  @override
+  String get from => '${info.name} (recording)';
+
+  @override
+  SourceSession get source => replay.session;
+
+  @override
+  List<int> get channels => [for (var c = 0; c < info.channelCount; c++) c];
+
+  @override
+  int get sent => replay.sent;
+
+  @override
+  Future<void> close() => replay.close();
 }

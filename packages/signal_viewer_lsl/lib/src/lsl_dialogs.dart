@@ -1222,20 +1222,31 @@ class _ForwardDialog extends StatefulWidget {
 }
 
 class _ForwardDialogState extends State<_ForwardDialog> {
-  late final TabEntry? _tab =
-      widget.app.app.currentTab?.controller.live ?? false
-      ? widget.app.app.currentTab
-      : null;
+  /// The current tab, if live or a recording (replayed from the shown
+  /// position).
+  late final TabEntry? _tab = switch (widget.app.app.currentTab) {
+    final t? when t.controller.live || t.session.replayable => t,
+    _ => null,
+  };
   late final _name = TextEditingController(
-    text: _tab == null ? '' : '${_tab.group.info.name} (forwarded)',
+    text: _tab == null
+        ? ''
+        : '${_tab.group.info.name} '
+              '(${_tab.controller.live ? 'forwarded' : 'replayed'})',
   );
   bool _shownOnly = false;
   bool _processed = false;
 
   /// Where to: null for LSL here, or a bridge.
-  late LslBridgeClient? _via = widget.app.supported
-      ? null
-      : widget.app.publishingBridges.firstOrNull;
+  LslBridgeClient? _chosen;
+
+  /// [_chosen] if still available, else the first place there is: bridges
+  /// come and go while the dialog is open.
+  LslBridgeClient? get _via {
+    final bridges = widget.app.publishingBridges;
+    if (_chosen != null && bridges.contains(_chosen)) return _chosen;
+    return widget.app.supported ? null : bridges.firstOrNull;
+  }
 
   @override
   void dispose() {
@@ -1259,7 +1270,12 @@ class _ForwardDialogState extends State<_ForwardDialog> {
               children: [
                 if (tab != null) ...[
                   Text(
-                    tab.session is LslSession
+                    !tab.controller.live
+                        ? 'Replay ${tab.group.info.name} from '
+                              '${tab.controller.t0.toStringAsFixed(1)} s as '
+                              'an LSL stream, in real time and stamped on '
+                              'the LSL clock.'
+                        : tab.session is LslSession
                         ? 'Publish ${tab.group.info.name} again as a new '
                               'stream, with the time stamps it arrived with.'
                         : 'Publish ${tab.group.info.name} as an LSL stream '
@@ -1272,15 +1288,16 @@ class _ForwardDialogState extends State<_ForwardDialog> {
                     controller: _name,
                     decoration: const InputDecoration(labelText: 'Name'),
                   ),
-                  CheckboxListTile(
-                    contentPadding: EdgeInsets.zero,
-                    value: _shownOnly,
-                    onChanged: (v) => setState(() => _shownOnly = v ?? false),
-                    title: Text(
-                      'Only the ${tab.controller.lanes.length} shown channels',
+                  if (tab.controller.live)
+                    CheckboxListTile(
+                      contentPadding: EdgeInsets.zero,
+                      value: _shownOnly,
+                      onChanged: (v) => setState(() => _shownOnly = v ?? false),
+                      title: Text(
+                        'Only the ${tab.controller.lanes.length} shown channels',
+                      ),
                     ),
-                  ),
-                  if (!tab.group.info.irregular)
+                  if (tab.controller.live && !tab.group.info.irregular)
                     CheckboxListTile(
                       contentPadding: EdgeInsets.zero,
                       value: _processed,
@@ -1296,9 +1313,12 @@ class _ForwardDialogState extends State<_ForwardDialog> {
                       Expanded(
                         child: DropdownButton<int>(
                           isExpanded: true,
-                          value: _via == null
+                          value: _via != null
+                              ? widget.app.publishingBridges.indexOf(_via!)
+                              : widget.app.supported
                               ? -1
-                              : widget.app.publishingBridges.indexOf(_via!),
+                              : null,
+                          hint: const Text('Nowhere to publish'),
                           items: [
                             if (widget.app.supported)
                               const DropdownMenuItem(
@@ -1316,7 +1336,7 @@ class _ForwardDialogState extends State<_ForwardDialog> {
                               ),
                           ],
                           onChanged: (i) => setState(
-                            () => _via = i == null || i < 0
+                            () => _chosen = i == null || i < 0
                                 ? null
                                 : widget.app.publishingBridges[i],
                           ),
@@ -1382,4 +1402,34 @@ class _ForwardDialogState extends State<_ForwardDialog> {
       ),
     );
   }
+}
+
+/// Where to publish LSL streams: LSL here (`via` null) or through a bridge
+/// that lets clients publish. Asks only when there is more than one place;
+/// null if there is none or the user cancels.
+Future<({LslBridgeClient? via})?> chooseLslTarget(
+  BuildContext context,
+  LslProvider app,
+) async {
+  final bridges = app.publishingBridges;
+  final places = [if (app.supported) null, ...bridges];
+  if (places.isEmpty) return null;
+  if (places.length == 1) return (via: places.single);
+  return showDialog<({LslBridgeClient? via})>(
+    context: context,
+    builder: (context) => SimpleDialog(
+      title: const Text('Publish to'),
+      children: [
+        for (final b in places)
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(context, (via: b)),
+            child: Text(
+              b == null
+                  ? 'LSL on this computer'
+                  : 'LSL on ${b.url.host} (through its bridge)',
+            ),
+          ),
+      ],
+    ),
+  );
 }

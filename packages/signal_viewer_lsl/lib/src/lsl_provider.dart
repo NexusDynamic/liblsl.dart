@@ -156,7 +156,7 @@ class LslProvider extends SourceProvider {
   }) async {
     final session = tab.session;
     final c = tab.controller;
-    if (!c.live) return;
+    if (!c.live && !session.replayable) return;
     final info = tab.group.info;
     final channels = shownOnly ? ([...c.lanes]..sort()) : null;
     final derived = processed ? c.spec : DerivedSpec.none;
@@ -164,8 +164,19 @@ class LslProvider extends SourceProvider {
     if (via == null) await lsl.prepare();
     try {
       forwards.add(
-        // LSL streams keep the time stamps they arrived with.
-        session is LslSession
+        // A recording is replayed from the shown position.
+        !c.live
+            ? await LslReplayForward.start(
+                session,
+                info,
+                name: name,
+                from: c.t0,
+                loop: app.prefs.lsl.replayLoop,
+                options: app.prefs.lsl.outlet,
+                create: create,
+              )
+            // LSL streams keep the time stamps they arrived with.
+            : session is LslSession
             ? await LslForward.start(
                 session,
                 name: name,
@@ -264,16 +275,22 @@ class LslProvider extends SourceProvider {
     return s != null && s.replayable ? s : null;
   }
 
-  /// Play [session] over LSL from [from] seconds, or stop the replay.
-  Future<void> toggleReplay(SourceSession session, double from) async {
+  /// Play [session] over LSL from [from] seconds, here or [via] a bridge
+  /// (as LSL streams on its computer), or stop the replay.
+  Future<void> toggleReplay(
+    SourceSession session,
+    double from, {
+    LslBridgeClient? via,
+  }) async {
     if (replay != null) {
       final same = replay!.session == session;
       await stopReplay();
       if (same) return;
     }
-    if (!lsl.supported || _startingReplay) return;
+    if (_startingReplay) return;
+    if (via == null && !lsl.supported) return;
     _startingReplay = true;
-    await lsl.prepare();
+    if (via == null) await lsl.prepare();
     app.setStatus('Starting LSL replay of ${session.label}…');
     try {
       final r = await LslReplay.start(
@@ -281,6 +298,7 @@ class LslProvider extends SourceProvider {
         from: from,
         loop: app.prefs.lsl.replayLoop,
         options: app.prefs.lsl.outlet,
+        create: via?.publish,
       );
       replay = r;
       r.addListener(() {
@@ -293,7 +311,8 @@ class LslProvider extends SourceProvider {
         }
       });
       app.setStatus(
-        'Replaying ${session.label} over LSL (${r.streamCount} streams)',
+        'Replaying ${session.label} over LSL (${r.streamCount} streams)'
+        '${via == null ? '' : ' through ${via.url}'}',
       );
     } catch (e) {
       app.setError('Could not replay ${session.label}: $e');
@@ -495,12 +514,34 @@ class LslProvider extends SourceProvider {
           ? 'Forward this stream…'
           : 'Forward… (${forwards.length} forwarded)',
       onPressed:
-          (canForward && (app.currentTab?.controller.live ?? false)) ||
+          (canForward &&
+                  ((app.currentTab?.controller.live ?? false) ||
+                      _replayable != null)) ||
               forwards.isNotEmpty
           ? () => showLslForward(context, this)
           : null,
       order: 55,
     ),
+    // Also through a bridge, so on the web too.
+    if ((_replayable != null && canForward) || replay != null)
+      ViewerAction(
+        'LSL',
+        replay != null ? _replayLabel() : 'Replay this recording from here',
+        icon: replay != null ? Icons.stop : Icons.play_arrow,
+        onPressed: replay != null
+            ? () {
+                stopReplay();
+                app.setStatus('LSL replay stopped');
+              }
+            : () async {
+                final session = _replayable!;
+                final from = app.currentTab!.controller.t0;
+                final to = await chooseLslTarget(context, this);
+                if (to == null) return;
+                await toggleReplay(session, from, via: to.via);
+              },
+        order: 20,
+      ),
     if (supported) ...[
       ViewerAction(
         'LSL',
@@ -523,19 +564,6 @@ class LslProvider extends SourceProvider {
               },
         order: 40,
       ),
-      if (_replayable != null || replay != null)
-        ViewerAction(
-          'LSL',
-          replay != null ? _replayLabel() : 'Replay this recording from here',
-          icon: replay != null ? Icons.stop : Icons.play_arrow,
-          onPressed: replay != null
-              ? () {
-                  stopReplay();
-                  app.setStatus('LSL replay stopped');
-                }
-              : () => toggleReplay(_replayable!, app.currentTab!.controller.t0),
-          order: 20,
-        ),
       ViewerAction(
         'LSL',
         'Stream info…',
