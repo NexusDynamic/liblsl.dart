@@ -1,7 +1,7 @@
-import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:openbci_cyton/testing.dart';
 import 'package:serial_transport/serial_transport.dart';
 import 'package:signal_viewer/signal_viewer.dart';
 import 'package:signal_viewer_serial/signal_viewer_serial.dart';
@@ -78,6 +78,46 @@ void main() {
     final last = w.channels[0].lastIndexWhere((v) => !v.isNaN);
     expect(w.channels[0][last], 99);
     expect(w.channels[1][last], -99);
+    await session.close();
+  }, skip: hasSocat ? false : 'socat not available');
+
+  test('an OpenBCI Cyton + Daisy: EEG and accelerometer tabs', () async {
+    final dir = Directory.systemTemp.createTempSync('cyton_session');
+    final a = '${dir.path}/a', b = '${dir.path}/b';
+    final socat = await Process.start('socat', [
+      'pty,raw,echo=0,link=$a',
+      'pty,raw,echo=0,link=$b',
+    ]);
+    addTearDown(socat.kill);
+    for (var i = 0; i < 100 && !File(b).existsSync(); i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    }
+    final provider = SerialPortProvider.platform();
+    final far = await provider.open(SerialPortInfo(id: a));
+    final fake = FakeCyton(far);
+    addTearDown(far.close);
+    final session = await CytonSession.open(provider, SerialPortInfo(id: b));
+    for (var i = 0; i < 100 && session.received < 125; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    }
+    final eeg = session.streams[0], acc = session.streams[1];
+    expect(eeg.channelCount, 16);
+    expect(eeg.rate, 125);
+    expect(eeg.labels.take(3), ['Fp1', 'Fp2', 'C3']);
+    expect(eeg.kind, Kind.eeg);
+    expect(acc.labels, ['x', 'y', 'z']);
+    final w = (await LiveStreamSource(
+      session,
+      eeg,
+    ).read(session.now - 1, session.now, DerivedSpec.none))!;
+    // Channel 16 peaks at 160 µV.
+    final peak = w.channels[15]
+        .where((v) => !v.isNaN)
+        .map((v) => v.abs())
+        .reduce((x, y) => x > y ? x : y);
+    expect(peak, closeTo(160, 5));
+    expect(session.lostSampleCount, 0);
+    fake.stop();
     await session.close();
   }, skip: hasSocat ? false : 'socat not available');
 }

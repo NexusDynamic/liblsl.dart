@@ -23,6 +23,7 @@ workspace:
   - packages/serial_transport
   - packages/signal_viewer_serial
   - packages/lsl_tools
+  - packages/openbci_cyton
   - apps/lsl_viewer
 dev_dependencies:
   melos: ^8.2.2

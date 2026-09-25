@@ -17,6 +17,8 @@ environment:
 dependencies:
   args: ^2.6.0
   liblsl: any
+  openbci_cyton: ^0.1.0
+  serial_transport: ^0.1.0
   signal_core: ^0.1.0
   web_socket_channel: ^3.0.3
   xdf: ^0.1.0

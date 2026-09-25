@@ -6,6 +6,8 @@ import 'dart:io';
 
 import 'package:lsl_tools/cli.dart';
 import 'package:lsl_tools/lsl_tools.dart';
+import 'package:openbci_cyton/testing.dart';
+import 'package:serial_transport/serial_transport.dart';
 import 'package:test/test.dart';
 import 'package:xdf/xdf.dart';
 
@@ -63,29 +65,29 @@ void main() {
     addTearDown(g.close);
     final stopShare = Completer<void>(), stopBridge = Completer<void>();
     final shareOut = StringBuffer();
-    final sharing = runLslCli([
-      'share',
-      '-s',
-      'cli_share_$id',
-      '-p',
-      '0',
-      '--token',
-      't',
-    ], stop: stopShare.future, out: shareOut);
+    final sharing = runLslCli(
+      ['share', '-s', 'cli_share_$id', '-p', '0', '--token', 't'],
+      stop: stopShare.future,
+      out: shareOut,
+    );
     String? port;
     for (var i = 0; i < 100 && port == null; i++) {
       await Future<void>.delayed(const Duration(milliseconds: 50));
       port = RegExp(r'on port (\d+)').firstMatch('$shareOut')?.group(1);
     }
     expect(port, isNotNull, reason: '$shareOut');
-    final bridging = runLslCli([
-      'bridge',
-      'ws://127.0.0.1:$port',
-      '--token',
-      't',
-      '--suffix',
-      '_bridged',
-    ], stop: stopBridge.future, out: StringBuffer());
+    final bridging = runLslCli(
+      [
+        'bridge',
+        'ws://127.0.0.1:$port',
+        '--token',
+        't',
+        '--suffix',
+        '_bridged',
+      ],
+      stop: stopBridge.future,
+      out: StringBuffer(),
+    );
     final d = lsl.discover();
     final inlet = await lsl.openInlet(
       await _find(d, 'cli_share_${id}_bridged'),
@@ -119,9 +121,11 @@ void main() {
         nominalRate: 100,
       ),
     );
-    w.writeSamples(1, [for (var i = 0; i < 500; i++) 10 + i / 100], [
-      for (var i = 0; i < 500; i++) i.toDouble(),
-    ]);
+    w.writeSamples(
+      1,
+      [for (var i = 0; i < 500; i++) 10 + i / 100],
+      [for (var i = 0; i < 500; i++) i.toDouble()],
+    );
     await w.close();
     final replaying = runLslCli(['replay', path], out: StringBuffer());
     final d = lsl.discover();
@@ -131,10 +135,12 @@ void main() {
     );
     final values = <double>[];
     var done = false;
-    unawaited(replaying.then((code) {
-      expect(code, 0);
-      done = true;
-    }));
+    unawaited(
+      replaying.then((code) {
+        expect(code, 0);
+        done = true;
+      }),
+    );
     while (!done) {
       await Future<void>.delayed(const Duration(milliseconds: 50));
       final c = await inlet.pull(1000);
@@ -145,5 +151,47 @@ void main() {
     expect(values.last, 499);
     await inlet.close();
     d.close();
+  });
+
+  test('publish a (simulated) OpenBCI Cyton', () async {
+    final a = '${dir.path}/cyton_a', b = '${dir.path}/cyton_b';
+    final socat = await Process.start('socat', [
+      'pty,raw,echo=0,link=$a',
+      'pty,raw,echo=0,link=$b',
+    ]);
+    addTearDown(socat.kill);
+    for (var i = 0; i < 100 && !File(b).existsSync(); i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    }
+    final far = await SerialPortProvider.platform().open(SerialPortInfo(id: a));
+    final fake = FakeCyton(far);
+    addTearDown(far.close);
+    final stop = Completer<void>();
+    final out = StringBuffer();
+    final running = runLslCli(
+      ['cyton', b, '--name', 'cyton_$id', '--bipolar', '9'],
+      stop: stop.future,
+      out: out,
+    );
+    final d = lsl.discover();
+    final inlet = await lsl.openInlet(
+      await _find(d, 'cyton_$id'),
+      const LslInletOptions(dejitter: false),
+    );
+    expect(inlet.stream.channelCount, 16);
+    expect(inlet.stream.rate, 125);
+    expect(inlet.channels.first.label, 'Fp1');
+    var received = 0;
+    for (var i = 0; i < 100 && received < 125; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      received += (await inlet.pull(1000)).length;
+    }
+    expect(received, greaterThanOrEqualTo(125));
+    expect(fake.received, contains('xQ060100X'));
+    await inlet.close();
+    d.close();
+    stop.complete();
+    expect(await running, 0, reason: '$out');
+    fake.stop();
   });
 }

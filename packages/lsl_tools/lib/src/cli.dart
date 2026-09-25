@@ -4,6 +4,8 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:args/command_runner.dart';
+import 'package:openbci_cyton/openbci_cyton.dart';
+import 'package:serial_transport/serial_transport.dart';
 import 'package:signal_core/signal_core.dart';
 import 'package:xdf/xdf.dart';
 import 'package:xml/xml.dart';
@@ -43,6 +45,7 @@ Future<int> runLslCli(
     _Bridge(o, stop),
     _Generate(o, stop),
     _Replay(o, stop),
+    _Cyton(o, stop),
   ]) {
     runner.addCommand(c);
   }
@@ -594,5 +597,144 @@ class _Replay extends _Base {
         }
       }
     }
+  }
+}
+
+/// The UltraCortex Mark IV's electrodes, in channel order.
+const _ultracortex = [
+  'Fp1', 'Fp2', 'C3', 'C4', 'P7', 'P8', 'O1', 'O2', //
+  'F7', 'F8', 'F3', 'F4', 'T7', 'T8', 'P3', 'P4',
+];
+
+class _Cyton extends _Base {
+  final Future<void>? stop;
+  _Cyton(super.out, this.stop) {
+    argParser
+      ..addOption('name', defaultsTo: 'OpenBCI Cyton')
+      ..addFlag('daisy', defaultsTo: true, help: 'Use a Daisy if there is one.')
+      ..addFlag(
+        'ultracortex',
+        defaultsTo: true,
+        help: 'Name channels as the UltraCortex Mark IV electrodes.',
+      )
+      ..addMultiOption(
+        'bipolar',
+        help: 'Channels (1-16) without the SRB2 reference, e.g. for EMG.',
+      );
+  }
+
+  @override
+  String get name => 'cyton';
+
+  @override
+  String get description =>
+      'Publish an OpenBCI Cyton (+ Daisy) as LSL streams: EEG (µV) and its '
+      'accelerometer (g). Without a port, list the serial ports.';
+
+  @override
+  String get invocation => 'lsl cyton [<serial port>]';
+
+  @override
+  Future<int> run() async {
+    final serial = SerialPortProvider.platform();
+    final rest = argResults!.rest;
+    if (rest.isEmpty) {
+      for (final p in await serial.listPorts()) {
+        out.writeln('${p.id}\t${p.description}');
+      }
+      return 0;
+    }
+    final board = await CytonBoard.connect(
+      await serial.open(
+        SerialPortInfo(id: rest.single),
+        baudRate: cytonBaudRate,
+      ),
+      useDaisy: argResults!['daisy'] as bool,
+    );
+    for (final c in argResults!['bipolar'] as List<String>) {
+      final ch = int.parse(c);
+      if (ch <= board.channelCount) {
+        await board.configureChannel(ch, CytonChannelSettings.bipolar);
+      }
+    }
+    final name = argResults!['name'] as String;
+    final n = board.channelCount;
+    final labels = [
+      for (var c = 0; c < n; c++)
+        argResults!['ultracortex'] as bool ? _ultracortex[c] : 'ch${c + 1}',
+    ];
+    await lsl.prepare();
+    final source = 'openbci-cyton:${rest.single}';
+    final eeg = await lsl.createOutlet(
+      LslOutletSpec(
+        name: name,
+        type: 'EEG',
+        channelCount: n,
+        rate: board.rate,
+        sourceId: source,
+        channels: [for (final l in labels) LslChannel(l, unit: 'microvolts')],
+        desc: {
+          'acquisition': {
+            'manufacturer': 'OpenBCI',
+            'model': board.daisy ? 'Cyton + Daisy' : 'Cyton',
+          },
+        },
+      ),
+      const LslOutletOptions(),
+    );
+    final accel = await lsl.createOutlet(
+      LslOutletSpec(
+        name: '$name accelerometer',
+        type: 'Accelerometer',
+        channelCount: 3,
+        rate: board.rate,
+        sourceId: '$source:accel',
+        channels: const [
+          LslChannel('x', unit: 'g'),
+          LslChannel('y', unit: 'g'),
+          LslChannel('z', unit: 'g'),
+        ],
+      ),
+      const LslOutletOptions(),
+    );
+    // Time stamps by the sample count, from the first sample's arrival.
+    double? t0;
+    var count = 0;
+    final pending = <CytonSample>[];
+    final sub = board.samples.listen((s) {
+      t0 ??= lsl.clock();
+      count += s.lost;
+      pending.add(s);
+    });
+    var sent = 0;
+    final timer = Timer.periodic(const Duration(milliseconds: 20), (_) {
+      if (pending.isEmpty) return;
+      final m = pending.length;
+      final e = Float32List(m * n), a = Float32List(m * 3);
+      final times = Float64List(m);
+      for (var i = 0; i < m; i++) {
+        final s = pending[i];
+        e.setAll(i * n, s.eeg);
+        a.setAll(i * 3, s.accel);
+        times[i] = t0! + count++ / board.rate;
+      }
+      pending.clear();
+      eeg.push(e, times);
+      accel.push(a, times);
+      sent += m;
+    });
+    await board.start();
+    out.writeln(
+      'Publishing $name: $n channels at ${board.rate.toStringAsFixed(0)} Hz'
+      '${board.daisy ? ' (with Daisy)' : ''}; Ctrl-C to stop',
+    );
+    await _untilStopped(stop);
+    timer.cancel();
+    await sub.cancel();
+    await board.close();
+    await eeg.close();
+    await accel.close();
+    out.writeln('Sent $sent samples');
+    return 0;
   }
 }

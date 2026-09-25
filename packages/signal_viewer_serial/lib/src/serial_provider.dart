@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:serial_transport/serial_transport.dart';
 import 'package:signal_viewer/signal_viewer.dart';
 
+import 'cyton_session.dart';
 import 'serial_session.dart';
 
 /// Streams of numbers from serial ports (e.g. an Arduino printing sensor
@@ -42,15 +43,42 @@ class SerialStreamProvider extends SourceProvider {
     }
   }
 
+  /// Connect to the OpenBCI Cyton on [port] and show its streams.
+  Future<void> openCyton(
+    SerialPortInfo port, {
+    bool useDaisy = true,
+    bool ultracortex = true,
+  }) async {
+    app.setStatus('Connecting to the Cyton on ${port.id}…');
+    try {
+      final s = await CytonSession.open(
+        serial,
+        port,
+        useDaisy: useDaisy,
+        ultracortex: ultracortex,
+      );
+      app.addSession(s);
+    } catch (e) {
+      app.setError('Could not connect to the Cyton: $e');
+    }
+  }
+
   @override
   List<ViewerAction> actions(BuildContext context) => [
-    if (supported)
+    if (supported) ...[
       ViewerAction(
         'Serial',
         'Open serial stream…',
         narrowLabel: 'Serial stream…',
         onPressed: () => showSerialStreamDialog(context, this),
       ),
+      ViewerAction(
+        'Serial',
+        'Connect an OpenBCI Cyton…',
+        onPressed: () =>
+            showSerialStreamDialog(context, this, device: SerialDevice.cyton),
+      ),
+    ],
   ];
 
   @override
@@ -66,16 +94,29 @@ class SerialStreamProvider extends SourceProvider {
 
 const _bauds = [9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600];
 
+/// What is on a serial port.
+enum SerialDevice {
+  lines('Lines of numbers'),
+  cyton('OpenBCI Cyton');
+
+  final String label;
+  const SerialDevice(this.label);
+}
+
 /// Choose a serial port and how to read it.
 Future<void> showSerialStreamDialog(
   BuildContext context,
-  SerialStreamProvider provider,
-) =>
-    showDialog<void>(context: context, builder: (_) => _SerialDialog(provider));
+  SerialStreamProvider provider, {
+  SerialDevice device = SerialDevice.lines,
+}) => showDialog<void>(
+  context: context,
+  builder: (_) => _SerialDialog(provider, device),
+);
 
 class _SerialDialog extends StatefulWidget {
   final SerialStreamProvider provider;
-  const _SerialDialog(this.provider);
+  final SerialDevice device;
+  const _SerialDialog(this.provider, this.device);
 
   @override
   State<_SerialDialog> createState() => _SerialDialogState();
@@ -84,6 +125,9 @@ class _SerialDialog extends StatefulWidget {
 class _SerialDialogState extends State<_SerialDialog> {
   List<SerialPortInfo> _ports = [];
   SerialPortInfo? _port;
+  late SerialDevice _device = widget.device;
+  bool _daisy = true;
+  bool _ultracortex = true;
   int _baud = 115200;
   final _rate = TextEditingController();
   final _name = TextEditingController(text: 'Serial');
@@ -134,6 +178,15 @@ class _SerialDialogState extends State<_SerialDialog> {
   Future<void> _open() async {
     final port = _port;
     if (port == null) return;
+    if (_device == SerialDevice.cyton) {
+      Navigator.pop(context);
+      await widget.provider.openCyton(
+        port,
+        useDaisy: _daisy,
+        ultracortex: _ultracortex,
+      );
+      return;
+    }
     final text = _rate.text.trim();
     final rate = text.isEmpty ? null : double.tryParse(text);
     if (text.isNotEmpty && (rate == null || rate <= 0)) {
@@ -161,10 +214,24 @@ class _SerialDialogState extends State<_SerialDialog> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            SegmentedButton<SerialDevice>(
+              segments: [
+                for (final d in SerialDevice.values)
+                  ButtonSegment(value: d, label: Text(d.label)),
+              ],
+              selected: {_device},
+              onSelectionChanged: (v) => setState(() => _device = v.first),
+            ),
+            const SizedBox(height: 8),
             Text(
-              'Lines of numbers, separated by commas, semicolons, tabs or '
-              'spaces, or name:value pairs (as for the Arduino Serial '
-              'Plotter). A line of names first labels the channels.',
+              _device == SerialDevice.cyton
+                  ? "The Cyton's USB dongle (switch on GPIO_6). A Daisy is "
+                        'found by itself: 16 channels at 125 Hz, or 8 at '
+                        '250 Hz without one.'
+                  : 'Lines of numbers, separated by commas, semicolons, tabs '
+                        'or spaces, or name:value pairs (as for the Arduino '
+                        'Serial Plotter). A line of names first labels the '
+                        'channels.',
               style: theme.textTheme.bodySmall,
             ),
             const SizedBox(height: 8),
@@ -202,50 +269,67 @@ class _SerialDialogState extends State<_SerialDialog> {
                   ),
               ],
             ),
-            Row(
-              children: [
-                const Text('Baud rate '),
-                DropdownButton<int>(
-                  value: _baud,
-                  items: [
-                    for (final b in _bauds)
-                      DropdownMenuItem(value: b, child: Text('$b')),
-                  ],
-                  onChanged: (b) => setState(() => _baud = b ?? _baud),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: TextField(
-                    controller: _rate,
-                    decoration: const InputDecoration(
-                      labelText: 'Sampling rate (Hz)',
-                      hintText: 'Empty: measure it',
-                    ),
-                    keyboardType: TextInputType.number,
+            if (_device == SerialDevice.cyton) ...[
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                value: _daisy,
+                onChanged: (v) => setState(() => _daisy = v ?? true),
+                title: const Text('Use the Daisy if there is one'),
+              ),
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                value: _ultracortex,
+                onChanged: (v) => setState(() => _ultracortex = v ?? true),
+                title: const Text('UltraCortex Mark IV channel names'),
+                subtitle: const Text('Fp1, Fp2, C3, C4, P7, P8, O1, O2, …'),
+              ),
+            ],
+            if (_device == SerialDevice.lines) ...[
+              Row(
+                children: [
+                  const Text('Baud rate '),
+                  DropdownButton<int>(
+                    value: _baud,
+                    items: [
+                      for (final b in _bauds)
+                        DropdownMenuItem(value: b, child: Text('$b')),
+                    ],
+                    onChanged: (b) => setState(() => _baud = b ?? _baud),
                   ),
-                ),
-              ],
-            ),
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _name,
-                    decoration: const InputDecoration(labelText: 'Name'),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: TextField(
-                    controller: _type,
-                    decoration: const InputDecoration(
-                      labelText: 'Type (optional)',
-                      hintText: 'e.g. EEG, MoCap',
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: TextField(
+                      controller: _rate,
+                      decoration: const InputDecoration(
+                        labelText: 'Sampling rate (Hz)',
+                        hintText: 'Empty: measure it',
+                      ),
+                      keyboardType: TextInputType.number,
                     ),
                   ),
-                ),
-              ],
-            ),
+                ],
+              ),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _name,
+                      decoration: const InputDecoration(labelText: 'Name'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: TextField(
+                      controller: _type,
+                      decoration: const InputDecoration(
+                        labelText: 'Type (optional)',
+                        hintText: 'e.g. EEG, MoCap',
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
             if (_error != null)
               Padding(
                 padding: const EdgeInsets.only(top: 8),
