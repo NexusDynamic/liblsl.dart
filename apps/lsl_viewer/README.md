@@ -1,5 +1,7 @@
 # LSL Viewer: XDF file viewer and Lab Streaming Layer stream viewer
 
+![screenshot of the LSL viewer showing the recorded EEG from an XDF file](./lsl_and_xdf_viewer_screenshot.png)
+
 View **XDF recordings** (e.g. from LabRecorder) and **live Lab Streaming
 Layer (LSL) streams** on Windows, macOS, Linux, Android and the web.
 

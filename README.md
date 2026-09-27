@@ -22,6 +22,8 @@ XDF file viewer and LSL stream viewer for desktop, Android and the web.
   doesn't reach.
 - OpenBCI Cyton and serial devices, including over WebSerial in the browser.
 
+![screenshot of the LSL viewer showing the recorded EEG from an XDF file](./lsl_and_xdf_viewer_screenshot.png)
+
 **[Open the web app](https://nexusdynamic.org/liblsl.dart/lsl_viewer/)** ·
 **[Downloads for Windows, macOS, Linux and Android](https://github.com/NexusDynamic/liblsl.dart/releases?q=lsl_viewer&expanded=true)**
 (`lsl_viewer <version>` releases; desktop archives include the `lsl` command
