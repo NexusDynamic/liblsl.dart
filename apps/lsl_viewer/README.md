@@ -4,10 +4,10 @@
 
 <div width="100%" align="center">
     <a href="lsl_and_xdf_viewer_screenshot.png" align="left">
-    <img src="../../lsl_and_xdf_viewer_screenshot.png" alt="screenshot of the LSL viewer showing the recorded EEG from an XDF file" height="400px" align="left">
+    <img src="../../lsl_and_xdf_viewer_screenshot.png" alt="screenshot of the LSL viewer showing the recorded EEG from an XDF file" height="450px" align="left">
     </a>
     <a href="android_lsl_and_xdf_viewer.png" align="left">
-        <img src="../../android_lsl_and_xdf_viewer.png" alt="screenshot of the LSL viewer android app showing the recorded EEG from an XDF file" height="400px" align="right">
+        <img src="../../android_lsl_and_xdf_viewer.png" alt="screenshot of the LSL viewer android app showing the recorded EEG from an XDF file" height="450px" align="right">
     </a>
 </div>
 
