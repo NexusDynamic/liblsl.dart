@@ -252,6 +252,36 @@ void main() {
       }
     });
 
+    test('matches an exact FNV-1a, so every platform agrees', () {
+      // Regression: the single-step multiply overflowed a JS number's 2^53
+      // integer range, so web and native peers derived different ids for the
+      // same stream and never connected. BigInt is exact everywhere, so this
+      // holds the web build to the native result.
+      int exact(String name) {
+        var hash = BigInt.from(0x811c9dc5);
+        final mask = BigInt.from(0xffffffff);
+        for (final unit in name.codeUnits) {
+          hash ^= BigInt.from(unit & 0xff);
+          hash = (hash * BigInt.from(0x01000193)) & mask;
+        }
+        final span = maxChannelId - reservedChannelIds + 1;
+        return reservedChannelIds + (hash % BigInt.from(span)).toInt();
+      }
+
+      for (final name in [
+        'rt_input',
+        'rt_physics',
+        'Default Coordination Stream',
+        'x' * 200,
+        for (var i = 0; i < 200; i++) 'stream-$i',
+      ]) {
+        expect(rtcChannelIdFor(name), exact(name), reason: name);
+      }
+      // Pinned from a native run, where the old code was already correct.
+      expect(rtcChannelIdFor('rt_input'), 57352);
+      expect(rtcChannelIdFor('rt_physics'), 15389);
+    });
+
     test('different names generally get different ids', () {
       final ids = {for (var i = 0; i < 500; i++) rtcChannelIdFor('stream-$i')};
       // Not a guarantee — see the doc comment. This pins that the hash is not
