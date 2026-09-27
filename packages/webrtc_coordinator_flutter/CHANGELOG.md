@@ -1,3 +1,7 @@
+## 0.2.1
+
+- Fixed hang for connection not reporting open status
+
 ## 0.2.0
 
 - Version bump to match `webrtc_coordinator` 0.2.0, which fixes hashing on JS.

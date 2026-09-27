@@ -387,6 +387,17 @@ class _FlutterRtcChannel implements RtcChannel {
   final _readyCompleter = Completer<void>();
   bool _closed = false;
 
+  /// Open as far as this channel knows, independent of the plugin's `state`.
+  ///
+  /// Needed because the native plugin can lose the open event entirely; see
+  /// [_markOpen]'s callers in [_wire].
+  bool _open = false;
+
+  void _markOpen() {
+    _open = true;
+    if (!_readyCompleter.isCompleted) _readyCompleter.complete();
+  }
+
   void _wire() {
     // Keeps "closed before it opened" from surfacing as an unhandled async
     // error when nothing happens to be awaiting `ready`. The handler goes on a
@@ -396,7 +407,7 @@ class _FlutterRtcChannel implements RtcChannel {
     channel.onDataChannelState = (state) {
       switch (state) {
         case RTCDataChannelState.RTCDataChannelOpen:
-          if (!_readyCompleter.isCompleted) _readyCompleter.complete();
+          _markOpen();
         case RTCDataChannelState.RTCDataChannelClosed:
           // Deferred, not inline. `RTCDataChannelNative.eventListener` invokes
           // this callback and *then* adds to its own state controller, while
@@ -414,21 +425,44 @@ class _FlutterRtcChannel implements RtcChannel {
     };
     channel.onMessage = (message) {
       if (_messages.isClosed) return;
+      // Receiving proves the channel is open, whatever the plugin reported.
+      if (!_open) _markOpen();
       _messages.add(message.isBinary ? message.binary : message.text);
     };
 
     // A pre-negotiated channel on an already-connected link can be open before
     // the callback is attached, in which case no state change is ever
     // delivered and `ready` would never complete.
-    if (channel.state == RTCDataChannelState.RTCDataChannelOpen &&
-        !_readyCompleter.isCompleted) {
-      _readyCompleter.complete();
+    if (channel.state == RTCDataChannelState.RTCDataChannelOpen) {
+      _markOpen();
+      return;
+    }
+
+    // The native plugin (RTCDataChannelNative) subscribes to a channel's
+    // events only after `createDataChannel` has returned, and its response
+    // carries no state. A negotiated channel created on a link whose SCTP
+    // association is already up opens *during* creation, so its one open event
+    // is emitted before anyone listens and is lost, and `state` stays null for
+    // good: `ready` would time out on a channel that is in fact open, and every
+    // `send` would be dropped. (The web plugin reads the browser channel's
+    // live readyState, so it is unaffected.)
+    //
+    // Another channel on this link already being open proves the association
+    // is up, and a negotiated channel has no in-band handshake to wait for, so
+    // this one is open too.
+    if (channel.state == null &&
+        link._channels.values.any((c) => !identical(c, this) && c.isOpen)) {
+      _markOpen();
     }
   }
 
   @override
   bool get isOpen =>
-      !_closed && channel.state == RTCDataChannelState.RTCDataChannelOpen;
+      !_closed &&
+      (channel.state == RTCDataChannelState.RTCDataChannelOpen ||
+          // Only trusted while the plugin reports nothing at all: a real
+          // closing/closed state always wins over the inference.
+          (_open && channel.state == null));
 
   @override
   Future<void> get ready => _readyCompleter.future;
