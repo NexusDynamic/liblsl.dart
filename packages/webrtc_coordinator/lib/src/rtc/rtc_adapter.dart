@@ -156,7 +156,12 @@ int rtcChannelIdFor(String streamName) {
   var hash = 0x811c9dc5;
   for (final unit in streamName.codeUnits) {
     hash ^= unit & 0xff;
-    hash = (hash * 0x01000193) & 0xffffffff;
+    // The FNV prime is 2^24 + 0x193, multiplied in two parts. `hash * prime`
+    // in one step reaches ~2^56, past the 2^53 a JS number holds exactly, so
+    // on the web it rounded and web and native peers derived different ids
+    // for the same stream -- and never connected. `hash * 2^24 mod 2^32` is
+    // just the low byte shifted up, and `hash * 0x193` stays under 2^41.
+    hash = (hash * 0x193 + ((hash & 0xff) << 24)) & 0xffffffff;
   }
   final span = maxChannelId - reservedChannelIds + 1;
   return reservedChannelIds + (hash % span);

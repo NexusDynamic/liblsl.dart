@@ -1,3 +1,7 @@
+## 0.2.0
+
+- Fix hashing on JS
+
 ## 0.1.0
 
 - Initial release: a peer-to-peer transport for `peer_coordinator` over
