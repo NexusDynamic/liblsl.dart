@@ -18,6 +18,21 @@ class LSLTransportConfig implements ITransportConfig {
   /// Frequency (in Hz) at which coordination messages are sent.
   final double coordinationFrequency;
 
+  /// Receive without polling.
+  ///
+  /// By default an inlet is polled, at the sample period for a data stream
+  /// (within 0.1 to 10 ms), so a sample is seen up to one poll interval
+  /// after it arrives and that wait is part of every transit time. With
+  /// this set, each inlet instead has an isolate waiting inside
+  /// `lsl_pull_sample`, which liblsl wakes when a sample is queued: the
+  /// receive clock is read as the sample arrives and the sample is forwarded
+  /// at once. It applies to the coordination stream and to data streams.
+  ///
+  /// The cost is one isolate (one thread) per inlet rather than one per
+  /// stream, so prefer polling for streams with many producers on small
+  /// devices. Local to this node: peers need not agree on it.
+  final bool eventDrivenInlets;
+
   @override
   LSLTransport createTransport() => LSLTransport(config: this);
 
@@ -27,13 +42,14 @@ class LSLTransportConfig implements ITransportConfig {
   LSLTransportConfig({
     LSLApiConfig? lslApiConfig,
     this.coordinationFrequency = 100.0,
+    this.eventDrivenInlets = false,
   }) : super() {
     this.lslApiConfig = lslApiConfig ?? LSLApiConfig();
   }
 
   @override
   String toString() {
-    return 'LSLTransportConfig(lslApiConfig: $lslApiConfig, coordinationFrequency: $coordinationFrequency)';
+    return 'LSLTransportConfig(lslApiConfig: $lslApiConfig, coordinationFrequency: $coordinationFrequency, eventDrivenInlets: $eventDrivenInlets)';
   }
 
   @override
@@ -41,6 +57,7 @@ class LSLTransportConfig implements ITransportConfig {
     return {
       'lslApiConfig': lslApiConfig.toIniString(),
       'coordinationFrequency': coordinationFrequency,
+      'eventDrivenInlets': eventDrivenInlets,
     };
   }
 
@@ -59,11 +76,13 @@ class LSLTransportConfig implements ITransportConfig {
   LSLTransportConfig copyWith({
     LSLApiConfig? lslApiConfig,
     double? coordinationFrequency,
+    bool? eventDrivenInlets,
   }) {
     return LSLTransportConfig(
       lslApiConfig: lslApiConfig ?? this.lslApiConfig,
       coordinationFrequency:
           coordinationFrequency ?? this.coordinationFrequency,
+      eventDrivenInlets: eventDrivenInlets ?? this.eventDrivenInlets,
     );
   }
 
@@ -73,12 +92,15 @@ class LSLTransportConfig implements ITransportConfig {
     return other is LSLTransportConfig &&
         other.runtimeType == runtimeType &&
         other.lslApiConfig == lslApiConfig &&
-        other.coordinationFrequency == coordinationFrequency;
+        other.coordinationFrequency == coordinationFrequency &&
+        other.eventDrivenInlets == eventDrivenInlets;
   }
 
   @override
   int get hashCode {
-    return lslApiConfig.hashCode ^ coordinationFrequency.hashCode;
+    return lslApiConfig.hashCode ^
+        coordinationFrequency.hashCode ^
+        eventDrivenInlets.hashCode;
   }
 }
 
@@ -100,6 +122,7 @@ class LSLTransportConfigFactory implements IConfigFactory<LSLTransportConfig> {
       coordinationFrequency: map.containsKey('coordinationFrequency')
           ? (map['coordinationFrequency'] as num).toDouble()
           : 100.0,
+      eventDrivenInlets: map['eventDrivenInlets'] as bool? ?? false,
     );
   }
 }

@@ -112,6 +112,7 @@ CoordinationConfig testCoordinationConfig({
   required String sessionName,
   int maxNodes = 3,
   bool consumeCoordinationStreamAsCoordinator = false,
+  bool eventDrivenInlets = false,
 }) => CoordinationConfig(
   name: 'liblsl_coordinator_test',
   sessionConfig: testSessionConfig(
@@ -131,6 +132,7 @@ CoordinationConfig testCoordinationConfig({
   transportConfig: LSLTransportConfig(
     lslApiConfig: _lslApiConfig,
     coordinationFrequency: 50.0,
+    eventDrivenInlets: eventDrivenInlets,
   ),
 );
 

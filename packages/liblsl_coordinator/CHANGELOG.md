@@ -1,3 +1,17 @@
+## 0.5.0
+
+- `LSLTransportConfig.eventDrivenInlets` receives without polling. Each inlet
+  gets an isolate waiting inside `lsl_pull_sample` (liblsl 1.1.0's
+  `LSLInlet.sampleStream()`), so `MessageTiming.receivedClock` is when the
+  sample arrived rather than when the next poll found it, and each sample is
+  forwarded at once. It applies to the coordination stream and to data
+  streams, costs one isolate per inlet instead of one per stream, and is
+  local to a node. Off by default; polling is unchanged.
+
+  On loopback at 60 Hz (`benchmark/latency_bench.dart 60 6 event`) the median
+  one-way latency of a data sample went from 4.3 ms to 0.45 ms, and of a
+  coordination message from 6.5 ms to 0.34 ms.
+
 ## 0.4.1
 
 - Streams now expose `clockSyncs`, a broadcast stream of `ClockSyncSample`

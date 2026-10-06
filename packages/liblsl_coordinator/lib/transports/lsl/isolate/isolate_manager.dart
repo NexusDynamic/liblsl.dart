@@ -206,6 +206,9 @@ final class IsolateWorkerConfig {
   final double sampleRate;
   final bool useBusyWaitInlets;
   final bool useBusyWaitOutlets;
+
+  /// Inlets: wait inside liblsl for each sample instead of polling for it.
+  final bool eventDrivenInlets;
   final Duration pollingInterval;
   final SendPort mainSendPort;
   final String? debugName;
@@ -223,6 +226,7 @@ final class IsolateWorkerConfig {
     required this.sampleRate,
     required this.useBusyWaitInlets,
     required this.useBusyWaitOutlets,
+    this.eventDrivenInlets = false,
     required this.pollingInterval,
     required this.mainSendPort,
     this.outletAddress,
@@ -237,6 +241,7 @@ final class IsolateWorkerConfig {
     double? sampleRate,
     bool? useBusyWaitInlets,
     bool? useBusyWaitOutlets,
+    bool? eventDrivenInlets,
     Duration? pollingInterval,
     SendPort? mainSendPort,
     int? outletAddress,
@@ -250,6 +255,7 @@ final class IsolateWorkerConfig {
       sampleRate: sampleRate ?? this.sampleRate,
       useBusyWaitInlets: useBusyWaitInlets ?? this.useBusyWaitInlets,
       useBusyWaitOutlets: useBusyWaitOutlets ?? this.useBusyWaitOutlets,
+      eventDrivenInlets: eventDrivenInlets ?? this.eventDrivenInlets,
       pollingInterval: pollingInterval ?? this.pollingInterval,
       mainSendPort: mainSendPort ?? this.mainSendPort,
       outletAddress: outletAddress ?? this.outletAddress,
@@ -408,6 +414,7 @@ sealed class StreamIsolate {
   final StreamDataType dataType;
   final bool useBusyWaitInlets;
   final bool useBusyWaitOutlets;
+  final bool eventDrivenInlets;
   final Duration pollingInterval;
   final String isolateDebugName;
 
@@ -447,6 +454,7 @@ sealed class StreamIsolate {
     required this.dataType,
     required this.useBusyWaitInlets,
     required this.useBusyWaitOutlets,
+    this.eventDrivenInlets = false,
     required this.pollingInterval,
     String? isolateDebugName,
   }) : isolateDebugName = isolateDebugName ?? 'StreamIsolate-$streamId';
@@ -692,6 +700,7 @@ final class StreamInletIsolate extends StreamIsolate {
     required super.dataType,
     required super.useBusyWaitInlets,
     required super.useBusyWaitOutlets,
+    super.eventDrivenInlets,
     required super.pollingInterval,
     List<int>? initialInletAddresses,
     String? isolateDebugName,
@@ -781,6 +790,7 @@ final class StreamInletIsolate extends StreamIsolate {
       sampleRate: 0, // Will be updated by inlet creation
       useBusyWaitInlets: useBusyWaitInlets,
       useBusyWaitOutlets: useBusyWaitOutlets,
+      eventDrivenInlets: eventDrivenInlets,
       pollingInterval: pollingInterval,
       mainSendPort: _receivePort!.sendPort,
       inletAddresses: IList(_inletAddresses),
@@ -999,6 +1009,7 @@ final class IsolateStreamManager {
     required StreamDataType dataType,
     required bool useBusyWaitInlets,
     required bool useBusyWaitOutlets,
+    bool eventDrivenInlets = false,
     required Duration pollingInterval,
     List<int>? initialInletAddresses,
     String? isolateDebugName,
@@ -1008,6 +1019,7 @@ final class IsolateStreamManager {
       dataType: dataType,
       useBusyWaitInlets: useBusyWaitInlets,
       useBusyWaitOutlets: useBusyWaitOutlets,
+      eventDrivenInlets: eventDrivenInlets,
       pollingInterval: pollingInterval,
       initialInletAddresses: initialInletAddresses,
       isolateDebugName: isolateDebugName,
@@ -1464,7 +1476,12 @@ final class InletWorker extends IsolateWorker {
       completer = Completer<void>();
     }
 
-    if (config.useBusyWaitInlets) {
+    if (config.eventDrivenInlets) {
+      logger.info(
+        'Starting event-driven inlet worker for stream ${config.streamId}',
+      );
+      _startEventDrivenInletsWorker();
+    } else if (config.useBusyWaitInlets) {
       logger.info(
         'Starting busy-wait inlet worker for stream ${config.streamId}',
       );
@@ -1511,6 +1528,9 @@ final class InletWorker extends IsolateWorker {
     // would report the pause itself as a stall on resume.
     _sincePollCompleted.stop();
     resumeCompleter = Completer<void>();
+    // Event-driven: stop pulling, so samples wait in the inlets as they do
+    // when a paused worker stops polling.
+    await _stopListening();
     // Note: we don't cancel timer or complete completer - just set paused flag
     // Timer-based polling will check paused flag, busy-wait will be handled in the loop
   }
@@ -1531,6 +1551,7 @@ final class InletWorker extends IsolateWorker {
     }
     resumeCompleter?.complete();
     paused = false;
+    if (config.eventDrivenInlets) inlets.forEach(_listen);
     // Polling will automatically resume as paused flag is now false
   }
 
@@ -1547,6 +1568,10 @@ final class InletWorker extends IsolateWorker {
 
   /// Flush all inlet streams to clear pending messages
   Future<void> _flushInlets() async {
+    // An inlet's queue has one consumer; a flush while a listener is inside
+    // a pull on another thread would be a second.
+    final listening = _listeners.isNotEmpty;
+    await _stopListening();
     await inletsLock.synchronized(() async {
       for (final inlet in inlets) {
         try {
@@ -1562,6 +1587,7 @@ final class InletWorker extends IsolateWorker {
       buffer.clear();
     });
 
+    if (listening) inlets.forEach(_listen);
     logger.finest('Flushed all inlet streams for ${config.streamId}');
   }
 
@@ -1581,6 +1607,7 @@ final class InletWorker extends IsolateWorker {
       completer?.complete();
     }
     lastTimeCorrectionUpdate.stop();
+    await _stopListening();
     try {
       await inletAddRemoveLock.synchronized(() async {
         for (final inlet in inlets) {
@@ -1652,6 +1679,7 @@ final class InletWorker extends IsolateWorker {
       // Null, not 0.0: this inlet has no clock-offset estimate yet.
       timeCorrections.add(null);
     });
+    if (config.eventDrivenInlets && running && !paused) _listen(newInlet);
     // Warm up only the inlet just added, not every inlet on the stream. See
     // [_warmTimeCorrectionForNewestInlet] for why the old full sweep here was
     // the expensive half of this bug.
@@ -1675,6 +1703,7 @@ final class InletWorker extends IsolateWorker {
         return;
       }
       _timeCorrectionSchedule.forget(inlets[index].streamInfo.sourceId);
+      await _stopListening(inlets[index]);
       try {
         await inlets[index].destroy();
       } catch (e) {
@@ -1948,6 +1977,66 @@ final class InletWorker extends IsolateWorker {
         logger.severe('Error polling inlet: $e');
       }
     }
+  }
+
+  /// Event-driven mode: the listener on each inlet.
+  final Map<LSLInlet, StreamSubscription<void>> _listeners = {};
+
+  /// How often the event-driven worker refreshes time corrections and
+  /// reports to the stall watchdog. Samples do not wait for it.
+  static const Duration eventDrivenHousekeeping = Duration(milliseconds: 250);
+
+  /// Event-driven receive: every inlet gets an isolate that waits inside
+  /// `lsl_pull_sample` and is woken by liblsl when a sample is queued, so a
+  /// sample's [IsolateDataMessage.localClock] is when it arrived, not when
+  /// the next poll found it. Each sample is forwarded as it comes; nothing
+  /// is batched.
+  void _startEventDrivenInletsWorker() {
+    inlets.forEach(_listen);
+    timer = Timer.periodic(eventDrivenHousekeeping, (_) {
+      if (!running) {
+        timer?.cancel();
+        return;
+      }
+      if (paused) return;
+      _notePollCompleted();
+      // Rate-limited internally (only refreshes every few seconds).
+      _updateTimeCorrections();
+    });
+  }
+
+  void _listen(LSLInlet inlet) {
+    if (_listeners.containsKey(inlet)) return;
+    final sourceId = inlet.streamInfo.sourceId;
+    _listeners[inlet] = inlet.sampleStream().listen((sample) {
+      final index = inlets.indexOf(inlet);
+      final correction = index < 0 ? null : timeCorrections[index];
+      config.mainSendPort.send(
+        IsolateDataMessageList([
+          IsolateDataMessage(
+            streamId: config.streamId,
+            timestamp: DateTime.now(),
+            data: sample.data,
+            sourceId: sourceId,
+            lslTimestamp: sample.timestamp,
+            lslTimeCorrection: correction?.offset,
+            lslTimeCorrectionUncertainty: correction?.uncertainty,
+            localClock: sample.receivedClock,
+          ),
+        ]),
+      );
+    }, onError: (Object e) => logger.severe('Error pulling from inlet: $e'));
+  }
+
+  /// Stops the listener on [only], or on every inlet, and waits until its
+  /// isolate has left liblsl, so the inlet can be flushed or destroyed.
+  Future<void> _stopListening([LSLInlet? only]) async {
+    final stopping = only == null
+        ? _listeners.keys.toList()
+        : [if (_listeners.containsKey(only)) only];
+    await Future.wait([
+      for (final inlet in stopping) _listeners.remove(inlet)!.cancel(),
+    ]);
   }
 
   void _startBusyWaitInletsWorker() {

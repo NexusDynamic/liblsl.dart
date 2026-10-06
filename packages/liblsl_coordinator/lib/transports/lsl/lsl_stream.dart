@@ -319,6 +319,10 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
   bool get useBusyWaitInlets => false; // Override in data streams
   bool get useBusyWaitOutlets => false; // Event-driven outlets by default
 
+  /// Whether inlets wait inside liblsl for samples instead of polling; see
+  /// [LSLTransportConfig.eventDrivenInlets].
+  bool get eventDrivenInlets => lslTransport.config.eventDrivenInlets;
+
   // An LSL sample already carries the sender's `lsl_local_clock()` reading as
   // its timestamp, so the coordination layer must not stamp a second, weaker
   // sender clock into the payload.
@@ -498,6 +502,7 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
         dataType: config.dataType,
         useBusyWaitInlets: useBusyWaitInlets,
         useBusyWaitOutlets: useBusyWaitOutlets,
+        eventDrivenInlets: eventDrivenInlets,
         pollingInterval: _getPollingInterval(),
         // Empty, with the inlet added below instead. Initial inlets that fail
         // to open are skipped inside the worker with nothing reported back,
