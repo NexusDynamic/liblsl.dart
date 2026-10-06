@@ -1,6 +1,7 @@
 @Tags(['lsl'])
 library;
 
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:lsl_tools/lsl_tools.dart';
@@ -121,5 +122,86 @@ void main() {
     expect(server.published, isEmpty);
     await client.close();
     await server.close();
+  });
+
+  test('LSL to a bridge and back to LSL keeps the time stamps', () async {
+    final id = DateTime.now().microsecondsSinceEpoch;
+    final source = await lsl.createOutlet(
+      LslOutletSpec(
+        name: 'timed_$id',
+        type: 'Markers',
+        channelCount: 1,
+        rate: 0,
+        sourceId: 'timed_$id',
+      ),
+      const LslOutletOptions(),
+    );
+    final d = lsl.discover();
+    final server = await LslBridgeServer.start(
+      [await _find(d, 'timed_$id')],
+      port: 0,
+      host: '127.0.0.1',
+    );
+    final client = await LslBridgeClient.connect(
+      Uri.parse('ws://127.0.0.1:${server.port}'),
+      name: 'far',
+    );
+    final republisher = await LslBridgeRepublisher.start(
+      client,
+      suffix: '_far',
+    );
+    const options = LslInletOptions(dejitter: false);
+    final inlet = await lsl.openInlet(
+      await _find(d, 'timed_${id}_far'),
+      options,
+    );
+    final timing = await lsl.openInlet(
+      await _find(d, 'BridgeTiming_far'),
+      options,
+    );
+
+    // Sample i is stamped sent[i]; all three clocks are this computer's.
+    final sent = <double>[], got = <int, double>{}, reports = <String>[];
+    for (var i = 0; i < 300 && (got.length < 50 || reports.isEmpty); i++) {
+      if (sent.length < 50) {
+        sent.add(lsl.clock());
+        await source.push(
+          Float32List.fromList([sent.length - 1.0]),
+          Float64List.fromList([sent.last]),
+        );
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      final c = await inlet.pull(1000);
+      for (var k = 0; k < c.length; k++) {
+        got[c.values![k].round()] = c.times[k];
+      }
+      reports.addAll((await timing.pull(10)).strings ?? const []);
+    }
+    expect(got, hasLength(50));
+    final chain = republisher.timing['timed_${id}_far']!;
+    expect(chain.hops.map((h) => h.via), ['lsl', 'bridge']);
+    expect(chain.hops.last.node, 'far');
+    expect(chain.uncertainty, greaterThan(0));
+    // The hops' bound, and LSL's own for the last step back into LSL.
+    final bound = chain.uncertainty + 1e-3;
+    for (var i = 0; i < 50; i++) {
+      expect(got[i], closeTo(sent[i], bound));
+    }
+    expect(chain.offset.abs(), lessThan(bound));
+    expect(chain.latency, inInclusiveRange(0, 1));
+
+    // The same figures, for whoever records in the far lab.
+    final report = jsonDecode(reports.last) as Map<String, Object?>;
+    expect(report['stream'], 'timed_${id}_far');
+    expect(report['hops'], hasLength(2));
+    expect(report['uncertainty'], greaterThan(0));
+
+    await inlet.close();
+    await timing.close();
+    d.close();
+    await republisher.close();
+    await client.close();
+    await server.close();
+    await source.close();
   });
 }

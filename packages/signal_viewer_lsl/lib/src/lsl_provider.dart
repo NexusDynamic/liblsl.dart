@@ -205,7 +205,10 @@ class LslProvider extends SourceProvider {
   /// View bridged [stream] in a new tab.
   void viewBridged(LslBridgeClient b, BridgeStream stream) {
     if (isOpen(stream.description.key)) return;
-    app.addSession(LslSession.fromInlet(b.open(stream), app.prefs.lsl.inlet));
+    final options = app.prefs.lsl.inlet;
+    app.addSession(
+      LslSession.fromInlet(b.open(stream, options: options), options),
+    );
     notifyListeners();
   }
 

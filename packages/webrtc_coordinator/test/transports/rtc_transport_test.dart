@@ -276,4 +276,74 @@ void main() {
       );
     },
   );
+
+  test(
+    'a sample passed on keeps its origin timestamp and the way it came',
+    () async {
+      final peers = await buildPair();
+      final streamName = 'Relayed-$runId';
+      final config = DataStreamConfig(
+        name: streamName,
+        channels: 1,
+        sampleRate: 50.0,
+        dataType: StreamDataType.double64,
+        participationMode: StreamParticipationMode.allNodes,
+      );
+      final sender = await peers.first.createDataStream(config);
+      await peers.first.startStream(streamName);
+      final receiver = await peers[1].getDataStream(streamName);
+      expect(sender.relaysSourceClock, isTrue);
+
+      final fromSender = <IMessage>[];
+      final subscription = receiver.inbox
+          .where((m) => m.timing?.sourceId == peers.first.thisNode.uId)
+          .listen(fromSender.add);
+      addTearDown(subscription.cancel);
+      Future<MessageTiming> next(Future<void> Function() send) async {
+        final before = fromSender.length;
+        for (var i = 0; i < 100 && fromSender.length == before; i++) {
+          await send();
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+        }
+        expect(fromSender.length, greaterThan(before));
+        return fromSender.last.timing!;
+      }
+
+      // Wait until the two nodes have measured each other's clocks.
+      for (var i = 0; i < 100; i++) {
+        if ((await next(() => sender.sendData([0.0]))).clockOffset != null) {
+          break;
+        }
+      }
+
+      // The origin's clock reads 1000 s behind this process's.
+      double origin() => PeerClock.now() - 1000;
+
+      // Passed on before the receiver knows the way: unknown, not wrong.
+      var timing = await next(() => sender.sendDataAt(origin(), [1.0]));
+      expect(timing.clockOffset, isNull);
+      expect(timing.transitSeconds, isNull);
+
+      sender.upstream = const ClockChain([
+        ClockHop(node: 'lab', via: 'lsl', offset: 1000, uncertainty: 0.002),
+      ]);
+      late double stamped;
+      for (var i = 0; i < 20; i++) {
+        timing = await next(() => sender.sendDataAt(stamped = origin(), [2.0]));
+        if (timing.upstream != null) break;
+      }
+      expect(timing.sourceClock, closeTo(stamped, 1e-6));
+      expect(timing.upstream!.hops.single.via, 'lsl');
+      // Both nodes share this process's clock, so the whole offset is the
+      // upstream hop's, and the bound is that hop's plus the peers' own.
+      expect(timing.clockOffset, closeTo(1000, 0.05));
+      expect(timing.uncertainty, greaterThanOrEqualTo(0.002));
+      expect(timing.transitSeconds, inInclusiveRange(-0.05, 0.5));
+
+      // An ordinary sample is still stamped and read as before.
+      timing = await next(() => sender.sendData([3.0]));
+      expect(timing.upstream, isNull);
+      expect(timing.clockOffset!.abs(), lessThan(0.05));
+    },
+  );
 }

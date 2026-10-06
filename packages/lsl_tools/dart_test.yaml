@@ -1,3 +1,7 @@
 tags:
   # Needs a working LSL network stack on loopback.
   lsl:
+
+# Test files share one LSL network on loopback: run together, one finds
+# the other's streams (and discovery takes longer than the tests wait).
+concurrency: 1

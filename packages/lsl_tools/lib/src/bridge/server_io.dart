@@ -4,6 +4,8 @@ import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'package:peer_coordinator/coordination.dart' show LatencyWindow;
+
 import '../lsl.dart';
 import 'protocol.dart';
 import 'server.dart';
@@ -21,6 +23,7 @@ Future<LslBridgeServer> start(
   required List<String> allowedOrigins,
   required LslInletOptions options,
   required LslOutletOptions outletOptions,
+  required double Function()? clock,
 }) async {
   final needsLsl = streams.isNotEmpty || (acceptPublish && localOutlets);
   if (needsLsl && !lsl.supported) {
@@ -39,6 +42,7 @@ Future<LslBridgeServer> start(
     allowedOrigins,
     options,
     outletOptions,
+    clock ?? lsl.clock,
   );
   try {
     for (final s in streams) {
@@ -64,6 +68,13 @@ class _Shared {
 
   /// The LSL outlet it is also published on here, if any.
   LslOutlet? outlet;
+
+  /// How its time stamps map onto this computer's clock; null until known
+  /// (LSL's first measurement, or the publisher's first `timing`).
+  ClockChain? chain;
+
+  /// How long a published stream's samples took to get here.
+  final latency = LatencyWindow();
 
   _Shared.local(this.stream, LslInlet this.inlet)
     : publisher = null,
@@ -103,7 +114,9 @@ class _Server implements LslBridgeServer {
   int _nextId = 1;
   final List<_Client> _clients = [];
   final _changes = StreamController<void>.broadcast();
+  final double Function() _clock;
   late final Timer _timer;
+  late final Timer _timingTimer;
   bool _pulling = false;
   bool _closed = false;
   @override
@@ -120,9 +133,19 @@ class _Server implements LslBridgeServer {
     this.allowedOrigins,
     this.options,
     this.outletOptions,
+    this._clock,
   ) {
     _http.listen(_onRequest);
-    _timer = Timer.periodic(const Duration(milliseconds: 20), (_) => _pull());
+    _timer = Timer.periodic(
+      Duration(milliseconds: options.pullIntervalMs),
+      (_) => _pull(),
+    );
+    // As often as LSL measures clock offsets.
+    _timingTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+      for (final s in [..._shared.values]) {
+        if (s.inlet != null) _measure(s);
+      }
+    });
   }
 
   @override
@@ -170,12 +193,6 @@ class _Server implements LslBridgeServer {
       if (s.publisher != null) s.stream.description.name,
   ];
 
-  /// This computer's clock, which time stamps sent and received are on:
-  /// LSL's when there is LSL, else any steady clock (a relay without LSL
-  /// only passes time stamps between clients, each mapped to its clock).
-  double _clock() =>
-      lsl.supported ? lsl.clock() : DateTime.now().microsecondsSinceEpoch / 1e6;
-
   void _changed({bool streams = false}) {
     if (streams) {
       final message = _streamsMessage();
@@ -186,8 +203,34 @@ class _Server implements LslBridgeServer {
     if (!_changes.isClosed) _changes.add(null);
   }
 
+  /// Tell the clients receiving [s] how to read its time stamps ([only]
+  /// one of them, when given).
+  void _sendTiming(_Shared s, {_Client? only}) {
+    final chain = s.chain;
+    if (chain == null) return;
+    final message = jsonEncode({
+      'type': 'timing',
+      'id': s.id,
+      'hops': chain.toJson(),
+    });
+    for (final c in only == null ? _clients : [only]) {
+      if (c.subscribed.contains(s.id)) c.socket.add(message);
+    }
+  }
+
+  /// Ask LSL how [s]'s clock maps onto this computer's, and pass it on.
+  Future<void> _measure(_Shared s) async {
+    try {
+      s.chain = await s.inlet!.chain();
+    } catch (_) {
+      return; // No measurement yet; clients keep the last.
+    }
+    if (!_closed && _shared.containsKey(s.id)) _sendTiming(s);
+  }
+
   String _streamsMessage() => jsonEncode({
     'type': 'streams',
+    'protocol': bridgeProtocol,
     'streams': [for (final s in _shared.values) s.stream.toJson()],
     'accepts_publish': acceptsPublish,
   });
@@ -205,14 +248,14 @@ class _Server implements LslBridgeServer {
         return false;
       }
     }
-    // Clock sync, so time stamps are on this computer's clock (which
-    // clients map onto theirs).
+    // Time stamps as the sender gave them: they travel unchanged, beside
+    // what LSL measures of the sender's clock.
     final inlet = await lsl.openInlet(
       stream,
-      options.copyWith(clockSync: true),
+      options.copyWith(clockSync: false, dejitter: false),
     );
     final id = _nextId++;
-    _shared[id] = _Shared.local(
+    final shared = _shared[id] = _Shared.local(
       BridgeStream(
         id,
         inlet.stream,
@@ -221,6 +264,7 @@ class _Server implements LslBridgeServer {
       ),
       inlet,
     );
+    unawaited(_measure(shared));
     _changed(streams: true);
     return true;
   }
@@ -333,6 +377,11 @@ class _Server implements LslBridgeServer {
     final n = data.getUint32(4, Endian.little);
     if (n == 0) return;
     received += n;
+    final chain = s.chain;
+    final last = lastTimeOf(bytes);
+    if (chain != null && last != null) {
+      s.latency.add(_clock() - chain.map(last));
+    }
     final targets = [
       for (final c in _clients)
         if (c.subscribed.contains(s.id)) c,
@@ -346,18 +395,41 @@ class _Server implements LslBridgeServer {
       }
       sent += n * targets.length;
     }
+    // The outlet here needs this computer's clock, so not before the
+    // publisher has said how to get to it.
     final outlet = s.outlet;
-    if (outlet == null) return;
+    if (outlet == null || chain == null) return;
     final (_, chunk) = decodeSamples(bytes);
+    final times = Float64List(chunk.length);
+    for (var i = 0; i < times.length; i++) {
+      times[i] = chain.map(chunk.times[i]);
+    }
     if (chunk.strings != null) {
       final ch = (chunk.strings!.length / chunk.length).round();
       outlet.pushStrings([
         for (var i = 0; i < chunk.length; i++) chunk.strings![i * ch],
-      ], chunk.times);
+      ], times);
     } else {
       final v = chunk.values!;
-      outlet.push(v is Float32List ? v : Float32List.fromList(v), chunk.times);
+      outlet.push(v is Float32List ? v : Float32List.fromList(v), times);
     }
+  }
+
+  /// A publisher's `timing`: how its stream [id]'s time stamps map onto
+  /// this computer's clock. The last hop arrives here, so the latency
+  /// measured here goes on it.
+  void _timing(_Client client, Object? id, Object? hops) {
+    final s = client.published[id is num ? id.toInt() : null];
+    if (s == null) return;
+    var chain = ClockChain.fromJson(hops);
+    if (chain.hops.isNotEmpty) {
+      chain = ClockChain([
+        ...chain.hops.take(chain.hops.length - 1),
+        chain.hops.last.withLatency(s.latency.mean, s.latency.jitter),
+      ]);
+    }
+    s.chain = chain;
+    _sendTiming(s);
   }
 
   void _gone(_Client client) {
@@ -408,13 +480,23 @@ class _Server implements LslBridgeServer {
     }
     final address =
         request.connectionInfo?.remoteAddress.address ?? 'unknown address';
+    final version = request.uri.queryParameters['v'];
     final socket = await WebSocketTransformer.upgrade(request);
+    if (version != '$bridgeProtocol') {
+      // Version 1 read time stamps differently: better none than wrong.
+      await socket.close(
+        4002,
+        'This bridge speaks protocol $bridgeProtocol: update the client',
+      );
+      return;
+    }
     final client = _Client(socket, address);
     _clients.add(client);
     socket.add(_streamsMessage());
     _changed();
     socket.listen(
       (message) {
+        final arrived = _clock();
         if (message is! String) {
           _samples(client, message as List<int>);
           return;
@@ -426,10 +508,22 @@ class _Server implements LslBridgeServer {
               for (final id in (m['ids'] as List?) ?? const [])
                 (id as num).toInt(),
             };
+            for (final id in client.subscribed) {
+              final s = _shared[id];
+              if (s != null) _sendTiming(s, only: client);
+            }
           case 'ping':
             socket.add(
-              jsonEncode({'type': 'pong', 't': m['t'], 'server': _clock()}),
+              jsonEncode({
+                'type': 'pong',
+                't': m['t'],
+                'wave': m['wave'],
+                't1': arrived,
+                't2': _clock(),
+              }),
             );
+          case 'timing':
+            _timing(client, m['id'], m['hops']);
           case 'publish':
             _publish(client, (m['streams'] as List?) ?? const []);
           case 'unpublish':
@@ -488,6 +582,7 @@ class _Server implements LslBridgeServer {
     if (_closed) return;
     _closed = true;
     _timer.cancel();
+    _timingTimer.cancel();
     for (final c in [..._clients]) {
       await _unpublish(c, c.published.keys);
       await c.socket.close();

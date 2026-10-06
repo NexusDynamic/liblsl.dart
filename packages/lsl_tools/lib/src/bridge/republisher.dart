@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import '../lsl.dart';
@@ -10,16 +11,29 @@ import 'protocol.dart';
 /// named with [suffix] added. Follows the bridge: streams it starts sharing
 /// are published too, and ones it stops sharing are closed. Streams this
 /// client publishes on the bridge itself are left out.
+///
+/// Time stamps are put on this computer's LSL clock ([inletOptions] says
+/// whether smoothed), so the streams read like any other here. How they
+/// got here is kept in [timing] and, with [timingStream], published as the
+/// `BridgeTiming` stream for whoever records or watches in this lab.
 class LslBridgeRepublisher {
   final LslBridgeClient client;
   final List<String> patterns;
   final String suffix;
   final LslOutletOptions options;
+  final LslInletOptions inletOptions;
+  final bool timingStream;
 
   final Map<int, (LslInlet, LslOutlet)> _relays = {};
   final _changes = StreamController<void>.broadcast();
   late final StreamSubscription<List<BridgeStream>> _sub;
   Timer? _timer;
+  Timer? _timingTimer;
+  LslOutlet? _timingOutlet;
+
+  /// The clock corrections and latency of each stream published here, hop
+  /// by hop, by name; measured every two seconds.
+  final Map<String, ClockChain> timing = {};
   bool _closed = false;
   bool _pulling = false;
   Future<void> _syncing = Future.value();
@@ -30,7 +44,14 @@ class LslBridgeRepublisher {
   /// Why a stream could not be published, by name.
   final Map<String, String> errors = {};
 
-  LslBridgeRepublisher._(this.client, this.patterns, this.suffix, this.options);
+  LslBridgeRepublisher._(
+    this.client,
+    this.patterns,
+    this.suffix,
+    this.options,
+    this.inletOptions,
+    this.timingStream,
+  );
 
   /// Start publishing [client]'s streams here.
   static Future<LslBridgeRepublisher> start(
@@ -38,9 +59,19 @@ class LslBridgeRepublisher {
     List<String> patterns = const [],
     String suffix = '',
     LslOutletOptions options = const LslOutletOptions(),
+    LslInletOptions inletOptions = const LslInletOptions(),
+    bool timingStream = true,
   }) async {
     await lsl.prepare();
-    final r = LslBridgeRepublisher._(client, patterns, suffix, options);
+    final r = LslBridgeRepublisher._(
+      client,
+      patterns,
+      suffix,
+      options,
+      // An LSL outlet's time stamps are on its computer's clock.
+      inletOptions.copyWith(clockSync: true),
+      timingStream,
+    );
     r._sub = client.onStreams.listen(
       (_) => r._sync(),
       onDone: () {
@@ -49,10 +80,56 @@ class LslBridgeRepublisher {
     );
     await r._sync();
     r._timer = Timer.periodic(
-      const Duration(milliseconds: 20),
+      Duration(milliseconds: inletOptions.pullIntervalMs),
       (_) => r._pull(),
     );
+    if (timingStream) {
+      r._timingOutlet = await lsl.createOutlet(
+        LslOutletSpec(
+          name: 'BridgeTiming$suffix',
+          type: 'Timing',
+          channelCount: 1,
+          rate: 0,
+          format: LslFormat.string,
+          sourceId: 'bridge:timing:${client.url.host}:${client.url.port}',
+        ),
+        options,
+      );
+    }
+    r._timingTimer = Timer.periodic(
+      const Duration(seconds: 2),
+      (_) => r._measure(),
+    );
     return r;
+  }
+
+  /// Note each stream's [timing] and publish it: one JSON sample per
+  /// stream (strings, as an offset between two clocks needs more digits
+  /// than a float32 has).
+  Future<void> _measure() async {
+    final samples = <String>[];
+    for (final (inlet, outlet) in [..._relays.values]) {
+      final ClockChain chain;
+      try {
+        chain = await inlet.chain();
+      } catch (_) {
+        continue; // not measured yet
+      }
+      timing[outlet.spec.name] = chain;
+      samples.add(
+        jsonEncode({
+          'stream': outlet.spec.name,
+          'offset': chain.offset,
+          'uncertainty': chain.uncertainty,
+          'drift_ppm': chain.drift * 1e6,
+          'latency': chain.latency,
+          'hops': chain.toJson(),
+        }),
+      );
+    }
+    if (_closed || samples.isEmpty) return;
+    final now = lsl.clock();
+    await _timingOutlet?.pushStrings(samples, [for (final _ in samples) now]);
   }
 
   /// Names of the streams published here now.
@@ -79,6 +156,7 @@ class LslBridgeRepublisher {
     for (final id in [..._relays.keys]) {
       if (shared.containsKey(id) && _wanted(shared[id]!)) continue;
       final (inlet, outlet) = _relays.remove(id)!;
+      timing.remove(outlet.spec.name);
       await inlet.close();
       await outlet.close();
       changed = true;
@@ -96,10 +174,13 @@ class LslBridgeRepublisher {
             format: d.format.isString ? LslFormat.string : LslFormat.float32,
             sourceId: 'bridge:${d.sourceId.isEmpty ? d.name : d.sourceId}',
             channels: s.channels,
+            desc: {
+              'bridge': {'url': '${client.url}', 'origin': d.hostname},
+            },
           ),
           options,
         );
-        _relays[s.id] = (client.open(s), outlet);
+        _relays[s.id] = (client.open(s, options: inletOptions), outlet);
         errors.remove(d.name);
       } catch (e) {
         errors[d.name] = '$e';
@@ -145,8 +226,10 @@ class LslBridgeRepublisher {
     if (_closed) return;
     _closed = true;
     _timer?.cancel();
+    _timingTimer?.cancel();
     await _sub.cancel();
     await _syncing;
+    await _timingOutlet?.close();
     for (final (inlet, outlet) in _relays.values) {
       await inlet.close();
       await outlet.close();

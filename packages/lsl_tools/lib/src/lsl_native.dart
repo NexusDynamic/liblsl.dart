@@ -1,6 +1,9 @@
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:liblsl/lsl.dart';
+import 'package:peer_coordinator/coordination.dart'
+    show ClockModel, ClockOffsetEstimate, LatencyWindow;
 
 import 'lsl_types.dart';
 
@@ -91,10 +94,14 @@ class _NativeLsl implements LslBackend {
     } catch (_) {
       // No metadata (e.g. the outlet is gone again): default labels.
     }
-    return _Inlet(stream, channels, inlet, [
-      info,
-      ?full,
-    ], full == null ? '' : _xmlOf(full));
+    return _Inlet(
+      stream,
+      channels,
+      inlet,
+      [info, ?full],
+      full == null ? '' : _xmlOf(full),
+      synced: options.clockSync,
+    );
   }
 
   @override
@@ -268,10 +275,74 @@ class _Inlet implements LslInlet {
   @override
   final String fullXml;
 
-  _Inlet(this.stream, this.channels, this._inlet, this._infos, this.fullXml);
+  /// Whether liblsl puts time stamps on this computer's clock already.
+  final bool synced;
+  final _model = ClockModel();
+  final _latency = LatencyWindow();
+  double _measuredAt = double.nan;
+
+  _Inlet(
+    this.stream,
+    this.channels,
+    this._inlet,
+    this._infos,
+    this.fullXml, {
+    required this.synced,
+  });
 
   @override
-  Future<double> timeCorrection() => _inlet.getTimeCorrection(timeout: 2);
+  Future<double> timeCorrection() async => (await timeCorrectionEx()).offset;
+
+  @override
+  Future<LslTimeCorrection> timeCorrectionEx() async {
+    final c = await _inlet.getTimeCorrectionEx(timeout: 2);
+    // liblsl measures every few seconds; the same answer in between.
+    if (c.remoteTime != _measuredAt) {
+      _measuredAt = c.remoteTime;
+      _model.add(
+        ClockOffsetEstimate(
+          offset: c.offset,
+          uncertainty: c.uncertainty,
+          remoteTime: c.remoteTime,
+          sampledAt: LSL.localClock(),
+        ),
+      );
+    }
+    return LslTimeCorrection(
+      offset: c.offset,
+      uncertainty: c.uncertainty,
+      remoteTime: c.remoteTime,
+    );
+  }
+
+  @override
+  Future<ClockChain> chain() async {
+    await timeCorrectionEx();
+    return ClockChain([
+      _model.hop(
+        node: Platform.localHostname,
+        via: 'lsl',
+        latency: _latency.mean,
+        jitter: _latency.jitter,
+      ),
+    ]);
+  }
+
+  /// [times] as pulled now, with the last sample's latency noted.
+  LslChunk _chunk(
+    Float64List times, {
+    List<double>? values,
+    List<String>? strings,
+  }) {
+    final now = LSL.localClock();
+    final last = times.last;
+    if (synced) {
+      _latency.add(now - last);
+    } else if (_model.ready) {
+      _latency.add(now - last - _model.offsetAt(last));
+    }
+    return LslChunk(times, values: values, strings: strings, received: now);
+  }
 
   @override
   Future<LslChunk> pull(int maxSamples) async {
@@ -279,7 +350,7 @@ class _Inlet implements LslInlet {
     if (stream.format.isString) {
       final c = await _inlet.pullChunk(maxSamples: maxSamples);
       if (c.isEmpty) return LslChunk.empty;
-      return LslChunk(
+      return _chunk(
         Float64List.fromList(c.timestamps),
         strings: [
           for (final s in c.samples)
@@ -303,7 +374,7 @@ class _Inlet implements LslInlet {
       }
       values = f;
     }
-    return LslChunk(c.timestamps, values: values);
+    return _chunk(c.timestamps, values: values);
   }
 
   @override

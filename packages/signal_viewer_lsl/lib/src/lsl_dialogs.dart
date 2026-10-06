@@ -523,6 +523,9 @@ class _LslStreamInfoDialogState extends State<_LslStreamInfoDialog> {
   double? _offset;
   String? _offsetError;
 
+  /// How the stream's clock maps onto this computer's, hop by hop.
+  ClockChain? _chain;
+
   /// Clock offsets measured while open: (LSL time, offset).
   final List<(double, double)> _offsets = [];
 
@@ -540,8 +543,10 @@ class _LslStreamInfoDialogState extends State<_LslStreamInfoDialog> {
     if (s == null || s.closed) return;
     try {
       final o = await s.inlet.timeCorrection();
+      final chain = await s.inlet.chain();
       if (mounted) {
         setState(() {
+          _chain = chain;
           _offset = o;
           _offsetError = null;
           _offsets.add((lsl.clock(), o));
@@ -615,6 +620,17 @@ class _LslStreamInfoDialogState extends State<_LslStreamInfoDialog> {
               ? 'measuring…'
               : '${num(_offset! * 1000, 3)} ms',
         ),
+        if (_chain != null) ...[
+          (
+            'Offset bound',
+            '±${num(_chain!.uncertainty * 500)} ms'
+                '${_chain!.latency == null ? '' : ' · latency '
+                          '${num(_chain!.latency! * 1000, 1)} ms'}',
+          ),
+          // Through a bridge: each hop, to find a slow or noisy one.
+          if (_chain!.hops.length > 1)
+            for (final (i, h) in _chain!.hops.indexed) ('Hop ${i + 1}', '$h'),
+        ],
         (
           'Measured rate',
           session.measuredRate == null
@@ -1301,10 +1317,7 @@ class _BridgeDialogState extends State<_BridgeDialog> {
                         style: theme.textTheme.titleSmall,
                       ),
                     ),
-                    Text(
-                      'clock offset ${(b.offset * 1000).toStringAsFixed(1)} ms',
-                      style: theme.textTheme.bodySmall,
-                    ),
+                    Text(_linkText(b), style: theme.textTheme.bodySmall),
                     TextButton(
                       onPressed: () => widget.app.disconnectBridge(b),
                       child: const Text('Disconnect'),
@@ -1738,4 +1751,13 @@ Future<({LslBridgeClient? via})?> chooseLslTarget(
       ],
     ),
   );
+}
+
+/// The bridge's clock against this computer's: offset, error bound, drift.
+String _linkText(LslBridgeClient b) {
+  final link = b.link;
+  if (link == null) return 'measuring clock offset…';
+  return 'clock offset ${(link.offset * 1000).toStringAsFixed(1)} ms '
+      '±${(link.uncertainty * 500).toStringAsFixed(1)} ms, '
+      'drift ${(link.drift * 1e6).toStringAsFixed(1)} ppm';
 }

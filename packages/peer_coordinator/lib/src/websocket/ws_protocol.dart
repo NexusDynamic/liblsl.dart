@@ -143,6 +143,15 @@ class WsFrame {
 /// near zero and is the whole justification for a dumb hub.
 abstract final class WsSampleFrame {
   static const int kindSample = 0x01;
+
+  /// A sample passed on from somewhere else: the clock field holds the time
+  /// its *origin* stamped it with, not when this sender sent it, and reading
+  /// it needs the stream's `ClockChain` as well as the sender's offset.
+  ///
+  /// A separate kind rather than a convention, so a receiver that has not
+  /// been told the chain yet knows the transit time is unknown instead of
+  /// computing one from the wrong clock.
+  static const int kindRelayed = 0x02;
   static const int headerBytes = 14;
 
   static const int _kindOffset = 0;
@@ -153,7 +162,11 @@ abstract final class WsSampleFrame {
 
   /// Whether [bytes] looks like a sample frame rather than control text.
   static bool isSample(Uint8List bytes) =>
-      bytes.isNotEmpty && bytes[_kindOffset] == kindSample;
+      bytes.isNotEmpty &&
+      (bytes[_kindOffset] == kindSample || bytes[_kindOffset] == kindRelayed);
+
+  /// Whether a sample frame is of [kindRelayed].
+  static bool isRelayed(Uint8List frame) => frame[_kindOffset] == kindRelayed;
 
   static Uint8List encode({
     required StreamDataType dataType,
@@ -161,11 +174,12 @@ abstract final class WsSampleFrame {
     required int srcSlot,
     required double senderMicros,
     required List<Object?> channels,
+    bool relayed = false,
   }) {
     final body = _encodeBody(dataType, channels);
     final out = Uint8List(headerBytes + body.lengthInBytes);
     final view = ByteData.view(out.buffer);
-    out[_kindOffset] = kindSample;
+    out[_kindOffset] = relayed ? kindRelayed : kindSample;
     out[_dtypeOffset] = dataType.index;
     view.setUint16(_streamSlotOffset, streamSlot, Endian.little);
     view.setUint16(_srcSlotOffset, srcSlot, Endian.little);

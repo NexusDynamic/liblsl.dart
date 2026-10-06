@@ -5,6 +5,7 @@
 library;
 
 export 'src/bridge/client.dart';
+export 'src/bridge/coordinator_link.dart';
 export 'src/bridge/protocol.dart' show BridgeStream;
 export 'src/bridge/republisher.dart';
 export 'src/bridge/server.dart';

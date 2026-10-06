@@ -1,3 +1,5 @@
+import 'package:peer_coordinator/src/data/clock_hop.dart';
+
 /// Receive-side timing for a single message, as the transport observed it.
 ///
 /// Every inbound message carries one of these when the transport can supply it,
@@ -53,12 +55,23 @@ final class MessageTiming {
   /// uId, and so on. Null if the transport does not distinguish senders.
   final String? sourceId;
 
+  /// The hops this message's stream crossed *before* the sender, when the
+  /// sender is passing it on rather than producing it. Null otherwise.
+  ///
+  /// [sourceClock] is then the origin's clock, and [clockOffset] and
+  /// [uncertainty] are already totals for the whole way (these hops plus the
+  /// sender's), so [transitSeconds] runs from the origin's timestamp. The
+  /// hops themselves are here for finding which one is slow; one object is
+  /// shared by every message of the stream until the sender updates it.
+  final ClockChain? upstream;
+
   const MessageTiming({
     required this.receivedClock,
     this.sourceClock,
     this.clockOffset,
     this.uncertainty,
     this.sourceId,
+    this.upstream,
   });
 
   /// [sourceClock] mapped into the local clock domain, or null if either the

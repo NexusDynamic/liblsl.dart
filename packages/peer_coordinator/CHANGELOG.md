@@ -1,3 +1,18 @@
+## Unreleased
+
+- New `ClockHop` and `ClockChain`: the clock corrections a stream picked up
+  on its way, one per hop (offset, drift, error bound, latency, jitter), with
+  totals in the shape of `lsl_time_correction_ex`.
+- New `ClockModel` (a drift fit over recent `ClockOffsetEstimate`s),
+  `TimestampSmoother` (liblsl's `proc_dejitter`) and `LatencyWindow`.
+- `ClockSyncService.onEstimate`: called with each accepted estimate.
+- `DataStream.sendDataAt` and `DataStream.upstream` pass a sample on with its
+  origin's timestamp and the chain to read it by, on transports where
+  `relaysSourceClock` is true. `MessageTiming.upstream` carries the chain,
+  and `clockOffset` / `uncertainty` are then totals for the whole way.
+- `WsSampleFrame.kindRelayed` marks such samples, so a receiver that has not
+  been told the chain reports the transit time as unknown.
+
 ## 0.3.1
 
 - New `ClockSyncSample`: one clock-offset estimate for one peer — `offset`,

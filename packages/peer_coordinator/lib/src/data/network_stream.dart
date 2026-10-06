@@ -661,6 +661,33 @@ abstract class DataStream<T extends DataStreamConfig, M extends IMessage>
 
   /// [sendData] for a statically known element type.
   Future<void> sendDataTyped<S>(Iterable<S> data);
+
+  /// Whether this transport can pass a sample on with the timestamp its
+  /// origin gave it ([sendDataAt], [upstream]).
+  ///
+  /// False by default: LSL carries its own timestamps and the in-memory
+  /// transport has one clock.
+  bool get relaysSourceClock => false;
+
+  /// [sendData] for a sample that came from somewhere else: [sourceClock] is
+  /// the time its origin stamped it with, in seconds on the origin's clock,
+  /// and travels in place of this node's send time.
+  ///
+  /// Receivers read it through [upstream], so set that first.
+  Future<void> sendDataAt(double sourceClock, Iterable<dynamic> data) =>
+      throw UnsupportedError('This transport does not relay source clocks');
+
+  /// How [sendDataAt]'s source clock maps onto this node's [PeerClock]: the
+  /// hops the stream crossed to get here.
+  ///
+  /// Sent to this stream's subscribers whenever it is set, so set it again
+  /// every few seconds as the estimates behind it are refreshed — that is
+  /// also what brings a late subscriber, or one that lost the message on an
+  /// unreliable channel, up to date.
+  ClockChain get upstream => ClockChain.empty;
+
+  set upstream(ClockChain chain) =>
+      throw UnsupportedError('This transport does not relay source clocks');
 }
 
 /// Creates network streams.
