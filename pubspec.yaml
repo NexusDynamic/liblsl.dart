@@ -15,6 +15,7 @@ workspace:
   - packages/webrtc_coordinator_flutter
   - packages/liblsl_timing
   - packages/liblsl_analysis
+  - packages/timing_core
   - packages/signal_core
   - packages/signal_viewer
   - packages/signal_viewer_lsl
