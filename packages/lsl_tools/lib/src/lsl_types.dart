@@ -1,5 +1,9 @@
 import 'dart:typed_data';
 
+import 'package:peer_coordinator/data.dart' show ClockChain;
+
+export 'package:peer_coordinator/data.dart' show ClockChain, ClockHop;
+
 /// Sample format of an LSL stream.
 enum LslFormat {
   float32,
@@ -83,7 +87,10 @@ class LslChunk {
   /// `times.length * channelCount` strings (string streams).
   final List<String>? strings;
 
-  const LslChunk(this.times, {this.values, this.strings});
+  /// This computer's LSL clock when the samples arrived here, if known.
+  final double? received;
+
+  const LslChunk(this.times, {this.values, this.strings, this.received});
 
   int get length => times.length;
 
@@ -109,7 +116,42 @@ abstract class LslInlet {
   /// this computer's LSL clock.
   Future<double> timeCorrection();
 
+  /// [timeCorrection] with its error bound.
+  Future<LslTimeCorrection> timeCorrectionEx();
+
+  /// How the sender's time stamps map onto this computer's LSL clock, hop
+  /// by hop (one hop for a stream on this network, more through bridges),
+  /// with the latency measured at each. Ask every few seconds: each call
+  /// refines the drift estimate. With [LslInletOptions.clockSync] the time
+  /// stamps pulled have it applied already.
+  Future<ClockChain> chain();
+
   Future<void> close();
+}
+
+/// A clock offset and how far it can be trusted.
+class LslTimeCorrection {
+  /// Add it to the sender's time stamps to get this computer's LSL clock.
+  final double offset;
+
+  /// The full round trip of the measurement (summed over hops): the true
+  /// offset is within ±[uncertainty]/2.
+  final double uncertainty;
+
+  /// The sender's clock when it was measured.
+  final double remoteTime;
+
+  const LslTimeCorrection({
+    required this.offset,
+    required this.uncertainty,
+    required this.remoteTime,
+  });
+
+  static const zero = LslTimeCorrection(
+    offset: 0,
+    uncertainty: 0,
+    remoteTime: 0,
+  );
 }
 
 /// What an outlet publishes.

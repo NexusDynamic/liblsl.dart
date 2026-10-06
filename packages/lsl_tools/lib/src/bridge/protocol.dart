@@ -1,19 +1,29 @@
 /// The LSL bridge protocol: LSL streams over a WebSocket.
 ///
-/// Connecting: `ws://host:port/?token=<token>` (the token only when the
-/// bridge has one). A plain HTTP GET of the same URL answers
-/// `{"streams": [...], "accepts_publish": bool}`.
+/// Connecting: `ws://host:port/?v=2&token=<token>` (`v` is
+/// [bridgeProtocol]; the token only when the bridge has one). A plain HTTP
+/// GET of the same URL answers `{"streams": [...], "accepts_publish": bool}`.
 ///
 /// Text frames are JSON control messages:
-/// - server → client `{"type": "streams", "streams": [...],
+/// - server → client `{"type": "streams", "protocol": 2, "streams": [...],
 ///   "accepts_publish": bool}`: the streams shared ([BridgeStream.toJson]),
 ///   sent on connecting and again whenever they change (a stream shared or
 ///   gone, a client publishing or leaving). Ids are never reused.
 /// - client → server `{"type": "subscribe", "ids": [...]}`: the streams to
 ///   send (replaces the previous subscription);
-/// - client → server `{"type": "ping", "t": <client time>}`, answered by
-///   `{"type": "pong", "t": <the same>, "server": <server time>}`, which
-///   the client uses to map the server's clock onto its own.
+/// - client → server `{"type": "ping", "t": t0, "wave": n}`, answered by
+///   `{"type": "pong", "t": t0, "wave": n, "t1": ..., "t2": ...}` (the
+///   server's clock when the ping arrived and when the answer left), from
+///   which the client estimates the server's clock against its own. The
+///   server estimates nothing, like an LSL outlet.
+/// - both ways `{"type": "timing", "id": n, "hops": [...]}`: how that
+///   stream's time stamps map onto the **server's** clock, as a
+///   `ClockChain`: one hop per clock crossed so far, each with its offset,
+///   drift, error bound and measured latency. The server sends it for the
+///   streams a client subscribes to, when it subscribes and every few
+///   seconds; a publishing client sends it for its streams before their
+///   first samples and whenever its estimate changes (`"hops": []` if its
+///   time stamps are on the server's clock already).
 /// - client → server `{"type": "publish", "streams": [...]}`: streams the
 ///   client will send samples of, with ids of its choosing. A bridge that
 ///   accepts published streams shares each with every client (as a new id)
@@ -24,16 +34,21 @@
 /// - client → server `{"type": "unpublish", "ids": [...]}`: stop
 ///   publishing (also when the client disconnects).
 ///
-/// Binary frames are samples ([encodeSamples]) with time stamps on the
-/// server's clock: from server to client for subscribed streams, and from
-/// client to server for published ones (under the client's id). Values
-/// travel as float32.
+/// Binary frames are samples ([encodeSamples]): from server to client for
+/// subscribed streams, and from client to server for published ones (under
+/// the client's id). Their time stamps are the ones the stream's origin
+/// gave them and are never changed on the way; the `timing` messages say
+/// how to read them. Values travel as float32.
 library;
 
 import 'dart:convert';
 import 'dart:typed_data';
 
 import '../lsl_types.dart';
+
+/// The protocol version spoken here. Version 1 sent time stamps on the
+/// server's clock, so the two cannot be mixed.
+const bridgeProtocol = 2;
 
 /// A shared stream, as the server describes it.
 class BridgeStream {
@@ -135,8 +150,18 @@ Uint8List encodeSamples(int id, LslChunk c, int channels) {
   return out;
 }
 
-/// Decode [encodeSamples]; time stamps are shifted by [offset].
-(int id, LslChunk chunk) decodeSamples(Uint8List bytes, {double offset = 0}) {
+/// The last time stamp in a samples frame, or null if it has none.
+double? lastTimeOf(Uint8List bytes) {
+  if (bytes.length < 13) return null;
+  final d = ByteData.sublistView(bytes);
+  final n = d.getUint32(4, Endian.little);
+  final p = 13 + 8 * (n - 1);
+  if (n == 0 || p + 8 > bytes.length) return null;
+  return d.getFloat64(p, Endian.little);
+}
+
+/// Decode [encodeSamples]; [received] is when the frame arrived.
+(int id, LslChunk chunk) decodeSamples(Uint8List bytes, {double? received}) {
   final d = ByteData.sublistView(bytes);
   final id = d.getUint32(0, Endian.little);
   final n = d.getUint32(4, Endian.little);
@@ -145,14 +170,14 @@ Uint8List encodeSamples(int id, LslChunk c, int channels) {
   var p = 13;
   final times = Float64List(n);
   for (var i = 0; i < n; i++, p += 8) {
-    times[i] = d.getFloat64(p, Endian.little) + offset;
+    times[i] = d.getFloat64(p, Endian.little);
   }
   if (kind == 0) {
     final values = Float32List(n * channels);
     for (var i = 0; i < n * channels; i++, p += 4) {
       values[i] = d.getFloat32(p, Endian.little);
     }
-    return (id, LslChunk(times, values: values));
+    return (id, LslChunk(times, values: values, received: received));
   }
   final strings = <String>[];
   for (var i = 0; i < n * channels; i++) {
@@ -160,5 +185,5 @@ Uint8List encodeSamples(int id, LslChunk c, int channels) {
     strings.add(utf8.decode(Uint8List.sublistView(bytes, p + 4, p + 4 + len)));
     p += 4 + len;
   }
-  return (id, LslChunk(times, strings: strings));
+  return (id, LslChunk(times, strings: strings, received: received));
 }

@@ -305,6 +305,7 @@ final class ClockSyncService {
   ClockSyncService({
     required this.sendProbe,
     required this.offsets,
+    this.onEstimate,
     ClockSyncConfig? config,
     Random? random,
   }) : config = config ?? const ClockSyncConfig(),
@@ -317,6 +318,10 @@ final class ClockSyncService {
 
   /// Where accepted estimates are published for readers to pick up.
   final PeerClockOffsets offsets;
+
+  /// Called with each accepted estimate, for a reader that wants the series
+  /// (to fit drift with a [ClockModel], say) rather than the latest value.
+  final void Function(String peerUId, ClockOffsetEstimate estimate)? onEstimate;
 
   final ClockSyncConfig config;
   final Random _random;
@@ -396,7 +401,9 @@ final class ClockSyncService {
       Timer(config.aggregateAfter, () {
         if (_disposed || estimator.waveId != waveId) return;
         final estimate = estimator.aggregate();
-        if (estimate != null) offsets.set(peerUId, estimate);
+        if (estimate == null) return;
+        offsets.set(peerUId, estimate);
+        onEstimate?.call(peerUId, estimate);
       }),
     );
 

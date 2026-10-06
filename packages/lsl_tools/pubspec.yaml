@@ -12,12 +12,13 @@ publish_to: 'none'
 resolution: workspace
 
 environment:
-  sdk: ^3.10.0
+  sdk: ^3.12.2
 
 dependencies:
   args: ^2.6.0
   liblsl: any
   openbci_cyton: ^0.1.0
+  peer_coordinator: ^0.3.1
   serial_transport: ^0.1.0
   signal_core: ^0.1.0
   web_socket_channel: ^3.0.3
@@ -27,6 +28,7 @@ dependencies:
 dev_dependencies:
   lints: ^6.0.0
   test: ^1.28.0
+  webrtc_coordinator: ^0.2.0
 
 executables:
   lsl:

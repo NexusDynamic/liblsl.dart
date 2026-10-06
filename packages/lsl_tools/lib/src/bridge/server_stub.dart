@@ -14,4 +14,5 @@ Future<LslBridgeServer> start(
   required List<String> allowedOrigins,
   required LslInletOptions options,
   required LslOutletOptions outletOptions,
+  required double Function()? clock,
 }) => throw UnsupportedError('Sharing LSL streams needs dart:io');

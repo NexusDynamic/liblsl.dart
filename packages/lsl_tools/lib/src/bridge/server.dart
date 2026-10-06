@@ -23,6 +23,7 @@ abstract class LslBridgeServer {
   /// With [acceptPublish], clients can also publish streams here. Each is
   /// shared with the other clients and, with [localOutlets], also becomes
   /// an LSL outlet on this computer (e.g. a serial device a browser reads).
+  /// [clock] replaces this computer's LSL clock (for tests).
   static Future<LslBridgeServer> start(
     List<LslStreamDescription> streams, {
     int port = 8765,
@@ -33,6 +34,7 @@ abstract class LslBridgeServer {
     List<String> allowedOrigins = const [],
     LslInletOptions options = const LslInletOptions(),
     LslOutletOptions outletOptions = const LslOutletOptions(),
+    double Function()? clock,
   }) => platform.start(
     streams,
     port: port,
@@ -43,6 +45,7 @@ abstract class LslBridgeServer {
     allowedOrigins: allowedOrigins,
     options: options,
     outletOptions: outletOptions,
+    clock: clock,
   );
 
   /// The port it listens on.
