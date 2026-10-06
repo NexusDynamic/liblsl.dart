@@ -1,3 +1,15 @@
+# 1.1.0
+
+## New features
+
+- `LSLInlet.sampleStream()` (direct mode) delivers samples as they arrive,
+  with no polling: the inlet gets an isolate that waits inside
+  `lsl_pull_sample`, which liblsl wakes when a sample is queued. Each
+  `LSLTimedSample` carries `receivedClock`, `lsl_local_clock()` read as the
+  pull returned, so a latency computed from it does not include a poll
+  interval or the listener's event loop. Cancel the subscription before
+  destroying the inlet.
+
 # 1.0.0
 
 liblsl.dart now wraps every function exported by the liblsl C library, so it

@@ -10,6 +10,7 @@ import 'package:liblsl/src/lsl/base.dart';
 import 'package:liblsl/src/lsl/binary_string.dart';
 import 'package:liblsl/src/lsl/isolate_manager.dart';
 import 'package:liblsl/src/lsl/lsl_io_mixin.dart';
+import 'package:liblsl/src/lsl/sample_listener.dart';
 import 'package:liblsl/src/util/chunk_buffer.dart';
 
 /// A unified LSL inlet that supports both isolated and direct execution modes.
@@ -267,6 +268,44 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   Future<LSLSample<T>> pullSample({double timeout = 0.0}) => _useIsolates
       ? _pullSampleIsolated(timeout)
       : Future.value(_pullSampleDirect(timeout));
+
+  /// Samples as they arrive, each with the local clock at the moment it
+  /// became available, with no polling in between.
+  ///
+  /// **Direct mode only** - throws [LSLException] if `useIsolates: true`.
+  ///
+  /// Pulling is how an inlet learns of new samples, so a loop that pulls
+  /// with a zero timeout sees each one up to a poll interval late, and that
+  /// delay is in any latency it measures. This instead gives the inlet an
+  /// isolate that waits inside `lsl_pull_sample`; liblsl wakes it when a
+  /// sample is queued, and it reads `lsl_local_clock()` as the call returns
+  /// ([LSLTimedSample.receivedClock]) before handing the sample over. How
+  /// soon a listener then runs is up to its own isolate's event loop, but
+  /// the receive time is already taken.
+  ///
+  /// The isolate starts when the stream is listened to and stops when the
+  /// subscription is cancelled; await the cancel before destroying the
+  /// inlet. [wakeInterval] is how long, in seconds, that can take. While
+  /// listening, do not pull from this inlet anywhere else: the samples go to
+  /// whichever pull gets them. Time correction calls are unaffected.
+  ///
+  /// ```dart
+  /// final inlet = await LSL.createInlet<double>(streamInfo: info, useIsolates: false);
+  /// final subscription = inlet.sampleStream().listen((sample) {
+  ///   final latency = sample.receivedClock - (sample.timestamp + offset);
+  /// });
+  /// // ...
+  /// await subscription.cancel();
+  /// await inlet.destroy();
+  /// ```
+  Stream<LSLTimedSample<T>> sampleStream({double wakeInterval = 0.1}) =>
+      requireDirect(
+        () => listenToInlet<T>(
+          inletAddress: _inletBang.address,
+          streamInfoAddress: streamInfo.streamInfo.address,
+          wakeInterval: wakeInterval,
+        ),
+      );
 
   /// Synchronously pulls a sample from the inlet.
   ///
