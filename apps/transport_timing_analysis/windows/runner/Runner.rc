@@ -90,12 +90,12 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "com.zeyus" "\0"
-            VALUE "FileDescription", "liblsl_analysis" "\0"
+            VALUE "FileDescription", "transport_timing_analysis" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "liblsl_analysis" "\0"
+            VALUE "InternalName", "transport_timing_analysis" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2025 com.zeyus. All rights reserved." "\0"
-            VALUE "OriginalFilename", "liblsl_analysis.exe" "\0"
-            VALUE "ProductName", "liblsl_analysis" "\0"
+            VALUE "OriginalFilename", "transport_timing_analysis.exe" "\0"
+            VALUE "ProductName", "transport_timing_analysis" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

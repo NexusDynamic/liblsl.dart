@@ -1,12 +1,10 @@
-import 'dart:convert';
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:signal_viewer/signal_viewer.dart';
 import 'package:timing_core/timing_core.dart';
 import 'package:transport_timing_analysis/src/timing_session.dart';
 
-RunLog log({required double sampleRate}) {
-  final buffer = StringBuffer();
+Future<RunLog> log({required double sampleRate}) async {
+  final buffer = BytesSink();
   final writer = RunLogWriter(
     buffer,
     RunHeader(
@@ -31,14 +29,15 @@ RunLog log({required double sampleRate}) {
       uncertainty: 0.0004,
     );
   }
-  return RunLog.parse(const LineSplitter().convert(buffer.toString()));
+  await writer.close();
+  return RunLog.parse(buffer.takeBytes());
 }
 
 void main() {
   test('a latency run is laid out by sequence number', () async {
     final session = TimingSession(
-      'a.ttlog',
-      log(sampleRate: 100),
+      'a.xdf',
+      await log(sampleRate: 100),
       nameOf: (id) => id == 'B' ? 'b' : null,
     );
     final info = session.streams.single;
@@ -65,10 +64,10 @@ void main() {
     expect(source.events().length, 0);
   });
 
-  test('an interactive run is laid out by arrival', () {
+  test('an interactive run is laid out by arrival', () async {
     final session = TimingSession(
-      'a.ttlog',
-      log(sampleRate: 0),
+      'a.xdf',
+      await log(sampleRate: 0),
       nameOf: (_) => null,
     );
     final info = session.streams.single;

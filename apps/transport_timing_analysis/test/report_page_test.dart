@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:timing_core/timing_core.dart';
@@ -9,7 +7,7 @@ void main() {
   testWidgets('the report shows each pair and its distribution', (
     tester,
   ) async {
-    final buffer = StringBuffer();
+    final buffer = BytesSink();
     final writer = RunLogWriter(
       buffer,
       RunHeader(
@@ -35,9 +33,8 @@ void main() {
         uncertainty: 0.0002,
       );
     }
-    final report = analyse([
-      RunLog.parse(const LineSplitter().convert(buffer.toString())),
-    ]);
+    await tester.runAsync(writer.close);
+    final report = analyse([RunLog.parse(buffer.takeBytes())]);
 
     tester.view.physicalSize = const Size(1600, 1000);
     tester.view.devicePixelRatio = 1;

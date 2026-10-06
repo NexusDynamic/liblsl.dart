@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:signal_viewer/signal_viewer.dart';
@@ -7,15 +6,16 @@ import 'package:timing_core/timing_core.dart';
 import 'report_page.dart';
 import 'timing_session.dart';
 
-RunLog _parse(Uint8List bytes) =>
-    RunLog.parse(const LineSplitter().convert(utf8.decode(bytes)));
-
-/// Opens `transport_timing` run logs (`.ttlog`): a tab per sender with its
-/// latency and clock offset over the run, and a report across every log
-/// that is open.
+/// Opens the XDF run logs that `transport_timing` writes: a tab per sender
+/// with its latency and clock offset over the run, and a report across
+/// every log that is open.
+///
+/// Any other XDF file is refused: this app shows what a timing run
+/// measured, and `lsl_viewer` shows XDF recordings as they are (run logs
+/// included).
 class TimingProvider extends SourceProvider {
   @override
-  List<String> get fileExtensions => const ['ttlog'];
+  List<String> get fileExtensions => const ['xdf'];
 
   Iterable<TimingSession> get _open =>
       app.sessions.whereType<TimingSession>().where((s) => !s.closed);
@@ -39,9 +39,15 @@ class TimingProvider extends SourceProvider {
     } finally {
       await source.close();
     }
+    final RunLog log;
+    try {
+      log = await compute(RunLog.parse, bytes);
+    } on FormatException {
+      throw FormatException('${file.name} is not a transport_timing run log');
+    }
     final session = TimingSession(
       file.name,
-      await compute(_parse, bytes),
+      log,
       path: file.path,
       nameOf: _nameOf,
     );

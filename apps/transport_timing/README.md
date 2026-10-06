@@ -28,9 +28,9 @@ directly:
    its roster, set up the run there and start it. Every device runs it and
    writes a log.
 4. Share the logs from each device (the share button), or collect them from
-   its downloads or documents folder: `tt_<run>_<device>.ttlog`.
+   its downloads or documents folder: `tt_<run>_<device>.xdf`.
 5. Open all of a run's logs together in the analysis app, or
-   `dart run timing_core:analyse *.ttlog`.
+   `dart run timing_core:analyse tt_*.xdf`.
 
 Each device also shows what its own log says as soon as a run ends. That is
 already most of the picture: every received sample carries its sender's

@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 
@@ -317,9 +316,9 @@ class TimingSession {
     RunConfig config, {
     required int queued,
   }) async {
-    final buffer = StringBuffer();
+    final sink = BytesSink();
     final header = _header(config);
-    final log = RunLogWriter(buffer, header);
+    final log = RunLogWriter(sink, header);
     final streamRun = StreamRun(
       stream: stream,
       config: config,
@@ -346,7 +345,7 @@ class TimingSession {
     _log = null;
     await streamRun.finish();
     log.event(_clock(), 'stopped');
-    await _save(config, header, buffer);
+    await _save(config, log, sink);
   }
 
   Future<void> _runRaw(
@@ -362,17 +361,17 @@ class TimingSession {
     if (session == null) return;
     _busy = true;
     try {
-      final buffer = StringBuffer();
-      final header = _header(config);
+      final sink = BytesSink();
+      final log = RunLogWriter(sink, _header(config));
       await runRawLsl(
         config: config,
         nodeUId: session.thisNode.uId,
         expectedNodes: nodes,
-        log: RunLogWriter(buffer, header),
+        log: log,
         onStatus: (status) =>
             run.value = ActiveRun(config, status, queued: queued),
       );
-      await _save(config, header, buffer);
+      await _save(config, log, sink);
     } catch (e) {
       debugPrint('run ${config.runId} failed: $e');
       run.value = null;
@@ -450,18 +449,13 @@ class TimingSession {
     );
   }
 
-  Future<void> _save(
-    RunConfig config,
-    RunHeader header,
-    StringBuffer buffer,
-  ) async {
+  Future<void> _save(RunConfig config, RunLogWriter log, BytesSink sink) async {
     run.value = ActiveRun(config, 'Saving');
-    final content = buffer.toString();
-    final file = await _store.save(header, content);
+    await log.close();
+    final content = sink.takeBytes();
+    final file = await _store.save(log.header, content);
     final report = await Isolate.run(
-      () => formatReport(
-        analyse([RunLog.parse(const LineSplitter().convert(content))]),
-      ),
+      () => formatReport(analyse([RunLog.parse(content)])),
     );
     results.value = [...results.value, RunResult(config, file.path, report)];
     run.value = null;

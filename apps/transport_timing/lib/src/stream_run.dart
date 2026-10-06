@@ -43,6 +43,10 @@ class StreamRun {
   int _seq = 0;
   late final List<double> _sample = List.filled(config.channels, 0);
 
+  /// The route last logged for each sender whose samples were passed on by
+  /// another node, to log it again only when it changes.
+  final Map<String, ClockChain> _routes = {};
+
   int get sent => _seq;
   int received = 0;
 
@@ -112,6 +116,13 @@ class StreamRun {
       clockOffset: timing?.clockOffset,
       uncertainty: timing?.uncertainty,
     );
+    // A relayed sample comes with the hops it crossed, shared by every
+    // message until the relay updates them.
+    final route = timing?.upstream;
+    if (route != null && !identical(_routes[from], route)) {
+      _routes[from] = route;
+      log.event(clock(), 'route', {'from': from, 'hops': route.toJson()});
+    }
     onSample?.call(from, seq);
   }
 

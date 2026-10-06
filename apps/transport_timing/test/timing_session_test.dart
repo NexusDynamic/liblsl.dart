@@ -105,7 +105,7 @@ void main() {
 
     final logs = [
       for (final session in [a, b, c])
-        RunLog.parse(File(session.results.value.single.path).readAsLinesSync()),
+        RunLog.parse(File(session.results.value.single.path).readAsBytesSync()),
     ];
     for (final log in logs) {
       expect(log.header.runId, 'run1');

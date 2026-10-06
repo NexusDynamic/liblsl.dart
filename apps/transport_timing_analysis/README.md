@@ -1,6 +1,6 @@
 # Transport Timing Analysis
 
-Opens the run logs (`.ttlog`) that
+Opens the run logs (XDF files) that
 [`transport_timing`](../transport_timing) writes, and shows what they
 measured: latency, jitter, loss, and how the devices' clocks differ and
 drift.
@@ -40,7 +40,11 @@ counts losses exactly. The report can be copied as text or JSON.
 
 ## Without the app
 
+The logs are ordinary XDF, so they also open in
+[`lsl_viewer`](../lsl_viewer), pyxdf and other XDF tools;
+[`timing_core`](../../packages/timing_core) describes their streams.
+
 ```bash
-dart run timing_core:analyse *.ttlog          # the report as text
-dart run timing_core:analyse --json *.ttlog
+dart run timing_core:analyse tt_*.xdf          # the report as text
+dart run timing_core:analyse --json tt_*.xdf
 ```

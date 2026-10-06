@@ -20,7 +20,7 @@
       <string>da</string>
     </array>
     <key>CFBundleName</key>
-    <string>liblsl_timing</string>
+    <string>transport_timing</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>

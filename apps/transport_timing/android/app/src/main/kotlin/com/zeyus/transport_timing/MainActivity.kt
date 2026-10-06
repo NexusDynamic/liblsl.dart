@@ -1,4 +1,4 @@
-package com.zeyus.liblsl_timing
+package com.zeyus.transport_timing
 import androidx.annotation.NonNull
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine

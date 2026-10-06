@@ -1,6 +1,6 @@
 {
-    "name": "liblsl_analysis",
-    "short_name": "liblsl_analysis",
+    "name": "transport_timing_analysis",
+    "short_name": "transport_timing_analysis",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

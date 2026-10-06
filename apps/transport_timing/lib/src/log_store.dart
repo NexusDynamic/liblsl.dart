@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:path_provider/path_provider.dart';
 import 'package:timing_core/timing_core.dart';
@@ -23,23 +24,23 @@ class LogStore {
   }
 
   /// Writes the log of [header]'s run and returns the file.
-  Future<File> save(RunHeader header, String content) async {
+  Future<File> save(RunHeader header, Uint8List content) async {
     final name = header.deviceName.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
     final file = File(
-      '${(await _directory()).path}/tt_${header.runId}_$name.ttlog',
+      '${(await _directory()).path}/tt_${header.runId}_$name.xdf',
     );
     try {
       await file.create(recursive: true);
-      await file.writeAsString(content);
+      await file.writeAsBytes(content);
       return file;
     } on FileSystemException {
       // Some platforms list a downloads folder the app may not write to.
       final fallback = File(
         '${(await getApplicationDocumentsDirectory()).path}/'
-        'tt_${header.runId}_$name.ttlog',
+        'tt_${header.runId}_$name.xdf',
       );
       await fallback.create(recursive: true);
-      await fallback.writeAsString(content);
+      await fallback.writeAsBytes(content);
       return fallback;
     }
   }

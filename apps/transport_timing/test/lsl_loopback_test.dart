@@ -130,7 +130,7 @@ void main() {
     final report = analyse([
       for (final session in [a, b])
         for (final result in session.results.value)
-          RunLog.parse(File(result.path).readAsLinesSync()),
+          RunLog.parse(File(result.path).readAsBytesSync()),
     ]);
     // ignore: avoid_print
     print(formatReport(report));
@@ -172,7 +172,7 @@ void main() {
     }
     final report = analyse([
       for (final session in [a, b])
-        RunLog.parse(File(session.results.value.single.path).readAsLinesSync()),
+        RunLog.parse(File(session.results.value.single.path).readAsBytesSync()),
     ]);
     // ignore: avoid_print
     print(formatReport(report));
