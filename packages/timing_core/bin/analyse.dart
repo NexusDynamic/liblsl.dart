@@ -17,13 +17,7 @@ Future<void> main(List<String> args) async {
   final logs = <RunLog>[];
   for (final path in paths) {
     try {
-      logs.add(
-        await RunLog.fromStream(
-          File(
-            path,
-          ).openRead().transform(utf8.decoder).transform(const LineSplitter()),
-        ),
-      );
+      logs.add(RunLog.parse(await File(path).readAsBytes()));
     } on FormatException catch (e) {
       stderr.writeln('$path: ${e.message}');
       exitCode = 65;

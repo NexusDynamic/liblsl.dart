@@ -1,7 +1,10 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-/// What a device recorded during one run, as the first line of its log.
+import 'package:xdf/xdf.dart';
+import 'package:xml/xml.dart';
+
+/// What a device recorded during one run, kept in its log's file header.
 ///
 /// A run is one test executed by every device in a session; each device
 /// writes one log, and logs with the same [runId] are analysed together.
@@ -110,39 +113,117 @@ final class RunHeader {
   }
 }
 
-/// Writes a run log: the header as one line of JSON, then one row per line.
-///
-/// | row | fields |
-/// |---|---|
-/// | `D` | index, source id — names a source for the rows that follow |
-/// | `S` | seq, sendClock |
-/// | `R` | source, seq, sourceClock, receivedClock, clockOffset, uncertainty |
-/// | `C` | source, offset, remoteTime, uncertainty, receivedClock, reset |
-/// | `M` | kind, id, clock, source |
-/// | `E` | clock, name, detail (JSON) |
-///
-/// Clocks are seconds on the recording device's monotonic clock, except
-/// `sourceClock` and `remoteTime`, which are the sender's. An empty field is
-/// a value that was not known.
-///
-/// [sink] can be a `StringBuffer` (keep the log in memory and write it after
-/// the run, so no file I/O competes with the measurement) or an `IOSink`.
-final class RunLogWriter {
-  final StringSink sink;
-  final Map<String, int> _sources = {};
+/// The element of the XDF file header that holds the [RunHeader] as JSON.
+const String _headerElement = 'transport_timing';
 
-  RunLogWriter(this.sink, RunHeader header) {
-    sink.writeln(jsonEncode(header.toJson()));
+const String _sentStream = 'tt.sent';
+const String _receivedStream = 'tt.received';
+const String _clockStream = 'tt.clock';
+const String _markerStream = 'tt.markers';
+const String _eventStream = 'tt.events';
+
+/// A sink that keeps what it is given in memory: a log is written here
+/// during a run, so that no file I/O competes with the measurement, and
+/// saved afterwards.
+final class BytesSink implements Sink<List<int>> {
+  final BytesBuilder _bytes = BytesBuilder(copy: false);
+
+  @override
+  void add(List<int> data) => _bytes.add(data);
+
+  @override
+  void close() {}
+
+  Uint8List takeBytes() => _bytes.takeBytes();
+}
+
+/// Writes a run log as an XDF file, so it opens in any XDF tool as well as
+/// in the analysis here.
+///
+/// | stream | samples | time stamp |
+/// |---|---|---|
+/// | `tt.sent` | `seq` | this device's clock at the send |
+/// | `tt.received`, one per sender (its `source_id`) | `seq, source_clock, received_clock, clock_offset, uncertainty` | the sender's clock at the send |
+/// | `tt.clock`, one per sender | `offset, remote_time, uncertainty, reset` | this device's clock at the estimate |
+/// | `tt.markers` | text: `kind id [source]` | this device's clock |
+/// | `tt.events` | text: `name [json]` | this device's clock |
+///
+/// Clocks are seconds; a value that was not known is NaN. Each clock-offset
+/// estimate is also written as a standard XDF clock offset of its
+/// `tt.received` stream, so a reader that synchronises clocks (pyxdf's
+/// `load_xdf`, this repository's `loadXdf`) maps that stream's time stamps
+/// onto this device's clock, and `received_clock − time stamp` is then the
+/// latency. The [RunHeader] is in the file header's `transport_timing`
+/// element, as JSON.
+///
+/// Call [close] when the run is over.
+final class RunLogWriter {
+  RunLogWriter(Sink<List<int>> sink, this.header)
+    : _xdf = XdfWriter(
+        sink,
+        header: {
+          'datetime': header.startedAt.toUtc().toIso8601String(),
+          _headerElement: jsonEncode(header.toJson()),
+        },
+      );
+
+  final RunHeader header;
+  final XdfWriter _xdf;
+  int _nextId = 1;
+  _Buffer? _sent;
+  final Map<String, _Buffer> _received = {};
+  final Map<String, _Buffer> _clock = {};
+  int? _markers;
+  int? _events;
+
+  _Buffer _numeric(
+    String name, {
+    required List<XdfChannel> channels,
+    double rate = 0,
+    String sourceId = '',
+  }) {
+    final id = _nextId++;
+    _xdf.addStream(
+      id,
+      XdfStreamInfo(
+        name: name,
+        type: 'Timing',
+        channelCount: channels.length,
+        nominalRate: rate,
+        format: XdfFormat.double64,
+        sourceId: sourceId,
+        hostname: header.deviceName,
+        channels: channels,
+      ),
+    );
+    return _Buffer(_xdf, id);
   }
 
-  int _source(String sourceId) => _sources.putIfAbsent(sourceId, () {
-    final index = _sources.length;
-    sink.writeln('D,$index,${_oneLine(sourceId)}');
-    return index;
-  });
+  int _text(String name) {
+    final id = _nextId++;
+    _xdf.addStream(
+      id,
+      XdfStreamInfo(
+        name: name,
+        type: 'Markers',
+        channelCount: 1,
+        format: XdfFormat.string,
+        hostname: header.deviceName,
+      ),
+    );
+    return id;
+  }
 
   /// This device sent sample [seq] at [sendClock].
-  void sent(int seq, double sendClock) => sink.writeln('S,$seq,$sendClock');
+  void sent(int seq, double sendClock) {
+    final buffer = _sent ??= _numeric(
+      _sentStream,
+      rate: header.sampleRate,
+      sourceId: header.sourceId ?? '',
+      channels: const [XdfChannel(label: 'seq')],
+    );
+    buffer.add(sendClock, [seq.toDouble()]);
+  }
 
   /// This device received sample [seq] from [sourceId].
   ///
@@ -157,10 +238,30 @@ final class RunLogWriter {
     double? sourceClock,
     double? clockOffset,
     double? uncertainty,
-  }) => sink.writeln(
-    'R,${_source(sourceId)},$seq,${_f(sourceClock)},$receivedClock,'
-    '${_f(clockOffset)},${_f(uncertainty)}',
-  );
+  }) {
+    final buffer = _received[sourceId] ??= _numeric(
+      _receivedStream,
+      rate: header.sampleRate,
+      sourceId: sourceId,
+      channels: const [
+        XdfChannel(label: 'seq'),
+        XdfChannel(label: 'source_clock', unit: 'seconds'),
+        XdfChannel(label: 'received_clock', unit: 'seconds'),
+        XdfChannel(label: 'clock_offset', unit: 'seconds'),
+        XdfChannel(label: 'uncertainty', unit: 'seconds'),
+      ],
+    );
+    // XDF has no "unknown" time stamp, so a sample whose sender's clock is
+    // not known is placed by its arrival; the source_clock channel still
+    // says which it was.
+    buffer.add(sourceClock ?? receivedClock, [
+      seq.toDouble(),
+      sourceClock ?? double.nan,
+      receivedClock,
+      clockOffset ?? double.nan,
+      uncertainty ?? double.nan,
+    ]);
+  }
 
   /// A clock-offset estimate for [sourceId], taken at [receivedClock].
   void clockSync(
@@ -170,27 +271,94 @@ final class RunLogWriter {
     double? remoteTime,
     double? uncertainty,
     bool clockReset = false,
-  }) => sink.writeln(
-    'C,${_source(sourceId)},${_f(offset)},${_f(remoteTime)},'
-    '${_f(uncertainty)},$receivedClock,${clockReset ? 1 : 0}',
-  );
+  }) {
+    final buffer = _clock[sourceId] ??= _numeric(
+      _clockStream,
+      sourceId: sourceId,
+      channels: const [
+        XdfChannel(label: 'offset', unit: 'seconds'),
+        XdfChannel(label: 'remote_time', unit: 'seconds'),
+        XdfChannel(label: 'uncertainty', unit: 'seconds'),
+        XdfChannel(label: 'reset'),
+      ],
+    );
+    buffer.add(receivedClock, [
+      offset ?? double.nan,
+      remoteTime ?? double.nan,
+      uncertainty ?? double.nan,
+      clockReset ? 1 : 0,
+    ]);
+    final received = _received[sourceId];
+    if (offset != null && received != null) {
+      _xdf.writeClockOffset(received.id, receivedClock, offset);
+    } else if (offset != null) {
+      // Before the source's first sample: its stream does not exist yet.
+      (_earlyOffsets[sourceId] ??= []).add((receivedClock, offset));
+    }
+  }
+
+  /// Offsets estimated before a source's first sample, written with it.
+  final Map<String, List<(double, double)>> _earlyOffsets = {};
 
   /// A local moment tied to sample [id], e.g. `touch` or `shown`;
   /// [sourceId] is whose sample it was, when it was not this device's.
   void marker(String kind, int id, double clock, {String? sourceId}) =>
-      sink.writeln(
-        'M,$kind,$id,$clock,${sourceId == null ? '' : _source(sourceId)}',
+      _xdf.writeStrings(
+        _markers ??= _text(_markerStream),
+        [clock],
+        [sourceId == null ? '$kind $id' : '$kind $id $sourceId'],
       );
 
   /// Something that happened during the run (started, stopped, a peer left).
-  void event(double clock, String name, [Map<String, dynamic>? detail]) => sink
-      .writeln('E,$clock,$name,${detail == null ? '' : jsonEncode(detail)}');
+  void event(double clock, String name, [Map<String, dynamic>? detail]) =>
+      _xdf.writeStrings(
+        _events ??= _text(_eventStream),
+        [clock],
+        [detail == null ? name : '$name ${jsonEncode(detail)}'],
+      );
 
-  static String _f(double? value) =>
-      value == null || value.isNaN ? '' : value.toString();
+  /// Writes what is still buffered and the stream footers, and closes the
+  /// sink.
+  Future<void> close() async {
+    _sent?.flush();
+    for (final entry in _received.entries) {
+      entry.value.flush();
+      for (final (time, offset)
+          in _earlyOffsets[entry.key] ?? const <(double, double)>[]) {
+        _xdf.writeClockOffset(entry.value.id, time, offset);
+      }
+    }
+    for (final buffer in _clock.values) {
+      buffer.flush();
+    }
+    await _xdf.close();
+  }
+}
 
-  static String _oneLine(String text) =>
-      text.replaceAll(RegExp(r'[\r\n]'), ' ');
+/// The samples of one stream not yet written, so they go out as chunks of
+/// many rather than one chunk each.
+final class _Buffer {
+  _Buffer(this._xdf, this.id);
+
+  static const int _chunk = 512;
+
+  final XdfWriter _xdf;
+  final int id;
+  final List<double> _timestamps = [];
+  final List<double> _values = [];
+
+  void add(double timestamp, List<double> values) {
+    _timestamps.add(timestamp);
+    _values.addAll(values);
+    if (_timestamps.length >= _chunk) flush();
+  }
+
+  void flush() {
+    if (_timestamps.isEmpty) return;
+    _xdf.writeSamples(id, _timestamps, _values);
+    _timestamps.clear();
+    _values.clear();
+  }
 }
 
 /// Samples this device sent, in the order it sent them.
@@ -273,191 +441,114 @@ final class RunLog {
     required this.events,
   });
 
-  /// Throws [FormatException] if [lines] are not a run log.
-  factory RunLog.parse(Iterable<String> lines) {
-    final builder = RunLogBuilder();
-    lines.forEach(builder.addLine);
-    return builder.build();
-  }
-
-  /// Throws [FormatException] if [lines] are not a run log.
-  static Future<RunLog> fromStream(Stream<String> lines) async {
-    final builder = RunLogBuilder();
-    await lines.forEach(builder.addLine);
-    return builder.build();
-  }
-}
-
-/// Reads a run log line by line.
-final class RunLogBuilder {
-  RunHeader? _header;
-  int _line = 0;
-  final List<String> _sourceIds = [];
-  final _sentSeq = _Ints();
-  final _sentClock = _Doubles();
-  final Map<String, _Received> _received = {};
-  final Map<String, _Syncs> _syncs = {};
-  final List<Marker> _markers = [];
-  final List<LogEvent> _events = [];
-
-  void addLine(String line) {
-    _line++;
-    if (line.isEmpty) return;
-    if (_header == null) {
-      final Object? json;
-      try {
-        json = jsonDecode(line);
-      } on FormatException {
-        throw const FormatException('Not a transport_timing run log');
-      }
-      if (json is! Map<String, dynamic>) {
-        throw const FormatException('Not a transport_timing run log');
-      }
-      _header = RunHeader.fromJson(json);
-      return;
-    }
+  /// Reads a log written by [RunLogWriter].
+  ///
+  /// Throws [FormatException] if [bytes] are not a run log (another XDF
+  /// file, or not XDF at all).
+  factory RunLog.parse(Uint8List bytes) {
+    final XdfRecording recording;
     try {
-      _addRow(line);
+      // As recorded: the analysis applies the offsets itself, sample by
+      // sample, and must not have them or the jitter smoothed away first.
+      recording = loadXdf(
+        bytes,
+        options: const XdfSyncOptions(
+          synchronizeClocks: false,
+          handleClockResets: false,
+          dejitterTimestamps: false,
+        ),
+      );
+    } catch (_) {
+      throw const FormatException('Not a transport_timing run log');
+    }
+    final headerText = recording.header?.getElement(_headerElement)?.innerText;
+    if (headerText == null) {
+      throw const FormatException('Not a transport_timing run log');
+    }
+    final Object? json;
+    try {
+      json = jsonDecode(headerText);
+    } on FormatException {
+      throw const FormatException('Not a transport_timing run log');
+    }
+    if (json is! Map<String, dynamic>) {
+      throw const FormatException('Not a transport_timing run log');
+    }
+    final header = RunHeader.fromJson(json);
+
+    Int32List ints(Float64List values) =>
+        Int32List.fromList([for (final v in values) v.toInt()]);
+
+    var sent = SentSeries(Int32List(0), Float64List(0));
+    final received = <String, ReceivedSeries>{};
+    final syncs = <String, SyncSeries>{};
+    final markers = <Marker>[];
+    final events = <LogEvent>[];
+    try {
+      for (final stream in recording.streams) {
+        final c = stream.channels;
+        switch (stream.info.name) {
+          case _sentStream:
+            sent = SentSeries(ints(c[0]), stream.timestamps);
+          case _receivedStream:
+            received[stream.info.sourceId] = ReceivedSeries(
+              ints(c[0]),
+              c[1],
+              c[2],
+              c[3],
+              c[4],
+            );
+          case _clockStream:
+            syncs[stream.info.sourceId] = SyncSeries(
+              c[0],
+              c[1],
+              c[2],
+              stream.timestamps,
+              [for (final v in c[3]) v != 0],
+            );
+          case _markerStream:
+            for (var i = 0; i < stream.length; i++) {
+              final parts = stream.strings[i][0].split(' ');
+              markers.add(
+                Marker(
+                  parts[0],
+                  int.parse(parts[1]),
+                  stream.timestamps[i],
+                  parts.length > 2 ? parts.sublist(2).join(' ') : null,
+                ),
+              );
+            }
+          case _eventStream:
+            for (var i = 0; i < stream.length; i++) {
+              final text = stream.strings[i][0];
+              final space = text.indexOf(' ');
+              events.add(
+                LogEvent(
+                  stream.timestamps[i],
+                  space < 0 ? text : text.substring(0, space),
+                  space < 0
+                      ? null
+                      : jsonDecode(text.substring(space + 1))
+                            as Map<String, dynamic>,
+                ),
+              );
+            }
+        }
+      }
     } on FormatException {
       rethrow;
     } catch (_) {
-      // A short or mistyped row (RangeError, TypeError) is a bad file, not
-      // a bug in the caller.
-      throw FormatException('Malformed row at line $_line', line);
+      // A stream with too few channels or a mistyped value (RangeError,
+      // TypeError) is a bad file, not a bug in the caller.
+      throw const FormatException('Malformed transport_timing run log');
     }
-  }
-
-  void _addRow(String line) {
-    switch (line[0]) {
-      case 'S':
-        final f = line.split(',');
-        _sentSeq.add(int.parse(f[1]));
-        _sentClock.add(double.parse(f[2]));
-      case 'R':
-        final f = line.split(',');
-        final r = _received.putIfAbsent(_sourceId(f[1]), _Received.new);
-        r.seq.add(int.parse(f[2]));
-        r.sourceClock.add(_d(f[3]));
-        r.receivedClock.add(double.parse(f[4]));
-        r.clockOffset.add(_d(f[5]));
-        r.uncertainty.add(_d(f[6]));
-      case 'C':
-        final f = line.split(',');
-        final c = _syncs.putIfAbsent(_sourceId(f[1]), _Syncs.new);
-        c.offset.add(_d(f[2]));
-        c.remoteTime.add(_d(f[3]));
-        c.uncertainty.add(_d(f[4]));
-        c.receivedClock.add(double.parse(f[5]));
-        c.clockReset.add(f[6] == '1');
-      case 'D':
-        final comma = line.indexOf(',', 2);
-        if (int.parse(line.substring(2, comma)) != _sourceIds.length) {
-          throw FormatException('Source index out of order at line $_line');
-        }
-        _sourceIds.add(line.substring(comma + 1));
-      case 'M':
-        final f = line.split(',');
-        _markers.add(
-          Marker(
-            f[1],
-            int.parse(f[2]),
-            double.parse(f[3]),
-            f.length > 4 && f[4].isNotEmpty ? _sourceId(f[4]) : null,
-          ),
-        );
-      case 'E':
-        final afterClock = line.indexOf(',', 2);
-        final afterName = line.indexOf(',', afterClock + 1);
-        final detail = line.substring(afterName + 1);
-        _events.add(
-          LogEvent(
-            double.parse(line.substring(2, afterClock)),
-            line.substring(afterClock + 1, afterName),
-            detail.isEmpty ? null : jsonDecode(detail) as Map<String, dynamic>,
-          ),
-        );
-      default:
-        throw FormatException('Unknown row type at line $_line', line);
-    }
-  }
-
-  String _sourceId(String index) => _sourceIds[int.parse(index)];
-
-  static double _d(String field) =>
-      field.isEmpty ? double.nan : double.parse(field);
-
-  RunLog build() {
-    final header = _header;
-    if (header == null) throw const FormatException('Empty run log');
     return RunLog(
       header: header,
-      sent: SentSeries(_sentSeq.take(), _sentClock.take()),
-      received: {
-        for (final e in _received.entries)
-          e.key: ReceivedSeries(
-            e.value.seq.take(),
-            e.value.sourceClock.take(),
-            e.value.receivedClock.take(),
-            e.value.clockOffset.take(),
-            e.value.uncertainty.take(),
-          ),
-      },
-      syncs: {
-        for (final e in _syncs.entries)
-          e.key: SyncSeries(
-            e.value.offset.take(),
-            e.value.remoteTime.take(),
-            e.value.uncertainty.take(),
-            e.value.receivedClock.take(),
-            e.value.clockReset,
-          ),
-      },
-      markers: _markers,
-      events: _events,
+      sent: sent,
+      received: received,
+      syncs: syncs,
+      markers: markers,
+      events: events,
     );
   }
-}
-
-final class _Received {
-  final seq = _Ints();
-  final sourceClock = _Doubles();
-  final receivedClock = _Doubles();
-  final clockOffset = _Doubles();
-  final uncertainty = _Doubles();
-}
-
-final class _Syncs {
-  final offset = _Doubles();
-  final remoteTime = _Doubles();
-  final uncertainty = _Doubles();
-  final receivedClock = _Doubles();
-  final clockReset = <bool>[];
-}
-
-final class _Doubles {
-  Float64List _values = Float64List(1024);
-  int _length = 0;
-
-  void add(double value) {
-    if (_length == _values.length) {
-      _values = Float64List(_length * 2)..setRange(0, _length, _values);
-    }
-    _values[_length++] = value;
-  }
-
-  Float64List take() => Float64List.sublistView(_values, 0, _length);
-}
-
-final class _Ints {
-  Int32List _values = Int32List(1024);
-  int _length = 0;
-
-  void add(int value) {
-    if (_length == _values.length) {
-      _values = Int32List(_length * 2)..setRange(0, _length, _values);
-    }
-    _values[_length++] = value;
-  }
-
-  Int32List take() => Int32List.sublistView(_values, 0, _length);
 }

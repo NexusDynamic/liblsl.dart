@@ -66,7 +66,8 @@ PairReport _pair(
   RunLog? sender,
 ) {
   final n = r.length;
-  final clock = _ClockModel.of(receiver.syncs[sourceId]);
+  final clock =
+      _ClockModel.of(receiver.syncs[sourceId]) ?? _ClockModel.ofReceived(r);
 
   final latency = Float64List(n);
   final latencyFitted = Float64List(n);
@@ -226,6 +227,23 @@ final class _ClockModel {
     }
     close();
     return segments.isEmpty ? null : _ClockModel(segments, resets);
+  }
+
+  /// The estimates as the samples show them, for a transport that reports
+  /// an offset with each sample but not the estimates themselves: every
+  /// change of offset is a new estimate, taken about when that sample was
+  /// sent. Null if no sample has an offset.
+  static _ClockModel? ofReceived(ReceivedSeries r) {
+    final x = <double>[], y = <double>[];
+    for (var i = 0; i < r.length; i++) {
+      final offset = r.clockOffset[i];
+      final source = r.sourceClock[i];
+      if (offset.isNaN || source.isNaN) continue;
+      if (y.isNotEmpty && y.last == offset) continue;
+      x.add(source);
+      y.add(offset);
+    }
+    return x.isEmpty ? null : _ClockModel([_Segment(x, y)], 0);
   }
 
   double offsetAt(double sourceClock) {

@@ -1,8 +1,10 @@
 import 'dart:convert';
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:test/test.dart';
 import 'package:timing_core/timing_core.dart';
+import 'package:xdf/xdf.dart';
 
 RunHeader header(
   String device, {
@@ -22,8 +24,22 @@ RunHeader header(
   pollInterval: pollInterval,
 );
 
-RunLog parse(StringBuffer buffer) =>
-    RunLog.parse(const LineSplitter().convert(buffer.toString()));
+/// The bytes of a log with [header], filled by [fill].
+Future<Uint8List> record(
+  RunHeader header,
+  void Function(RunLogWriter log) fill,
+) async {
+  final sink = BytesSink();
+  final log = RunLogWriter(sink, header);
+  fill(log);
+  await log.close();
+  return sink.takeBytes();
+}
+
+Future<RunLog> recorded(
+  RunHeader header,
+  void Function(RunLogWriter log) fill,
+) async => RunLog.parse(await record(header, fill));
 
 void main() {
   group('Summary', () {
@@ -55,56 +71,108 @@ void main() {
   });
 
   group('run log', () {
-    test('round trip keeps values and nulls', () {
-      final buffer = StringBuffer();
-      RunLogWriter(buffer, header('a', sourceId: 'src,a'))
-        ..sent(1, 10.5)
-        ..received('src,b', 7, receivedClock: 11.25, sourceClock: 3.5)
-        ..received(
-          'src,b',
-          8,
-          receivedClock: 11.5,
-          sourceClock: 3.75,
-          clockOffset: 7.5,
-          uncertainty: 0.001,
-        )
-        ..clockSync('src,b', receivedClock: 11, offset: 7.5, clockReset: true)
-        ..marker('touch', 1, 10.4)
-        ..marker('shown', 7, 11.3, sourceId: 'src,b')
-        ..event(10, 'started', {'note': 'a,b'});
+    void fill(RunLogWriter log) => log
+      ..clockSync('src,b', receivedClock: 11, offset: 7.5, clockReset: true)
+      ..sent(1, 10.5)
+      ..received('src,b', 7, receivedClock: 11.25, sourceClock: 3.5)
+      ..received(
+        'src,b',
+        8,
+        receivedClock: 11.5,
+        sourceClock: 3.75,
+        clockOffset: 7.5,
+        uncertainty: 0.001,
+      )
+      ..received('other', 1, receivedClock: 12)
+      ..marker('touch', 1, 10.4)
+      ..marker('shown', 7, 11.3, sourceId: 'src,b with spaces')
+      ..event(10, 'started', {'note': 'a,b'})
+      ..event(13, 'stopped');
 
-      final log = parse(buffer);
+    test('round trip keeps values and nulls', () async {
+      final log = await recorded(header('a', sourceId: 'src,a'), fill);
       expect(log.header.sourceId, 'src,a');
       expect(log.header.receiveMode, 'event');
       expect(log.sent.seq, [1]);
       expect(log.sent.sendClock, [10.5]);
       final r = log.received['src,b']!;
       expect(r.seq, [7, 8]);
+      expect(r.sourceClock, [3.5, 3.75]);
+      expect(r.receivedClock, [11.25, 11.5]);
       expect(r.clockOffset[0], isNaN);
       expect(r.clockOffset[1], 7.5);
       expect(r.uncertainty[1], 0.001);
+      expect(log.received['other']!.sourceClock[0], isNaN);
       final c = log.syncs['src,b']!;
       expect(c.offset, [7.5]);
+      expect(c.receivedClock, [11]);
       expect(c.remoteTime[0], isNaN);
       expect(c.clockReset, [true]);
-      expect(log.markers.map((m) => (m.kind, m.id, m.sourceId)), [
-        ('touch', 1, null),
-        ('shown', 7, 'src,b'),
+      expect(log.markers.map((m) => (m.kind, m.id, m.clock, m.sourceId)), [
+        ('touch', 1, 10.4, null),
+        ('shown', 7, 11.3, 'src,b with spaces'),
       ]);
-      expect(log.events.single.detail, {'note': 'a,b'});
+      expect(log.events.map((e) => e.name), ['started', 'stopped']);
+      expect(log.events.first.detail, {'note': 'a,b'});
+      expect(log.events.last.detail, isNull);
     });
 
-    test('rejects other files and malformed rows', () {
+    test('many samples survive the chunking', () async {
+      final log = await recorded(header('a'), (log) {
+        for (var seq = 1; seq <= 2000; seq++) {
+          log.received(
+            'B',
+            seq,
+            receivedClock: seq + 0.5,
+            sourceClock: seq * 1.0,
+          );
+        }
+      });
+      final r = log.received['B']!;
+      expect(r.seq, [for (var seq = 1; seq <= 2000; seq++) seq]);
+      expect(r.receivedClock.last, 2000.5);
+    });
+
+    test('is an XDF file any reader can open and synchronise', () async {
+      final recording = loadXdf(await record(header('a', sourceId: 'A'), fill));
+      expect(recording.streams.map((s) => s.info.name), [
+        'tt.clock',
+        'tt.sent',
+        'tt.received',
+        'tt.received',
+        'tt.markers',
+        'tt.events',
+      ]);
+      final received = recording.streams.firstWhere(
+        (s) => s.info.name == 'tt.received' && s.info.sourceId == 'src,b',
+      );
+      expect(received.info.channels.map((c) => c.label), [
+        'seq',
+        'source_clock',
+        'received_clock',
+        'clock_offset',
+        'uncertainty',
+      ]);
+      // The estimate made before the stream existed is still its clock
+      // offset, so the reader has mapped the sender's 3.5 onto this
+      // device's clock.
+      expect(received.clockValues, [7.5]);
+      expect(received.timestamps[0], closeTo(11, 1e-9));
+      expect(recording.stream('tt.markers')!.strings.first, ['touch 1']);
+    });
+
+    test('rejects files that are not run logs', () async {
+      expect(() => RunLog.parse(Uint8List(0)), throwsFormatException);
       expect(
-        () => RunLog.parse(['log_timestamp\ttimestamp']),
+        () => RunLog.parse(utf8.encode('log_timestamp\ttimestamp\n')),
         throwsFormatException,
       );
-      expect(() => RunLog.parse(['{"format":"other"}']), throwsFormatException);
-      expect(() => RunLog.parse([]), throwsFormatException);
-      final head = jsonEncode(header('a').toJson());
-      expect(() => RunLog.parse([head, 'S,1']), throwsFormatException);
-      expect(() => RunLog.parse([head, 'X,1']), throwsFormatException);
-      expect(() => RunLog.parse([head, 'R,0,1,,1,,']), throwsFormatException);
+      final sink = BytesSink();
+      final other = XdfWriter(sink)
+        ..addStream(1, XdfStreamInfo(name: 'EEG', channelCount: 1))
+        ..writeSamples(1, [1], [2]);
+      await other.close();
+      expect(() => RunLog.parse(sink.takeBytes()), throwsFormatException);
     });
   });
 
@@ -119,9 +187,9 @@ void main() {
     late Report report;
     late PairReport pair;
 
-    setUp(() {
-      final a = StringBuffer();
-      final b = StringBuffer();
+    setUp(() async {
+      final a = BytesSink();
+      final b = BytesSink();
       final receiver = RunLogWriter(a, header('a', sourceId: 'A'));
       final sender = RunLogWriter(b, header('b', sourceId: 'B'));
 
@@ -156,7 +224,12 @@ void main() {
         );
       }
 
-      report = analyse([parse(a), parse(b)]);
+      await receiver.close();
+      await sender.close();
+      report = analyse([
+        RunLog.parse(a.takeBytes()),
+        RunLog.parse(b.takeBytes()),
+      ]);
       pair = report.runs.single.pairs.single;
     });
 
@@ -208,13 +281,14 @@ void main() {
     });
   });
 
-  test('without the sender log, loss comes from sequence gaps', () {
-    final a = StringBuffer();
-    final w = RunLogWriter(a, header('a', pollInterval: 0.001));
-    for (final seq in [5, 6, 8, 9]) {
-      w.received('B', seq, receivedClock: seq * 1.0, sourceClock: seq * 1.0);
-    }
-    final pair = analyse([parse(a)]).runs.single.pairs.single;
+  test('without the sender log, loss comes from sequence gaps', () async {
+    final log = await recorded(header('a', pollInterval: 0.001), (w) {
+      for (final seq in [5, 6, 8, 9]) {
+        w.received('B', seq, receivedClock: seq * 1.0, sourceClock: seq * 1.0);
+      }
+    });
+    final report = analyse([log]);
+    final pair = report.runs.single.pairs.single;
     expect(pair.from, 'B');
     expect(pair.sent, isNull);
     expect(pair.lost, 1);
@@ -223,42 +297,45 @@ void main() {
     expect(pair.latencyRaw!.mean, 0);
     expect(pair.clock, isNull);
     expect(pair.pollInterval, 0.001);
-    expect(
-      formatReport(analyse([parse(a)])),
-      contains('polled every 1.000 ms'),
-    );
+    expect(formatReport(report), contains('polled every 1.000 ms'));
   });
 
-  test('a clock reset restarts the fit', () {
-    final a = StringBuffer();
-    final w = RunLogWriter(a, header('a'));
-    for (var k = 0; k < 5; k++) {
-      w.clockSync(
-        'B',
-        receivedClock: 100.0 + k,
-        offset: 100,
-        remoteTime: k * 1.0,
-      );
-    }
-    for (var k = 0; k < 8; k++) {
-      w.clockSync(
-        'B',
-        receivedClock: 105.0 + k,
-        offset: 5,
-        remoteTime: 100.0 + k,
-        clockReset: k == 0,
-      );
-    }
-    w
-      ..received('B', 1, receivedClock: 102.5, sourceClock: 2, clockOffset: 100)
-      ..received(
-        'B',
-        2,
-        receivedClock: 108.5,
-        sourceClock: 103,
-        clockOffset: 5,
-      );
-    final pair = analyse([parse(a)]).runs.single.pairs.single;
+  test('a clock reset restarts the fit', () async {
+    final log = await recorded(header('a'), (w) {
+      for (var k = 0; k < 5; k++) {
+        w.clockSync(
+          'B',
+          receivedClock: 100.0 + k,
+          offset: 100,
+          remoteTime: k * 1.0,
+        );
+      }
+      for (var k = 0; k < 8; k++) {
+        w.clockSync(
+          'B',
+          receivedClock: 105.0 + k,
+          offset: 5,
+          remoteTime: 100.0 + k,
+          clockReset: k == 0,
+        );
+      }
+      w
+        ..received(
+          'B',
+          1,
+          receivedClock: 102.5,
+          sourceClock: 2,
+          clockOffset: 100,
+        )
+        ..received(
+          'B',
+          2,
+          receivedClock: 108.5,
+          sourceClock: 103,
+          clockOffset: 5,
+        );
+    });
+    final pair = analyse([log]).runs.single.pairs.single;
     expect(pair.clock!.resets, 1);
     expect(pair.clock!.estimates, 13);
     expect(pair.clock!.driftPpm, closeTo(0, 1e-6));
@@ -266,28 +343,60 @@ void main() {
     expect(pair.series.latencyFitted, [closeTo(0.5, 1e-9), closeTo(0.5, 1e-9)]);
   });
 
-  test('loopback and interactive delays', () {
-    final a = StringBuffer();
-    RunLogWriter(a, header('a', sourceId: 'A'))
-      ..marker('touch', 1, 9.99)
-      ..sent(1, 10)
-      ..received('A', 1, receivedClock: 10.001, sourceClock: 10, clockOffset: 0)
-      ..marker('shown', 1, 10.017);
-    final run = analyse([parse(a)]).runs.single;
+  test('without clock-sync samples, the offsets on the samples are the '
+      'estimates', () async {
+    // As WebSocket and WebRTC report: an offset with each sample, stepping
+    // once a second as a new estimate lands. The sender's clock drifts by
+    // 100 ppm and samples take 1 ms.
+    const drift = 100e-6;
+    final log = await recorded(header('a'), (w) {
+      for (var seq = 0; seq < 1000; seq++) {
+        final sendClock = seq * 0.01;
+        final trueOffset = 50 + drift * sendClock;
+        w.received(
+          'B',
+          seq,
+          sourceClock: sendClock,
+          receivedClock: sendClock + trueOffset + 0.001,
+          clockOffset: 50 + drift * sendClock.floorToDouble(),
+          uncertainty: 0.002,
+        );
+      }
+    });
+    final pair = analyse([log]).runs.single.pairs.single;
+    expect(pair.clock!.estimates, 10);
+    expect(pair.clock!.driftPpm, closeTo(100, 0.01));
+    // The stepped offset is up to a second of drift out; the fit is not.
+    expect(pair.latency!.max - pair.latency!.min, closeTo(99e-6, 2e-6));
+    expect(pair.latencyFitted!.mean, closeTo(0.001, 1e-7));
+    expect(pair.latencyFitted!.sd, lessThan(1e-7));
+  });
+
+  test('loopback and interactive delays', () async {
+    final log = await recorded(
+      header('a', sourceId: 'A'),
+      (w) => w
+        ..marker('touch', 1, 9.99)
+        ..sent(1, 10)
+        ..received(
+          'A',
+          1,
+          receivedClock: 10.001,
+          sourceClock: 10,
+          clockOffset: 0,
+        )
+        ..marker('shown', 1, 10.017),
+    );
+    final run = analyse([log]).runs.single;
     expect(run.pairs.single.loopback, isTrue);
     final interactive = run.interactive.single;
     expect(interactive.touchToSend!.mean, closeTo(0.01, 1e-9));
     expect(interactive.receiveToShown['a']!.mean, closeTo(0.016, 1e-9));
   });
 
-  test('runs are kept apart', () {
-    final one = StringBuffer();
-    final two = StringBuffer();
-    RunLogWriter(one, header('a', runId: 'r1')).sent(1, 0);
-    RunLogWriter(two, header('a', runId: 'r2')).sent(1, 0);
-    expect(analyse([parse(one), parse(two)]).runs.map((r) => r.runId), [
-      'r1',
-      'r2',
-    ]);
+  test('runs are kept apart', () async {
+    final one = await recorded(header('a', runId: 'r1'), (w) => w.sent(1, 0));
+    final two = await recorded(header('a', runId: 'r2'), (w) => w.sent(1, 0));
+    expect(analyse([one, two]).runs.map((r) => r.runId), ['r1', 'r2']);
   });
 }
