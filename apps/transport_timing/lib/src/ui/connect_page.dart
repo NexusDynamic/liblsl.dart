@@ -103,6 +103,17 @@ class _ConnectPageState extends State<ConnectPage> {
                 ],
                 onChanged: (v) => setState(() => _settings.backend = v!),
               ),
+              if (_settings.backend == Backend.lsl)
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Event-driven receive'),
+                  subtitle: const Text(
+                    'Wait inside liblsl for each sample instead of polling',
+                  ),
+                  value: _settings.eventDrivenLsl,
+                  onChanged: (v) =>
+                      setState(() => _settings.eventDrivenLsl = v),
+                ),
               if (needsHub) ...[
                 TextFormField(
                   initialValue: _settings.hubUrl,

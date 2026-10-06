@@ -78,6 +78,9 @@ class TimingSession {
        _isLsl = transportConfig == null
            ? settings.backend == Backend.lsl
            : transportConfig is LSLTransportConfig,
+       _eventDrivenLsl = transportConfig is LSLTransportConfig
+           ? transportConfig.eventDrivenInlets
+           : settings.eventDrivenLsl,
        _store = store ?? LogStore() {
     // LSL reports receive times on its own clock; the other transports on
     // PeerClock. Local events have to be read on the same one.
@@ -90,6 +93,7 @@ class TimingSession {
   final ITransportConfig? _transportConfig;
   final String _backendKey;
   final bool _isLsl;
+  final bool _eventDrivenLsl;
   final LogStore _store;
   late final double Function() _clock;
 
@@ -124,6 +128,7 @@ class TimingSession {
     if (injected != null) return injected;
     if (settings.backend == Backend.lsl) {
       return LSLTransportConfig(
+        eventDrivenInlets: _eventDrivenLsl,
         lslApiConfig: LSLApiConfig(ipv6: IPv6Mode.disable),
       );
     }
@@ -423,7 +428,7 @@ class TimingSession {
       channels: config.channels,
       receiveMode: raw
           ? config.receiveMode.key
-          : !_isLsl
+          : !_isLsl || _eventDrivenLsl
           ? 'event'
           : config.precisePolling
           ? 'busy-wait'
@@ -432,7 +437,7 @@ class TimingSession {
           ? (config.receiveMode == ReceiveMode.polled
                 ? config.pollIntervalMicros / 1e6
                 : null)
-          : _isLsl
+          : _isLsl && !_eventDrivenLsl
           ? lslPoll
           : null,
       sendMode: raw ? config.sendMode.key : 'stream',

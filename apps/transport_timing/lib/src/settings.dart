@@ -28,12 +28,18 @@ class AppSettings {
   String hubUrl;
   String hubSecret;
 
+  /// LSL backend: receive without polling
+  /// (`LSLTransportConfig.eventDrivenInlets`). Each device chooses for
+  /// itself; its logs record which it used.
+  bool eventDrivenLsl;
+
   AppSettings({
     required this.deviceName,
     this.sessionName = 'timing',
     this.backend = Backend.lsl,
     this.hubUrl = 'ws://192.168.1.10:8080',
     this.hubSecret = '',
+    this.eventDrivenLsl = false,
   });
 
   static Future<AppSettings> load() async {
@@ -47,6 +53,7 @@ class AppSettings {
           Backend.values.asNameMap()[prefs.getString('backend')] ?? Backend.lsl,
       hubUrl: prefs.getString('hub_url') ?? 'ws://192.168.1.10:8080',
       hubSecret: prefs.getString('hub_secret') ?? '',
+      eventDrivenLsl: prefs.getBool('event_driven_lsl') ?? false,
     );
   }
 
@@ -57,6 +64,7 @@ class AppSettings {
     await prefs.setString('backend', backend.name);
     await prefs.setString('hub_url', hubUrl);
     await prefs.setString('hub_secret', hubSecret);
+    await prefs.setBool('event_driven_lsl', eventDrivenLsl);
   }
 }
 

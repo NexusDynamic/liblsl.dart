@@ -64,12 +64,13 @@ what the polling adds, so runs can be compared:
 
 | Receive mode | Where | What it adds |
 |---|---|---|
-| event | WebSocket, WebRTC; raw LSL "Event-driven" | nothing: handled as the sample arrives |
+| event | WebSocket, WebRTC; LSL backend with "Event-driven receive" on; raw LSL "Event-driven" | nothing: handled as the sample arrives |
 | busy-wait | raw LSL "Busy-wait" | nothing, at the cost of a core per inlet |
 | busy-wait | LSL backend with precise polling | up to one sample period (0.1 to 10 ms) |
 | polled | raw LSL "Polled", LSL backend without precise polling | up to the poll interval |
 
-Raw LSL's event-driven mode gives each inlet an isolate that waits inside
+Event-driven receive (`LSLInlet.sampleStream()` in liblsl,
+`LSLTransportConfig.eventDrivenInlets` in `liblsl_coordinator`) gives each inlet an isolate that waits inside
 `lsl_pull_sample`; liblsl wakes it when the sample is queued, and the
 receive time is read as the call returns. That is the number to quote for
 "what does LSL cost on this network".

@@ -41,10 +41,15 @@ void main() {
     }
   });
 
-  Future<TimingSession> join(String name, String sessionName) async {
+  Future<TimingSession> join(
+    String name,
+    String sessionName, {
+    bool eventDriven = false,
+  }) async {
     final session = TimingSession(
       settings: AppSettings(deviceName: name, sessionName: sessionName),
       transportConfig: LSLTransportConfig(
+        eventDrivenInlets: eventDriven,
         lslApiConfig: LSLApiConfig(
           ipv6: IPv6Mode.disable,
           resolveScope: ResolveScope.link,
@@ -148,4 +153,38 @@ void main() {
     final raw = report.runs.firstWhere((r) => r.runId == 'raw-event');
     expect(raw.pairs, hasLength(4));
   }, timeout: const Timeout(Duration(minutes: 5)));
+
+  test('a stream run with event-driven inlets has no polling delay', () async {
+    final name = 'tt_event_${DateTime.now().millisecondsSinceEpoch}';
+    final a = await join('a', name, eventDriven: true);
+    final b = await join('b', name, eventDriven: true);
+    await waitFor(() => a.roster.value.length == 2, 'roster of 2');
+    final coordinator = a.isCoordinator.value ? a : b;
+
+    await coordinator.startRuns([
+      const RunConfig(runId: 'event', sampleRate: 100, durationSeconds: 3),
+    ]);
+    for (final session in [a, b]) {
+      await waitFor(
+        () => session.results.value.length == 1 && session.run.value == null,
+        'result on ${session.settings.deviceName}',
+      );
+    }
+    final report = analyse([
+      for (final session in [a, b])
+        RunLog.parse(File(session.results.value.single.path).readAsLinesSync()),
+    ]);
+    // ignore: avoid_print
+    print(formatReport(report));
+    for (final pair in report.runs.single.pairs) {
+      expect(pair.receiveMode, 'event');
+      expect(pair.pollInterval, isNull);
+      // Polled at this rate, the median would be near 5 ms.
+      expect(
+        pair.latency!.p50,
+        lessThan(0.003),
+        reason: '${pair.from} -> ${pair.to}',
+      );
+    }
+  }, timeout: const Timeout(Duration(minutes: 2)));
 }
