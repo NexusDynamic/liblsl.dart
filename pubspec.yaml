@@ -9,11 +9,9 @@ workspace:
   - packages/liblsl
   - packages/peer_coordinator
   - packages/peer_coordinator/example
-  - packages/liblsl_test
   - packages/liblsl_coordinator
   - packages/webrtc_coordinator
   - packages/webrtc_coordinator_flutter
-  - packages/liblsl_timing
   - packages/liblsl_analysis
   - packages/timing_core
   - packages/signal_core
@@ -26,6 +24,8 @@ workspace:
   - packages/lsl_tools
   - packages/openbci_cyton
   - apps/lsl_viewer
+  - apps/liblsl_test
+  - apps/transport_timing
 dev_dependencies:
   melos: ^8.2.2
 

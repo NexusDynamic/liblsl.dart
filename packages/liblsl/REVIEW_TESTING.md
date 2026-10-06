@@ -112,7 +112,7 @@ Android:
 
 For the purposes of review, testing, there are [precompiled binaries of the `liblsl_test` application available](https://github.com/NexusDynamic/liblsl.dart/releases/tag/liblsl_test_preview), these are for linux-x64, MacOS (universal), android (universal APK) and Windows-x64.
 
-The source code for this application is available in the [`liblsl_test` package](https://github.com/NexusDynamic/liblsl.dart/tree/main/packages/liblsl_test).
+The source code for this application is available in the [`liblsl_test` package](https://github.com/NexusDynamic/liblsl.dart/tree/main/apps/liblsl_test).
 
 This application has the following features you may find useful in testing:
 

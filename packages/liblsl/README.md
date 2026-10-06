@@ -52,7 +52,7 @@ What this means is that with very little effort, you can have bidirectional comm
 
 ### Flutter
 
-This package will work with flutter without any issues, for an example see the [liblsl_test](../liblsl_test) package, which demonstrates an integration test that works on your device.
+This package will work with flutter without any issues, for an example see the [liblsl_test](../../apps/liblsl_test) package, which demonstrates an integration test that works on your device.
 
 ## Important notes
 
@@ -154,7 +154,7 @@ These settings last until reboot.
 
 ## API Usage
 
-More documentation will come, but see [liblsl_example.dart](./example/liblsl_example.dart), [liblsl_test.dart](./test/liblsl_test.dart) also see the [liblsl_test](https://github.com/NexusDynamic/liblsl.dart/tree/main/packages/liblsl_test) package for a working example with flutter for all supported target devices.
+More documentation will come, but see [liblsl_example.dart](./example/liblsl_example.dart), [liblsl_test.dart](./test/liblsl_test.dart) also see the [liblsl_test](https://github.com/NexusDynamic/liblsl.dart/tree/main/apps/liblsl_test) package for a working example with flutter for all supported target devices.
 
 ```dart
 import 'package:liblsl/liblsl.dart';

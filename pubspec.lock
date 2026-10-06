@@ -265,22 +265,6 @@ packages:
       relative: true
     source: path
     version: "0.8.4"
-  easy_localization:
-    dependency: transitive
-    description:
-      name: easy_localization
-      sha256: "2ccdf9db8fe4d9c5a75c122e6275674508fd0f0d49c827354967b8afcc56bbed"
-      url: "https://pub.dev"
-    source: hosted
-    version: "3.0.8"
-  easy_logger:
-    dependency: transitive
-    description:
-      name: easy_logger
-      sha256: c764a6e024846f33405a2342caf91c62e357c24b02c04dbc712ef232bf30ffb7
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.0.2"
   easy_shared_preferences:
     dependency: transitive
     description:
@@ -451,11 +435,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "6.0.0"
-  flutter_localizations:
-    dependency: transitive
-    description: flutter
-    source: sdk
-    version: "0.0.0"
   flutter_multicast_lock:
     dependency: transitive
     description:
@@ -740,30 +719,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.19.5"
-  network_info_plus:
-    dependency: transitive
-    description:
-      name: network_info_plus
-      sha256: "096a700e2321507e2e587487a442b9baa7ba6cd4e70e3cc1ebbb8327d2632c2d"
-      url: "https://pub.dev"
-    source: hosted
-    version: "8.2.1"
-  network_info_plus_platform_interface:
-    dependency: transitive
-    description:
-      name: network_info_plus_platform_interface
-      sha256: "210b58064bc08e04b3a2b608f1f999cf768871fbd531961dc33a91720869d182"
-      url: "https://pub.dev"
-    source: hosted
-    version: "3.1.0"
-  nm:
-    dependency: transitive
-    description:
-      name: nm
-      sha256: "2c9aae4127bdc8993206464fcc063611e0e36e72018696cd9631023a31b24254"
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.5.0"
   node_preamble:
     dependency: transitive
     description:

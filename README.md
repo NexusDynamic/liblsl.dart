@@ -52,7 +52,7 @@ line tool) · [Website](https://nexusdynamic.org/liblsl.dart/) ·
 | [signal_core](./packages/signal_core) [![Pub Version](https://img.shields.io/pub/v/signal_core)](https://pub.dev/packages/signal_core) | Format-agnostic multichannel signal engine (summary pyramids, filters) behind the viewer and `xdf` |
 | [lsl_tools](./packages/lsl_tools) | Record to XDF, the WebSocket bridge/relay, test outlets, and the `lsl` command line tool |
 | [lsl_viewer](./apps/lsl_viewer) | The LSL Viewer app, built from `signal_viewer` and its `_lsl`, `_xdf` and `_serial` source providers |
-| [liblsl_test](./packages/liblsl_test) | Integration tests to try liblsl with Flutter on any platform |
+| [liblsl_test](./apps/liblsl_test) | Integration tests to try liblsl with Flutter on any platform |
 | [liblsl_timing](./packages/liblsl_timing) / [liblsl_analysis](./packages/liblsl_analysis) | Multi-device latency, sync and timing tests, and their analysis |
 | [peer_coordinator](./packages/peer_coordinator), [liblsl_coordinator](./packages/liblsl_coordinator), [webrtc_coordinator](./packages/webrtc_coordinator) | Coordinating experiments across devices (LSL, WebSocket hub, WebRTC) |
 

@@ -1,0 +1,5 @@
+tags:
+  # Tests that need a real LSL network stack (loopback sockets, multicast
+  # resolution, FFI). Excluded from the default run.
+  lsl:
+    timeout: 2x
