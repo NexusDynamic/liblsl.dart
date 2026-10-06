@@ -51,6 +51,8 @@ final report = analyse([for (final lines in files) RunLog.parse(lines)]);
 print(formatReport(report));
 ```
 
+Or from the command line: `dart run timing_core:analyse [--json] <log>...`
+
 For each sender and receiver, a `PairReport` gives:
 
 - **latency**: received − (sent + clock offset), with the offset estimate

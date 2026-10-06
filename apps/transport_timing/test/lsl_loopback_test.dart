@@ -24,7 +24,11 @@ void main() {
   final sessions = <TimingSession>[];
 
   setUp(() {
-    directory = Directory.systemTemp.createTempSync('transport_timing_lsl');
+    // TT_LOG_DIR keeps the logs, e.g. to open in the analysis app.
+    final keep = Platform.environment['TT_LOG_DIR'];
+    directory = keep == null
+        ? Directory.systemTemp.createTempSync('transport_timing_lsl')
+        : (Directory(keep)..createSync(recursive: true));
   });
 
   tearDown(() async {
@@ -32,7 +36,9 @@ void main() {
       await session.leave();
     }
     sessions.clear();
-    directory.deleteSync(recursive: true);
+    if (Platform.environment['TT_LOG_DIR'] == null) {
+      directory.deleteSync(recursive: true);
+    }
   });
 
   Future<TimingSession> join(String name, String sessionName) async {

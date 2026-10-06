@@ -12,7 +12,6 @@ workspace:
   - packages/liblsl_coordinator
   - packages/webrtc_coordinator
   - packages/webrtc_coordinator_flutter
-  - packages/liblsl_analysis
   - packages/timing_core
   - packages/signal_core
   - packages/signal_viewer
@@ -26,6 +25,7 @@ workspace:
   - apps/lsl_viewer
   - apps/liblsl_test
   - apps/transport_timing
+  - apps/transport_timing_analysis
 dev_dependencies:
   melos: ^8.2.2
 

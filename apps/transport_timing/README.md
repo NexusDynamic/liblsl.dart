@@ -30,7 +30,7 @@ directly:
 4. Share the logs from each device (the share button), or collect them from
    its downloads or documents folder: `tt_<run>_<device>.ttlog`.
 5. Open all of a run's logs together in the analysis app, or
-   `dart run transport_timing_analysis:analyse *.ttlog`.
+   `dart run timing_core:analyse *.ttlog`.
 
 Each device also shows what its own log says as soon as a run ends. That is
 already most of the picture: every received sample carries its sender's

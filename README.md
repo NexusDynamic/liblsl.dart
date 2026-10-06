@@ -53,7 +53,7 @@ line tool) · [Website](https://nexusdynamic.org/liblsl.dart/) ·
 | [lsl_tools](./packages/lsl_tools) | Record to XDF, the WebSocket bridge/relay, test outlets, and the `lsl` command line tool |
 | [lsl_viewer](./apps/lsl_viewer) | The LSL Viewer app, built from `signal_viewer` and its `_lsl`, `_xdf` and `_serial` source providers |
 | [liblsl_test](./apps/liblsl_test) | Integration tests to try liblsl with Flutter on any platform |
-| [liblsl_timing](./packages/liblsl_timing) / [liblsl_analysis](./packages/liblsl_analysis) | Multi-device latency, sync and timing tests, and their analysis |
+| [transport_timing](./apps/transport_timing) / [transport_timing_analysis](./apps/transport_timing_analysis) / [timing_core](./packages/timing_core) | Multi-device latency, jitter, loss and clock drift tests over LSL, WebSocket and WebRTC, and their analysis |
 | [peer_coordinator](./packages/peer_coordinator), [liblsl_coordinator](./packages/liblsl_coordinator), [webrtc_coordinator](./packages/webrtc_coordinator) | Coordinating experiments across devices (LSL, WebSocket hub, WebRTC) |
 
 ## Getting Started
