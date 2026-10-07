@@ -11,6 +11,10 @@
   On loopback at 60 Hz (`benchmark/latency_bench.dart 60 6 event`) the median
   one-way latency of a data sample went from 4.3 ms to 0.45 ms, and of a
   coordination message from 6.5 ms to 0.34 ms.
+- Stopping a stream while a pause, resume or flush of it is still in flight
+  no longer fails that request with `Bad state: Isolate for stream … stopped`
+  as an unhandled error; the stop supersedes it. An event-driven pause takes
+  up to 100 ms, which is what made the overlap likely.
 
 ## 0.4.1
 

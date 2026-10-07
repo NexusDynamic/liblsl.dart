@@ -527,6 +527,20 @@ sealed class StreamIsolate {
   }
 
   /// Generate a requestID and completer.
+  /// In-flight pause, resume and flush requests. A stop supersedes them:
+  /// once the worker is stopped there is nothing left to pause or flush, so
+  /// they complete rather than fail.
+  final Set<String> _supersededByStop = {};
+
+  Future<void> _awaitUntilStopped((String, Completer<void>) request) async {
+    _supersededByStop.add(request.$1);
+    try {
+      await request.$2.future;
+    } finally {
+      _supersededByStop.remove(request.$1);
+    }
+  }
+
   (String, Completer<void>) _generateRequestID() {
     final requestID = generateUid();
     final completer = Completer<void>();
@@ -555,7 +569,7 @@ sealed class StreamIsolate {
       '[$isolateDebugName] Pausing isolate for stream $streamId with request ID ${requestRecord.$1}',
     );
     await sendMessage(PauseMessage(requestID: requestRecord.$1));
-    await requestRecord.$2.future;
+    await _awaitUntilStopped(requestRecord);
   }
 
   /// Resume isolate processing
@@ -572,7 +586,7 @@ sealed class StreamIsolate {
         requestID: requestRecord.$1,
       ),
     );
-    await requestRecord.$2.future;
+    await _awaitUntilStopped(requestRecord);
   }
 
   /// Flush inlet streams to clear pending messages
@@ -583,7 +597,7 @@ sealed class StreamIsolate {
       '[$isolateDebugName] Flushing streams for stream $streamId with request ID ${requestRecord.$1}',
     );
     await sendMessage(FlushMessage(requestID: requestRecord.$1));
-    await requestRecord.$2.future;
+    await _awaitUntilStopped(requestRecord);
   }
 
   /// Stop isolate processing
@@ -617,6 +631,10 @@ sealed class StreamIsolate {
     _isolate?.kill(priority: Isolate.immediate);
     _isolate = null;
 
+    for (final id in _supersededByStop.toList(growable: false)) {
+      final completer = _responseCompleters.remove(id);
+      if (completer != null && !completer.isCompleted) completer.complete();
+    }
     // Anything still awaiting a response (e.g. a timed-out stop request or
     // in-flight sends) must not hang forever.
     _failPendingRequests(StateError('Isolate for stream $streamId stopped'));
