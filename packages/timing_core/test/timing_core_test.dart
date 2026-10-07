@@ -389,9 +389,27 @@ void main() {
     );
     final run = analyse([log]).runs.single;
     expect(run.pairs.single.loopback, isTrue);
+    expect(run.pairs.single.latency!.mean, closeTo(0.001, 1e-9));
     final interactive = run.interactive.single;
     expect(interactive.touchToSend!.mean, closeTo(0.01, 1e-9));
     expect(interactive.receiveToShown['a']!.mean, closeTo(0.016, 1e-9));
+  });
+
+  test('a device needs no clock offset for its own samples', () async {
+    final log = await recorded(
+      header('a', sourceId: 'A'),
+      (w) => w
+        ..received('A', 1, receivedClock: 10.002, sourceClock: 10)
+        ..received('B', 1, receivedClock: 10.002, sourceClock: 10),
+    );
+    final pairs = analyse([log]).runs.single.pairs;
+    final own = pairs.firstWhere((p) => p.loopback);
+    expect(own.untimed, 0);
+    expect(own.latency!.mean, closeTo(0.002, 1e-9));
+    expect(own.latencyFitted!.mean, closeTo(0.002, 1e-9));
+    final other = pairs.firstWhere((p) => !p.loopback);
+    expect(other.untimed, 1);
+    expect(other.latency, isNull);
   });
 
   test('runs are kept apart', () async {

@@ -66,6 +66,10 @@ PairReport _pair(
   RunLog? sender,
 ) {
   final n = r.length;
+  // A device's own samples come back on the clock they were stamped with.
+  // Transports that estimate offsets between peers have none for a node to
+  // itself, and none is needed: it is zero.
+  final loopback = receiver.header.sourceId == sourceId;
   final clock =
       _ClockModel.of(receiver.syncs[sourceId]) ?? _ClockModel.ofReceived(r);
 
@@ -78,9 +82,10 @@ PairReport _pair(
     // unknown rather than guessed.
     final source = r.sourceClock[i];
     latencyRaw[i] = r.receivedClock[i] - source;
-    latency[i] = latencyRaw[i] - r.clockOffset[i];
+    final offset = r.clockOffset[i];
+    latency[i] = latencyRaw[i] - (loopback && offset.isNaN ? 0 : offset);
     latencyFitted[i] = clock == null
-        ? double.nan
+        ? (loopback ? latency[i] : double.nan)
         : latencyRaw[i] - clock.offsetAt(source);
     if (latency[i].isNaN) untimed++;
   }
@@ -117,7 +122,7 @@ PairReport _pair(
     from: sender?.header.deviceName ?? sourceId,
     sourceId: sourceId,
     to: receiver.header.deviceName,
-    loopback: receiver.header.sourceId == sourceId,
+    loopback: loopback,
     receiveMode: receiver.header.receiveMode,
     pollInterval: receiver.header.pollInterval,
     received: n,
