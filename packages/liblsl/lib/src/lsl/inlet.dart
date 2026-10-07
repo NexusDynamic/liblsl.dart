@@ -270,9 +270,12 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
       : Future.value(_pullSampleDirect(timeout));
 
   /// Samples as they arrive, each with the local clock at the moment it
-  /// became available, with no polling in between.
+  /// became available, with no polling in between. See [chunkStream] for
+  /// streams too fast or too wide for a message per sample.
   ///
-  /// **Direct mode only** - throws [LSLException] if `useIsolates: true`.
+  /// Available in both modes. With `useIsolates: true` the inlet's own
+  /// isolate goes on serving time correction and stream info, but must not
+  /// be asked to pull or flush while this is listened to.
   ///
   /// Pulling is how an inlet learns of new samples, so a loop that pulls
   /// with a zero timeout sees each one up to a poll interval late, and that
@@ -308,14 +311,59 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   Stream<LSLTimedSample<T>> sampleStream({
     double wakeInterval = 0.1,
     int? debugFailAfter,
-  }) => requireDirect(
-    () => listenToInlet<T>(
-      inletAddress: _inletBang.address,
-      streamInfoAddress: streamInfo.streamInfo.address,
-      wakeInterval: wakeInterval,
-      debugFailAfter: debugFailAfter,
-    ),
+  }) => listenToInlet<T>(
+    inletAddress: _listenAddress,
+    streamInfoAddress: streamInfo.streamInfo.address,
+    wakeInterval: wakeInterval,
+    debugFailAfter: debugFailAfter,
   );
+
+  /// Samples as they arrive, in chunks, without polling.
+  ///
+  /// As [sampleStream], with the same isolate, rules and way of ending, but
+  /// every time the isolate is woken it hands over all that is waiting as
+  /// one [LSLTimedChunk] of at most [maxSamples] samples, as flat typed data
+  /// (or strings). One message per wake rather than one per sample is what
+  /// makes this usable for fast, wide streams.
+  ///
+  /// A sender that does not chunk wakes the isolate once per sample. With
+  /// [coalesce] (seconds) above zero the isolate goes on collecting for that
+  /// long after the first sample, which bounds how often it delivers at the
+  /// cost of that much latency. [LSLTimedChunk.receivedClock] is the arrival
+  /// of the first sample either way.
+  ///
+  /// ```dart
+  /// final subscription = inlet.chunkStream(coalesce: 0.005).listen((chunk) {
+  ///   final values = chunk.data as Float32List;
+  /// });
+  /// // ...
+  /// await subscription.cancel();
+  /// await inlet.destroy();
+  /// ```
+  Stream<LSLTimedChunk> chunkStream({
+    double wakeInterval = 0.1,
+    int maxSamples = 1024,
+    double coalesce = 0,
+    int? debugFailAfter,
+  }) => listenToInletChunks(
+    inletAddress: _listenAddress,
+    streamInfoAddress: streamInfo.streamInfo.address,
+    wakeInterval: wakeInterval,
+    maxSamples: maxSamples,
+    coalesce: coalesce,
+    debugFailAfter: debugFailAfter,
+  );
+
+  /// The native inlet for [sampleStream] and [chunkStream]. In isolate mode
+  /// it lives in the inlet's own isolate, which reported where; the handle
+  /// itself is good in any isolate of the process.
+  int get _listenAddress {
+    if (!_useIsolates) return _inletBang.address;
+    return _isolatedInletAddress ??
+        (throw LSLException('Inlet not initialized'));
+  }
+
+  int? _isolatedInletAddress;
 
   /// Synchronously pulls a sample from the inlet.
   ///
@@ -814,6 +862,8 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
       _tcScratch = null;
       throw LSLException('Error creating inlet: ${response.error}');
     }
+    final created = response.result;
+    if (created is Map) _isolatedInletAddress = created['inletAddress'] as int?;
 
     return this;
   }

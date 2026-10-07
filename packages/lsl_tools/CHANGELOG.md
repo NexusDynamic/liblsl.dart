@@ -1,21 +1,19 @@
-## Unreleased
+## 0.2.0
 
-- Bridge protocol 2 (not compatible with 1; older clients are refused):
-  time stamps cross a bridge or relay as their origin stamped them, with a
-  `ClockChain` beside them (per hop: offset, drift, error bound, latency
-  and jitter).
+- New `receiveChunks(inlet, options)`, stream version of inlet samples.
+- The latency in an LSL inlet's `ClockChain` does not include the wait/polling
+  delay when using event driven mode.
+- Bridge protocol 2; source timestamps are kept and a
+  `ClockChain` gives offset, drift, error bound, latency
+  and jitter per hop.
 - The bridge's clock is measured as LSL measures an outlet's (bursts, the
-  fastest round trip) with a drift fit, instead of one ping every 2 s.
+  fastest round trip) with a drift fit
 - Bridge inlets take `LslInletOptions`: corrected and dejittered time
   stamps by default, raw ones with `clockSync: false`.
-- New `LslInlet.timeCorrectionEx()` and `chain()`, `LslChunk.received`,
-  `LslBridgeClient.link` (replaces `offset`), `BridgeOutlet.upstream`,
-  `LslRecorder.fromInlets`.
 - `lsl bridge` publishes a `BridgeTiming` stream and has `--stats`.
 - New `LslDataStreamPump` and `DataStreamInlet` continue a chain through a
   `peer_coordinator` session (WebRTC).
-- Without LSL (web, a relay) the clock is now steady instead of the wall
-  clock.
+- Monotinic clocks are now used instead of wall clocks where LSL is not available (e.g. web).
 
 ## 0.1.0
 

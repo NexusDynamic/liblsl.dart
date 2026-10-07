@@ -54,8 +54,22 @@ class LslSession extends SourceSession implements LiveData {
   String? error;
   Timer? _statusTimer;
 
-  /// The receiving loop, which [close] waits for before freeing the inlet.
-  late final Future<void> _loop;
+  /// How samples are being received: as they arrive or on a timer, and
+  /// whether that had to be restarted or changed (see [receiveChunks]).
+  LslReceiveStatus? receiving;
+
+  /// What is being done about receiving that failed, or null when nothing
+  /// has: shown with the stream until it is working again.
+  String? get receiveNote {
+    final r = receiving;
+    return r == null || r.healthy ? null : r.note;
+  }
+
+  /// What is received, which [close] cancels before freeing the inlet.
+  late final StreamSubscription<LslChunk> _receiving;
+
+  /// Marker streams scroll with time even without new samples.
+  Timer? _scrollTimer;
 
   LslSession._(this.inlet, this.options) {
     _openCount++;
@@ -79,7 +93,31 @@ class LslSession extends SourceSession implements LiveData {
         notifyListeners();
       }
     });
-    _loop = _run();
+    _receiving = receiveChunks(inlet, options, onStatus: _onReceiving).listen(
+      (c) {
+        if (_closed) return;
+        _ingest(c);
+        _changes.ping();
+      },
+      onError: (Object e) {
+        if (_closed) return;
+        error = '$e';
+        notifyListeners();
+      },
+    );
+    if (info.irregular) {
+      _scrollTimer = Timer.periodic(const Duration(milliseconds: 50), (_) {
+        if (received > 0) _changes.ping();
+      });
+    }
+  }
+
+  void _onReceiving(LslReceiveStatus status) {
+    receiving = status;
+    if (!status.healthy) {
+      debugPrint('LSL ${inlet.stream.name}: ${status.note}');
+    }
+    if (!_closed) notifyListeners();
   }
 
   static Future<LslSession> open(
@@ -118,7 +156,11 @@ class LslSession extends SourceSession implements LiveData {
   String get label => 'LSL';
 
   @override
-  String get titleSuffix => error != null ? ' (error)' : '';
+  String get titleSuffix => error != null
+      ? ' (error)'
+      : receiveNote != null
+      ? ' (!)'
+      : '';
 
   @override
   String get tooltip => describe();
@@ -164,6 +206,7 @@ class LslSession extends SourceSession implements LiveData {
     'LSL ${inlet.stream.name}',
     inlet.stream.summary,
     if (lostSampleCount > 0) '$lostSampleCount lost',
+    ?receiveNote,
     if (error != null)
       'error: $error'
     else if (received == 0)
@@ -173,40 +216,6 @@ class LslSession extends SourceSession implements LiveData {
   ].join(' · ');
 
   // -- receiving -------------------------------------------------------------
-
-  Future<void> _run() async {
-    final interval = Duration(milliseconds: options.pullIntervalMs);
-    // Room for a few intervals, so one pull usually gets everything.
-    final max = math.max(
-      64,
-      (math.max(info.rate, 1) * options.pullIntervalMs / 1000 * 8).ceil(),
-    );
-    var lastPing = 0.0;
-    while (!_closed) {
-      try {
-        var got = false;
-        while (!_closed) {
-          final c = await inlet.pull(max);
-          if (c.length == 0 || _closed) break;
-          _ingest(c);
-          got = true;
-          if (c.length < max) break;
-        }
-        final now = lsl.clock();
-        // Marker streams scroll with time even without new samples.
-        if (got || (info.irregular && received > 0 && now - lastPing > 0.05)) {
-          lastPing = now;
-          _changes.ping();
-        }
-      } catch (e) {
-        if (_closed) return;
-        error = '$e';
-        notifyListeners();
-        return;
-      }
-      await Future<void>.delayed(interval);
-    }
-  }
 
   /// See every chunk as it arrives, with its time stamps as received
   /// (e.g. to forward it).
@@ -290,7 +299,9 @@ class LslSession extends SourceSession implements LiveData {
     _closed = true;
     if (--_openCount == 0) _sharedOrigin = null;
     _statusTimer?.cancel();
-    await _loop;
+    _scrollTimer?.cancel();
+    // Until what receives has left the inlet.
+    await _receiving.cancel();
     await inlet.close();
     notifyListeners();
   }

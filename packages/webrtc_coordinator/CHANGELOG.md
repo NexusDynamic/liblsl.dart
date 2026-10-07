@@ -1,4 +1,4 @@
-## Unreleased
+## 0.2.1
 
 - Data streams report their peers' clock-offset estimates through
   `clockSyncs` (`PeerClockOffsets.estimates`), as LSL streams do.

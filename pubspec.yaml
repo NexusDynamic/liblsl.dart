@@ -137,6 +137,7 @@ melos:
         - melos run test:dart --no-select
       description: Run all non-LSL tests in this project.
     upgrade: melos exec flutter pub upgrade
+    upgrade-major: melos exec flutter pub upgrade --major-versions
     coverage:
       steps:
         - melos exec -- flutter test --coverage

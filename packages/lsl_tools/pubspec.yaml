@@ -3,7 +3,7 @@ description: >-
   Lab Streaming Layer tools in pure Dart: a web-safe facade over liblsl,
   recording to XDF, a WebSocket bridge between networks, test outlets, and
   the `lsl` command line tool.
-version: 0.1.0
+version: 0.2.0
 homepage: https://zeyus.com/
 repository: https://github.com/NexusDynamic/liblsl.dart
 issue_tracker: https://github.com/NexusDynamic/liblsl.dart/issues
@@ -18,12 +18,12 @@ dependencies:
   args: ^2.6.0
   liblsl: any
   openbci_cyton: ^0.1.0
-  peer_coordinator: ^0.3.1
+  peer_coordinator: ^0.4.0
   serial_transport: ^0.1.0
   signal_core: ^0.1.0
   web_socket_channel: ^3.0.3
   xdf: ^0.1.0
-  xml: ^6.5.0
+  xml: ^7.1.0
 
 dev_dependencies:
   lints: ^6.0.0

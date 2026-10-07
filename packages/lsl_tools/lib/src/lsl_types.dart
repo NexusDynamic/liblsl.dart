@@ -129,6 +129,28 @@ abstract class LslInlet {
   Future<void> close();
 }
 
+/// An inlet that can hand samples over as they arrive, rather than only
+/// when asked with [LslInlet.pull]. The LSL inlets of native platforms do;
+/// see [receiveChunks], which uses it when it is there.
+abstract class LslArrivals {
+  /// Chunks as they arrive: everything that was waiting, up to [maxSamples],
+  /// each time something came. With [coalesce] above zero, what arrives
+  /// within that long of a chunk's first sample is in the chunk too, so a
+  /// fast stream does not deliver once per sample.
+  ///
+  /// Do not [LslInlet.pull] while this is listened to, and cancel (and
+  /// await the cancel) before [LslInlet.close]. The stream ends without an
+  /// error only when cancelled; if what listens for it fails, it gives the
+  /// error and then ends.
+  ///
+  /// [debugFailAfter] is for tests: it fails after that many chunks.
+  Stream<LslChunk> arrivals({
+    int maxSamples = 1024,
+    Duration coalesce = Duration.zero,
+    int? debugFailAfter,
+  });
+}
+
 /// A clock offset and how far it can be trusted.
 class LslTimeCorrection {
   /// Add it to the sender's time stamps to get this computer's LSL clock.
@@ -252,7 +274,12 @@ class LslInletOptions {
   /// decide. Larger chunks reduce CPU load at the cost of latency.
   final int chunkSize;
 
-  /// How often buffered samples are collected, in ms.
+  /// Receive samples as they arrive instead of collecting them every
+  /// [pullIntervalMs], where the inlet can (see [receiveChunks]).
+  final bool eventDriven;
+
+  /// How often buffered samples are collected, in ms, when they are not
+  /// received as they arrive.
   final int pullIntervalMs;
 
   /// Translate time stamps to this computer's clock.
@@ -270,6 +297,7 @@ class LslInletOptions {
   const LslInletOptions({
     this.bufferS = 30,
     this.chunkSize = 0,
+    this.eventDriven = true,
     this.pullIntervalMs = 20,
     this.clockSync = true,
     this.dejitter = true,
@@ -280,6 +308,7 @@ class LslInletOptions {
   LslInletOptions copyWith({
     int? bufferS,
     int? chunkSize,
+    bool? eventDriven,
     int? pullIntervalMs,
     bool? clockSync,
     bool? dejitter,
@@ -288,6 +317,7 @@ class LslInletOptions {
   }) => LslInletOptions(
     bufferS: bufferS ?? this.bufferS,
     chunkSize: chunkSize ?? this.chunkSize,
+    eventDriven: eventDriven ?? this.eventDriven,
     pullIntervalMs: pullIntervalMs ?? this.pullIntervalMs,
     clockSync: clockSync ?? this.clockSync,
     dejitter: dejitter ?? this.dejitter,
@@ -298,6 +328,7 @@ class LslInletOptions {
   Map<String, Object?> toJson() => {
     'buffer_s': bufferS,
     'chunk_size': chunkSize,
+    'event_driven': eventDriven,
     'pull_interval_ms': pullIntervalMs,
     'clock_sync': clockSync,
     'dejitter': dejitter,
@@ -310,6 +341,7 @@ class LslInletOptions {
     return LslInletOptions(
       bufferS: _int(j['buffer_s'], d.bufferS, 1, 3600),
       chunkSize: _int(j['chunk_size'], d.chunkSize, 0, 100000),
+      eventDriven: _bool(j['event_driven'], d.eventDriven),
       pullIntervalMs: _int(j['pull_interval_ms'], d.pullIntervalMs, 1, 1000),
       clockSync: _bool(j['clock_sync'], d.clockSync),
       dejitter: _bool(j['dejitter'], d.dejitter),

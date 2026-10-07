@@ -100,6 +100,13 @@ Future<void> runRawLsl({
           clockReset: result.syncReset[i],
         );
       }
+      final failed = result.errorCode;
+      if (failed != null) {
+        log.event(result.errorClock, 'receive_error', {
+          'from': source,
+          'code': failed,
+        });
+      }
       for (var i = 0; i < result.seq.length; i++) {
         log.received(
           source,
@@ -239,6 +246,11 @@ final class _Received {
   final Float64List syncUncertainty;
   final List<bool> syncReset;
 
+  /// The liblsl error that ended receiving before the run did, and when;
+  /// null when it ran to the end.
+  final int? errorCode;
+  final double errorClock;
+
   const _Received({
     required this.seq,
     required this.sourceClock,
@@ -250,8 +262,14 @@ final class _Received {
     required this.syncRemoteTime,
     required this.syncUncertainty,
     required this.syncReset,
+    this.errorCode,
+    this.errorClock = 0,
   });
 }
+
+/// liblsl's `lsl_timeout_error`: nothing arrived in time, which is not a
+/// failure.
+const int _lslTimeout = -1;
 
 Future<_Received> _inletMain(_InletArgs args) async {
   final inlet = LSLInlet<double>(
@@ -306,6 +324,8 @@ Future<_Received> _inletMain(_InletArgs args) async {
   final pause = args.receiveMode == ReceiveMode.polled
       ? Duration(microseconds: args.pollIntervalMicros)
       : null;
+  int? errorCode;
+  var errorClock = 0.0;
   while (true) {
     // Event mode waits inside liblsl, which wakes the call the moment a
     // sample is queued; the timeout is only so the end of the run is seen.
@@ -320,6 +340,12 @@ Future<_Received> _inletMain(_InletArgs args) async {
       // Polled: keep draining, so the pause comes once per poll and not
       // once per sample.
       if (pause != null && now < args.endClock) continue;
+    } else if (sample.errorCode != 0 && sample.errorCode != _lslTimeout) {
+      // Not "nothing yet": the inlet will give no more. Going on would spin
+      // through failing pulls until the end and log nothing but a gap.
+      errorCode = sample.errorCode;
+      errorClock = now;
+      break;
     }
     if (now >= args.endClock) break;
     if (now >= nextSync) sync(now, 0);
@@ -338,5 +364,7 @@ Future<_Received> _inletMain(_InletArgs args) async {
     syncRemoteTime: Float64List.fromList(syncRemoteTimes),
     syncUncertainty: Float64List.fromList(syncUncertainties),
     syncReset: syncResets,
+    errorCode: errorCode,
+    errorClock: errorClock,
   );
 }

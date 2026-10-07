@@ -263,7 +263,7 @@ class _Discovery implements LslDiscovery {
   }
 }
 
-class _Inlet implements LslInlet {
+class _Inlet implements LslInlet, LslArrivals {
   @override
   final LslStreamDescription stream;
   @override
@@ -328,20 +328,39 @@ class _Inlet implements LslInlet {
     ]);
   }
 
-  /// [times] as pulled now, with the last sample's latency noted.
+  /// A chunk whose sample at [at] became available at [received].
   LslChunk _chunk(
     Float64List times, {
     List<double>? values,
     List<String>? strings,
+    required double received,
+    required double at,
   }) {
-    final now = LSL.localClock();
-    final last = times.last;
     if (synced) {
-      _latency.add(now - last);
+      _latency.add(received - at);
     } else if (_model.ready) {
-      _latency.add(now - last - _model.offsetAt(last));
+      _latency.add(received - at - _model.offsetAt(at));
     }
-    return LslChunk(times, values: values, strings: strings, received: now);
+    return LslChunk(
+      times,
+      values: values,
+      strings: strings,
+      received: received,
+    );
+  }
+
+  /// Numeric values as the viewer wants them: floats as they are, integers
+  /// as doubles (exact up to 2^53).
+  static List<double> _values(Object data, int n) {
+    if (data is Float32List || data is Float64List) {
+      return data as List<double>;
+    }
+    final f = Float64List(n);
+    final src = data as List<num>;
+    for (var i = 0; i < n; i++) {
+      f[i] = src[i].toDouble();
+    }
+    return f;
   }
 
   @override
@@ -350,32 +369,53 @@ class _Inlet implements LslInlet {
     if (stream.format.isString) {
       final c = await _inlet.pullChunk(maxSamples: maxSamples);
       if (c.isEmpty) return LslChunk.empty;
+      final times = Float64List.fromList(c.timestamps);
+      // Pulled some time after it arrived: the last sample is the one that
+      // waited least.
       return _chunk(
-        Float64List.fromList(c.timestamps),
+        times,
         strings: [
           for (final s in c.samples)
             for (final v in s) '$v',
         ],
+        received: LSL.localClock(),
+        at: times.last,
       );
     }
     final c = await _inlet.pullChunkTyped(maxSamples: maxSamples);
     if (c.isEmpty) return LslChunk.empty;
-    final data = c.data;
-    final List<double> values;
-    if (data is Float32List || data is Float64List) {
-      values = data as List<double>;
-    } else {
-      // Integers as doubles (exact up to 2^53).
-      final n = c.sampleCount * c.channelCount;
-      final f = Float64List(n);
-      final src = data as List<num>;
-      for (var i = 0; i < n; i++) {
-        f[i] = src[i].toDouble();
-      }
-      values = f;
-    }
-    return _chunk(c.timestamps, values: values);
+    return _chunk(
+      c.timestamps,
+      values: _values(c.data, c.sampleCount * c.channelCount),
+      received: LSL.localClock(),
+      at: c.timestamps.last,
+    );
   }
+
+  @override
+  Stream<LslChunk> arrivals({
+    int maxSamples = 1024,
+    Duration coalesce = Duration.zero,
+    int? debugFailAfter,
+  }) => _inlet
+      .chunkStream(
+        maxSamples: maxSamples,
+        coalesce: coalesce.inMicroseconds / 1e6,
+        debugFailAfter: debugFailAfter,
+      )
+      .map(
+        // The clock was read as the first sample arrived, so that pair is a
+        // latency with no waiting to be collected in it.
+        (c) => _chunk(
+          c.timestamps,
+          values: c.data == null
+              ? null
+              : _values(c.data!, c.sampleCount * c.channelCount),
+          strings: c.strings,
+          received: c.receivedClock,
+          at: c.timestamps.first,
+        ),
+      );
 
   @override
   Future<void> close() async {

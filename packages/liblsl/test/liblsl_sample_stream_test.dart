@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:liblsl/lsl.dart';
 import 'package:test/test.dart';
@@ -189,16 +190,214 @@ void main() {
     }
   }, tags: 'lsl');
 
-  test('needs a direct-mode inlet', () async {
+  test('works on an isolate-mode inlet, which keeps answering', () async {
     final (outlet, inlet, infos) = await createPair<double>(
       LSLChannelFormat.float32,
       inletIsolates: true,
     );
-    expect(inlet.sampleStream, throwsA(isA<LSLException>()));
+    final first = inlet.sampleStream().first;
+    outlet.pushSampleSync([1.5, 2.5]);
+    expect((await first.timeout(const Duration(seconds: 5))).data, [1.5, 2.5]);
+    // The inlet's own isolate is free: it is not the one pulling.
+    final correction = await inlet.getTimeCorrectionEx(timeout: 5);
+    expect(correction.offset.abs(), lessThan(0.1));
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+
     await inlet.destroy();
     await outlet.destroy();
     for (final info in infos) {
       info.destroy();
     }
   }, tags: 'lsl');
+
+  group('chunkStream', () {
+    Future<void> cleanUp(
+      LSLOutlet outlet,
+      LSLInlet<dynamic> inlet,
+      List<LSLStreamInfo> infos,
+    ) async {
+      await inlet.destroy();
+      await outlet.destroy();
+      for (final info in infos) {
+        info.destroy();
+      }
+    }
+
+    test('delivers every sample in order, as typed data', () async {
+      final (outlet, inlet, infos) = await createPair<double>(
+        LSLChannelFormat.float32,
+      );
+      final chunks = <LSLTimedChunk>[];
+      final subscription = inlet.chunkStream().listen(chunks.add);
+
+      const count = 300;
+      for (var i = 0; i < count; i++) {
+        outlet.pushSampleSync([i.toDouble(), -i.toDouble()]);
+        if (i % 10 == 9) {
+          await Future<void>.delayed(const Duration(milliseconds: 5));
+        }
+      }
+      int received() => chunks.fold(0, (n, c) => n + c.sampleCount);
+      final deadline = DateTime.now().add(const Duration(seconds: 5));
+      while (received() < count && DateTime.now().isBefore(deadline)) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+      await subscription.cancel();
+
+      expect(received(), count);
+      final values = [for (final c in chunks) ...(c.data! as Float32List)];
+      expect(values, [
+        for (var i = 0; i < count; i++) ...[i.toDouble(), -i.toDouble()],
+      ]);
+      for (final c in chunks) {
+        expect(c.channelCount, 2);
+        expect(c.strings, isNull);
+        expect(c.data!.lengthInBytes, c.sampleCount * 2 * 4);
+        // Same process, same clock: the first sample was sent before it
+        // was received, and not long before.
+        expect(c.receivedClock - c.timestamps.first, inInclusiveRange(0, 0.5));
+      }
+      // Samples pushed together come together.
+      expect(chunks.length, lessThan(count));
+
+      await cleanUp(outlet, inlet, infos);
+    }, tags: 'lsl');
+
+    test('a burst that was waiting arrives as one chunk', () async {
+      final (outlet, inlet, infos) = await createPair<int>(
+        LSLChannelFormat.int32,
+      );
+      for (var i = 0; i < 50; i++) {
+        outlet.pushSampleSync([i, i]);
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      final chunk = await inlet.chunkStream().first.timeout(
+        const Duration(seconds: 5),
+      );
+      expect(chunk.sampleCount, 50);
+      expect((chunk.data! as Int32List).last, 49);
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+
+      await cleanUp(outlet, inlet, infos);
+    }, tags: 'lsl');
+
+    test('maxSamples bounds a chunk and loses nothing', () async {
+      final (outlet, inlet, infos) = await createPair<int>(
+        LSLChannelFormat.int16,
+      );
+      for (var i = 0; i < 25; i++) {
+        outlet.pushSampleSync([i, i]);
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      final chunks = <LSLTimedChunk>[];
+      final subscription = inlet.chunkStream(maxSamples: 10).listen(chunks.add);
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+      await subscription.cancel();
+
+      expect([for (final c in chunks) c.sampleCount], [10, 10, 5]);
+      expect((chunks.last.data! as Int16List).last, 24);
+
+      await cleanUp(outlet, inlet, infos);
+    }, tags: 'lsl');
+
+    test('coalesce gathers samples that arrive one by one', () async {
+      final (outlet, inlet, infos) = await createPair<double>(
+        LSLChannelFormat.double64,
+      );
+      final chunks = <LSLTimedChunk>[];
+      final subscription = inlet.chunkStream(coalesce: 0.1).listen(chunks.add);
+      const count = 100;
+      for (var i = 0; i < count; i++) {
+        outlet.pushSampleSync([i.toDouble(), 0.0]);
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+      await subscription.cancel();
+
+      expect(chunks.fold<int>(0, (n, c) => n + c.sampleCount), count);
+      // About one every 100 ms over half a second, not one per sample.
+      expect(chunks.length, lessThan(15));
+
+      await cleanUp(outlet, inlet, infos);
+    }, tags: 'lsl');
+
+    test('string streams come as strings', () async {
+      final (outlet, inlet, infos) = await createPair<String>(
+        LSLChannelFormat.string,
+      );
+      final chunks = <LSLTimedChunk>[];
+      final subscription = inlet.chunkStream().listen(chunks.add);
+      outlet.pushSampleSync(['go', 'left']);
+      outlet.pushSampleSync(['stop', 'right']);
+      final deadline = DateTime.now().add(const Duration(seconds: 5));
+      while (chunks.fold<int>(0, (n, c) => n + c.sampleCount) < 2 &&
+          DateTime.now().isBefore(deadline)) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+      await subscription.cancel();
+
+      expect(chunks.every((c) => c.data == null), isTrue);
+      expect(
+        [for (final c in chunks) ...c.strings!],
+        ['go', 'left', 'stop', 'right'],
+      );
+
+      await cleanUp(outlet, inlet, infos);
+    }, tags: 'lsl');
+
+    test('works on an isolate-mode inlet', () async {
+      final (outlet, inlet, infos) = await createPair<double>(
+        LSLChannelFormat.float32,
+        inletIsolates: true,
+      );
+      final first = inlet.chunkStream().first;
+      outlet.pushSampleSync([3.0, 4.0]);
+      final chunk = await first.timeout(const Duration(seconds: 5));
+      expect(chunk.data, [3, 4]);
+      expect(
+        (await inlet.getTimeCorrectionEx(timeout: 5)).offset.abs(),
+        lessThan(0.1),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+
+      await cleanUp(outlet, inlet, infos);
+    }, tags: 'lsl');
+
+    test(
+      'a listener that dies reports why; a cancelled one does not',
+      () async {
+        final (outlet, inlet, infos) = await createPair<int>(
+          LSLChannelFormat.int32,
+        );
+        final errors = <Object>[];
+        final done = Completer<void>();
+        var samples = 0;
+        inlet
+            .chunkStream(debugFailAfter: 1)
+            .listen(
+              (c) => samples += c.sampleCount,
+              onError: (Object e) => errors.add(e),
+              onDone: done.complete,
+            );
+        outlet.pushSampleSync([1, 1]);
+        await done.future.timeout(const Duration(seconds: 5));
+        expect(samples, 1);
+        expect(errors.single, isA<LSLSampleListenerException>());
+        expect('${errors.single}', contains('debugFailAfter'));
+
+        errors.clear();
+        final subscription = inlet
+            .chunkStream(wakeInterval: 0.05)
+            .listen((_) {}, onError: (Object e) => errors.add(e));
+        outlet.pushSampleSync([2, 2]);
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+        await subscription.cancel();
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+        expect(errors, isEmpty);
+
+        await cleanUp(outlet, inlet, infos);
+      },
+      tags: 'lsl',
+    );
+  });
 }

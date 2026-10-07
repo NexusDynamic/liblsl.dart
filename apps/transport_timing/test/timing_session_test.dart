@@ -3,10 +3,12 @@
 /// with no network and no native code.
 library;
 
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:peer_coordinator/in_memory.dart';
+import 'package:peer_coordinator/peer_coordinator.dart';
 import 'package:timing_core/timing_core.dart';
 import 'package:transport_timing/src/log_store.dart';
 import 'package:transport_timing/src/settings.dart';
@@ -36,10 +38,13 @@ void main() {
     directory.deleteSync(recursive: true);
   });
 
-  Future<TimingSession> join(String name) async {
+  Future<TimingSession> join(
+    String name, {
+    ITransportConfig? transportConfig,
+  }) async {
     final session = TimingSession(
       settings: AppSettings(deviceName: name, sessionName: 'test'),
-      transportConfig: InMemoryTransportConfig(bus: bus),
+      transportConfig: transportConfig ?? InMemoryTransportConfig(bus: bus),
       backendKey: 'memory',
       store: LogStore(directory: () async => directory),
       heartbeatInterval: const Duration(milliseconds: 50),
@@ -125,4 +130,122 @@ void main() {
     }
     expect(a.results.value.single.report, contains('Run run1'));
   });
+
+  test('a run says when this device stopped receiving from a peer', () async {
+    final health = StreamController<InletHealth>.broadcast();
+    addTearDown(health.close);
+    final a = await join(
+      'a',
+      transportConfig: _ReportingTransportConfig(bus, health.stream),
+    );
+    expect(a.isCoordinator.value, isTrue);
+
+    const config = RunConfig(
+      runId: 'run2',
+      sampleRate: 100,
+      channels: 1,
+      durationSeconds: 1,
+    );
+    final running = a.startRuns([config]);
+    await waitFor(
+      () => a.run.value?.status.contains('left') ?? false,
+      'the run to be recording',
+    );
+    health.add(
+      const InletHealth(
+        sourceId: 'tt_run2//participant//peer//1',
+        healthy: false,
+        consecutiveFailures: 1,
+        error: 'listener ended',
+        willRetry: true,
+      ),
+    );
+    health.add(
+      const InletHealth(
+        sourceId: 'tt_run2//participant//peer//1',
+        healthy: true,
+      ),
+    );
+    await running;
+    await waitFor(
+      () => a.results.value.length == 1 && a.run.value == null,
+      'the result',
+    );
+
+    final result = a.results.value.single;
+    final log = RunLog.parse(File(result.path).readAsBytesSync());
+    final events = log.events.where((e) => e.name == 'receive_health').toList();
+    expect(events, hasLength(2));
+    expect(events.first.detail, {
+      'stream': 'tt_run2',
+      'from': 'peer',
+      'healthy': false,
+      'failures': 1,
+      'willRetry': true,
+      'error': 'listener ended',
+    });
+    expect(events.last.detail!['healthy'], isTrue);
+    expect(result.report, startsWith('Receiving on this device was'));
+    expect(result.report, contains('interrupted 1 time(s)'));
+    expect(result.report, contains('Run run2'));
+  });
+}
+
+/// Data streams that report whatever the test says happened to their
+/// receiving end; in-memory streams have none that can fail by itself.
+class _ReportingDataStream extends InMemoryDataStream {
+  _ReportingDataStream(
+    this._health, {
+    required super.config,
+    required super.bus,
+    required super.sessionName,
+    required super.streamNode,
+  });
+
+  final Stream<InletHealth> _health;
+
+  @override
+  Stream<InletHealth> get inletHealth => _health;
+}
+
+class _ReportingFactory extends InMemoryNetworkStreamFactory {
+  _ReportingFactory(super.bus, this._health);
+
+  final Stream<InletHealth> _health;
+
+  @override
+  Future<InMemoryDataStream> createDataStream(
+    DataStreamConfig config,
+    CoordinationSession session,
+  ) async => _ReportingDataStream(
+    _health,
+    config: config,
+    bus: bus,
+    sessionName: session.config.name,
+    streamNode: session.thisNode,
+  );
+}
+
+class _ReportingTransport extends InMemoryTransport {
+  _ReportingTransport(super.config, this._health);
+
+  final Stream<InletHealth> _health;
+
+  @override
+  NetworkStreamFactory get streamFactory => _ReportingFactory(bus, _health);
+}
+
+class _ReportingTransportConfig extends InMemoryTransportConfig {
+  _ReportingTransportConfig(InMemoryBus bus, this._health) : super(bus: bus);
+
+  final Stream<InletHealth> _health;
+
+  @override
+  ITransport createTransport() => _ReportingTransport(this, _health);
+
+  @override
+  bool operator ==(Object other) => identical(this, other);
+
+  @override
+  int get hashCode => identityHashCode(this);
 }

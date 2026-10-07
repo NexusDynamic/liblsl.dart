@@ -250,7 +250,10 @@ class _LslSettingsDialogState extends State<_LslSettingsDialog> {
               'Collect every',
               i.pullIntervalMs,
               'ms',
-              'How often new samples are picked up.',
+              i.eventDriven
+                  ? 'For streams that cannot be received as they arrive '
+                        '(e.g. over a bridge).'
+                  : 'How often new samples are picked up.',
               (v) => inlet(i.copyWith(pullIntervalMs: v)),
               min: 1,
               max: 1000,
@@ -272,6 +275,13 @@ class _LslSettingsDialogState extends State<_LslSettingsDialog> {
               max: 3600,
             ),
           ],
+        ),
+        _switch(
+          'Receive as samples arrive',
+          'Without waiting to collect them. Off: collect on the interval '
+              'above.',
+          i.eventDriven,
+          (v) => inlet(i.copyWith(eventDriven: v)),
         ),
         _switch(
           'Synchronize clocks',

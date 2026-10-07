@@ -2,7 +2,7 @@
 
 ## New features
 
-- `LSLInlet.sampleStream()` (dirct mode only) provides a way to have event-driven
+- `LSLInlet.sampleStream()` provides a way to have event-driven
    samples with a wake interval. Subscription must be cancelled before
   inlet destruction.
 - A `sampleStream()` closes without an error only when it was cancelled. If
@@ -10,6 +10,9 @@
   `LSLSampleListenerException` with the liblsl `errorCode` and
   message, or the isolate's stack trace. Listening again
   starts a new isolate on the same inlet.
+- `LSLInlet.chunkStream()` chunked version of `sampleStream()`.
+- Both streams also work on an inlet created with `useIsolates: true`.
+  That isolate keeps serving time correction and stream info meanwhile.
 
 # 1.0.0
 

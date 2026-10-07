@@ -122,6 +122,10 @@ class TimingSession {
   RunLogWriter? _log;
   bool _busy = false;
 
+  /// Times, during the run being recorded, that this device stopped
+  /// receiving from a peer for a reason of its own.
+  int _interruptions = 0;
+
   ITransportConfig _buildTransportConfig() {
     final injected = _transportConfig;
     if (injected != null) return injected;
@@ -183,7 +187,8 @@ class TimingSession {
         ..add(session.events.nodeJoined.listen((_) => _refresh()))
         ..add(session.events.nodeLeft.listen((_) => _refresh()))
         ..add(session.events.phaseChanges.listen((_) => _refresh()))
-        ..add(session.events.sessionEnded.listen(_onSessionEnded));
+        ..add(session.events.sessionEnded.listen(_onSessionEnded))
+        ..add(session.events.streamReceiveHealth.listen(_onReceiveHealth));
 
       await session.initialize();
       await session.join(timeout);
@@ -328,6 +333,7 @@ class TimingSession {
     );
     _log = log;
     _streamRun = streamRun;
+    _interruptions = 0;
     log.event(_clock(), 'started');
     streamRun.start();
 
@@ -451,14 +457,46 @@ class TimingSession {
 
   Future<void> _save(RunConfig config, RunLogWriter log, BytesSink sink) async {
     run.value = ActiveRun(config, 'Saving');
+    final interruptions = _interruptions;
+    _interruptions = 0;
     await log.close();
     final content = sink.takeBytes();
     final file = await _store.save(log.header, content);
-    final report = await Isolate.run(
+    var report = await Isolate.run(
       () => formatReport(analyse([RunLog.parse(content)])),
     );
+    if (interruptions > 0) {
+      // Above the numbers, which it puts in doubt.
+      report =
+          'Receiving on this device was interrupted $interruptions time(s) '
+          'during this run (receive_health in the log): samples were late '
+          'or missing for that, not for the network.\n\n$report';
+    }
     results.value = [...results.value, RunResult(config, file.path, report)];
     run.value = null;
+  }
+
+  /// This device's receiving end for a peer stopped by itself, or is back
+  /// (an LSL inlet's listener, restarted by the transport). While it is
+  /// down nothing from that peer is received, and what queued meanwhile
+  /// arrives late in one go: a run has to say so, or its numbers blame the
+  /// network.
+  void _onReceiveHealth(StreamReceiveHealthEvent event) {
+    debugPrint(
+      'receiving ${event.streamName} from ${event.sourceId}: '
+      '${event.healthy ? 'working again' : 'interrupted (${event.error})'}',
+    );
+    final log = _log;
+    if (log == null) return;
+    if (!event.healthy) _interruptions++;
+    log.event(_clock(), 'receive_health', {
+      'stream': event.streamName,
+      'from': nodeUIdOf(event.sourceId),
+      'healthy': event.healthy,
+      'failures': event.consecutiveFailures,
+      'willRetry': event.willRetry,
+      'error': ?event.error,
+    });
   }
 
   // ---------------------------------------------------------------------------
