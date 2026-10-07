@@ -346,4 +346,30 @@ void main() {
       expect(timing.clockOffset!.abs(), lessThan(0.05));
     },
   );
+
+  test('a data stream reports the clock estimates for its peers', () async {
+    final peers = await buildPair();
+    final streamName = 'Syncs-$runId';
+    await peers.first.createDataStream(
+      DataStreamConfig(
+        name: streamName,
+        channels: 1,
+        sampleRate: 50.0,
+        dataType: StreamDataType.double64,
+        participationMode: StreamParticipationMode.allNodes,
+      ),
+    );
+    await peers.first.startStream(streamName);
+    final receiver = await peers[1].getDataStream(streamName);
+
+    final sync = await receiver.clockSyncs.first.timeout(
+      const Duration(seconds: 30),
+    );
+    expect(sync.sourceId, peers.first.thisNode.uId);
+    expect(sync.offset, isNotNull);
+    // Both nodes share this process's clock.
+    expect(sync.offset!.abs(), lessThan(0.05));
+    expect(sync.remoteTime, isNotNull);
+    expect(sync.uncertainty, greaterThanOrEqualTo(0));
+  });
 }

@@ -6,6 +6,13 @@
 - New `ClockModel` (a drift fit over recent `ClockOffsetEstimate`s),
   `TimestampSmoother` (liblsl's `proc_dejitter`) and `LatencyWindow`.
 - `ClockSyncService.onEstimate`: called with each accepted estimate.
+- `PeerClockOffsets.estimates`: every accepted estimate as a broadcast stream
+  of `ClockSyncSample`. WebSocket data streams return it from `clockSyncs`
+  (for the peers the stream receives from), and
+  `PeerSession.coordinationClockSyncs` from any transport that uses
+  `ClockSyncService`. Until now only LSL streams reported their estimates;
+  the others applied them to each message but published no series, so drift
+  could only be inferred from the offsets on the samples.
 - `DataStream.sendDataAt` and `DataStream.upstream` pass a sample on with its
   origin's timestamp and the chain to read it by, on transports where
   `relaysSourceClock` is true. `MessageTiming.upstream` carries the chain,

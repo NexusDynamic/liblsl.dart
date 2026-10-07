@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Data streams report their peers' clock-offset estimates through
+  `clockSyncs` (`PeerClockOffsets.estimates`), as LSL streams do.
 - Data streams relay source clocks (`sendDataAt`, `upstream`): a sample
   passed on from elsewhere keeps its origin's timestamp, and receivers get
   the `ClockChain` to read it by in `MessageTiming.upstream`.

@@ -404,6 +404,16 @@ class WsDataStream extends DataStream<DataStreamConfig, IMessage>
   /// in which case samples arrive with an unknown offset.
   final PeerClockOffsets? clockOffsets;
 
+  /// The estimates behind [MessageTiming.clockOffset], for the peers this
+  /// stream receives from. They are made once per peer for the whole
+  /// transport, so every stream with an inlet on a peer reports the same.
+  @override
+  Stream<ClockSyncSample> get clockSyncs =>
+      clockOffsets?.estimates.where(
+        (sync) => _producerByNodeUId.containsKey(sync.sourceId),
+      ) ??
+      const Stream.empty();
+
   Node _streamNode;
 
   @override

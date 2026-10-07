@@ -21,6 +21,7 @@ library;
 import 'dart:async';
 import 'dart:math';
 
+import 'package:peer_coordinator/src/data/clock_sync_sample.dart';
 import 'package:peer_coordinator/src/util/peer_clock.dart';
 
 /// One accepted estimate of a peer's clock relative to ours.
@@ -288,8 +289,28 @@ final class PeerClockOffsets {
   /// Peers with an accepted estimate.
   Iterable<String> get peers => _byPeer.keys;
 
-  void set(String peerUId, ClockOffsetEstimate estimate) =>
-      _byPeer[peerUId] = estimate;
+  final StreamController<ClockSyncSample> _estimates =
+      StreamController<ClockSyncSample>.broadcast();
+
+  /// Every estimate as it is accepted, for whichever peer.
+  ///
+  /// The table itself only holds the latest; this is the series, which is
+  /// what shows how a peer's clock drifts. A broadcast stream: it buffers
+  /// nothing for a listener that is not there.
+  Stream<ClockSyncSample> get estimates => _estimates.stream;
+
+  void set(String peerUId, ClockOffsetEstimate estimate) {
+    _byPeer[peerUId] = estimate;
+    _estimates.add(
+      ClockSyncSample(
+        sourceId: peerUId,
+        offset: estimate.offset,
+        remoteTime: estimate.remoteTime,
+        uncertainty: estimate.uncertainty,
+        receivedClock: estimate.sampledAt,
+      ),
+    );
+  }
 
   void remove(String peerUId) => _byPeer.remove(peerUId);
 

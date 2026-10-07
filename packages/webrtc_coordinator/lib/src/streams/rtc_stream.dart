@@ -515,6 +515,16 @@ class RtcDataStream extends DataStream<DataStreamConfig, IMessage>
   /// across every stream on this transport.
   final PeerClockOffsets? clockOffsets;
 
+  /// The estimates behind [MessageTiming.clockOffset], for the peers this
+  /// stream receives from. They are made once per peer for the whole
+  /// transport, so every stream with an inlet on a peer reports the same.
+  @override
+  Stream<ClockSyncSample> get clockSyncs =>
+      clockOffsets?.estimates.where(
+        (sync) => _subscribedPeers.contains(sync.sourceId),
+      ) ??
+      const Stream.empty();
+
   @override
   final bool channelOrdered;
 

@@ -42,9 +42,15 @@ class CoordinationController {
   ///
   /// Empty until [initialize] has built the stream, rather than throwing on the
   /// `late final`: a consumer subscribing early should get nothing, not a crash.
-  Stream<ClockSyncSample> get coordinationClockSyncs => _coordinationStreamReady
-      ? _coordinationStream.clockSyncs
-      : const Stream.empty();
+  ///
+  /// On a transport that estimates offsets itself (LSL) these are the
+  /// coordination stream's; on one that leaves it to [ClockSyncService] they
+  /// are that service's, which probes over the coordination stream.
+  Stream<ClockSyncSample> get coordinationClockSyncs =>
+      transport.clockOffsets?.estimates ??
+      (_coordinationStreamReady
+          ? _coordinationStream.clockSyncs
+          : const Stream.empty());
 
   /// Emits when this node's coordination outlet gains or loses every consumer.
   ///
