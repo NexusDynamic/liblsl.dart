@@ -111,6 +111,28 @@ class CoordinationController {
   /// ```
   Stream<ControllerEvent> get events => _eventController.stream;
 
+  /// Puts [stream]'s [NetworkStream.inletHealth] on [events] as
+  /// [StreamReceiveHealthEvent]s, until the stream is disposed.
+  ///
+  /// A receiver that has died is otherwise visible only as samples that stop
+  /// coming, which looks exactly like a peer with nothing to say.
+  void watchStreamReceiveHealth(NetworkStream stream) {
+    stream.inletHealth.listen((health) {
+      if (_eventController.isClosed) return;
+      _eventController.add(
+        StreamReceiveHealthEvent(
+          streamName: stream.name,
+          sourceId: health.sourceId,
+          healthy: health.healthy,
+          consecutiveFailures: health.consecutiveFailures,
+          error: health.error,
+          willRetry: health.willRetry,
+          fromNodeUId: _thisNode.uId,
+        ),
+      );
+    });
+  }
+
   CoordinationPhase get currentPhase => _state.phase;
   bool get isCoordinator => _state.isCoordinator;
   String? get coordinatorUId => _state.coordinatorUId;
@@ -179,6 +201,7 @@ class CoordinationController {
       session, // We'll manage this ourselves
     );
     _coordinationStreamReady = true;
+    watchStreamReceiveHealth(_coordinationStream);
 
     await _coordinationStream.create();
     await _coordinationStream.createOutlet();

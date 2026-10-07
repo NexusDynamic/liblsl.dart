@@ -36,6 +36,7 @@ final class _ListenerArgs {
   final int streamInfoAddress;
   final int stopFlagAddress;
   final double wakeInterval;
+  final int? debugFailAfter;
   final SendPort port;
 
   const _ListenerArgs({
@@ -43,6 +44,7 @@ final class _ListenerArgs {
     required this.streamInfoAddress,
     required this.stopFlagAddress,
     required this.wakeInterval,
+    required this.debugFailAfter,
     required this.port,
   });
 }
@@ -58,15 +60,34 @@ final class _ListenerArgs {
 /// Listening starts the isolate and cancelling stops it; the cancel future
 /// completes once the isolate has left liblsl, after which the inlet can be
 /// pulled from elsewhere or destroyed.
+///
+/// The stream closes without an error only when it was cancelled. If the
+/// isolate ends for any other reason (a pull error other than a timeout, an
+/// exception, or an exit nobody asked for) the stream delivers an
+/// [LSLSampleListenerException] and then closes.
+///
+/// [debugFailAfter] is for tests: the isolate throws after that many
+/// samples.
 Stream<LSLTimedSample<T>> listenToInlet<T>({
   required int inletAddress,
   required int streamInfoAddress,
   required double wakeInterval,
+  int? debugFailAfter,
 }) {
   late final StreamController<LSLTimedSample<T>> controller;
   Pointer<Uint8>? stopFlag;
   ReceivePort? port;
   final stopped = Completer<void>();
+  var failed = false;
+
+  void fail(String message, {int? code, String? stack}) {
+    failed = true;
+    if (controller.isClosed) return;
+    controller.addError(
+      LSLSampleListenerException(message, errorCode: code, stackTrace: stack),
+      stack == null ? null : StackTrace.fromString(stack),
+    );
+  }
 
   void finish() {
     port?.close();
@@ -86,13 +107,33 @@ Stream<LSLTimedSample<T>> listenToInlet<T>({
             final double clock,
             final List<Object?> data,
           ]:
-            controller.add(
-              LSLTimedSample<T>(IList<T>(data.cast<T>()), timestamp, clock),
-            );
-          case final String error:
-            controller.addError(LSLException(error));
+            final LSLTimedSample<T> sample;
+            try {
+              sample = LSLTimedSample<T>(
+                IList<T>(data.cast<T>()),
+                timestamp,
+                clock,
+              );
+            } catch (e, st) {
+              // The isolate is still pulling; say so rather than throw into
+              // the listener's zone, where nobody is looking.
+              fail('Sample could not be delivered: $e', stack: '$st');
+              flag.value = 1;
+              return;
+            }
+            controller.add(sample);
+          // From the isolate: a failed pull, or something it caught.
+          case [final int? code, final String error, final String? stack]:
+            fail(error, code: code, stack: stack);
+          // From `onError`: something it did not catch.
+          case [final String error, final String? stack]:
+            fail('Sample listener isolate failed: $error', stack: stack);
           case null:
-            // The isolate has left its loop (asked to, or after an error).
+            // The isolate is gone. If nobody asked it to stop and it gave no
+            // reason, that is still a failure, not an end of stream.
+            if (flag.value == 0 && !failed) {
+              fail('Sample listener isolate exited unexpectedly');
+            }
             finish();
             if (!controller.isClosed) controller.close();
         }
@@ -104,16 +145,21 @@ Stream<LSLTimedSample<T>> listenToInlet<T>({
           streamInfoAddress: streamInfoAddress,
           stopFlagAddress: flag.address,
           wakeInterval: wakeInterval,
+          debugFailAfter: debugFailAfter,
           port: receive.sendPort,
         ),
         debugName: 'lsl-sample-listener',
         // An isolate that dies without reaching its last line still ends
-        // the stream.
+        // the stream, and says why if it can.
+        onError: receive.sendPort,
         onExit: receive.sendPort,
       ).then<void>(
         (_) {},
-        onError: (Object e) {
-          controller.addError(e);
+        onError: (Object e, StackTrace st) {
+          fail(
+            'Sample listener isolate could not be started: $e',
+            stack: '$st',
+          );
           finish();
           controller.close();
         },
@@ -130,27 +176,40 @@ Stream<LSLTimedSample<T>> listenToInlet<T>({
 }
 
 void _listen(_ListenerArgs args) {
-  final inlet = lsl_inlet.fromAddress(args.inletAddress);
-  final streamInfo = LSLStreamInfo.fromStreamInfoAddr(args.streamInfoAddress);
-  final stop = Pointer<Uint8>.fromAddress(args.stopFlagAddress);
-  final pull = LSLMapper().streamPull(streamInfo);
-  final channels = streamInfo.channelCount;
+  try {
+    final inlet = lsl_inlet.fromAddress(args.inletAddress);
+    final streamInfo = LSLStreamInfo.fromStreamInfoAddr(args.streamInfoAddress);
+    final stop = Pointer<Uint8>.fromAddress(args.stopFlagAddress);
+    final pull = LSLMapper().streamPull(streamInfo);
+    final channels = streamInfo.channelCount;
+    var delivered = 0;
 
-  while (stop.value == 0) {
-    final sample = pull(inlet, channels, args.wakeInterval);
-    if (sample.isNotEmpty) {
-      // Read before anything else: this is the receive time.
-      final clock = lsl_local_clock();
-      args.port.send([
-        sample.timestamp,
-        clock,
-        sample.data.toList(growable: false),
-      ]);
-    } else if (sample.errorCode != 0 &&
-        sample.errorCode != lsl_error_code_t.lsl_timeout_error.value) {
-      args.port.send('Error pulling sample (code ${sample.errorCode})');
-      break;
+    while (stop.value == 0) {
+      final sample = pull(inlet, channels, args.wakeInterval);
+      if (sample.isNotEmpty) {
+        // Read before anything else: this is the receive time.
+        final clock = lsl_local_clock();
+        args.port.send([
+          sample.timestamp,
+          clock,
+          sample.data.toList(growable: false),
+        ]);
+        if (++delivered == args.debugFailAfter) {
+          throw StateError('debugFailAfter: failing after $delivered samples');
+        }
+      } else if (sample.errorCode != 0 &&
+          sample.errorCode != lsl_error_code_t.lsl_timeout_error.value) {
+        // Built here: liblsl's message for the error is thread-local.
+        args.port.send([
+          sample.errorCode,
+          lslError('lsl_pull_sample', sample.errorCode).message,
+          null,
+        ]);
+        break;
+      }
     }
+  } catch (e, st) {
+    args.port.send([null, 'Sample listener failed: $e', '$st']);
   }
   // `onExit` sends null too; the first one ends the stream.
   Isolate.exit(args.port, null);

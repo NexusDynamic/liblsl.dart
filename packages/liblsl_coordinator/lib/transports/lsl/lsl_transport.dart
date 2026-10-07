@@ -31,7 +31,28 @@ class LSLTransportConfig implements ITransportConfig {
   /// The cost is one isolate (one thread) per inlet rather than one per
   /// stream, so prefer polling for streams with many producers on small
   /// devices. Local to this node: peers need not agree on it.
+  ///
+  /// An inlet is then read only by its isolate; see
+  /// [restartFailedListeners] for what happens when that ends by itself.
   final bool eventDrivenInlets;
+
+  /// With [eventDrivenInlets]: restart an inlet's listening isolate if it
+  /// ends by itself. On by default.
+  ///
+  /// Such an isolate can end without being stopped: a pull that fails with
+  /// anything but a timeout, or an error of its own. From then on nothing
+  /// reads that inlet, while the inlet stays open and its peer registered.
+  /// Either way this is logged as severe and reported on the stream's
+  /// `inletHealth` (and so as a `StreamReceiveHealthEvent` on the session's
+  /// events). With this set the listener is also started again, at once the
+  /// first time and with a growing delay (up to 5 s) after that, and from
+  /// the third failure in a row, or at once if liblsl reported the stream
+  /// lost, on a newly opened inlet. It keeps trying for as long as the inlet
+  /// exists. Without it, the inlet stays unread until the stream is paused
+  /// and resumed, flushed, or the inlet is removed and added again.
+  ///
+  /// Local to this node, and without effect on polled inlets.
+  final bool restartFailedListeners;
 
   @override
   LSLTransport createTransport() => LSLTransport(config: this);
@@ -43,13 +64,14 @@ class LSLTransportConfig implements ITransportConfig {
     LSLApiConfig? lslApiConfig,
     this.coordinationFrequency = 100.0,
     this.eventDrivenInlets = false,
+    this.restartFailedListeners = true,
   }) : super() {
     this.lslApiConfig = lslApiConfig ?? LSLApiConfig();
   }
 
   @override
   String toString() {
-    return 'LSLTransportConfig(lslApiConfig: $lslApiConfig, coordinationFrequency: $coordinationFrequency, eventDrivenInlets: $eventDrivenInlets)';
+    return 'LSLTransportConfig(lslApiConfig: $lslApiConfig, coordinationFrequency: $coordinationFrequency, eventDrivenInlets: $eventDrivenInlets, restartFailedListeners: $restartFailedListeners)';
   }
 
   @override
@@ -58,6 +80,7 @@ class LSLTransportConfig implements ITransportConfig {
       'lslApiConfig': lslApiConfig.toIniString(),
       'coordinationFrequency': coordinationFrequency,
       'eventDrivenInlets': eventDrivenInlets,
+      'restartFailedListeners': restartFailedListeners,
     };
   }
 
@@ -77,12 +100,15 @@ class LSLTransportConfig implements ITransportConfig {
     LSLApiConfig? lslApiConfig,
     double? coordinationFrequency,
     bool? eventDrivenInlets,
+    bool? restartFailedListeners,
   }) {
     return LSLTransportConfig(
       lslApiConfig: lslApiConfig ?? this.lslApiConfig,
       coordinationFrequency:
           coordinationFrequency ?? this.coordinationFrequency,
       eventDrivenInlets: eventDrivenInlets ?? this.eventDrivenInlets,
+      restartFailedListeners:
+          restartFailedListeners ?? this.restartFailedListeners,
     );
   }
 
@@ -93,14 +119,16 @@ class LSLTransportConfig implements ITransportConfig {
         other.runtimeType == runtimeType &&
         other.lslApiConfig == lslApiConfig &&
         other.coordinationFrequency == coordinationFrequency &&
-        other.eventDrivenInlets == eventDrivenInlets;
+        other.eventDrivenInlets == eventDrivenInlets &&
+        other.restartFailedListeners == restartFailedListeners;
   }
 
   @override
   int get hashCode {
     return lslApiConfig.hashCode ^
         coordinationFrequency.hashCode ^
-        eventDrivenInlets.hashCode;
+        eventDrivenInlets.hashCode ^
+        restartFailedListeners.hashCode;
   }
 }
 
@@ -123,6 +151,7 @@ class LSLTransportConfigFactory implements IConfigFactory<LSLTransportConfig> {
           ? (map['coordinationFrequency'] as num).toDouble()
           : 100.0,
       eventDrivenInlets: map['eventDrivenInlets'] as bool? ?? false,
+      restartFailedListeners: map['restartFailedListeners'] as bool? ?? true,
     );
   }
 }

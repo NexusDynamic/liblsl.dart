@@ -388,6 +388,53 @@ final class ConfigUpdateEvent extends ControllerEvent {
 }
 
 // =============================================================================
+// Stream Receive Health
+// =============================================================================
+
+/// This node stopped, or resumed, receiving from one peer on a stream.
+///
+/// Local, not a message: it reports the receiving end on this node (see
+/// [InletHealth]), so [fromNodeUId] is this node. One is emitted for every
+/// failure of the receiver, and one with [healthy] true when it is working
+/// again. While the last event for a ([streamName], [sourceId]) pair has
+/// [healthy] false, samples that peer sends on that stream are not arriving
+/// here; if [willRetry] is also false, nothing is going to fix that by
+/// itself.
+final class StreamReceiveHealthEvent extends ControllerEvent {
+  /// The stream; the coordination stream's own name for that one.
+  final String streamName;
+
+  /// The peer's source on that stream.
+  final String sourceId;
+
+  /// Whether samples from [sourceId] are being received.
+  final bool healthy;
+
+  /// Failures in a row at the time of this event. Zero when healthy.
+  final int consecutiveFailures;
+
+  /// What ended the receiver, or null when healthy.
+  final String? error;
+
+  /// Whether the transport is restarting the receiver by itself.
+  final bool willRetry;
+
+  StreamReceiveHealthEvent({
+    required this.streamName,
+    required this.sourceId,
+    required this.healthy,
+    required this.consecutiveFailures,
+    required this.willRetry,
+    this.error,
+    required super.fromNodeUId,
+    super.messageId,
+    super.parentMessageId,
+    super.timestamp,
+    super.timing,
+  });
+}
+
+// =============================================================================
 // Extension for convenient Stream filtering
 // =============================================================================
 
@@ -410,6 +457,10 @@ extension ControllerEventStreamExtensions on Stream<ControllerEvent> {
   /// Filter to outbound-coordination health events only.
   Stream<CoordinationSendHealthEvent> get coordinationSendHealth =>
       _ofType<CoordinationSendHealthEvent>();
+
+  /// Filter to stream receive-health events only.
+  Stream<StreamReceiveHealthEvent> get streamReceiveHealth =>
+      _ofType<StreamReceiveHealthEvent>();
 
   /// Filter to node joined events only.
   Stream<NodeJoinedEvent> get nodeJoined => _ofType<NodeJoinedEvent>();

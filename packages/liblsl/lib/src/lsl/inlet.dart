@@ -289,6 +289,13 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// listening, do not pull from this inlet anywhere else: the samples go to
   /// whichever pull gets them. Time correction calls are unaffected.
   ///
+  /// The stream closes without an error only when it was cancelled. If the
+  /// isolate ends for any other reason, the stream delivers an
+  /// [LSLSampleListenerException] and then closes, so listen with `onError`
+  /// (and `onDone`): after that the inlet is no longer being read. Listening
+  /// again starts a new isolate. [debugFailAfter] is for tests: the isolate
+  /// throws after that many samples.
+  ///
   /// ```dart
   /// final inlet = await LSL.createInlet<double>(streamInfo: info, useIsolates: false);
   /// final subscription = inlet.sampleStream().listen((sample) {
@@ -298,14 +305,17 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// await subscription.cancel();
   /// await inlet.destroy();
   /// ```
-  Stream<LSLTimedSample<T>> sampleStream({double wakeInterval = 0.1}) =>
-      requireDirect(
-        () => listenToInlet<T>(
-          inletAddress: _inletBang.address,
-          streamInfoAddress: streamInfo.streamInfo.address,
-          wakeInterval: wakeInterval,
-        ),
-      );
+  Stream<LSLTimedSample<T>> sampleStream({
+    double wakeInterval = 0.1,
+    int? debugFailAfter,
+  }) => requireDirect(
+    () => listenToInlet<T>(
+      inletAddress: _inletBang.address,
+      streamInfoAddress: streamInfo.streamInfo.address,
+      wakeInterval: wakeInterval,
+      debugFailAfter: debugFailAfter,
+    ),
+  );
 
   /// Synchronously pulls a sample from the inlet.
   ///

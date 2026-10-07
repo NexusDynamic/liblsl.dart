@@ -2,13 +2,14 @@
 
 ## New features
 
-- `LSLInlet.sampleStream()` (direct mode) delivers samples as they arrive,
-  with no polling: the inlet gets an isolate that waits inside
-  `lsl_pull_sample`, which liblsl wakes when a sample is queued. Each
-  `LSLTimedSample` carries `receivedClock`, `lsl_local_clock()` read as the
-  pull returned, so a latency computed from it does not include a poll
-  interval or the listener's event loop. Cancel the subscription before
-  destroying the inlet.
+- `LSLInlet.sampleStream()` (dirct mode only) provides a way to have event-driven
+   samples with a wake interval. Subscription must be cancelled before
+  inlet destruction.
+- A `sampleStream()` closes without an error only when it was cancelled. If
+  its isolate ends for any other reason, the stream raises an
+  `LSLSampleListenerException` with the liblsl `errorCode` and
+  message, or the isolate's stack trace. Listening again
+  starts a new isolate on the same inlet.
 
 # 1.0.0
 

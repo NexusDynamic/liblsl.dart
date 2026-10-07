@@ -1,24 +1,21 @@
-## Unreleased
+## 0.4.0
 
-- New `ClockHop` and `ClockChain`: the clock corrections a stream picked up
-  on its way, one per hop (offset, drift, error bound, latency, jitter), with
-  totals in the shape of `lsl_time_correction_ex`.
+- New `NetworkStream.inletHealth`, a stream of `InletHealth`: a transport
+  reports here when its receiving end for one peer stops working by itself,
+  and when it works again.
+- New `ClockHop` and `ClockChain`: the clock correction chain for a sample,
+  one offset, drift, error bound, latency, jitter per hop, and totals,
+  mirroring `lsl_time_correction_ex`.
 - New `ClockModel` (a drift fit over recent `ClockOffsetEstimate`s),
   `TimestampSmoother` (liblsl's `proc_dejitter`) and `LatencyWindow`.
 - `ClockSyncService.onEstimate`: called with each accepted estimate.
 - `PeerClockOffsets.estimates`: every accepted estimate as a broadcast stream
-  of `ClockSyncSample`. WebSocket data streams return it from `clockSyncs`
-  (for the peers the stream receives from), and
-  `PeerSession.coordinationClockSyncs` from any transport that uses
-  `ClockSyncService`. Until now only LSL streams reported their estimates;
-  the others applied them to each message but published no series, so drift
-  could only be inferred from the offsets on the samples.
+  of `ClockSyncSample`. Now WebRTC and WebSocket transports can report offsets
+  similar to `liblsl`
 - `DataStream.sendDataAt` and `DataStream.upstream` pass a sample on with its
-  origin's timestamp and the chain to read it by, on transports where
-  `relaysSourceClock` is true. `MessageTiming.upstream` carries the chain,
-  and `clockOffset` / `uncertainty` are then totals for the whole way.
-- `WsSampleFrame.kindRelayed` marks such samples, so a receiver that has not
-  been told the chain reports the transit time as unknown.
+  origin's timestamp and hop chain
+- `WsSampleFrame.kindRelayed` marks multi-hop samples, and an unavailable
+   chain is reported as unknown.
 
 ## 0.3.1
 

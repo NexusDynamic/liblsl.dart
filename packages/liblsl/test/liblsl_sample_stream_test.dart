@@ -126,6 +126,69 @@ void main() {
     }
   }, tags: 'lsl');
 
+  test('a listener that dies reports why, then ends the stream', () async {
+    final (outlet, inlet, infos) = await createPair<int>(
+      LSLChannelFormat.int32,
+    );
+    final samples = <LSLTimedSample<int>>[];
+    final errors = <Object>[];
+    final done = Completer<void>();
+    inlet
+        .sampleStream(debugFailAfter: 2)
+        .listen(
+          samples.add,
+          onError: (Object e) => errors.add(e),
+          onDone: done.complete,
+        );
+    for (var i = 0; i < 4; i++) {
+      outlet.pushSampleSync([i, i]);
+    }
+    await done.future.timeout(const Duration(seconds: 5));
+
+    expect([for (final s in samples) s.data[0]], [0, 1]);
+    expect(errors, hasLength(1));
+    final error = errors.single as LSLSampleListenerException;
+    expect(error.errorCode, isNull);
+    expect(error.isLost, isFalse);
+    expect(error.message, contains('debugFailAfter'));
+    expect(error.stackTrace, isNotEmpty);
+
+    // The inlet survives its listener: the samples it did not take are
+    // still queued for the next one.
+    final next = await inlet.sampleStream().first.timeout(
+      const Duration(seconds: 5),
+    );
+    expect(next.data, [2, 2]);
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+
+    await inlet.destroy();
+    await outlet.destroy();
+    for (final info in infos) {
+      info.destroy();
+    }
+  }, tags: 'lsl');
+
+  test('a cancelled listener ends without an error', () async {
+    final (outlet, inlet, infos) = await createPair<int>(
+      LSLChannelFormat.int32,
+    );
+    final errors = <Object>[];
+    final subscription = inlet
+        .sampleStream(wakeInterval: 0.05)
+        .listen((_) {}, onError: (Object e) => errors.add(e));
+    outlet.pushSampleSync([1, 2]);
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+    await subscription.cancel();
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    expect(errors, isEmpty);
+
+    await inlet.destroy();
+    await outlet.destroy();
+    for (final info in infos) {
+      info.destroy();
+    }
+  }, tags: 'lsl');
+
   test('needs a direct-mode inlet', () async {
     final (outlet, inlet, infos) = await createPair<double>(
       LSLChannelFormat.float32,

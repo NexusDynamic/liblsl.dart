@@ -12,6 +12,7 @@ import 'package:liblsl/native_liblsl.dart' as native;
 import 'package:liblsl_coordinator/framework.dart';
 import 'package:meta/meta.dart';
 import 'package:synchronized/synchronized.dart';
+import 'listener_restart_schedule.dart';
 import 'outlet_buffer_pool.dart';
 import 'time_correction_schedule.dart';
 
@@ -31,6 +32,7 @@ enum IsolateMessageType {
   data, // 11
   bufferReleased, // 12
   consumerPresence, // 13
+  inletListener, // 14
 }
 
 /// This is dumb, but despite Enum being immutable, it doesn't work
@@ -125,6 +127,38 @@ final class ConsumerPresenceMessage extends IsolateMessage {
   const ConsumerPresenceMessage(this.hasConsumers) : super(13);
 }
 
+/// Sent from the inlet worker when the sample listener on one inlet ends
+/// without having been asked to, and again once it is back.
+///
+/// An event-driven inlet is only read by its listener. One that has died
+/// leaves the inlet open and the peer registered, and from the main isolate
+/// looks exactly like a peer that has stopped sending.
+@pragma('vm:deeply-immutable')
+final class InletListenerMessage extends IsolateMessage {
+  final String sourceId;
+
+  /// False when the listener has ended, true when it is running again.
+  final bool healthy;
+
+  /// Failures in a row, zero when [healthy].
+  final int consecutiveFailures;
+
+  /// What ended the listener. A string for the same reason as
+  /// [ResponseMessage.error].
+  final String? error;
+
+  /// Whether the worker is going to restart the listener by itself.
+  final bool willRetry;
+
+  const InletListenerMessage({
+    required this.sourceId,
+    required this.healthy,
+    required this.consecutiveFailures,
+    required this.willRetry,
+    this.error,
+  }) : super(14);
+}
+
 /// Message to start isolate processing - immutable
 @pragma('vm:deeply-immutable')
 final class StartMessage extends IsolateMessage {
@@ -209,6 +243,13 @@ final class IsolateWorkerConfig {
 
   /// Inlets: wait inside liblsl for each sample instead of polling for it.
   final bool eventDrivenInlets;
+
+  /// Event-driven inlets: restart a sample listener that ends by itself.
+  final bool restartFailedListeners;
+
+  /// For tests: how many sample listeners this worker starts that throw
+  /// after their first sample.
+  final int debugListenerFaults;
   final Duration pollingInterval;
   final SendPort mainSendPort;
   final String? debugName;
@@ -227,6 +268,8 @@ final class IsolateWorkerConfig {
     required this.useBusyWaitInlets,
     required this.useBusyWaitOutlets,
     this.eventDrivenInlets = false,
+    this.restartFailedListeners = true,
+    this.debugListenerFaults = 0,
     required this.pollingInterval,
     required this.mainSendPort,
     this.outletAddress,
@@ -242,6 +285,8 @@ final class IsolateWorkerConfig {
     bool? useBusyWaitInlets,
     bool? useBusyWaitOutlets,
     bool? eventDrivenInlets,
+    bool? restartFailedListeners,
+    int? debugListenerFaults,
     Duration? pollingInterval,
     SendPort? mainSendPort,
     int? outletAddress,
@@ -256,6 +301,9 @@ final class IsolateWorkerConfig {
       useBusyWaitInlets: useBusyWaitInlets ?? this.useBusyWaitInlets,
       useBusyWaitOutlets: useBusyWaitOutlets ?? this.useBusyWaitOutlets,
       eventDrivenInlets: eventDrivenInlets ?? this.eventDrivenInlets,
+      restartFailedListeners:
+          restartFailedListeners ?? this.restartFailedListeners,
+      debugListenerFaults: debugListenerFaults ?? this.debugListenerFaults,
       pollingInterval: pollingInterval ?? this.pollingInterval,
       mainSendPort: mainSendPort ?? this.mainSendPort,
       outletAddress: outletAddress ?? this.outletAddress,
@@ -478,6 +526,16 @@ sealed class StreamIsolate {
     });
     _exitPort = ReceivePort();
     _exitPort!.listen((_) {
+      // A stop closes this port before it kills the isolate, so getting here
+      // means the worker went by itself, and with it everything this stream
+      // sends or receives.
+      if (!stopped) {
+        logger.severe(
+          '[$isolateDebugName] Isolate for stream $streamId exited without '
+          'being stopped. Nothing is sent or received on this stream from '
+          'here on, and it is not restarted',
+        );
+      }
       _failPendingRequests(StateError('Isolate for stream $streamId exited'));
     });
 
@@ -513,6 +571,9 @@ sealed class StreamIsolate {
 
   /// Overridden by the outlet manager; ignored elsewhere.
   void _handleConsumerPresence(ConsumerPresenceMessage message) {}
+
+  /// Overridden by the inlet manager; ignored elsewhere.
+  void _handleInletListener(InletListenerMessage message) {}
 
   /// Send a message to the isolate - now sends objects directly!
   Future<void> sendMessage(IsolateMessage message) async {
@@ -674,6 +735,8 @@ sealed class StreamIsolate {
       }
     } else if (message is ConsumerPresenceMessage) {
       _handleConsumerPresence(message);
+    } else if (message is InletListenerMessage) {
+      _handleInletListener(message);
     } else if (message is InitializedMessage) {
       if (!_initialized.isCompleted) {
         logger.finer('Isolate for stream $streamId initialized');
@@ -713,12 +776,51 @@ sealed class StreamIsolate {
 final class StreamInletIsolate extends StreamIsolate {
   final List<int> _inletAddresses = [];
 
+  /// See [LSLTransportConfig.restartFailedListeners].
+  final bool restartFailedListeners;
+
+  /// See [IsolateWorkerConfig.debugListenerFaults].
+  final int debugListenerFaults;
+
+  final StreamController<InletHealth> _listenerHealthController =
+      StreamController<InletHealth>.broadcast();
+
+  /// Emits when the sample listener on one of this stream's inlets ends by
+  /// itself, and when it is running again. Event-driven inlets only: a polled
+  /// inlet has no listener.
+  ///
+  /// Unhealthy means nothing is being read from that inlet. See
+  /// [InletListenerMessage].
+  Stream<InletHealth> get listenerHealth => _listenerHealthController.stream;
+
+  @override
+  void _handleInletListener(InletListenerMessage message) {
+    if (_listenerHealthController.isClosed) return;
+    _listenerHealthController.add(
+      InletHealth(
+        sourceId: message.sourceId,
+        healthy: message.healthy,
+        consecutiveFailures: message.consecutiveFailures,
+        error: message.error,
+        willRetry: message.willRetry,
+      ),
+    );
+  }
+
+  @override
+  Future<void> dispose() async {
+    await super.dispose();
+    await _listenerHealthController.close();
+  }
+
   StreamInletIsolate({
     required super.streamId,
     required super.dataType,
     required super.useBusyWaitInlets,
     required super.useBusyWaitOutlets,
     super.eventDrivenInlets,
+    this.restartFailedListeners = true,
+    this.debugListenerFaults = 0,
     required super.pollingInterval,
     List<int>? initialInletAddresses,
     String? isolateDebugName,
@@ -809,6 +911,8 @@ final class StreamInletIsolate extends StreamIsolate {
       useBusyWaitInlets: useBusyWaitInlets,
       useBusyWaitOutlets: useBusyWaitOutlets,
       eventDrivenInlets: eventDrivenInlets,
+      restartFailedListeners: restartFailedListeners,
+      debugListenerFaults: debugListenerFaults,
       pollingInterval: pollingInterval,
       mainSendPort: _receivePort!.sendPort,
       inletAddresses: IList(_inletAddresses),
@@ -1028,6 +1132,8 @@ final class IsolateStreamManager {
     required bool useBusyWaitInlets,
     required bool useBusyWaitOutlets,
     bool eventDrivenInlets = false,
+    bool restartFailedListeners = true,
+    @visibleForTesting int debugListenerFaults = 0,
     required Duration pollingInterval,
     List<int>? initialInletAddresses,
     String? isolateDebugName,
@@ -1038,6 +1144,8 @@ final class IsolateStreamManager {
       useBusyWaitInlets: useBusyWaitInlets,
       useBusyWaitOutlets: useBusyWaitOutlets,
       eventDrivenInlets: eventDrivenInlets,
+      restartFailedListeners: restartFailedListeners,
+      debugListenerFaults: debugListenerFaults,
       pollingInterval: pollingInterval,
       initialInletAddresses: initialInletAddresses,
       isolateDebugName: isolateDebugName,
@@ -1461,6 +1569,7 @@ final class InletWorker extends IsolateWorker {
         case IsolateMessageType.requestResponse:
         case IsolateMessageType.bufferReleased:
         case IsolateMessageType.consumerPresence:
+        case IsolateMessageType.inletListener:
           // Not applicable for inlet workers
           break;
       }
@@ -1567,7 +1676,11 @@ final class InletWorker extends IsolateWorker {
     if (message.flushBeforeResume) {
       await _flushInlets();
     }
+    // Cleared as well as completed: only the busy-wait loop used to clear
+    // it, so in the other modes a stop after a resume completed it a second
+    // time, which threw and took the worker down in the middle of stopping.
     resumeCompleter?.complete();
+    resumeCompleter = null;
     paused = false;
     if (config.eventDrivenInlets) inlets.forEach(_listen);
     // Polling will automatically resume as paused flag is now false
@@ -1588,7 +1701,10 @@ final class InletWorker extends IsolateWorker {
   Future<void> _flushInlets() async {
     // An inlet's queue has one consumer; a flush while a listener is inside
     // a pull on another thread would be a second.
-    final listening = _listeners.isNotEmpty;
+    // Asked of the worker's state, not of `_listeners`: a listener that has
+    // died and is waiting to be restarted is not in there, and the stop
+    // below cancels that restart.
+    final listening = config.eventDrivenInlets && running && !paused;
     await _stopListening();
     await inletsLock.synchronized(() async {
       for (final inlet in inlets) {
@@ -1721,6 +1837,7 @@ final class InletWorker extends IsolateWorker {
         return;
       }
       _timeCorrectionSchedule.forget(inlets[index].streamInfo.sourceId);
+      _listenerRestartSchedule.forget(inlets[index].streamInfo.sourceId);
       await _stopListening(inlets[index]);
       try {
         await inlets[index].destroy();
@@ -1991,8 +2108,13 @@ final class InletWorker extends IsolateWorker {
             ),
           );
         }
-      } catch (e) {
-        logger.severe('Error polling inlet: $e');
+      } catch (e, st) {
+        logger.severe(
+          '[${config.debugName}] Error polling the inlet for '
+          '${inlet.streamInfo.sourceId} on stream ${config.streamId}: $e',
+          e,
+          st,
+        );
       }
     }
   }
@@ -2023,32 +2145,226 @@ final class InletWorker extends IsolateWorker {
     });
   }
 
+  /// A listener's pending restart, or the wait after one before it is called
+  /// healthy again. At most one per inlet, and none while it is not meant to
+  /// be listening.
+  final Map<LSLInlet, Timer> _listenerTimers = {};
+
+  /// The error a listener delivered before it ended; the stream sends the
+  /// reason first and closes after.
+  final Map<LSLInlet, Object> _listenerErrors = {};
+
+  /// Inlets being replaced by [_restartListener]. The old one is about to be
+  /// destroyed, so nothing may start listening to it.
+  final Set<LSLInlet> _reopeningInlets = {};
+
+  /// How long a restarted listener has to stay up before its inlet is
+  /// reported healthy. Time rather than a first sample: a quiet peer's
+  /// listener is working too.
+  static const Duration listenerStableAfter = Duration(seconds: 1);
+
+  /// When a dead listener is restarted and when its inlet is reopened. See
+  /// [ListenerRestartSchedule].
+  final ListenerRestartSchedule _listenerRestartSchedule =
+      ListenerRestartSchedule();
+
+  late int _debugListenerFaultsLeft = config.debugListenerFaults;
+
   void _listen(LSLInlet inlet) {
-    if (_listeners.containsKey(inlet)) return;
+    if (_listeners.containsKey(inlet) || _reopeningInlets.contains(inlet)) {
+      return;
+    }
+    _listenerTimers.remove(inlet)?.cancel();
     final sourceId = inlet.streamInfo.sourceId;
-    _listeners[inlet] = inlet.sampleStream().listen((sample) {
-      final index = inlets.indexOf(inlet);
-      final correction = index < 0 ? null : timeCorrections[index];
-      config.mainSendPort.send(
-        IsolateDataMessageList([
-          IsolateDataMessage(
-            streamId: config.streamId,
-            timestamp: DateTime.now(),
-            data: sample.data,
+    int? debugFailAfter;
+    if (_debugListenerFaultsLeft > 0) {
+      _debugListenerFaultsLeft--;
+      debugFailAfter = 1;
+    }
+    late final StreamSubscription<void> subscription;
+    subscription = inlet
+        .sampleStream(debugFailAfter: debugFailAfter)
+        .listen(
+          (sample) {
+            final index = inlets.indexOf(inlet);
+            final correction = index < 0 ? null : timeCorrections[index];
+            config.mainSendPort.send(
+              IsolateDataMessageList([
+                IsolateDataMessage(
+                  streamId: config.streamId,
+                  timestamp: DateTime.now(),
+                  data: sample.data,
+                  sourceId: sourceId,
+                  lslTimestamp: sample.timestamp,
+                  lslTimeCorrection: correction?.offset,
+                  lslTimeCorrectionUncertainty: correction?.uncertainty,
+                  localClock: sample.receivedClock,
+                ),
+              ]),
+            );
+          },
+          // The reason arrives first and the end after it; both are handled
+          // at the end, which is also reached when no reason was given.
+          onError: (Object e) => _listenerErrors[inlet] = e,
+          onDone: () => _onListenerEnded(inlet, subscription),
+        );
+    _listeners[inlet] = subscription;
+    if (_listenerRestartSchedule.failuresFor(sourceId) > 0) {
+      _listenerTimers[inlet] = Timer(listenerStableAfter, () {
+        _listenerTimers.remove(inlet);
+        if (!_listenerRestartSchedule.noteHealthy(sourceId)) return;
+        logger.warning(
+          '[${config.debugName}] The sample listener for $sourceId on stream '
+          '${config.streamId} is running again',
+        );
+        config.mainSendPort.send(
+          InletListenerMessage(
             sourceId: sourceId,
-            lslTimestamp: sample.timestamp,
-            lslTimeCorrection: correction?.offset,
-            lslTimeCorrectionUncertainty: correction?.uncertainty,
-            localClock: sample.receivedClock,
+            healthy: true,
+            consecutiveFailures: 0,
+            willRetry: false,
           ),
-        ]),
-      );
-    }, onError: (Object e) => logger.severe('Error pulling from inlet: $e'));
+        );
+      });
+    }
+  }
+
+  /// A listener's stream ended. A cancelled subscription never gets here, so
+  /// this is always a listener that died: nothing reads [inlet] any more,
+  /// though it is still open and its peer still registered.
+  void _onListenerEnded(LSLInlet inlet, StreamSubscription<void> subscription) {
+    final error = _listenerErrors.remove(inlet);
+    if (!identical(_listeners[inlet], subscription)) return;
+    _listeners.remove(inlet);
+    _listenerTimers.remove(inlet)?.cancel();
+    _noteListenerFailure(
+      inlet,
+      error ?? 'its stream ended without an error',
+      errorCode: error is LSLSampleListenerException ? error.errorCode : null,
+      stackTrace: error is LSLSampleListenerException ? error.stackTrace : null,
+    );
+  }
+
+  /// Makes a dead listener known, and arms its restart if there is to be
+  /// one.
+  void _noteListenerFailure(
+    LSLInlet inlet,
+    Object error, {
+    int? errorCode,
+    String? stackTrace,
+  }) {
+    final sourceId = inlet.streamInfo.sourceId;
+    final delay = _listenerRestartSchedule.noteFailure(sourceId);
+    final failures = _listenerRestartSchedule.failuresFor(sourceId);
+    final retry = config.restartFailedListeners;
+    final reopen =
+        retry &&
+        _listenerRestartSchedule.shouldReopenInlet(
+          sourceId,
+          errorCode: errorCode,
+        );
+    final next = !retry
+        ? 'It is NOT restarted (restartFailedListeners is off): nothing more '
+              'is received from $sourceId on this stream until it is paused '
+              'and resumed, flushed, or the inlet is removed and added again'
+        : reopen
+        ? 'Reopening the inlet and listening again in '
+              '${delay.inMilliseconds} ms'
+        : 'Listening again in ${delay.inMilliseconds} ms';
+    logger.severe(
+      '[${config.debugName}] The sample listener for $sourceId on stream '
+      '${config.streamId} ended without being stopped (failure $failures in '
+      'a row); samples from $sourceId are not being received. $next. '
+      'Cause: $error',
+      error,
+      stackTrace == null ? null : StackTrace.fromString(stackTrace),
+    );
+    config.mainSendPort.send(
+      InletListenerMessage(
+        sourceId: sourceId,
+        healthy: false,
+        consecutiveFailures: failures,
+        error: '$error',
+        willRetry: retry,
+      ),
+    );
+    if (!retry) return;
+    _listenerTimers[inlet] = Timer(
+      delay,
+      () => _restartListener(inlet, reopen: reopen),
+    );
+  }
+
+  /// Starts a new listener on [inlet], on a new inlet for the same stream
+  /// if [reopen].
+  Future<void> _restartListener(LSLInlet inlet, {required bool reopen}) async {
+    _listenerTimers.remove(inlet);
+    if (!running || paused || !inlets.contains(inlet)) return;
+    if (!reopen) {
+      _listen(inlet);
+      return;
+    }
+    final sourceId = inlet.streamInfo.sourceId;
+    final address = inlet.streamInfo.streamInfo.address;
+    LSLInlet? fresh;
+    _reopeningInlets.add(inlet);
+    try {
+      try {
+        fresh = await IsolateStreamManager._openInletOffThread(
+          address,
+          config.dataType,
+        );
+      } catch (e) {
+        // Removed or stopped while it was opening: nothing left to restart.
+        if (!running || !inlets.contains(inlet)) return;
+        _noteListenerFailure(inlet, 'the inlet could not be reopened: $e');
+        return;
+      }
+      await inletAddRemoveLock.synchronized(() async {
+        final index = running ? inlets.indexOf(inlet) : -1;
+        if (index < 0) {
+          await fresh!.destroy();
+          fresh = null;
+          return;
+        }
+        try {
+          await inlet.destroy();
+        } catch (e) {
+          logger.warning('Error destroying the inlet being replaced: $e');
+        }
+        inlets[index] = fresh!;
+        // The offset belonged to the old inlet's connection.
+        timeCorrections[index] = null;
+        _timeCorrectionSchedule.forget(sourceId);
+      });
+    } finally {
+      _reopeningInlets.remove(inlet);
+    }
+    final reopened = fresh;
+    if (reopened == null) return;
+    logger.warning(
+      '[${config.debugName}] Reopened the inlet for $sourceId on stream '
+      '${config.streamId}',
+    );
+    // A paused worker listens to it on resume.
+    if (running && !paused) _listen(reopened);
   }
 
   /// Stops the listener on [only], or on every inlet, and waits until its
-  /// isolate has left liblsl, so the inlet can be flushed or destroyed.
+  /// isolate has left liblsl, so the inlet can be flushed or destroyed. A
+  /// listener that had died and was waiting to be restarted is no longer
+  /// restarted.
   Future<void> _stopListening([LSLInlet? only]) async {
+    if (only == null) {
+      for (final timer in _listenerTimers.values) {
+        timer.cancel();
+      }
+      _listenerTimers.clear();
+      _listenerErrors.clear();
+    } else {
+      _listenerTimers.remove(only)?.cancel();
+      _listenerErrors.remove(only);
+    }
     final stopping = only == null
         ? _listeners.keys.toList()
         : [if (_listeners.containsKey(only)) only];
@@ -2163,6 +2479,7 @@ final class OutletWorker extends IsolateWorker {
         case IsolateMessageType.requestResponse:
         case IsolateMessageType.bufferReleased:
         case IsolateMessageType.consumerPresence:
+        case IsolateMessageType.inletListener:
           // Not applicable for outlet workers
           break;
       }

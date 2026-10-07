@@ -337,6 +337,45 @@ class CoordinationStreamConfigFactory
   }
 }
 
+/// The state of this node's receiving end for one peer of a stream.
+///
+/// Reported when the receiver for [sourceId] dies on its own (an error in
+/// the transport's receive path, not the peer leaving) and again when it is
+/// working. Until a healthy report follows an unhealthy one, nothing from
+/// that peer is being received on this stream, whatever the peer is sending.
+final class InletHealth {
+  /// The peer's source on this stream.
+  final String sourceId;
+
+  /// Whether samples from [sourceId] are being received.
+  final bool healthy;
+
+  /// Failures in a row at the time of this report. Zero when healthy.
+  final int consecutiveFailures;
+
+  /// What ended the receiver, or null when healthy.
+  final String? error;
+
+  /// Whether the transport is going to restart the receiver by itself. If
+  /// false while unhealthy, it stays down until the stream is paused and
+  /// resumed, flushed, or the peer's inlet is removed and added again.
+  final bool willRetry;
+
+  const InletHealth({
+    required this.sourceId,
+    required this.healthy,
+    this.consecutiveFailures = 0,
+    this.error,
+    this.willRetry = false,
+  });
+
+  @override
+  String toString() =>
+      'InletHealth(sourceId: $sourceId, healthy: $healthy, '
+      'consecutiveFailures: $consecutiveFailures, willRetry: $willRetry, '
+      'error: $error)';
+}
+
 /// Configuration for a coordination session used to manage network nodes.
 abstract class NetworkStream<T extends NetworkStreamConfig, M extends IMessage>
     implements IConfigurable<T>, IUniqueIdentity, IResource, IPausable {
@@ -553,6 +592,13 @@ abstract class NetworkStream<T extends NetworkStreamConfig, M extends IMessage>
   /// no outlet — reports nothing, which is why the default is empty rather
   /// than an optimistic `true`.
   Stream<bool> get outletConsumerPresence => const Stream.empty();
+
+  /// Emits when this stream stops, or resumes, receiving from one peer for a
+  /// reason of its own rather than the peer's: see [InletHealth].
+  ///
+  /// Empty by default, for transports whose receive path cannot fail
+  /// separately from the connection it reads.
+  Stream<InletHealth> get inletHealth => const Stream.empty();
 
   /// Subscribes to a peer found by discovery.
   ///
