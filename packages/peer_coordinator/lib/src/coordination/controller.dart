@@ -388,8 +388,12 @@ class CoordinationController {
             sessionConfig: coordinationConfig.sessionConfig,
           )
           ..onConnectionProbeReply = _onConnectionProbeReply
-          ..onSessionEnd = (message) =>
-              unawaited(_onCoordinatorLost(message.reason));
+          ..onSessionEnd = (message) {
+            unawaited(_onCoordinatorLost(message.reason));
+          }
+          ..onMembershipLost = () {
+            unawaited(_onCoordinatorLost(SessionEndReason.evicted));
+          };
 
     // Connect to coordinator
     await _connectToCoordinator(preferredCoordinatorUId);
@@ -555,6 +559,69 @@ class CoordinationController {
     // Watch the coordinator's heartbeat, so its going away is noticed rather
     // than waited on forever.
     _startNodeTimeoutCheck();
+
+    // And the other direction: whether the coordinator is still reading us.
+    _watchOutletConsumers();
+  }
+
+  StreamSubscription<bool>? _outletConsumerSubscription;
+  Timer? _noConsumerTimer;
+
+  /// Participant side: treat a coordination outlet nobody reads as having
+  /// been dropped by the coordinator.
+  ///
+  /// The coordinator is this outlet's consumer. It removes its inlet when it
+  /// evicts this node, and the notice of that can be missed (a device that
+  /// was asleep, a link that stalled) while the coordinator's heartbeats go
+  /// on arriving, so the liveness sweep sees nothing wrong. Where the
+  /// transport can tell that nobody is subscribed, that is the same fact from
+  /// this end.
+  ///
+  /// It has to last a whole [CoordinationSessionConfig.nodeTimeout] before it
+  /// counts: by then the coordinator has heard no heartbeat for that long and
+  /// evicts by its own rule, so nothing shorter-lived (an inlet recovering)
+  /// is mistaken for it. Only while `ready`, because an outlet has no
+  /// consumer until the coordinator has found it.
+  ///
+  /// Subscribed per role: the presence stream belongs to the outlet, and
+  /// taking a role recreates the outlet.
+  void _watchOutletConsumers() {
+    _stopWatchingOutletConsumers();
+    _outletConsumerSubscription = _coordinationStream.outletConsumerPresence
+        .listen((present) {
+          if (present) {
+            _noConsumerTimer?.cancel();
+            _noConsumerTimer = null;
+            return;
+          }
+          _noConsumerTimer ??= Timer(
+            coordinationConfig.sessionConfig.nodeTimeout,
+            () {
+              _noConsumerTimer = null;
+              if (_stopping ||
+                  _state.isCoordinator ||
+                  _state.phase != CoordinationPhase.ready) {
+                return;
+              }
+              logger.warning(
+                '[CONTROLLER-${thisNode.uId}] Nothing has consumed the '
+                'coordination outlet for '
+                '${coordinationConfig.sessionConfig.nodeTimeout}: the '
+                'coordinator is not reading this node',
+              );
+              unawaited(
+                _onCoordinatorLost(SessionEndReason.coordinatorTransportLost),
+              );
+            },
+          );
+        });
+  }
+
+  void _stopWatchingOutletConsumers() {
+    _noConsumerTimer?.cancel();
+    _noConsumerTimer = null;
+    unawaited(_outletConsumerSubscription?.cancel());
+    _outletConsumerSubscription = null;
   }
 
   Future<void> _handleIncomingMessage(StringMessage message) async {
@@ -1010,6 +1077,11 @@ class CoordinationController {
       if (_stopping) return;
       if (_state.isCoordinator) {
         _sweepStaleNodes(nodeTimeout);
+        // Repeated, not only sent on a change: a participant that missed its
+        // eviction (and the update that followed) but hears this learns that
+        // it is no longer in the session, and one that missed any other
+        // update is put right.
+        unawaited(_coordinatorHandler?.broadcastTopologyUpdate());
       } else {
         _checkCoordinatorLiveness(nodeTimeout);
       }
@@ -1184,6 +1256,7 @@ class CoordinationController {
     _heartbeatTimer = null;
     _nodeTimeoutTimer?.cancel();
     _nodeTimeoutTimer = null;
+    _stopWatchingOutletConsumers();
     _clockSync?.dispose();
     _clockSync = null;
     _discovery.stop();
@@ -1202,6 +1275,7 @@ class CoordinationController {
     _heartbeatTimer = null;
     _nodeTimeoutTimer?.cancel();
     _nodeTimeoutTimer = null;
+    _stopWatchingOutletConsumers();
     _discovery.stop();
     await _discoverySubscription?.cancel();
     _discoverySubscription = null;
@@ -1330,6 +1404,9 @@ class CoordinationController {
           '[CONTROLLER-${thisNode.uId}] Rejoin attempt '
           '$attempt/$maxAttempts failed: $e',
         );
+        // Disposed meanwhile: there is no role left to drop, and the state
+        // it would be dropped from is closed.
+        if (_stopping) return;
         await _teardownRole();
       }
     }
@@ -1380,6 +1457,9 @@ class CoordinationController {
           '[CONTROLLER-${thisNode.uId}] Re-election attempt '
           '$attempt/$maxAttempts failed: $e',
         );
+        // Disposed meanwhile: there is no role left to drop, and the state
+        // it would be dropped from is closed.
+        if (_stopping) return;
         await _teardownRole();
       }
     }
@@ -1590,6 +1670,7 @@ class CoordinationController {
     logger.info('Disposing coordination controller');
     _heartbeatTimer?.cancel();
     _nodeTimeoutTimer?.cancel();
+    _stopWatchingOutletConsumers();
     // Cancels every in-flight probe and aggregation timer; a burst leaves up to
     // timeProbeCount + 1 of them pending, and the teardown-leak tests will
     // notice if any survives.

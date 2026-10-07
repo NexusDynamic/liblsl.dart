@@ -48,6 +48,15 @@ final class ClockHop {
   /// Standard deviation of [latency], or null.
   final double? jitter;
 
+  /// Mean time a sample spent at [node] between arriving and being handed
+  /// on, in seconds, or null if [node] has not measured it: waiting to be
+  /// collected (a polling interval), to be put in a chunk, or in a queue.
+  ///
+  /// This hop's own, not cumulative, and not part of [latency], which is
+  /// taken from the sample that waited least. A node that is slow, or that
+  /// collects too seldom, shows here.
+  final double? held;
+
   const ClockHop({
     required this.node,
     required this.via,
@@ -57,6 +66,7 @@ final class ClockHop {
     this.uncertainty = 0,
     this.latency,
     this.jitter,
+    this.held,
   });
 
   /// [t] on the previous clock, mapped onto [node]'s.
@@ -65,8 +75,8 @@ final class ClockHop {
   /// The same hop walked backwards: [node]'s clock onto the previous one.
   ///
   /// For the end that measured an offset to describe the hop *to* the other
-  /// end, named [node]. Latency does not carry over: only that end can measure
-  /// arrivals there.
+  /// end, named [node]. Latency and [held] do not carry over: only that end
+  /// can measure arrivals there.
   ClockHop inverse({required String node}) => ClockHop(
     node: node,
     via: via,
@@ -76,16 +86,19 @@ final class ClockHop {
     uncertainty: uncertainty,
   );
 
-  ClockHop withLatency(double? latency, double? jitter) => ClockHop(
-    node: node,
-    via: via,
-    offset: offset,
-    drift: drift,
-    at: at,
-    uncertainty: uncertainty,
-    latency: latency,
-    jitter: jitter,
-  );
+  /// [held] is kept unless given.
+  ClockHop withLatency(double? latency, double? jitter, {double? held}) =>
+      ClockHop(
+        node: node,
+        via: via,
+        offset: offset,
+        drift: drift,
+        at: at,
+        uncertainty: uncertainty,
+        latency: latency,
+        jitter: jitter,
+        held: held ?? this.held,
+      );
 
   Map<String, Object?> toJson() => {
     'node': node,
@@ -96,6 +109,7 @@ final class ClockHop {
     'uncertainty': uncertainty,
     'latency': latency,
     'jitter': jitter,
+    if (held != null) 'held': held,
   };
 
   factory ClockHop.fromJson(Map<String, Object?> j) => ClockHop(
@@ -107,6 +121,7 @@ final class ClockHop {
     uncertainty: _finite(j['uncertainty']) ?? 0,
     latency: _finite(j['latency']),
     jitter: _finite(j['jitter']),
+    held: _finite(j['held']),
   );
 
   /// A number from the wire, or null: a peer's NaN or infinity must not reach
@@ -117,9 +132,11 @@ final class ClockHop {
   @override
   String toString() {
     final l = latency;
+    final w = held;
     return '$via@$node: ${(offset * 1e3).toStringAsFixed(3)}ms '
         '±${(uncertainty * 5e2).toStringAsFixed(3)}ms'
-        '${l == null ? '' : ', latency ${(l * 1e3).toStringAsFixed(1)}ms'}';
+        '${l == null ? '' : ', latency ${(l * 1e3).toStringAsFixed(1)}ms'}'
+        '${w == null ? '' : ', held ${(w * 1e3).toStringAsFixed(1)}ms'}';
   }
 }
 
@@ -165,6 +182,17 @@ final class ClockChain {
       if (h.latency != null) return h.latency;
     }
     return null;
+  }
+
+  /// Time samples spent waiting at the nodes that measured it
+  /// ([ClockHop.held]) added up, or null if none did.
+  double? get held {
+    double? sum;
+    for (final h in hops) {
+      final w = h.held;
+      if (w != null) sum = (sum ?? 0) + w;
+    }
+    return sum;
   }
 
   /// This chain with [hop] added at the end.

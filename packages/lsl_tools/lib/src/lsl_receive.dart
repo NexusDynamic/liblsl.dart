@@ -58,7 +58,9 @@ const Duration _stableAfter = Duration(seconds: 1);
 /// With [LslInletOptions.eventDriven], on an inlet that can
 /// ([LslArrivals]), chunks come as their samples arrive; otherwise
 /// whatever is buffered is collected every
-/// [LslInletOptions.pullIntervalMs].
+/// [LslInletOptions.pullIntervalMs]. A stream with more than one sample in
+/// that interval is not delivered more often than that either way: what
+/// arrives within it of a chunk's first sample is in the chunk.
 ///
 /// What listens for arriving samples can end by itself. That is never
 /// silent and never the end of receiving: [onStatus] is told, with the
@@ -126,9 +128,13 @@ Stream<LslChunk> receiveChunks(
         .arrivals(
           // A quarter of a second at most in one chunk.
           maxSamples: math.max(256, (rate / 4).ceil()),
-          // A fast stream that is sent sample by sample would otherwise
-          // deliver sample by sample. Markers are wanted at once.
-          coalesce: rate > 0 ? const Duration(milliseconds: 5) : Duration.zero,
+          // Reduce the rate of chunks to the pull interval,
+          // for slow treams, deliver immediately.
+          // Pull interval of [Duration.zero] will always
+          // deliver immediately.
+          coalesce: rate * options.pullIntervalMs > 1000
+              ? Duration(milliseconds: options.pullIntervalMs)
+              : Duration.zero,
           debugFailAfter: failAfter,
         )
         .listen(

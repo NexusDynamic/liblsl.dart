@@ -88,6 +88,7 @@ final class ClockModel {
     required String via,
     double? latency,
     double? jitter,
+    double? held,
   }) => ClockHop(
     node: node,
     via: via,
@@ -97,6 +98,7 @@ final class ClockModel {
     uncertainty: ready ? uncertainty : 0,
     latency: latency,
     jitter: jitter,
+    held: held,
   );
 }
 
@@ -162,7 +164,8 @@ final class TimestampSmoother {
 }
 
 /// The last few arrival latencies of a stream at one node: their mean and
-/// spread, for [ClockHop.latency] and [ClockHop.jitter].
+/// spread, for [ClockHop.latency] and [ClockHop.jitter]. Also used for the
+/// times samples waited there, for [ClockHop.held].
 final class LatencyWindow {
   LatencyWindow([int size = 256]) : _values = Float64List(size);
 

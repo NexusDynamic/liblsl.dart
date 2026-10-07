@@ -129,19 +129,14 @@ abstract class LslInlet {
   Future<void> close();
 }
 
-/// An inlet that can hand samples over as they arrive, rather than only
-/// when asked with [LslInlet.pull]. The LSL inlets of native platforms do;
-/// see [receiveChunks], which uses it when it is there.
+/// An inlet that can hand samples over as they arrive.
 abstract class LslArrivals {
-  /// Chunks as they arrive: everything that was waiting, up to [maxSamples],
-  /// each time something came. With [coalesce] above zero, what arrives
-  /// within that long of a chunk's first sample is in the chunk too, so a
-  /// fast stream does not deliver once per sample.
+  /// Chunks of all waiting samples up to [maxSamples]
+  /// With [coalesce] above zero, samples comingin within [coalesce] time
+  /// of the first sample are included in the chunk.
   ///
-  /// Do not [LslInlet.pull] while this is listened to, and cancel (and
-  /// await the cancel) before [LslInlet.close]. The stream ends without an
-  /// error only when cancelled; if what listens for it fails, it gives the
-  /// error and then ends.
+  /// Do not [LslInlet.pull] while this streak is listened to, and await `cancel`
+  /// before [LslInlet.close].
   ///
   /// [debugFailAfter] is for tests: it fails after that many chunks.
   Stream<LslChunk> arrivals({
@@ -151,7 +146,7 @@ abstract class LslArrivals {
   });
 }
 
-/// A clock offset and how far it can be trusted.
+/// A clock offset and uncertainty, as measured by [LslInlet.timeCorrectionEx].
 class LslTimeCorrection {
   /// Add it to the sender's time stamps to get this computer's LSL clock.
   final double offset;
@@ -275,11 +270,18 @@ class LslInletOptions {
   final int chunkSize;
 
   /// Receive samples as they arrive instead of collecting them every
-  /// [pullIntervalMs], where the inlet can (see [receiveChunks]).
+  /// [pullIntervalMs], where the inlet can. This is for [receiveChunks];
+  /// [LslInlet.pull] collects whenever it is called.
+  ///
+  /// This is useful for different stream types and will reduce latency
+  /// but note that it adds an isolate per inlet, so there are cases
+  /// where it's not applicable (e.g. low powered hardware might be better
+  /// polling)
   final bool eventDriven;
 
-  /// How often buffered samples are collected, in ms, when they are not
-  /// received as they arrive.
+  /// How often buffered samples are collected, in ms. When they are received
+  /// as they arrive, how often a stream with more than one sample in that
+  /// time is delivered.
   final int pullIntervalMs;
 
   /// Translate time stamps to this computer's clock.

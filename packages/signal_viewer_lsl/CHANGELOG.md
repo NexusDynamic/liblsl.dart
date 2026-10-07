@@ -1,6 +1,7 @@
 ## 0.2.0
 
 - Streams now use event-driven mode by default
+- Stream details show how long samples were held before being handed on
 
 ## 0.1.0
 

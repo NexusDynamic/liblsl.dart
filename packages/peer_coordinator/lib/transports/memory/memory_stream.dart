@@ -105,6 +105,31 @@ mixin InMemoryStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
     if (_disposed) return;
     _publishing = true;
     bus.registry.attach(descriptor);
+    _startConsumerPresence();
+  }
+
+  final StreamController<bool> _consumerPresence =
+      StreamController<bool>.broadcast();
+  Timer? _consumerPresenceTimer;
+  bool? _lastConsumerPresence;
+
+  /// Reported only on a bus with [InMemoryBus.consumerPresenceInterval].
+  @override
+  Stream<bool> get outletConsumerPresence => _consumerPresence.stream;
+
+  void _startConsumerPresence() {
+    final interval = bus.consumerPresenceInterval;
+    if (interval == null || _consumerPresenceTimer != null) return;
+    _consumerPresenceTimer = Timer.periodic(interval, (_) {
+      if (!_started || paused || _consumerPresence.isClosed) return;
+      final present = bus.routing.hasSubscribers(
+        streamName: config.name,
+        producerEndpointId: endpointId,
+      );
+      if (present == _lastConsumerPresence) return;
+      _lastConsumerPresence = present;
+      _consumerPresence.add(present);
+    });
   }
 
   @override
@@ -230,6 +255,8 @@ mixin InMemoryStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
       bus.registry.detach(endpointId);
       _publishing = false;
     }
+    _consumerPresenceTimer?.cancel();
+    _consumerPresenceTimer = null;
   }
 
   @override

@@ -251,8 +251,9 @@ class _LslSettingsDialogState extends State<_LslSettingsDialog> {
               i.pullIntervalMs,
               'ms',
               i.eventDriven
-                  ? 'For streams that cannot be received as they arrive '
-                        '(e.g. over a bridge).'
+                  ? 'How often a fast stream is delivered, and how often '
+                        'one that cannot be received as it arrives (e.g. '
+                        'over a bridge) is picked up.'
                   : 'How often new samples are picked up.',
               (v) => inlet(i.copyWith(pullIntervalMs: v)),
               min: 1,
@@ -278,8 +279,8 @@ class _LslSettingsDialogState extends State<_LslSettingsDialog> {
         ),
         _switch(
           'Receive as samples arrive',
-          'Without waiting to collect them. Off: collect on the interval '
-              'above.',
+          'Without waiting to collect them; uses one more thread per '
+              'stream. Off: collect on the interval above.',
           i.eventDriven,
           (v) => inlet(i.copyWith(eventDriven: v)),
         ),
@@ -635,7 +636,9 @@ class _LslStreamInfoDialogState extends State<_LslStreamInfoDialog> {
             'Offset bound',
             '±${num(_chain!.uncertainty * 500)} ms'
                 '${_chain!.latency == null ? '' : ' · latency '
-                          '${num(_chain!.latency! * 1000, 1)} ms'}',
+                          '${num(_chain!.latency! * 1000, 1)} ms'}'
+                '${_chain!.held == null ? '' : ' · held '
+                          '${num(_chain!.held! * 1000, 1)} ms'}',
           ),
           // Through a bridge: each hop, to find a slow or noisy one.
           if (_chain!.hops.length > 1)

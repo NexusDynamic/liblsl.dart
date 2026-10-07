@@ -122,6 +122,32 @@ void main() {
       expect(ClockChain.empty.map(5), 5);
     });
 
+    test('time held at a node is per hop, added up, and kept apart from '
+        'the latency', () {
+      const waited = ClockHop(
+        node: 'a',
+        via: 'lsl',
+        offset: 0,
+        latency: 0.004,
+        held: 0.05,
+      );
+      expect(ClockChain.empty.then(hop).held, isNull);
+      final chain = ClockChain.empty
+          .then(waited)
+          .then(hop.withLatency(0.006, 0.001, held: 0.01));
+      expect(chain.held, closeTo(0.06, 1e-12));
+      expect(chain.latency, 0.006);
+
+      // On the wire only when measured, so an older peer sees what it did.
+      expect(hop.toJson().containsKey('held'), isFalse);
+      final again = ClockChain.fromJson(chain.toJson());
+      expect(again.hops.first.held, 0.05);
+      expect(again.hops.last.held, 0.01);
+      // Latency measured where it arrived replaces the latency, not this.
+      expect(waited.withLatency(0.1, null).held, 0.05);
+      expect(waited.inverse(node: 'o').held, isNull);
+    });
+
     test('survives the wire, dropping what is not a finite number', () {
       final json = ClockChain.empty.then(hop).toJson();
       final again = ClockChain.fromJson(json);

@@ -565,6 +565,15 @@ class ParticipantMessageHandler extends CoordinationMessageHandler
   /// which policy applied.
   void Function(SessionEndMessage message)? onSessionEnd;
 
+  /// Called when the coordinator's topology no longer has this node in it,
+  /// though this node had been accepted.
+  ///
+  /// That is an eviction this node was not told about: the notice went out
+  /// while it could not hear (asleep, or behind a stalled link), and since
+  /// then it has heard the coordinator's heartbeats, so nothing looked wrong.
+  /// The coordinator repeats its topology so that this is noticed.
+  void Function()? onMembershipLost;
+
   ParticipantMessageHandler({
     required super.state,
     required super.thisNode,
@@ -760,6 +769,20 @@ class ParticipantMessageHandler extends CoordinationMessageHandler
     final currentUIds = state.connectedNodes.map((n) => n.uId).toSet();
     final newUIds = message.topology.map((n) => n.uId).toSet();
 
+    // Only once accepted: the acceptance is sent after this node is added, on
+    // a stream that keeps its order, so every topology after it has this node
+    // in it for as long as the coordinator does.
+    if (state.phase == CoordinationPhase.ready &&
+        message.fromNodeUId == state.coordinatorUId &&
+        !newUIds.contains(thisNode.uId)) {
+      logger.warning(
+        '[PARTICIPANT-${thisNode.uId}] Not in the topology of coordinator '
+        '${message.fromNodeUId}: evicted without having been told',
+      );
+      onMembershipLost?.call();
+      return;
+    }
+
     // Remove nodes that are no longer in the topology
     for (final removedUId in currentUIds.difference(newUIds)) {
       state.removeNode(removedUId);
@@ -772,7 +795,13 @@ class ParticipantMessageHandler extends CoordinationMessageHandler
       }
     }
 
-    logger.info('Topology updated: ${state.connectedNodes.length} nodes');
+    // The coordinator repeats its topology, so most updates change nothing.
+    if (currentUIds.length == newUIds.length &&
+        currentUIds.containsAll(newUIds)) {
+      logger.finest('Topology unchanged: ${state.connectedNodes.length} nodes');
+    } else {
+      logger.info('Topology updated: ${state.connectedNodes.length} nodes');
+    }
   }
 
   Future<void> _handleCreateStream(CreateStreamMessage message) async {

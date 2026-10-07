@@ -610,6 +610,70 @@ void main() {
       expect(spy.outgoing, isEmpty);
     });
 
+    group('a topology without this node', () {
+      var lost = 0;
+      setUp(() {
+        lost = 0;
+        handler.onMembershipLost = () => lost++;
+      });
+
+      Future<void> accept() => handler.handleMessage(
+        JoinAcceptMessage(
+          fromNodeUId: 'coord',
+          acceptedNodeUId: 'p1',
+          currentTopology: [coordinatorNode('coord'), participant('p1')],
+        ),
+      );
+
+      test('from the coordinator, once accepted, is an eviction', () async {
+        await accept();
+        await handler.handleMessage(
+          TopologyUpdateMessage(
+            fromNodeUId: 'coord',
+            topology: [coordinatorNode('coord'), participant('p2')],
+          ),
+        );
+        expect(lost, 1);
+        expect(
+          state.connectedNodes.map((n) => n.uId),
+          isNot(contains('p2')),
+          reason: 'not adopted: this node is not in that session',
+        );
+      });
+
+      test('means nothing before the join was accepted', () async {
+        await handler.handleMessage(
+          TopologyUpdateMessage(
+            fromNodeUId: 'coord',
+            topology: [coordinatorNode('coord')],
+          ),
+        );
+        expect(lost, 0);
+      });
+
+      test('means nothing from anyone but the coordinator', () async {
+        await accept();
+        await handler.handleMessage(
+          TopologyUpdateMessage(
+            fromNodeUId: 'stranger',
+            topology: [coordinatorNode('stranger')],
+          ),
+        );
+        expect(lost, 0);
+      });
+
+      test('and one with this node in it is not', () async {
+        await accept();
+        await handler.handleMessage(
+          TopologyUpdateMessage(
+            fromNodeUId: 'coord',
+            topology: [coordinatorNode('coord'), participant('p1')],
+          ),
+        );
+        expect(lost, 0);
+      });
+    });
+
     test('topology updates add and remove by difference', () async {
       await handler.handleMessage(
         TopologyUpdateMessage(

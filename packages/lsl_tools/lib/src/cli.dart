@@ -412,7 +412,8 @@ String _timing(ClockChain chain) {
         : h.latency! - before;
     hops.add(
       '${h.via} to ${h.node} ±${ms(h.uncertainty / 2)}, '
-      'latency +${ms(added)} (jitter ${ms(h.jitter)})',
+      'latency +${ms(added)} (jitter ${ms(h.jitter)})'
+      '${h.held == null ? '' : ', held ${ms(h.held)}'}',
     );
     before = h.latency;
   }

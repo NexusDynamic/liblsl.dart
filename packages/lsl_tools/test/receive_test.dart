@@ -119,6 +119,66 @@ void main() {
     expect(values.length / chunks, greaterThan(4));
   });
 
+  test('a fast stream arrives once per interval, a slow one at once', () async {
+    Future<double> perChunk(double rate) async {
+      final inlet = await counting(rate: rate);
+      var samples = 0, chunks = 0;
+      var first = true;
+      final sub =
+          receiveChunks(
+            inlet,
+            const LslInletOptions(pullIntervalMs: 100),
+          ).listen((c) {
+            // Not the first: it has what was buffered before listening.
+            if (first) {
+              first = false;
+              return;
+            }
+            samples += c.length;
+            chunks++;
+          });
+      await until(() => samples > 100, 'samples should arrive');
+      await sub.cancel();
+      return samples / chunks;
+    }
+
+    // Both are sent 100 a second; what differs is what the stream says of
+    // itself, which is what there is to go on.
+    expect(await perChunk(100), greaterThan(4));
+    expect(await perChunk(5), lessThan(2));
+  });
+
+  test('the chain says how long samples were held, apart from the '
+      'latency', () async {
+    Future<ClockHop> hop(LslInletOptions options) async {
+      final inlet = await counting();
+      var samples = 0;
+      final sub = receiveChunks(inlet, options).listen((c) {
+        samples += c.length;
+      });
+      await until(() => samples > 200, 'samples should arrive');
+      await sub.cancel();
+      return (await inlet.chain()).hops.single;
+    }
+
+    // Collected every 100 ms: a sample waits 50 ms on average, and the
+    // latency, taken from the one that waited least, does not show it.
+    final polled = await hop(
+      const LslInletOptions(eventDriven: false, pullIntervalMs: 100),
+    );
+    expect(polled.latency, lessThan(0.03));
+    expect(polled.held, inInclusiveRange(0.025, 0.09));
+
+    // As they arrive, in chunks of 100 ms: the same wait, for the chunk.
+    final chunked = await hop(const LslInletOptions(pullIntervalMs: 100));
+    expect(chunked.latency, lessThan(0.01));
+    expect(chunked.held, inInclusiveRange(0.025, 0.09));
+
+    // As they arrive, in chunks of 5 ms: next to none.
+    final prompt = await hop(const LslInletOptions(pullIntervalMs: 5));
+    expect(prompt.held, inInclusiveRange(0, 0.02));
+  });
+
   test('a listener that dies is reported and restarted', () async {
     final inlet = await counting();
     final statuses = <LslReceiveStatus>[];
