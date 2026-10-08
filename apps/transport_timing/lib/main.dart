@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_fullscreen/flutter_fullscreen.dart';
 import 'package:flutter_multicast_lock/flutter_multicast_lock.dart';
 import 'package:flutter_refresh_rate_control/flutter_refresh_rate_control.dart';
+import 'package:nexus_branding/nexus_branding.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
@@ -13,7 +14,12 @@ import 'src/ui/connect_page.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await _prepareDevice();
-  runApp(TransportTimingApp(settings: await AppSettings.load()));
+  runApp(
+    TransportTimingApp(
+      settings: await AppSettings.load(),
+      themeMode: await ThemeModeController.load(),
+    ),
+  );
 }
 
 /// Everything that keeps the platform from interfering with a run, or from
@@ -51,15 +57,28 @@ Future<void> _prepareDevice() async {
 }
 
 class TransportTimingApp extends StatelessWidget {
-  const TransportTimingApp({super.key, required this.settings});
+  const TransportTimingApp({
+    super.key,
+    required this.settings,
+    required this.themeMode,
+  });
 
   final AppSettings settings;
+  final ThemeModeController themeMode;
 
   @override
-  Widget build(BuildContext context) => MaterialApp(
-    title: 'Transport Timing',
-    debugShowCheckedModeBanner: false,
-    theme: ThemeData(colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue)),
-    home: ConnectPage(settings: settings),
+  Widget build(BuildContext context) => ThemeModeScope(
+    controller: themeMode,
+    child: ValueListenableBuilder(
+      valueListenable: themeMode,
+      builder: (context, mode, _) => MaterialApp(
+        title: 'Transport Timing',
+        debugShowCheckedModeBanner: false,
+        themeMode: mode,
+        theme: nexusLightTheme(),
+        darkTheme: nexusDarkTheme(),
+        home: ConnectPage(settings: settings),
+      ),
+    ),
   );
 }

@@ -101,6 +101,7 @@ def main() -> None:
     OUT.mkdir()
     for name in [
         "style.css",
+        "theme.js",
         "robots.txt",
         "sitemap.xml",
         # The icons of nexusdynamic.org; icon.png is the social preview image.

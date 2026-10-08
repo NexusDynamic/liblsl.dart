@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:nexus_branding/nexus_branding.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../settings.dart';
@@ -80,6 +81,7 @@ class _SessionPageState extends State<SessionPage> {
               onPressed: run == null ? _session.leave : null,
             ),
             actions: [
+              const ThemeModeToggle(),
               if (results.isNotEmpty)
                 Builder(
                   builder: (context) => IconButton(

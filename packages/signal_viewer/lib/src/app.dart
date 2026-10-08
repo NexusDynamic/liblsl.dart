@@ -78,12 +78,16 @@ class _SignalViewerAppState extends State<SignalViewerApp> {
         title: widget.config.title,
         debugShowCheckedModeBanner: false,
         themeMode: widget.prefs.themeMode,
-        theme: ThemeData(colorSchemeSeed: seed, visualDensity: _density),
-        darkTheme: ThemeData(
-          colorSchemeSeed: seed,
-          brightness: Brightness.dark,
-          visualDensity: _density,
-        ),
+        theme:
+            widget.config.theme?.copyWith(visualDensity: _density) ??
+            ThemeData(colorSchemeSeed: seed, visualDensity: _density),
+        darkTheme:
+            widget.config.darkTheme?.copyWith(visualDensity: _density) ??
+            ThemeData(
+              colorSchemeSeed: seed,
+              brightness: Brightness.dark,
+              visualDensity: _density,
+            ),
         home: MainWindow(state: _state, initialFiles: widget.files),
       ),
     );

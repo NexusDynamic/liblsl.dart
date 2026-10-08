@@ -97,6 +97,23 @@ class _MainWindowState extends State<MainWindow> {
   String get _fileTypes =>
       [for (final e in app.fileExtensions) '.$e'].join(', ');
 
+  /// The toolbar's theme button: system, light, dark, and round again.
+  Future<void> _nextThemeMode() async {
+    prefs.themeMode = switch (prefs.themeMode) {
+      ThemeMode.system => ThemeMode.light,
+      ThemeMode.light => ThemeMode.dark,
+      ThemeMode.dark => ThemeMode.system,
+    };
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    try {
+      await prefs.save();
+    } catch (e) {
+      messenger?.showSnackBar(
+        SnackBar(content: Text('Could not save preferences: $e')),
+      );
+    }
+  }
+
   Future<void> _open() async {
     final blocked = app.blocksFiles;
     if (blocked != null) {
@@ -482,6 +499,19 @@ class _MainWindowState extends State<MainWindow> {
             ),
           for (final p in app.providers) ...p.toolbar(context),
           const Spacer(),
+          IconButton(
+            tooltip: switch (prefs.themeMode) {
+              ThemeMode.system => 'Theme: system',
+              ThemeMode.light => 'Theme: light',
+              ThemeMode.dark => 'Theme: dark',
+            },
+            onPressed: _nextThemeMode,
+            icon: Icon(switch (prefs.themeMode) {
+              ThemeMode.system => Icons.brightness_auto,
+              ThemeMode.light => Icons.light_mode,
+              ThemeMode.dark => Icons.dark_mode,
+            }),
+          ),
           IconButton(
             tooltip: 'Preferences',
             onPressed: () => showPreferences(context, prefs),

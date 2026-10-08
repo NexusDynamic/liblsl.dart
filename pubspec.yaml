@@ -22,6 +22,7 @@ workspace:
   - packages/signal_viewer_serial
   - packages/lsl_tools
   - packages/openbci_cyton
+  - packages/nexus_branding
   - apps/lsl_viewer
   - apps/liblsl_test
   - apps/transport_timing

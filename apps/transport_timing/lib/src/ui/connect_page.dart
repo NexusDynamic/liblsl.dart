@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:nexus_branding/nexus_branding.dart';
 
 import '../settings.dart';
 import '../timing_session.dart';
@@ -58,7 +59,10 @@ class _ConnectPageState extends State<ConnectPage> {
   Widget build(BuildContext context) {
     final needsHub = _settings.backend.needsHub;
     return Scaffold(
-      appBar: AppBar(title: const Text('Transport Timing')),
+      appBar: AppBar(
+        title: const Text('Transport Timing'),
+        actions: const [ThemeModeToggle()],
+      ),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 480),

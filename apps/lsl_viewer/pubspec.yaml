@@ -11,6 +11,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  nexus_branding: ^0.1.0
   serial_transport: ^0.1.0
   signal_viewer: ^0.1.0
   signal_viewer_lsl: ^0.2.0

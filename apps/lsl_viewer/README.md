@@ -76,22 +76,18 @@ flutter run -d linux -a recording.xdf
 
 ### App icon
 
-The icons are generated from the images in `assets/icon/`:
-
-- `icon.png`: 1024×1024.
-- `icon_square.png`: the same with square corners and no transparency, for
-  iOS.
-- `foreground.png`: the adaptive icon of Android, with the artwork in the
-  middle 66%.
-
-The icon is changed by replacing those images and running:
+The application uses the NexusDynamic icon that all applications in this
+repository share. The source images are in
+[`packages/nexus_branding/assets/icon`](../../packages/nexus_branding/assets/icon),
+and [`flutter_launcher_icons.yaml`](./flutter_launcher_icons.yaml) describes
+how the platform icons are generated from them:
 
 ```sh
 dart run flutter_launcher_icons
 ```
 
-Linux uses `assets/icon/icon.png` directly: it is installed in the bundle as
-`data/icon.png`, along with `data/lsl_viewer.desktop`. The generator changes
-`ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS` in
-`ios/Runner.xcodeproj/project.pbxproj`; the value should remain `YES`, so the
-diff of that file is checked afterwards.
+Linux has no generator. The bundle installs `icon.png` from the same folder
+as `data/icon.png`, along with `data/lsl_viewer.desktop`. The generator
+changes `ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS` in
+`ios/Runner.xcodeproj/project.pbxproj`; the value should remain `YES`, so
+that change is reverted afterwards.

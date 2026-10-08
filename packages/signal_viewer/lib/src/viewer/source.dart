@@ -1,4 +1,4 @@
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
 
 import '../model/stream_info.dart';
 import '../platform/files.dart';
@@ -175,8 +175,13 @@ class ViewerConfig {
   final String setupName;
   final String setupMenu;
 
-  /// Seed of the colour scheme.
+  /// Seed of the colour scheme, when [theme] and [darkTheme] are not given.
   final Color seedColor;
+
+  /// The light and dark themes, in place of ones derived from [seedColor].
+  /// The viewer sets their visual density itself.
+  final ThemeData? theme;
+  final ThemeData? darkTheme;
 
   const ViewerConfig({
     required this.title,
@@ -185,5 +190,7 @@ class ViewerConfig {
     this.setupName = 'Source setup',
     this.setupMenu = 'View',
     this.seedColor = const Color(0xFF2C728E),
+    this.theme,
+    this.darkTheme,
   });
 }

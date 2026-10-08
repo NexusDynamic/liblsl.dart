@@ -5,22 +5,42 @@ import 'package:flutter/material.dart';
 import 'package:liblsl/lsl.dart';
 import 'dart:math';
 import 'package:flutter_multicast_lock/flutter_multicast_lock.dart';
+import 'package:nexus_branding/nexus_branding.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const LSLTestApp());
+  runApp(LSLTestApp(themeMode: await ThemeModeController.load()));
 }
 
-class LSLTestApp extends StatelessWidget {
-  const LSLTestApp({super.key});
+class LSLTestApp extends StatefulWidget {
+  const LSLTestApp({super.key, this.themeMode});
+
+  /// The stored theme choice. Without one (in tests) the app follows the
+  /// system and remembers nothing.
+  final ThemeModeController? themeMode;
+
+  @override
+  State<LSLTestApp> createState() => _LSLTestAppState();
+}
+
+class _LSLTestAppState extends State<LSLTestApp> {
+  late final ThemeModeController _themeMode =
+      widget.themeMode ?? ThemeModeController();
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'liblsl Flutter Test',
-      themeMode: ThemeMode.dark,
-      darkTheme: ThemeData.dark(),
-      home: const LSLTestPage(),
+    return ThemeModeScope(
+      controller: _themeMode,
+      child: ValueListenableBuilder(
+        valueListenable: _themeMode,
+        builder: (context, mode, _) => MaterialApp(
+          title: 'liblsl Flutter Test',
+          themeMode: mode,
+          theme: nexusLightTheme(),
+          darkTheme: nexusDarkTheme(),
+          home: const LSLTestPage(),
+        ),
+      ),
     );
   }
 }
@@ -92,6 +112,7 @@ class _LSLTestPageState extends State<LSLTestPage> {
             ),
           ],
         ),
+        actions: const [ThemeModeToggle()],
       ),
       body: SafeArea(
         child: SingleChildScrollView(
