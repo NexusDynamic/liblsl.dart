@@ -1,3 +1,5 @@
+import 'package:peer_coordinator/data.dart' show PeerClock;
+
 import 'lsl_types.dart';
 
 LslBackend createBackend() => _Unsupported();
@@ -18,8 +20,10 @@ class _Unsupported implements LslBackend {
   @override
   Future<void> Function()? networkPrep;
 
+  /// A steady clock in place of LSL's (and the one `peer_coordinator`
+  /// stamps with, so the two agree where there is no LSL).
   @override
-  double clock() => DateTime.now().microsecondsSinceEpoch / 1e6;
+  double clock() => PeerClock.now();
 
   @override
   LslDiscovery discover() => throw UnsupportedError('LSL is not available');

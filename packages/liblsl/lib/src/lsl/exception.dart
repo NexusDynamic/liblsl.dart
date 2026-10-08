@@ -26,6 +26,29 @@ class LSLTimeout extends LSLException {
   }
 }
 
+/// Why an [LSLInlet.sampleStream] ended without being cancelled.
+///
+/// The stream delivers one of these and then closes. A stream that closes
+/// with no error was cancelled by its subscriber; nothing else ends it
+/// quietly.
+class LSLSampleListenerException extends LSLException {
+  /// The liblsl error code of the failed pull (-2 lost, -3 argument,
+  /// -4 internal), or null when the listening isolate itself failed.
+  final int? errorCode;
+
+  /// The stack trace from the listening isolate, when it threw.
+  final String? stackTrace;
+
+  LSLSampleListenerException(super.message, {this.errorCode, this.stackTrace});
+
+  /// Whether liblsl reported the stream as lost: the inlet will not deliver
+  /// again and has to be reopened.
+  bool get isLost => errorCode == -2;
+
+  @override
+  String toString() => 'LSLSampleListenerException: $message';
+}
+
 /// Builds an [LSLException] for a nonzero liblsl error code, naming the code
 /// and appending liblsl's own message for it when one is available.
 ///

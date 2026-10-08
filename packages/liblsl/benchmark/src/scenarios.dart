@@ -49,9 +49,17 @@ Future<List<ScenarioResult>> runBenchmarks(
         'Running ${scenario.name}'
         '${config.repeat > 1 ? ' (rep ${rep + 1}/${config.repeat})' : ''}...',
       );
-      final run = scenario.mode == TransportMode.isolateAsync
-          ? await _runIsolateAsyncScenario(scenario, rep)
-          : await _runDirectScenario(scenario, rep);
+      final run = switch (scenario.mode) {
+        TransportMode.isolateAsync => await _runIsolateAsyncScenario(
+          scenario,
+          rep,
+        ),
+        TransportMode.eventStream => await _runEventStreamScenario(
+          scenario,
+          rep,
+        ),
+        _ => await _runDirectScenario(scenario, rep),
+      };
       sent += run.samplesSent;
       received += run.samplesReceived;
       duration += run.durationSeconds;
@@ -90,6 +98,12 @@ class _RunOutcome {
 
 int _streamCounter = 0;
 
+// The push time travels in channel 0 of a float32 stream, and a float32
+// cannot hold `LSL.localClock()`: that is seconds since boot, so after a
+// day of uptime it would be rounded to 8 ms. Each run therefore sends the
+// time since its own start (the epoch, which both ends are given), which a
+// float32 holds to a microsecond for the seconds a run lasts.
+
 /// Direct-mode scenario: producer and consumer each run in their own
 /// isolate with `useIsolates: false` objects recreated from pointers
 /// (the pattern proven in test/liblsl_performance_test.dart).
@@ -120,9 +134,17 @@ Future<_RunOutcome> _runDirectScenario(ScenarioConfig cfg, int rep) async {
   final op = cfg.op;
 
   final rssBefore = ProcessInfo.currentRss;
+  final epoch = LSL.localClock();
 
   final consumerFuture = Isolate.run(
-    () => _directConsumer(infoAddr, channels, durationSeconds, op),
+    () => _directConsumer(
+      infoAddr,
+      channels,
+      chunkSize,
+      durationSeconds,
+      op,
+      epoch,
+    ),
   );
   // Give the consumer a head start to connect before producing.
   final producerFuture = Isolate.run(
@@ -134,6 +156,7 @@ Future<_RunOutcome> _runDirectScenario(ScenarioConfig cfg, int rep) async {
       chunkSize,
       durationSeconds,
       op,
+      epoch,
     ),
   );
 
@@ -174,6 +197,7 @@ Future<int> _directProducer(
   int chunkSize,
   double durationSeconds,
   OpKind op,
+  double epoch,
 ) async {
   final info = LSLStreamInfo.fromStreamInfoAddr(infoAddr);
   final outlet = await LSLOutlet(
@@ -199,7 +223,7 @@ Future<int> _directProducer(
         next += interval;
         if (next > end) break;
         _waitUntil(next);
-        sample[0] = LSL.localClock();
+        sample[0] = LSL.localClock() - epoch;
         outlet.pushSampleSync(sample);
         sent++;
       }
@@ -211,7 +235,7 @@ Future<int> _directProducer(
         next += interval;
         if (next > end) break;
         _waitUntil(next);
-        final now = LSL.localClock();
+        final now = LSL.localClock() - epoch;
         for (int s = 0; s < chunkSize; s++) {
           chunk[s * channels] = now;
         }
@@ -229,7 +253,7 @@ Future<int> _directProducer(
         next += interval;
         if (next > end) break;
         _waitUntil(next);
-        final now = LSL.localClock();
+        final now = LSL.localClock() - epoch;
         for (final sample in chunk) {
           sample[0] = now;
         }
@@ -247,8 +271,10 @@ Future<int> _directProducer(
 Future<Map<String, Object>> _directConsumer(
   int infoAddr,
   int channels,
+  int chunkSize,
   double durationSeconds,
   OpKind op,
+  double epoch,
 ) async {
   final info = LSLStreamInfo.fromStreamInfoAddr(infoAddr);
   final inlet = LSLInlet<double>(
@@ -276,25 +302,32 @@ Future<Map<String, Object>> _directConsumer(
         if (sample.isNotEmpty) {
           received++;
           lastData = LSL.localClock();
-          latencies.add((lastData - sample[0]) * 1e6);
+          latencies.add((lastData - epoch - sample[0]) * 1e6);
         }
       case OpKind.chunkTyped:
-        final chunk = inlet.pullChunkTypedSync(maxSamples: 256, timeout: 0.02);
+        // One pushed chunk at a time: a chunk pull with a timeout returns
+        // when it has [maxSamples] or the timeout has passed, so asking for
+        // more than is pushed would wait the timeout out on every call and
+        // measure that instead.
+        final chunk = inlet.pullChunkTypedSync(
+          maxSamples: chunkSize,
+          timeout: 0.02,
+        );
         if (chunk.isNotEmpty) {
           received += chunk.sampleCount;
           lastData = LSL.localClock();
           final data = chunk.data as Float32List;
           for (int s = 0; s < chunk.sampleCount; s++) {
-            latencies.add((lastData - data[s * channels]) * 1e6);
+            latencies.add((lastData - epoch - data[s * channels]) * 1e6);
           }
         }
       case OpKind.chunkList:
-        final chunk = inlet.pullChunkSync(maxSamples: 256, timeout: 0.02);
+        final chunk = inlet.pullChunkSync(maxSamples: chunkSize, timeout: 0.02);
         if (chunk.isNotEmpty) {
           received += chunk.sampleCount;
           lastData = LSL.localClock();
           for (final sample in chunk.samples) {
-            latencies.add((lastData - sample[0]) * 1e6);
+            latencies.add((lastData - epoch - sample[0]) * 1e6);
           }
         }
     }
@@ -302,6 +335,95 @@ Future<Map<String, Object>> _directConsumer(
 
   await inlet.destroy();
   return {'received': received, 'latencies': Float64List.fromList(latencies)};
+}
+
+/// eventStream scenario: the [_directProducer], received in the main isolate
+/// with `sampleStream()` / `chunkStream()`.
+Future<_RunOutcome> _runEventStreamScenario(ScenarioConfig cfg, int rep) async {
+  final name = 'Bench_${_streamCounter++}_$rep';
+  final info = await LSL.createStreamInfo(
+    streamName: name,
+    channelCount: cfg.channels,
+    channelFormat: LSLChannelFormat.float32,
+    sampleRate: cfg.rateHz,
+    streamType: LSLContentType.eeg,
+    sourceId: '${name}_src',
+  );
+  final outlet = await LSL.createOutlet(streamInfo: info, useIsolates: false);
+  final inlet = LSLInlet<double>(
+    info,
+    maxBuffer: 1,
+    recover: false,
+    useIsolates: false,
+  );
+  await inlet.create();
+
+  final infoAddr = info.streamInfo.address;
+  final outletAddr = outlet.outlet.address;
+  final channels = cfg.channels;
+  final rateHz = cfg.rateHz;
+  final chunkSize = cfg.chunkSize;
+  final durationSeconds = cfg.durationSeconds;
+  final op = cfg.op;
+
+  final rssBefore = ProcessInfo.currentRss;
+  final epoch = LSL.localClock();
+  final latencies = <double>[];
+  var received = 0;
+  var lastData = epoch + durationSeconds;
+
+  final StreamSubscription<void> subscription;
+  if (op == OpKind.sample) {
+    subscription = inlet.sampleStream().listen((sample) {
+      received++;
+      lastData = sample.receivedClock;
+      latencies.add((sample.receivedClock - epoch - sample.data[0]) * 1e6);
+    });
+  } else {
+    subscription = inlet.chunkStream(maxSamples: 256).listen((chunk) {
+      received += chunk.sampleCount;
+      lastData = chunk.receivedClock;
+      final data = chunk.data! as Float32List;
+      final arrived = chunk.receivedClock - epoch;
+      for (int s = 0; s < chunk.sampleCount; s++) {
+        latencies.add((arrived - data[s * channels]) * 1e6);
+      }
+    });
+  }
+
+  final sent = await Isolate.run(
+    () => _directProducer(
+      infoAddr,
+      outletAddr,
+      channels,
+      rateHz,
+      chunkSize,
+      durationSeconds,
+      op,
+      epoch,
+    ),
+  );
+  // Until it has all arrived, or nothing has for a second.
+  final hardDeadline = LSL.localClock() + 4.0;
+  while (received < sent) {
+    final now = LSL.localClock();
+    if (now > hardDeadline || now - lastData > 1.0) break;
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+  }
+  await subscription.cancel();
+  final rssAfter = ProcessInfo.currentRss;
+
+  await inlet.destroy();
+  await outlet.destroy();
+  info.destroy();
+
+  return _RunOutcome(
+    sent,
+    received,
+    durationSeconds,
+    Float64List.fromList(latencies),
+    math.max(0, rssAfter - rssBefore),
+  );
 }
 
 /// isolateAsync scenario: wrapper-managed worker isolates driven from the
@@ -352,6 +474,7 @@ Future<_RunOutcome> _runIsolateAsyncScenario(
   var received = 0;
   final channels = cfg.channels;
   final start = LSL.localClock();
+  final epoch = start;
   final end = start + cfg.durationSeconds;
 
   Future<void> producer() async {
@@ -367,7 +490,7 @@ Future<_RunOutcome> _runIsolateAsyncScenario(
           if (waitUs > 0) {
             await Future.delayed(Duration(microseconds: waitUs));
           }
-          sample[0] = LSL.localClock();
+          sample[0] = LSL.localClock() - epoch;
           await outlet.pushSample(sample);
           sent++;
         }
@@ -382,7 +505,7 @@ Future<_RunOutcome> _runIsolateAsyncScenario(
           if (waitUs > 0) {
             await Future.delayed(Duration(microseconds: waitUs));
           }
-          final now = LSL.localClock();
+          final now = LSL.localClock() - epoch;
           for (int s = 0; s < cfg.chunkSize; s++) {
             f32[s * channels] = now;
           }
@@ -403,7 +526,7 @@ Future<_RunOutcome> _runIsolateAsyncScenario(
           if (waitUs > 0) {
             await Future.delayed(Duration(microseconds: waitUs));
           }
-          final now = LSL.localClock();
+          final now = LSL.localClock() - epoch;
           for (final sample in chunk) {
             sample[0] = now;
           }
@@ -426,11 +549,11 @@ Future<_RunOutcome> _runIsolateAsyncScenario(
           if (sample.isNotEmpty) {
             received++;
             lastData = LSL.localClock();
-            latencies.add((lastData - sample[0]) * 1e6);
+            latencies.add((lastData - epoch - sample[0]) * 1e6);
           }
         case OpKind.chunkTyped:
           final chunk = await inlet.pullChunkTyped(
-            maxSamples: 256,
+            maxSamples: cfg.chunkSize,
             timeout: 0.02,
           );
           if (chunk.isNotEmpty) {
@@ -438,16 +561,19 @@ Future<_RunOutcome> _runIsolateAsyncScenario(
             lastData = LSL.localClock();
             final data = chunk.data as Float32List;
             for (int s = 0; s < chunk.sampleCount; s++) {
-              latencies.add((lastData - data[s * channels]) * 1e6);
+              latencies.add((lastData - epoch - data[s * channels]) * 1e6);
             }
           }
         case OpKind.chunkList:
-          final chunk = await inlet.pullChunk(maxSamples: 256, timeout: 0.02);
+          final chunk = await inlet.pullChunk(
+            maxSamples: cfg.chunkSize,
+            timeout: 0.02,
+          );
           if (chunk.isNotEmpty) {
             received += chunk.sampleCount;
             lastData = LSL.localClock();
             for (final sample in chunk.samples) {
-              latencies.add((lastData - sample[0]) * 1e6);
+              latencies.add((lastData - epoch - sample[0]) * 1e6);
             }
           }
       }

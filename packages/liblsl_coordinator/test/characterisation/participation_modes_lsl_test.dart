@@ -32,6 +32,21 @@ class _LslHarness extends ParticipationHarness {
   @override
   Duration get settleTimeout => const Duration(seconds: 4);
 
+  // The timings the other LSL tests use (`testSessionConfig`), not the
+  // matrix's own, which are for transports that connect in a millisecond.
+  // Three nodes in one process open a dozen LSL connections while they join,
+  // each taking hundreds of milliseconds, and an outlet's consumers are only
+  // sampled once a second: a node timeout below that sees a node that is
+  // joining as one that is gone.
+  @override
+  Duration get heartbeatInterval => const Duration(milliseconds: 500);
+
+  @override
+  Duration get discoveryInterval => const Duration(milliseconds: 500);
+
+  @override
+  Duration get nodeTimeout => const Duration(seconds: 2);
+
   // LSL builds a TCP connection per inlet/outlet pair, and an outlet drops
   // what it is given until a consumer is actually attached.
   @override

@@ -36,6 +36,18 @@ abstract class ParticipationHarness {
   /// are discovered as peers.
   String get sessionName => 'ParticipationSession';
 
+  /// The session's heartbeat interval. As tight as the transport allows,
+  /// to keep the suite short; a transport that needs more room for its
+  /// discovery or its connections overrides these three together.
+  Duration get heartbeatInterval => const Duration(milliseconds: 100);
+
+  /// How often the session looks for peers.
+  Duration get discoveryInterval => const Duration(milliseconds: 50);
+
+  /// How long a node may be silent before it is taken to be gone. Everything
+  /// that waits for a peer to be missed is measured in these.
+  Duration get nodeTimeout => const Duration(milliseconds: 800);
+
   /// How long to allow for a join to settle.
   Duration get joinTimeout => const Duration(seconds: 3);
 
@@ -159,9 +171,9 @@ void runParticipationScenarios(ParticipationHarness harness) {
         name: harness.sessionName,
         maxNodes: 3,
         minNodes: 1,
-        heartbeatInterval: const Duration(milliseconds: 100),
-        discoveryInterval: const Duration(milliseconds: 50),
-        nodeTimeout: const Duration(milliseconds: 800),
+        heartbeatInterval: harness.heartbeatInterval,
+        discoveryInterval: harness.discoveryInterval,
+        nodeTimeout: harness.nodeTimeout,
         consumeCoordinationStreamAsCoordinator: false,
       ),
       topologyConfig: HierarchicalTopologyConfig(

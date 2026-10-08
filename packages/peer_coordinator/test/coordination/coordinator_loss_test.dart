@@ -374,6 +374,145 @@ void main() {
     });
   });
 
+  group('eviction nobody told the node about', () {
+    String endpoint(PeerSession session) =>
+        '$sessionName/${session.thisNode.uId}/$streamName';
+
+    void route(PeerSession from, PeerSession to, {required bool open}) {
+      final change = open ? bus.routing.subscribe : bus.routing.unsubscribe;
+      change(
+        streamName: streamName,
+        producerEndpointId: endpoint(from),
+        subscriberEndpointId: endpoint(to),
+      );
+    }
+
+    /// Cuts [participant] off in both directions until the coordinator has
+    /// evicted it, with nothing on the participant noticing: the device that
+    /// slept through its own eviction. Its view of the coordinator is kept
+    /// fresh the way the first heartbeat after waking keeps it.
+    Future<void> evictUnheard(
+      PeerSession coordinator,
+      PeerSession participant,
+    ) async {
+      final ticker = Timer.periodic(
+        const Duration(milliseconds: 40),
+        (_) => participant.noteNodeActivity(coordinator.thisNode.uId),
+      );
+      addTearDown(ticker.cancel);
+
+      route(participant, coordinator, open: false);
+      route(coordinator, participant, open: false);
+
+      final deadline = DateTime.now().add(const Duration(seconds: 3));
+      while (coordinator.connectedNodes.any(
+        (n) => n.uId == participant.thisNode.uId,
+      )) {
+        if (DateTime.now().isAfter(deadline)) fail('never evicted');
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+      expect(
+        participant.currentPhase,
+        CoordinationPhase.ready,
+        reason: 'the participant heard nothing of its eviction',
+      );
+    }
+
+    test('it finds out from the topology and rejoins', () async {
+      final coordinator = await joined('coord', randomRoll: 0.1);
+      final participant = await joined(
+        'p1',
+        randomRoll: 0.9,
+        policy: CoordinatorLossPolicy.rejoin,
+      );
+      await coordinator.waitForMinNodes(2, timeout: const Duration(seconds: 2));
+
+      await evictUnheard(coordinator, participant);
+      // So that it is the topology that tells it, not a new offer to join
+      // from the coordinator rediscovering it.
+      await coordinator.pauseAcceptingNodes();
+
+      final ended = nextEnd(participant);
+      final rejoined = participant.events.sessionRejoined.first.timeout(
+        const Duration(seconds: 5),
+      );
+      // It can hear the coordinator again, and all it hears is heartbeats
+      // and a topology it is not in.
+      route(coordinator, participant, open: true);
+
+      final event = await ended;
+      expect(event.reason, SessionEndReason.evicted);
+      expect(event.policy, CoordinatorLossPolicy.rejoin);
+
+      await coordinator.resumeAcceptingNodes();
+      await rejoined;
+      await coordinator.waitForMinNodes(2, timeout: const Duration(seconds: 3));
+    });
+
+    test('under endSession it ends instead of carrying on unheard', () async {
+      final coordinator = await joined('coord', randomRoll: 0.1);
+      final participant = await joined('p1', randomRoll: 0.9);
+      await coordinator.waitForMinNodes(2, timeout: const Duration(seconds: 2));
+
+      await evictUnheard(coordinator, participant);
+      await coordinator.pauseAcceptingNodes();
+
+      final ended = nextEnd(participant);
+      route(coordinator, participant, open: true);
+
+      expect((await ended).reason, SessionEndReason.evicted);
+      expect(participant.currentPhase, CoordinationPhase.ended);
+    });
+
+    test('an outlet nobody reads for a node timeout counts as lost', () async {
+      bus.dispose();
+      bus = InMemoryBus(
+        consumerPresenceInterval: const Duration(milliseconds: 20),
+      );
+      final coordinator = await joined('coord', randomRoll: 0.1);
+      final participant = await joined('p1', randomRoll: 0.9);
+      await coordinator.waitForMinNodes(2, timeout: const Duration(seconds: 2));
+
+      // The coordinator keeps the node (it sees it on another stream), so no
+      // eviction and no topology will ever say anything: only the outlet
+      // having no consumer does.
+      final ticker = Timer.periodic(
+        const Duration(milliseconds: 40),
+        (_) => coordinator.noteNodeActivity(participant.thisNode.uId),
+      );
+      addTearDown(ticker.cancel);
+
+      final ended = nextEnd(participant);
+      final since = DateTime.now();
+      route(participant, coordinator, open: false);
+
+      final event = await ended;
+      expect(event.reason, SessionEndReason.coordinatorTransportLost);
+      expect(
+        DateTime.now().difference(since),
+        greaterThanOrEqualTo(nodeTimeout),
+        reason: 'not before the coordinator would have given up on it too',
+      );
+    });
+
+    test('a healthy session is left alone', () async {
+      bus.dispose();
+      bus = InMemoryBus(
+        consumerPresenceInterval: const Duration(milliseconds: 20),
+      );
+      final coordinator = await joined('coord', randomRoll: 0.1);
+      final p1 = await joined('p1', randomRoll: 0.5);
+      final p2 = await joined('p2', randomRoll: 0.9);
+      await coordinator.waitForMinNodes(3, timeout: const Duration(seconds: 2));
+
+      final seen = [watchEnds(p1), watchEnds(p2)];
+      await Future<void>.delayed(nodeTimeout * 4);
+
+      expect(seen.expand((e) => e), isEmpty);
+      expect(coordinator.connectedNodes, hasLength(3));
+    });
+  });
+
   group('rejoin policy', () {
     test('an evicted node re-attaches once it can be heard again', () async {
       // The behaviour the whole policy exists for. Under endSession this same

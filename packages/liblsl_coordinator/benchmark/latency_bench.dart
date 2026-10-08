@@ -1,7 +1,11 @@
 // Loopback latency benchmark: one coordinator + one participant in a single
 // process. The coordinator prints p50/p95/p99 plus loss for three measurements.
 //
-// Usage: dart run benchmark/latency_bench.dart [rateHz] [durationSeconds]
+// Usage: dart run benchmark/latency_bench.dart [rateHz] [durationSeconds] [event]
+//
+// With `event`, inlets wait inside liblsl for each sample
+// (LSLTransportConfig.eventDrivenInlets) instead of polling. Run both to see
+// what polling adds at a given rate.
 //
 // Three numbers, because they answer different questions:
 //
@@ -36,12 +40,30 @@ Future<void> main(List<String> args) async {
   Logger.root.level = Level.WARNING;
   Logger.root.onRecord.listen(Log.defaultPrinter);
 
-  print('Latency benchmark: $rateHz Hz for ${durationS}s (loopback)');
+  final eventDriven = args.length > 2 && args[2] == 'event';
+  print(
+    'Latency benchmark: $rateHz Hz for ${durationS}s (loopback, '
+    '${eventDriven ? 'event-driven' : 'polled'} inlets)',
+  );
 
   final suffix = Random().nextInt(100000);
   final results = await Future.wait([
-    _runNode('bench_$suffix', 'Coordinator', rateHz, durationS, delayMs: 0),
-    _runNode('bench_$suffix', 'Participant', rateHz, durationS, delayMs: 500),
+    _runNode(
+      'bench_$suffix',
+      'Coordinator',
+      rateHz,
+      durationS,
+      eventDriven,
+      delayMs: 0,
+    ),
+    _runNode(
+      'bench_$suffix',
+      'Participant',
+      rateHz,
+      durationS,
+      eventDriven,
+      delayMs: 500,
+    ),
   ]);
   // One of the two futures carries the report (whichever became coordinator).
   for (final report in results) {
@@ -53,7 +75,8 @@ Future<String?> _runNode(
   String sessionName,
   String nodeId,
   double rateHz,
-  int durationS, {
+  int durationS,
+  bool eventDriven, {
   required int delayMs,
 }) async {
   if (delayMs > 0) await Future.delayed(Duration(milliseconds: delayMs));
@@ -77,6 +100,7 @@ Future<String?> _runNode(
       sampleRate: 50.0,
     ),
     transportConfig: LSLTransportConfig(
+      eventDrivenInlets: eventDriven,
       lslApiConfig: LSLApiConfig(
         ipv6: IPv6Mode.disable,
         resolveScope: ResolveScope.link,

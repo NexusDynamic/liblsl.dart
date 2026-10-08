@@ -319,6 +319,14 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
   bool get useBusyWaitInlets => false; // Override in data streams
   bool get useBusyWaitOutlets => false; // Event-driven outlets by default
 
+  /// Whether inlets wait inside liblsl for samples instead of polling; see
+  /// [LSLTransportConfig.eventDrivenInlets].
+  bool get eventDrivenInlets => lslTransport.config.eventDrivenInlets;
+
+  /// Whether an event-driven inlet's listener is restarted when it ends by
+  /// itself; see [LSLTransportConfig.restartFailedListeners].
+  bool get restartFailedListeners => lslTransport.config.restartFailedListeners;
+
   // An LSL sample already carries the sender's `lsl_local_clock()` reading as
   // its timestamp, so the coordination layer must not stamp a second, weaker
   // sender clock into the payload.
@@ -375,9 +383,15 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
   final StreamController<ClockSyncSample> _clockSyncController =
       StreamController<ClockSyncSample>.broadcast();
 
+  // Outlives the inlet isolate, which is created with the first inlet and
+  // again after a destroy; a listener here need not know about either.
+  final StreamController<InletHealth> _inletHealthController =
+      StreamController<InletHealth>.broadcast();
+
   StreamSubscription? _outgoingSubscription;
   StreamSubscription? _incomingSubscription;
   StreamSubscription? _clockSyncSubscription;
+  StreamSubscription? _inletHealthSubscription;
 
   // State
   bool _created = false;
@@ -498,6 +512,8 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
         dataType: config.dataType,
         useBusyWaitInlets: useBusyWaitInlets,
         useBusyWaitOutlets: useBusyWaitOutlets,
+        eventDrivenInlets: eventDrivenInlets,
+        restartFailedListeners: restartFailedListeners,
         pollingInterval: _getPollingInterval(),
         // Empty, with the inlet added below instead. Initial inlets that fail
         // to open are skipped inside the worker with nothing reported back,
@@ -512,6 +528,14 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
         final message = _createMessageFromIsolateData(dataMessage);
         if (message != null) {
           _incomingController.add(message);
+        }
+      });
+
+      // ...to the state of its listeners, which says when one of them has
+      // stopped reading its inlet...
+      _inletHealthSubscription = _inletIsolate!.listenerHealth.listen((health) {
+        if (!_inletHealthController.isClosed) {
+          _inletHealthController.add(health);
         }
       });
 
@@ -808,6 +832,8 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
       _incomingSubscription = null;
       await _clockSyncSubscription?.cancel();
       _clockSyncSubscription = null;
+      await _inletHealthSubscription?.cancel();
+      _inletHealthSubscription = null;
       await _inletIsolate!.stop();
       await _inletIsolate!.dispose();
       _inletIsolate = null;
@@ -859,6 +885,12 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
   /// `false` means every sample pushed from here is being discarded inside
   /// liblsl, silently and successfully — see [StreamOutletIsolate.consumerPresence].
   /// Empty when this stream has no outlet (a receive-only participant).
+  /// Emits when the listener on one of this stream's inlets ends by itself,
+  /// and when it is running again. Event-driven inlets only; see
+  /// [LSLTransportConfig.restartFailedListeners].
+  @override
+  Stream<InletHealth> get inletHealth => _inletHealthController.stream;
+
   @override
   Stream<bool> get outletConsumerPresence =>
       _outletIsolate?.consumerPresence ?? const Stream.empty();
@@ -912,6 +944,7 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
     await _outgoingSubscription?.cancel();
     await _incomingSubscription?.cancel();
     await _clockSyncSubscription?.cancel();
+    await _inletHealthSubscription?.cancel();
     // _outgoingController is single-subscription, so its close() must not be
     // awaited: the future only completes once a listener drains the stream,
     // and the subscription was just cancelled. unawaited close still releases
@@ -920,6 +953,7 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
     unawaited(_incomingController.close());
     unawaited(_outgoingController.close());
     unawaited(_clockSyncController.close());
+    unawaited(_inletHealthController.close());
 
     // Dispose StreamInfos (main thread's responsibility)
     for (final streamInfo in _inletStreamInfos) {

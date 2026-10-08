@@ -1,29 +1,39 @@
+## 0.5.0
+
+- Fixed a crash (a segmentation fault inside `lsl_create_inlet`) when a
+  peer's inlet was removed, or its stream stopped, while that inlet was still
+  being opened. The helper isolate that opens an inlet was reading a stream
+  info the main isolate had already freed; it now works on its own copy, and
+  a removal that arrives as the opened inlet is being taken over waits for
+  that to finish. Present since inlets were first opened off the worker.
+- The package no longer depends on the Flutter SDK for its tests, so its
+  LSL-backed tests run with `dart test` (and `melos run test:lsl`).
+- Event-driven inlets log a warning when the inlet worker is not keeping up
+  with a stream (`LSLInlet.sampleStream`'s `onBacklog`), naming the source.
+- New `LSLTransportConfig.eventDrivenInlets` receives without polling. Each inlet
+  gets an isolate that waits `lsl_pull_sample`. Results in one isolate per inlet
+  instead of one per stream (can grow quickly).
+
+  On loopback at 60 Hz (`benchmark/latency_bench.dart 60 6 event`) the median
+  one-way latency of a data sample went from 4.3 ms to 0.45 ms, and of a
+  coordination message from 6.5 ms to 0.34 ms - this is because of the polling
+  interval resulting in reporting mainly the polling delay rather than the
+  actual network latency.
+- Stream inlets have `inletHealth` and errors are reported as
+  events via `StreamReceiveHealthEvent`. By default stream listeners are restarted
+  but the behaviour can be changed with `LSLTransportConfig.restartFailedListeners: false`
+- An inlet or outlet worker isolate that exits without being stopped is now
+  logged as severe
+- Stopping an inlet worker that had been paused and resumed no longer throws
+  `Bad state: Future already completed` inside the worker.
+- Stopping a stream while a pause, resume or flush of it is still running
+  no longer fails that request with `Bad state: Isolate for stream … stopped`.
+
 ## 0.4.1
 
 - Streams now expose `clockSyncs`, a broadcast stream of `ClockSyncSample`
-  carrying each clock-offset estimate as it is made: the offset, its
-  uncertainty, the peer's own clock at the moment it was measured
-  (`remoteTime`), and whether the peer's clock may have been reset since the
-  previous estimate (`clockReset`). LSL supplies all four — `remoteTime` and
-  the reset flag come from `lsl_time_correction_ex` and `lsl_was_clock_reset`
-  and were previously discarded inside the inlet worker.
-
-  These are deliberately *not* fields on `MessageTiming`. An estimate is
-  refreshed at most every 5 s while data samples arrive hundreds of times a
-  second, so carrying them per sample would repeat one value hundreds of times
-  across the isolate port. More importantly, a per-message view can only
-  describe estimates that happened to be attached to a message that happened to
-  arrive: clock drift is a property of the clocks, not of the traffic, so a
-  quiet stream left an unbridgeable gap. `clockSyncs` ticks on the estimate's
-  own cadence regardless of traffic.
-
-  The getter is on the base `NetworkStream` and defaults to an empty stream, so
-  a transport that estimates no offsets needs no change and a consumer does not
-  have to know which transport it is on.
-
-  Note that reading liblsl's clock-reset flag clears it. It is read exactly
-  once per refresh inside the inlet worker and reported on that estimate;
-  nothing else may poll it without consuming the notification.
+  carrying each clock-offset estimate. Independent from `MessageTiming`
+  so it can run on a lower frequency.
 
 ## 0.4.0+1
 

@@ -401,6 +401,27 @@ class _Share extends _Base {
   }
 }
 
+/// One line for a stream's [chain]: the totals, then what each hop added.
+String _timing(ClockChain chain) {
+  String ms(double? s) => s == null ? '?' : (s * 1000).toStringAsFixed(2);
+  final hops = <String>[];
+  double? before = 0;
+  for (final h in chain.hops) {
+    final added = h.latency == null || before == null
+        ? null
+        : h.latency! - before;
+    hops.add(
+      '${h.via} to ${h.node} ±${ms(h.uncertainty / 2)}, '
+      'latency +${ms(added)} (jitter ${ms(h.jitter)})'
+      '${h.held == null ? '' : ', held ${ms(h.held)}'}',
+    );
+    before = h.latency;
+  }
+  return 'offset ${ms(chain.offset)} ms ±${ms(chain.uncertainty / 2)}, '
+      'drift ${(chain.drift * 1e6).toStringAsFixed(1)} ppm, '
+      'latency ${ms(chain.latency)} ms [${hops.join('; ')}]';
+}
+
 class _Bridge extends _Base {
   final Future<void>? stop;
   _Bridge(super.out, this.stop) {
@@ -411,6 +432,18 @@ class _Bridge extends _Base {
         'suffix',
         defaultsTo: '',
         help: 'Added to the names of the streams published here.',
+      )
+      ..addFlag(
+        'timing-stream',
+        defaultsTo: true,
+        help:
+            'Also publish a "BridgeTiming" stream: every two seconds, each '
+            'stream\'s clock offset, error bound, drift and latency, hop by '
+            'hop, as JSON.',
+      )
+      ..addOption(
+        'stats',
+        help: 'Print the same timing every this many seconds.',
       );
   }
 
@@ -435,6 +468,7 @@ class _Bridge extends _Base {
     final client = await LslBridgeClient.connect(
       Uri.parse(text),
       token: argResults!['token'] as String? ?? '',
+      name: Platform.localHostname,
     );
     if (client.streams.isEmpty) {
       await client.onStreams.first.timeout(
@@ -446,7 +480,17 @@ class _Bridge extends _Base {
       client,
       patterns: patterns,
       suffix: argResults!['suffix'] as String,
+      timingStream: argResults!['timing-stream'] as bool,
     );
+    final every = double.tryParse(argResults!['stats'] as String? ?? '');
+    final stats = every == null || every <= 0
+        ? null
+        : Timer.periodic(Duration(milliseconds: (every * 1000).round()), (_) {
+            for (final MapEntry(key: name, value: chain)
+                in republisher.timing.entries) {
+              out.writeln('$name: ${_timing(chain)}');
+            }
+          });
     var shown = <String>{};
     void report() {
       final now = republisher.names.toSet();
@@ -471,6 +515,7 @@ class _Bridge extends _Base {
         return !client.closed;
       }),
     ]);
+    stats?.cancel();
     if (client.closed) out.writeln('The bridge closed: ${client.error}');
     await changes.cancel();
     await republisher.close();
@@ -514,6 +559,7 @@ class _Publish extends _Base {
     final client = await LslBridgeClient.connect(
       Uri.parse(text),
       token: argResults!['token'] as String? ?? '',
+      name: Platform.localHostname,
     );
     if (client.streams.isEmpty) {
       await client.onStreams.first.timeout(
@@ -527,16 +573,26 @@ class _Publish extends _Base {
       return 1;
     }
     // Published stream by uid: its inlet here and outlet there.
-    final relays = <String, (LslInlet, LslOutlet)>{};
+    final relays = <String, (LslInlet, BridgeOutlet)>{};
+    Future<void> measure(LslInlet inlet, BridgeOutlet outlet) async {
+      try {
+        outlet.upstream = await inlet.chain();
+      } catch (_) {
+        // No measurement now; the bridge keeps the last.
+      }
+    }
+
     Future<void> add(List<LslStreamDescription> found) async {
       for (final s in found) {
         // Skip what came from a bridge, which would go round in circles.
         if (relays.containsKey(s.uid) || s.sourceId.startsWith('bridge:')) {
           continue;
         }
+        // Time stamps as the sender gave them, passed on with what LSL
+        // measures of its clock.
         final inlet = await lsl.openInlet(
           s,
-          const LslInletOptions(clockSync: true),
+          const LslInletOptions(clockSync: false, dejitter: false),
         );
         final strings = s.format.isString;
         final outlet = await client.publish(
@@ -551,6 +607,7 @@ class _Publish extends _Base {
           ),
         );
         relays[s.uid] = (inlet, outlet);
+        await measure(inlet, outlet);
         out.writeln('Publishing ${s.name}');
       }
     }
@@ -578,16 +635,22 @@ class _Publish extends _Base {
       await client.close();
       return 1;
     }
+    // As often as LSL measures clock offsets.
+    final measuring = Timer.periodic(const Duration(seconds: 2), (_) {
+      for (final (inlet, outlet) in [...relays.values]) {
+        measure(inlet, outlet);
+      }
+    });
     var pulling = false;
     final timer = Timer.periodic(const Duration(milliseconds: 20), (_) async {
       if (pulling) return;
       pulling = true;
       try {
         for (final (inlet, outlet) in [...relays.values]) {
+          // Not before the bridge can be told how to read the time stamps.
+          if (outlet.upstream.hops.isEmpty) continue;
           final c = await inlet.pull(4096);
           if (c.length == 0) continue;
-          // Clock-synced inlet: time stamps are on this computer's clock,
-          // which the client maps onto the bridge's.
           if (c.strings != null) {
             final ch = inlet.stream.channelCount;
             await outlet.pushStrings([
@@ -616,6 +679,7 @@ class _Publish extends _Base {
       }),
     ]);
     timer.cancel();
+    measuring.cancel();
     rescan?.cancel();
     if (client.closed) out.writeln('The bridge closed: ${client.error}');
     for (final (inlet, outlet) in relays.values) {

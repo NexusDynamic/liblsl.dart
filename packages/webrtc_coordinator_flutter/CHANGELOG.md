@@ -1,3 +1,7 @@
+## 0.2.2
+
+- Bump `peer_coordinator` to 0.4.0
+
 ## 0.2.1
 
 - Fixed hang for connection not reporting open status

@@ -2,7 +2,7 @@ name: signal_viewer_lsl
 description: >-
   Lab Streaming Layer source provider for signal_viewer: discover, view and
   publish LSL streams (desktop and mobile; a no-op on the web).
-version: 0.1.0
+version: 0.2.0
 homepage: https://zeyus.com/
 repository: https://github.com/NexusDynamic/liblsl.dart
 issue_tracker: https://github.com/NexusDynamic/liblsl.dart/issues
@@ -19,10 +19,10 @@ dependencies:
   # Local-network permission (iOS, Android) and the Android multicast lock
   # that stream discovery needs.
   flutter_multicast_lock: ^1.2.1
-  lsl_tools: ^0.1.0
+  lsl_tools: ^0.2.0
   permission_handler: ^13.0.1
   signal_viewer: ^0.1.0
-  xml: ^6.5.0
+  xml: ^7.1.0
 
 dev_dependencies:
   flutter_lints: ^6.0.0

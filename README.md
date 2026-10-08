@@ -47,13 +47,13 @@ line tool) · [Website](https://nexusdynamic.org/liblsl.dart/) ·
 
 | Package | What it is |
 | --- | --- |
-| [liblsl](./packages/liblsl) [![Pub Version](https://img.shields.io/pub/v/liblsl)](https://pub.dev/packages/liblsl) [![status](https://joss.theoj.org/papers/2d813b551058e59edacefd35ea281e40/status.svg)](https://joss.theoj.org/papers/2d813b551058e59edacefd35ea281e40) [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20340247.svg)](https://doi.org/10.5281/zenodo.20340247) | Dart/Flutter bindings for liblsl, with full parity with the C library ([JOSS paper](./packages/liblsl/paper/paper.md)) |
+| [liblsl](./packages/liblsl) [![Pub Version](https://img.shields.io/pub/v/liblsl)](https://pub.dev/packages/liblsl) [![status](https://joss.theoj.org/papers/2d813b551058e59edacefd35ea281e40/status.svg)](https://joss.theoj.org/papers/2d813b551058e59edacefd35ea281e40) [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20340247.svg)](https://doi.org/10.5281/zenodo.20340247) | Dart/Flutter bindings for liblsl, with full parity with the C library ([JOSS paper](./packages/liblsl/paper/paper.md), [benchmark history](https://nexusdynamic.org/liblsl.dart/dev/bench/)) |
 | [xdf](./packages/xdf) [![Pub Version](https://img.shields.io/pub/v/xdf)](https://pub.dev/packages/xdf) | Read and write XDF files in pure Dart (all platforms, including the web); pyxdf's algorithms, tested against pyxdf |
 | [signal_core](./packages/signal_core) [![Pub Version](https://img.shields.io/pub/v/signal_core)](https://pub.dev/packages/signal_core) | Format-agnostic multichannel signal engine (summary pyramids, filters) behind the viewer and `xdf` |
 | [lsl_tools](./packages/lsl_tools) | Record to XDF, the WebSocket bridge/relay, test outlets, and the `lsl` command line tool |
 | [lsl_viewer](./apps/lsl_viewer) | The LSL Viewer app, built from `signal_viewer` and its `_lsl`, `_xdf` and `_serial` source providers |
-| [liblsl_test](./packages/liblsl_test) | Integration tests to try liblsl with Flutter on any platform |
-| [liblsl_timing](./packages/liblsl_timing) / [liblsl_analysis](./packages/liblsl_analysis) | Multi-device latency, sync and timing tests, and their analysis |
+| [liblsl_test](./apps/liblsl_test) | Integration tests to try liblsl with Flutter on any platform |
+| [transport_timing](./apps/transport_timing) / [transport_timing_analysis](./apps/transport_timing_analysis) / [timing_core](./packages/timing_core) | Multi-device latency, jitter, loss and clock drift tests over LSL, WebSocket and WebRTC, and their analysis |
 | [peer_coordinator](./packages/peer_coordinator), [liblsl_coordinator](./packages/liblsl_coordinator), [webrtc_coordinator](./packages/webrtc_coordinator) | Coordinating experiments across devices (LSL, WebSocket hub, WebRTC) |
 
 ## Getting Started

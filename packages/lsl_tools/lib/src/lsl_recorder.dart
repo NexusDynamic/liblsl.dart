@@ -83,6 +83,27 @@ class LslRecorder {
       }
       rethrow;
     }
+    return fromInlets(
+      inlets,
+      sink,
+      where: where,
+      pullInterval: pullInterval,
+      offsetInterval: offsetInterval,
+      boundaryInterval: boundaryInterval,
+    );
+  }
+
+  /// Record [inlets] that are open already (bridge inlets, say) to [sink].
+  /// They should give raw time stamps, as [inletOptions] asks of LSL: the
+  /// file then holds them with each inlet's clock offsets beside them.
+  static LslRecorder fromInlets(
+    List<LslInlet> inlets,
+    Sink<List<int>> sink, {
+    String where = '',
+    Duration pullInterval = const Duration(milliseconds: 100),
+    Duration offsetInterval = const Duration(seconds: 5),
+    Duration boundaryInterval = const Duration(seconds: 10),
+  }) {
     final now = DateTime.now().toUtc();
     final writer = XdfWriter(sink, header: {'datetime': now.toIso8601String()});
     final recorded = <LslRecordedStream>[];
@@ -134,7 +155,9 @@ class LslRecorder {
       if (s.error != null) continue;
       try {
         final offset = await s.inlet.timeCorrection();
-        _writer.writeClockOffset(s.id, lsl.clock(), offset);
+        // On the stream's clock, as LabRecorder writes it: readers evaluate
+        // the offsets at the stream's time stamps.
+        _writer.writeClockOffset(s.id, lsl.clock() - offset, offset);
         s.offsets++;
       } catch (_) {
         // No offset now (e.g. the sender is gone for a moment).

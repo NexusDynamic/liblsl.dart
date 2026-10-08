@@ -1,3 +1,28 @@
+## 0.4.0
+
+- Participant outlet with no consumers for `nodeTimeout` is considered as dropped.
+- `ClockModel.hop` throws a `StateError` before the first estimate
+- New `NetworkStream.inletHealth`, a stream of `InletHealth`: a transport
+  reports here when its receiving end for one peer stops working by itself,
+  and when it works again.
+- New `ClockHop`: offset, drift, error bound, latency, jitter per hop, `ClockChain`
+  with the totals, similar to `lsl_time_correction_ex`, both have an additional `held` 
+  property to report the time between receiving and sending a sample (e.g. polling).
+- New `ClockModel` (a drift fit over recent `ClockOffsetEstimate`s),
+  `TimestampSmoother` (liblsl's `proc_dejitter`) and `LatencyWindow`.
+- `ClockSyncService.onEstimate`: called with each accepted estimate.
+- `PeerClockOffsets.estimates`: every accepted estimate as a broadcast stream
+  of `ClockSyncSample`. Now WebRTC and WebSocket transports can report offsets
+  similar to `liblsl`
+- `DataStream.sendDataAt` and `DataStream.upstream` pass a sample on with its
+  origin's timestamp and hop chain
+- `WsSampleFrame.kindRelayed` marks multi-hop samples, and an unavailable
+   chain is reported as unknown.
+- Fix: participant devices that were evicted due to something like a device
+  sleeping were unable to rejoin
+- For participant outlets in LSL, if an outlet does not have consumers for `nodeTimeout` considers
+  the coordinator as lost
+
 ## 0.3.1
 
 - New `ClockSyncSample`: one clock-offset estimate for one peer — `offset`,

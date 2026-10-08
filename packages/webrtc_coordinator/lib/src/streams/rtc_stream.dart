@@ -170,7 +170,7 @@ mixin RtcStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
       if (message != null) _incoming.add(message);
       return;
     }
-    final message = decodeControlPayload(payload);
+    final message = decodeControlPayload(payload, peerNodeUId);
     if (message != null) _incoming.add(message);
   }
 
@@ -182,8 +182,9 @@ mixin RtcStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
   /// table.
   M? decodeSample(Uint8List frame, String fromNodeUId) => null;
 
-  /// Builds a message from a control payload. Null for streams that carry none.
-  M? decodeControlPayload(Object payload);
+  /// Builds a message from a control payload sent by [fromNodeUId]. Null for
+  /// payloads that are not messages.
+  M? decodeControlPayload(Object payload, String fromNodeUId);
 
   @override
   Future<void> createOutlet() async {
@@ -352,15 +353,18 @@ mixin RtcStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
     if (_disposed || !_started || paused || !_publishing) return null;
     final payload = encodeForWire(message);
     _broadcast(payload);
-    if (_selfSubscribed) _loopback(() => decodeControlPayload(payload));
+    if (_selfSubscribed) {
+      _loopback(() => decodeControlPayload(payload, streamNode.uId));
+    }
     return null;
   }
 
   /// Wire form of [message] for the control path.
   String encodeForWire(M message);
 
-  /// Publishes a sample using the shared binary framing.
-  void publishSample(List<Object?> channels) {
+  /// Publishes a sample using the shared binary framing. With [sourceClock]
+  /// it is one passed on from elsewhere, stamped by its origin.
+  void publishSample(List<Object?> channels, {double? sourceClock}) {
     if (_disposed || !_started || paused) return;
     final frame = WsSampleFrame.encode(
       dataType: config.dataType,
@@ -372,8 +376,11 @@ mixin RtcStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
       // PeerClock, not DateTime.now(): the receiver reads this to measure
       // transit, and a wall clock can be stepped by NTP mid-session, which
       // would surface as a latency spike that never happened.
-      senderMicros: PeerClock.nowMicros().toDouble(),
+      senderMicros: sourceClock == null
+          ? PeerClock.nowMicros().toDouble()
+          : sourceClock * 1e6,
       channels: channels,
+      relayed: sourceClock != null,
     );
     _broadcast(frame);
     if (_selfSubscribed) {
@@ -463,7 +470,7 @@ class RtcCoordinationStream
   String encodeForWire(StringMessage message) => message.data.first;
 
   @override
-  StringMessage? decodeControlPayload(Object payload) {
+  StringMessage? decodeControlPayload(Object payload, String fromNodeUId) {
     if (payload is! String) return null;
     return MessageFactory.stringMessage(
       data: IList([payload]),
@@ -508,6 +515,16 @@ class RtcDataStream extends DataStream<DataStreamConfig, IMessage>
   /// across every stream on this transport.
   final PeerClockOffsets? clockOffsets;
 
+  /// The estimates behind [MessageTiming.clockOffset], for the peers this
+  /// stream receives from. They are made once per peer for the whole
+  /// transport, so every stream with an inlet on a peer reports the same.
+  @override
+  Stream<ClockSyncSample> get clockSyncs =>
+      clockOffsets?.estimates.where(
+        (sync) => _subscribedPeers.contains(sync.sourceId),
+      ) ??
+      const Stream.empty();
+
   @override
   final bool channelOrdered;
 
@@ -541,19 +558,66 @@ class RtcDataStream extends DataStream<DataStreamConfig, IMessage>
   }
 
   @override
+  bool get relaysSourceClock => true;
+
+  @override
+  Future<void> sendDataAt(double sourceClock, Iterable<dynamic> data) async {
+    if (!started) throw StateError('Stream not started');
+    config.validateSample(data);
+    publishSample(data.toList(growable: false), sourceClock: sourceClock);
+  }
+
+  ClockChain _upstream = ClockChain.empty;
+
+  /// The chain each producer last sent for the samples it passes on.
+  final Map<String, ClockChain> _upstreams = {};
+
+  @override
+  ClockChain get upstream => _upstream;
+
+  @override
+  set upstream(ClockChain chain) {
+    _upstream = chain;
+    // Our own samples loop back without crossing a channel.
+    _upstreams[streamNode.uId] = chain;
+    if (!started || paused) return;
+    _broadcast(jsonEncode({_clockKey: chain.toJson()}));
+  }
+
+  /// A JSON object under this key is a producer's [upstream]. Samples are
+  /// binary, so nothing else on a data stream's channel is text.
+  static const _clockKey = 'clock';
+
+  @override
   IMessage? decodeSample(Uint8List frame, String fromNodeUId) {
     final channels = WsSampleFrame.decodeChannels(frame, config.channels);
     final timestamp = DateTime.now();
     final offsets = clockOffsets;
+    final sourceClock = WsSampleFrame.senderMicrosOf(frame) / 1e6;
+    // Null until the estimator has accepted a burst for this peer, which
+    // keeps transitSeconds null rather than reporting the difference of two
+    // unrelated monotonic clocks.
+    var clockOffset = offsets?.offsetFor(fromNodeUId);
+    var uncertainty = offsets?.uncertaintyFor(fromNodeUId);
+    ClockChain? upstream;
+    if (WsSampleFrame.isRelayed(frame)) {
+      // Stamped by its origin: the way from there to the sender comes first,
+      // and until the sender has said what it is the offset is unknown.
+      upstream = _upstreams[fromNodeUId];
+      clockOffset = upstream == null || clockOffset == null
+          ? null
+          : upstream.offsetAt(sourceClock) + clockOffset;
+      uncertainty = upstream == null || uncertainty == null
+          ? null
+          : upstream.uncertainty + uncertainty;
+    }
     final timing = MessageTiming(
-      sourceClock: WsSampleFrame.senderMicrosOf(frame) / 1e6,
-      // Null until the estimator has accepted a burst for this peer, which
-      // keeps transitSeconds null rather than reporting the difference of two
-      // unrelated monotonic clocks.
-      clockOffset: offsets?.offsetFor(fromNodeUId),
-      uncertainty: offsets?.uncertaintyFor(fromNodeUId),
+      sourceClock: sourceClock,
+      clockOffset: clockOffset,
+      uncertainty: uncertainty,
       receivedClock: PeerClock.now(),
       sourceId: fromNodeUId,
+      upstream: upstream,
     );
     switch (config.dataType) {
       case StreamDataType.float32:
@@ -587,8 +651,21 @@ class RtcDataStream extends DataStream<DataStreamConfig, IMessage>
   @override
   String encodeForWire(IMessage message) => jsonEncode(message.data.toList());
 
+  /// The only control payload a data stream carries is a producer's
+  /// [upstream], which is noted here and is not a message.
   @override
-  IMessage? decodeControlPayload(Object payload) => null;
+  IMessage? decodeControlPayload(Object payload, String fromNodeUId) {
+    if (payload is! String) return null;
+    try {
+      final json = jsonDecode(payload);
+      if (json is Map && json.containsKey(_clockKey)) {
+        _upstreams[fromNodeUId] = ClockChain.fromJson(json[_clockKey]);
+      }
+    } on FormatException {
+      // Not ours; a peer cannot be trusted to send well-formed JSON.
+    }
+    return null;
+  }
 }
 
 /// Builds WebRTC streams for a session.

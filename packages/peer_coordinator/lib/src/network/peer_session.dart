@@ -631,6 +631,7 @@ class PeerSession extends CoordinationSession with InstanceUID {
 
       await stream.create();
       _dataStreams[config.name] = stream;
+      _controller.watchStreamReceiveHealth(stream);
 
       logger.info('Created data stream: ${config.name}');
       return stream;

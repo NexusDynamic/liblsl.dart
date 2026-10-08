@@ -12,11 +12,14 @@
 /// each other with [uniqueSessionName].
 library;
 
+import 'dart:io' show Platform;
+
 import 'package:liblsl_coordinator/liblsl_coordinator.dart';
 // Re-exports package:liblsl/lsl.dart, which is where LSL/LSLApiConfig come
 // from. That re-export is itself part of what couples callers to the LSL
 // backend; it is scheduled to be narrowed when the transport is split out.
 import 'package:liblsl_coordinator/transports/lsl.dart';
+import 'package:logging/logging.dart';
 
 /// Multicast group used by the coordination tests.
 ///
@@ -44,6 +47,20 @@ String uniqueSessionName([String prefix = 'CoordTest']) {
 ///
 /// Call once, at the top of `main()`, before any test body runs.
 void useLoopbackLsl({String Function()? sessionName}) {
+  // For finding out why a run failed: `COORD_TEST_LOG=FINE dart test ...`
+  // prints what this isolate's coordination layer logged, at that level and
+  // above. The stream workers log in isolates of their own and are not in it.
+  final logLevel = Platform.environment['COORD_TEST_LOG'];
+  if (logLevel != null) {
+    Logger.root.level = Level.LEVELS.firstWhere(
+      (l) => l.name == logLevel.toUpperCase(),
+      orElse: () => Level.FINE,
+    );
+    Logger.root.onRecord.listen(
+      // ignore: avoid_print
+      (r) => print('${r.time} ${r.level.name} ${r.loggerName}: ${r.message}'),
+    );
+  }
   _lslApiConfig = LSLApiConfig(
     // Pin everything to loopback so tests never touch a real network.
     ipv6: IPv6Mode.disable,
@@ -112,6 +129,7 @@ CoordinationConfig testCoordinationConfig({
   required String sessionName,
   int maxNodes = 3,
   bool consumeCoordinationStreamAsCoordinator = false,
+  bool eventDrivenInlets = false,
 }) => CoordinationConfig(
   name: 'liblsl_coordinator_test',
   sessionConfig: testSessionConfig(
@@ -131,6 +149,7 @@ CoordinationConfig testCoordinationConfig({
   transportConfig: LSLTransportConfig(
     lslApiConfig: _lslApiConfig,
     coordinationFrequency: 50.0,
+    eventDrivenInlets: eventDrivenInlets,
   ),
 );
 

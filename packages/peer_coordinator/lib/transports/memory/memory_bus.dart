@@ -36,6 +36,7 @@ class InMemoryBus {
   InMemoryBus({
     this.latency = Duration.zero,
     this.dropRate = 0.0,
+    this.consumerPresenceInterval,
     Random? random,
   }) : _random = random ?? Random(),
        assert(dropRate >= 0.0 && dropRate <= 1.0);
@@ -46,6 +47,11 @@ class InMemoryBus {
 
   /// Fraction of messages to drop, for fault-injection tests.
   final double dropRate;
+
+  /// How often a stream checks whether anyone is subscribed to it, to report
+  /// `NetworkStream.outletConsumerPresence` as the LSL transport does. Null
+  /// (the default) reports nothing, like a relay that cannot tell.
+  final Duration? consumerPresenceInterval;
 
   final Random _random;
 

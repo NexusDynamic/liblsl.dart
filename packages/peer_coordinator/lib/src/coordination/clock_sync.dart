@@ -21,6 +21,7 @@ library;
 import 'dart:async';
 import 'dart:math';
 
+import 'package:peer_coordinator/src/data/clock_sync_sample.dart';
 import 'package:peer_coordinator/src/util/peer_clock.dart';
 
 /// One accepted estimate of a peer's clock relative to ours.
@@ -288,8 +289,28 @@ final class PeerClockOffsets {
   /// Peers with an accepted estimate.
   Iterable<String> get peers => _byPeer.keys;
 
-  void set(String peerUId, ClockOffsetEstimate estimate) =>
-      _byPeer[peerUId] = estimate;
+  final StreamController<ClockSyncSample> _estimates =
+      StreamController<ClockSyncSample>.broadcast();
+
+  /// Every estimate as it is accepted, for whichever peer.
+  ///
+  /// The table itself only holds the latest; this is the series, which is
+  /// what shows how a peer's clock drifts. A broadcast stream: it buffers
+  /// nothing for a listener that is not there.
+  Stream<ClockSyncSample> get estimates => _estimates.stream;
+
+  void set(String peerUId, ClockOffsetEstimate estimate) {
+    _byPeer[peerUId] = estimate;
+    _estimates.add(
+      ClockSyncSample(
+        sourceId: peerUId,
+        offset: estimate.offset,
+        remoteTime: estimate.remoteTime,
+        uncertainty: estimate.uncertainty,
+        receivedClock: estimate.sampledAt,
+      ),
+    );
+  }
 
   void remove(String peerUId) => _byPeer.remove(peerUId);
 
@@ -305,6 +326,7 @@ final class ClockSyncService {
   ClockSyncService({
     required this.sendProbe,
     required this.offsets,
+    this.onEstimate,
     ClockSyncConfig? config,
     Random? random,
   }) : config = config ?? const ClockSyncConfig(),
@@ -317,6 +339,10 @@ final class ClockSyncService {
 
   /// Where accepted estimates are published for readers to pick up.
   final PeerClockOffsets offsets;
+
+  /// Called with each accepted estimate, for a reader that wants the series
+  /// (to fit drift with a [ClockModel], say) rather than the latest value.
+  final void Function(String peerUId, ClockOffsetEstimate estimate)? onEstimate;
 
   final ClockSyncConfig config;
   final Random _random;
@@ -396,7 +422,9 @@ final class ClockSyncService {
       Timer(config.aggregateAfter, () {
         if (_disposed || estimator.waveId != waveId) return;
         final estimate = estimator.aggregate();
-        if (estimate != null) offsets.set(peerUId, estimate);
+        if (estimate == null) return;
+        offsets.set(peerUId, estimate);
+        onEstimate?.call(peerUId, estimate);
       }),
     );
 

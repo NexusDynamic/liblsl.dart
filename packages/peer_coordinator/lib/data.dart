@@ -1,3 +1,4 @@
+export 'src/data/clock_hop.dart';
 export 'src/data/clock_sync_sample.dart';
 export 'src/data/message.dart';
 export 'src/data/message_timing.dart';

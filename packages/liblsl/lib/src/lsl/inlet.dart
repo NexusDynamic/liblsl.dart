@@ -10,6 +10,7 @@ import 'package:liblsl/src/lsl/base.dart';
 import 'package:liblsl/src/lsl/binary_string.dart';
 import 'package:liblsl/src/lsl/isolate_manager.dart';
 import 'package:liblsl/src/lsl/lsl_io_mixin.dart';
+import 'package:liblsl/src/lsl/sample_listener.dart';
 import 'package:liblsl/src/util/chunk_buffer.dart';
 
 /// A unified LSL inlet that supports both isolated and direct execution modes.
@@ -224,6 +225,13 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
       return; // Already destroyed
     }
     super.destroy();
+    // A listener's isolate is inside a pull on this inlet. It has to be out
+    // before the inlet is freed, whether or not its subscription was
+    // cancelled first.
+    await Future.wait([
+      for (final stop in _listeners.toList(growable: false))
+        stop('The inlet was destroyed while this stream was listened to'),
+    ]);
     // Clean up resources
     if (_useIsolates) {
       await _isolateManagerBang.sendMessage(
@@ -268,6 +276,167 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
       ? _pullSampleIsolated(timeout)
       : Future.value(_pullSampleDirect(timeout));
 
+  /// Samples as they arrive, each with the local clock at the moment it
+  /// became available, with no polling in between. See [chunkStream] for
+  /// streams too fast or too wide for a message per sample.
+  ///
+  /// Available in both modes. With `useIsolates: true` the inlet's own
+  /// isolate goes on serving time correction and stream info, but must not
+  /// be asked to pull or flush while this is listened to.
+  ///
+  /// Pulling is how an inlet learns of new samples, so a loop that pulls
+  /// with a zero timeout sees each one up to a poll interval late, and that
+  /// delay is in any latency it measures. This instead gives the inlet an
+  /// isolate that waits inside `lsl_pull_sample`; liblsl wakes it when a
+  /// sample is queued, and it reads `lsl_local_clock()` as the call returns
+  /// ([LSLTimedSample.receivedClock]) before handing the sample over. How
+  /// soon a listener then runs is up to its own isolate's event loop, but
+  /// the receive time is already taken.
+  ///
+  /// The isolate starts when the stream is listened to and stops when the
+  /// subscription is cancelled. [wakeInterval] is how long, in seconds, that
+  /// can take. Destroying the inlet stops it too, and the stream then ends
+  /// with an [LSLSampleListenerException]. While listening, pulling from or
+  /// flushing this inlet anywhere else throws an [LSLException]: an inlet's
+  /// samples have one reader. Time correction calls are unaffected.
+  ///
+  /// **A listener that does not keep up.** The isolate hands samples over
+  /// as fast as they arrive, whatever the listener does with them, so by
+  /// default nothing is ever held back or lost and
+  /// [LSLTimedSample.receivedClock] is always the arrival; a listener that
+  /// is slower than the stream then has a queue that grows without limit.
+  /// That is reported: when more than [backlogWarnAt] samples are queued
+  /// (by default one second of the stream, and at least 1000), [onBacklog]
+  /// is called, at most once a second, and once more when the queue is back
+  /// under half of that. Without [onBacklog] it is logged as a warning by
+  /// the `liblsl` logger of `package:logging`. The count is of samples on
+  /// their way to the stream; what a paused subscription buffers, or a
+  /// listener's own unfinished futures, is not in it.
+  ///
+  /// With [maxBacklog] the isolate stops pulling while that many samples
+  /// are queued, and while the subscription is paused. What arrives then
+  /// waits in the inlet's buffer, which is bounded (`maxBuffer`, where
+  /// liblsl drops the oldest when it is full), so memory is too. The price
+  /// is in the receive clock, which for a sample that waited there is when
+  /// it was taken out rather than when it arrived: leave [maxBacklog] unset
+  /// when measuring latency.
+  ///
+  /// The stream closes without an error only when it was cancelled. If the
+  /// isolate ends for any other reason, the stream delivers an
+  /// [LSLSampleListenerException] and then closes, so listen with `onError`
+  /// (and `onDone`): after that the inlet is no longer being read. Listening
+  /// again starts a new isolate. [debugFailAfter] is for tests: the isolate
+  /// throws after that many samples.
+  ///
+  /// ```dart
+  /// final inlet = await LSL.createInlet<double>(streamInfo: info, useIsolates: false);
+  /// final subscription = inlet.sampleStream().listen((sample) {
+  ///   final latency = sample.receivedClock - (sample.timestamp + offset);
+  /// });
+  /// // ...
+  /// await subscription.cancel();
+  /// await inlet.destroy();
+  /// ```
+  Stream<LSLTimedSample<T>> sampleStream({
+    double wakeInterval = 0.1,
+    int? maxBacklog,
+    int? backlogWarnAt,
+    void Function(LSLBacklog backlog)? onBacklog,
+    int? debugFailAfter,
+  }) => listenToInlet<T>(
+    inletAddress: _listenAddress,
+    streamInfoAddress: streamInfo.streamInfo.address,
+    wakeInterval: wakeInterval,
+    maxBacklog: maxBacklog,
+    backlogWarnAt: backlogWarnAt ?? _defaultBacklogWarnAt,
+    onBacklog: onBacklog,
+    onStarted: _listeners.add,
+    onEnded: _listeners.remove,
+    debugFailAfter: debugFailAfter,
+  );
+
+  /// Samples as they arrive, in chunks, without polling.
+  ///
+  /// As [sampleStream], with the same isolate, rules and way of ending, but
+  /// every time the isolate is woken it hands over all that is waiting as
+  /// one [LSLTimedChunk] of at most [maxSamples] samples, as flat typed data
+  /// (or strings). One message per wake rather than one per sample is what
+  /// makes this usable for fast, wide streams.
+  ///
+  /// A sender that does not chunk wakes the isolate once per sample. With
+  /// [coalesce] (seconds) above zero the isolate goes on collecting for that
+  /// long after the first sample, which bounds how often it delivers at the
+  /// cost of that much latency. [LSLTimedChunk.receivedClock] is the arrival
+  /// of the first sample either way, and [LSLTimedChunk.readyCount] says how
+  /// many of the chunk's samples were there by then.
+  ///
+  /// [maxBacklog], [backlogWarnAt] and [onBacklog] are as for [sampleStream]
+  /// and count samples, not chunks.
+  ///
+  /// ```dart
+  /// final subscription = inlet.chunkStream(coalesce: 0.005).listen((chunk) {
+  ///   final values = chunk.data as Float32List;
+  /// });
+  /// // ...
+  /// await subscription.cancel();
+  /// await inlet.destroy();
+  /// ```
+  Stream<LSLTimedChunk> chunkStream({
+    double wakeInterval = 0.1,
+    int maxSamples = 1024,
+    double coalesce = 0,
+    int? maxBacklog,
+    int? backlogWarnAt,
+    void Function(LSLBacklog backlog)? onBacklog,
+    int? debugFailAfter,
+  }) => listenToInletChunks(
+    inletAddress: _listenAddress,
+    streamInfoAddress: streamInfo.streamInfo.address,
+    wakeInterval: wakeInterval,
+    maxSamples: maxSamples,
+    coalesce: coalesce,
+    maxBacklog: maxBacklog,
+    backlogWarnAt: backlogWarnAt ?? _defaultBacklogWarnAt,
+    onBacklog: onBacklog,
+    onStarted: _listeners.add,
+    onEnded: _listeners.remove,
+    debugFailAfter: debugFailAfter,
+  );
+
+  /// The running [sampleStream] and [chunkStream] listeners, by how each is
+  /// stopped.
+  final Set<LSLListenerStop> _listeners = {};
+
+  /// One second of the stream, and at least 1000 samples.
+  int get _defaultBacklogWarnAt {
+    final rate = streamInfo.sampleRate;
+    return rate.isFinite && rate > 1000 ? rate.ceil() : 1000;
+  }
+
+  /// Throws if a [sampleStream] or [chunkStream] is reading this inlet: its
+  /// queue has one reader, and a second would take or drop samples under the
+  /// first.
+  @pragma('vm:prefer-inline')
+  void _requireNotListening() {
+    if (_listeners.isNotEmpty) {
+      throw LSLException(
+        'The inlet is being read by a sampleStream or chunkStream; cancel '
+        'its subscription before pulling or flushing',
+      );
+    }
+  }
+
+  /// The native inlet for [sampleStream] and [chunkStream]. In isolate mode
+  /// it lives in the inlet's own isolate, which reported where; the handle
+  /// itself is good in any isolate of the process.
+  int get _listenAddress {
+    if (!_useIsolates) return _inletBang.address;
+    return _isolatedInletAddress ??
+        (throw LSLException('Inlet not initialized'));
+  }
+
+  int? _isolatedInletAddress;
+
   /// Synchronously pulls a sample from the inlet.
   ///
   /// **Direct mode only** - throws [LSLException] if `useIsolates: true`.
@@ -302,6 +471,7 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// **Returns:** An [LSLSample] of [Uint8List]; empty (timestamp 0) if no
   /// sample arrived within [timeout].
   Future<LSLSample<Uint8List>> pullSampleBytes({double timeout = 0.0}) async {
+    _requireNotListening();
     if (!_useIsolates) {
       return _pullSampleBytesDirect(timeout);
     }
@@ -342,6 +512,7 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
     int maxSamples = 512,
     double timeout = 0.0,
   }) async {
+    _requireNotListening();
     if (!_useIsolates) {
       return _pullChunkBytesDirect(maxSamples, timeout);
     }
@@ -432,6 +603,7 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
     int maxSamples = 512,
     double timeout = 0.0,
   }) => requireDirect(() {
+    _requireNotListening();
     final pullFn = _ensurePullChunkFn();
     final buf = _ensureChunkBuffer(maxSamples);
     final channels = streamInfo.channelCount;
@@ -622,11 +794,15 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// - Direct mode: Immediate FFI call wrapped in Future
   ///   [lsl_inlet_flush]
   /// **Returns:** Number of samples dropped during flush.
-  Future<int> flush() => _useIsolates
-      ? _flushIsolated()
-      : Future.value(lslInletFlushFast(_inletBang));
+  Future<int> flush() =>
+      _useIsolates ? _flushIsolated() : Future.sync(_flushDirect);
 
-  int flushSync() => requireDirect(() => lslInletFlushFast(_inletBang));
+  int flushSync() => requireDirect(_flushDirect);
+
+  int _flushDirect() {
+    _requireNotListening();
+    return lslInletFlushFast(_inletBang);
+  }
 
   /// Checks how many samples are available in the inlet's buffer.
   /// **Execution:**
@@ -765,6 +941,8 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
       _tcScratch = null;
       throw LSLException('Error creating inlet: ${response.error}');
     }
+    final created = response.result;
+    if (created is Map) _isolatedInletAddress = created['inletAddress'] as int?;
 
     return this;
   }
@@ -778,6 +956,7 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// **Throws:** [LSLException] if pulling the sample fails.
   /// **See also:** [pullSampleSync] for zero-overhead direct calls
   Future<LSLSample<T>> _pullSampleIsolated(double timeout) async {
+    _requireNotListening();
     final response = await _isolateManagerBang.sendMessage(
       LSLMessage(LSLMessageType.pullSample, {
         'timeout': timeout,
@@ -805,6 +984,7 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// **See also:** [pullSample] for async operations
   /// **Note:** This method is only available when `useIsolates: false`.
   LSLSample<T> _pullSampleDirect(double timeout) {
+    _requireNotListening();
     final LSLSamplePointer samplePointer = _pullFn.pullSampleIntoSync(
       _bufferBang.buffer,
       _inletBang,
@@ -830,6 +1010,7 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// **Throws:** [LSLException] if pulling the sample fails.
   /// **Note:** This method is only available when `useIsolates: false`.
   LSLSamplePointer pullSamplePointerSync({double timeout = 0.0}) {
+    _requireNotListening();
     return _pullFn.pullSampleIntoSync(
       _bufferBang.buffer,
       _inletBang,
@@ -914,6 +1095,7 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   }
 
   LSLSample<Uint8List> _pullSampleBytesDirect(double timeout) {
+    _requireNotListening();
     final buf = _binarySampleBuffer();
     try {
       final timestamp = lslPullSampleBinary(_inletBang, buf, timeout);
@@ -924,6 +1106,7 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   }
 
   LSLChunk<Uint8List> _pullChunkBytesDirect(int maxSamples, double timeout) {
+    _requireNotListening();
     final buf = _binaryChunkBuffer(maxSamples);
     try {
       final elements = lslPullChunkBinary(
@@ -954,6 +1137,7 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   }
 
   LSLChunk<T> _pullChunkDirect(int maxSamples, double timeout) {
+    _requireNotListening();
     final pullFn = _ensurePullChunkFn();
     final buf = _ensureChunkBuffer(maxSamples);
     final channels = streamInfo.channelCount;
@@ -970,6 +1154,7 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   }
 
   LSLChunkTyped _pullChunkTypedDirect(int maxSamples, double timeout) {
+    _requireNotListening();
     final pullFn = _ensurePullChunkFn();
     final buf = _ensureChunkBuffer(maxSamples);
     final channels = streamInfo.channelCount;
@@ -1029,6 +1214,7 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   }
 
   Future<LSLChunk<T>> _pullChunkIsolated(int maxSamples, double timeout) async {
+    _requireNotListening();
     final pullFn = _ensurePullChunkFn();
     final buf = _ensureChunkBuffer(maxSamples);
     final sampleCount = await _sendPullChunkMessage(buf, maxSamples, timeout);
@@ -1039,6 +1225,7 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
     int maxSamples,
     double timeout,
   ) async {
+    _requireNotListening();
     final pullFn = _ensurePullChunkFn();
     final buf = _ensureChunkBuffer(maxSamples);
     final sampleCount = await _sendPullChunkMessage(buf, maxSamples, timeout);
@@ -1087,6 +1274,7 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// **Throws:** [LSLException] if flushing the inlet fails.
   /// **See also:** [flushSync] for direct calls
   Future<int> _flushIsolated() async {
+    _requireNotListening();
     final response = await _isolateManagerBang.sendMessage(
       LSLMessage(LSLMessageType.flush, {}),
     );

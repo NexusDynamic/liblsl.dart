@@ -1,3 +1,4 @@
+export 'src/coordination/clock_model.dart';
 export 'src/coordination/clock_sync.dart';
 export 'src/coordination/controller_events.dart';
 export 'src/coordination/coordinator_state.dart';

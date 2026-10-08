@@ -9,6 +9,7 @@ library;
 import 'lsl_stub.dart' if (dart.library.ffi) 'lsl_native.dart' as platform;
 import 'lsl_types.dart';
 
+export 'lsl_receive.dart';
 export 'lsl_types.dart';
 
 /// This platform's LSL.

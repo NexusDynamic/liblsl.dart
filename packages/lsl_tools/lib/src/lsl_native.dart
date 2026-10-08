@@ -1,6 +1,9 @@
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:liblsl/lsl.dart';
+import 'package:peer_coordinator/coordination.dart'
+    show ClockModel, ClockOffsetEstimate, LatencyWindow;
 
 import 'lsl_types.dart';
 
@@ -91,10 +94,14 @@ class _NativeLsl implements LslBackend {
     } catch (_) {
       // No metadata (e.g. the outlet is gone again): default labels.
     }
-    return _Inlet(stream, channels, inlet, [
-      info,
-      ?full,
-    ], full == null ? '' : _xmlOf(full));
+    return _Inlet(
+      stream,
+      channels,
+      inlet,
+      [info, ?full],
+      full == null ? '' : _xmlOf(full),
+      synced: options.clockSync,
+    );
   }
 
   @override
@@ -256,7 +263,7 @@ class _Discovery implements LslDiscovery {
   }
 }
 
-class _Inlet implements LslInlet {
+class _Inlet implements LslInlet, LslArrivals {
   @override
   final LslStreamDescription stream;
   @override
@@ -268,10 +275,120 @@ class _Inlet implements LslInlet {
   @override
   final String fullXml;
 
-  _Inlet(this.stream, this.channels, this._inlet, this._infos, this.fullXml);
+  /// Whether liblsl puts time stamps on this computer's clock already.
+  final bool synced;
+  final _model = ClockModel();
+  final _latency = LatencyWindow();
+  final _held = LatencyWindow();
+  double _measuredAt = double.nan;
+
+  _Inlet(
+    this.stream,
+    this.channels,
+    this._inlet,
+    this._infos,
+    this.fullXml, {
+    required this.synced,
+  });
 
   @override
-  Future<double> timeCorrection() => _inlet.getTimeCorrection(timeout: 2);
+  Future<double> timeCorrection() async => (await timeCorrectionEx()).offset;
+
+  @override
+  Future<LslTimeCorrection> timeCorrectionEx() async {
+    final c = await _inlet.getTimeCorrectionEx(timeout: 2);
+    // liblsl measures every few seconds; the same answer in between.
+    if (c.remoteTime != _measuredAt) {
+      _measuredAt = c.remoteTime;
+      _model.add(
+        ClockOffsetEstimate(
+          offset: c.offset,
+          uncertainty: c.uncertainty,
+          remoteTime: c.remoteTime,
+          sampledAt: LSL.localClock(),
+        ),
+      );
+    }
+    return LslTimeCorrection(
+      offset: c.offset,
+      uncertainty: c.uncertainty,
+      remoteTime: c.remoteTime,
+    );
+  }
+
+  @override
+  Future<ClockChain> chain() async {
+    await timeCorrectionEx();
+    return ClockChain([
+      _model.hop(
+        node: Platform.localHostname,
+        via: 'lsl',
+        latency: _latency.mean,
+        jitter: _latency.jitter,
+        held: _held.mean,
+      ),
+    ]);
+  }
+
+  /// A chunk whose sample at [at] became available at [received], and
+  /// which is being handed on at [handed]. [arrived] is how long after
+  /// [received] its samples arrived, on average (negative if before).
+  LslChunk _chunk(
+    Float64List times, {
+    List<double>? values,
+    List<String>? strings,
+    required double received,
+    required double at,
+    required double handed,
+    required double arrived,
+    bool measure = true,
+  }) {
+    if (!measure) {
+      return LslChunk(
+        times,
+        values: values,
+        strings: strings,
+        received: received,
+      );
+    }
+    if (synced) {
+      _latency.add(received - at);
+    } else if (_model.ready) {
+      _latency.add(received - at - _model.offsetAt(at));
+    }
+    // How long its samples waited here, on average: all of them leave now.
+    // The latency above, of the sample that waited least, does not show it.
+    _held.add(handed - received - arrived);
+    return LslChunk(
+      times,
+      values: values,
+      strings: strings,
+      received: received,
+    );
+  }
+
+  /// For a chunk collected on a timer: when its samples arrived, on
+  /// average, relative to the last. Nothing says when they did, so each is
+  /// taken to have arrived as long before the last as its time stamp is
+  /// before the last's, which makes the wait half the chunk's span. A
+  /// sender that pushes chunks delivers them together instead, and its
+  /// chunking then counts as waiting here.
+  static double _arrivedBeforeLast(Float64List times) =>
+      (times.first - times.last) / 2;
+
+  /// Numeric values as the viewer wants them: floats as they are, integers
+  /// as doubles (exact up to 2^53).
+  static List<double> _values(Object data, int n) {
+    if (data is Float32List || data is Float64List) {
+      return data as List<double>;
+    }
+    final f = Float64List(n);
+    final src = data as List<num>;
+    for (var i = 0; i < n; i++) {
+      f[i] = src[i].toDouble();
+    }
+    return f;
+  }
 
   @override
   Future<LslChunk> pull(int maxSamples) async {
@@ -279,31 +396,80 @@ class _Inlet implements LslInlet {
     if (stream.format.isString) {
       final c = await _inlet.pullChunk(maxSamples: maxSamples);
       if (c.isEmpty) return LslChunk.empty;
-      return LslChunk(
-        Float64List.fromList(c.timestamps),
+      final times = Float64List.fromList(c.timestamps);
+      final now = LSL.localClock();
+      // Pulled some time after it arrived: the last sample is the one that
+      // waited least.
+      return _chunk(
+        times,
         strings: [
           for (final s in c.samples)
             for (final v in s) '$v',
         ],
+        received: now,
+        at: times.last,
+        handed: now,
+        arrived: _arrivedBeforeLast(times),
       );
     }
     final c = await _inlet.pullChunkTyped(maxSamples: maxSamples);
     if (c.isEmpty) return LslChunk.empty;
-    final data = c.data;
-    final List<double> values;
-    if (data is Float32List || data is Float64List) {
-      values = data as List<double>;
-    } else {
-      // Integers as doubles (exact up to 2^53).
-      final n = c.sampleCount * c.channelCount;
-      final f = Float64List(n);
-      final src = data as List<num>;
-      for (var i = 0; i < n; i++) {
-        f[i] = src[i].toDouble();
-      }
-      values = f;
-    }
-    return LslChunk(c.timestamps, values: values);
+    final now = LSL.localClock();
+    return _chunk(
+      c.timestamps,
+      values: _values(c.data, c.sampleCount * c.channelCount),
+      received: now,
+      at: c.timestamps.last,
+      handed: now,
+      arrived: _arrivedBeforeLast(c.timestamps),
+    );
+  }
+
+  @override
+  Stream<LslChunk> arrivals({
+    int maxSamples = 1024,
+    Duration coalesce = Duration.zero,
+    int? debugFailAfter,
+  }) {
+    // The first chunk has what was buffered before anything listened: its
+    // first sample did not arrive as it was pulled, so it measures nothing.
+    var backlog = true;
+    return _inlet
+        .chunkStream(
+          maxSamples: maxSamples,
+          coalesce: coalesce.inMicroseconds / 1e6,
+          debugFailAfter: debugFailAfter,
+        )
+        .map((c) {
+          final measure = !backlog;
+          backlog = false;
+          // The clock was read as the first sample arrived, and the ready
+          // ones were there with it. The last of those waited least: a
+          // sender that pushes chunks sends them together, with the time
+          // stamps of the earlier ones older by its own chunking, which is
+          // not time on the way here.
+          final ready = c.readyCount;
+          final times = c.timestamps;
+          // The rest came while more were waited for, each taken to be as
+          // long after the last ready one as its time stamp is.
+          var later = 0.0;
+          for (var i = ready; i < times.length; i++) {
+            later += times[i] - times[ready - 1];
+          }
+          return _chunk(
+            times,
+            values: c.data == null
+                ? null
+                : _values(c.data!, c.sampleCount * c.channelCount),
+            strings: c.strings,
+            received: c.receivedClock,
+            at: times[ready - 1],
+            arrived: later / times.length,
+            // Here, not where it was collected: getting here is part of it.
+            handed: LSL.localClock(),
+            measure: measure,
+          );
+        });
   }
 
   @override

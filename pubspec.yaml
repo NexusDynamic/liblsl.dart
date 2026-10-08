@@ -9,12 +9,10 @@ workspace:
   - packages/liblsl
   - packages/peer_coordinator
   - packages/peer_coordinator/example
-  - packages/liblsl_test
   - packages/liblsl_coordinator
   - packages/webrtc_coordinator
   - packages/webrtc_coordinator_flutter
-  - packages/liblsl_timing
-  - packages/liblsl_analysis
+  - packages/timing_core
   - packages/signal_core
   - packages/signal_viewer
   - packages/signal_viewer_lsl
@@ -25,6 +23,9 @@ workspace:
   - packages/lsl_tools
   - packages/openbci_cyton
   - apps/lsl_viewer
+  - apps/liblsl_test
+  - apps/transport_timing
+  - apps/transport_timing_analysis
 dev_dependencies:
   melos: ^8.2.2
 
@@ -136,6 +137,7 @@ melos:
         - melos run test:dart --no-select
       description: Run all non-LSL tests in this project.
     upgrade: melos exec flutter pub upgrade
+    upgrade-major: melos exec flutter pub upgrade --major-versions
     coverage:
       steps:
         - melos exec -- flutter test --coverage

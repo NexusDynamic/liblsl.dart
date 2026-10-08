@@ -285,6 +285,59 @@ void main() {
       await coordinator.stopStream('TimingData');
     });
 
+    test('the estimates are published as a series, per stream', () async {
+      final coordinator = await joined('coord', randomRoll: 0.1);
+      final participant = await joined('participant', randomRoll: 0.9);
+
+      // The session's own series: every estimate, whatever streams exist.
+      final session = <ClockSyncSample>[];
+      final sessionSub = coordinator.coordinationClockSyncs.listen(session.add);
+      await coordinator.waitForMinNodes(2, timeout: const Duration(seconds: 3));
+
+      final stream = await coordinator.createDataStream(
+        DataStreamConfig(
+          name: 'SyncSeries',
+          channels: 1,
+          sampleRate: 50.0,
+          dataType: StreamDataType.double64,
+          participationMode:
+              StreamParticipationMode.sendParticipantsReceiveCoordinator,
+        ),
+      );
+      final onStream = <ClockSyncSample>[];
+      final streamSub = stream.clockSyncs.listen(onStream.add);
+      await coordinator.startStream('SyncSeries');
+
+      // More than one, so it is a series and not the first value replayed.
+      await waitFor(
+        () => onStream.length >= 2 && session.length >= 2,
+        reason: 'a data stream should report the estimates for its producer',
+      );
+      await streamSub.cancel();
+      await sessionSub.cancel();
+
+      final offsets =
+          (coordinator.transport as WebSocketTransport).clockOffsets;
+      for (final sync in onStream) {
+        expect(sync.sourceId, participant.thisNode.uId);
+        expect(sync.offset, isNotNull);
+        expect(sync.remoteTime, isNotNull);
+        expect(sync.uncertainty, greaterThanOrEqualTo(0));
+        expect(sync.receivedClock, greaterThan(0));
+      }
+      // What the samples carry is the newest of the same series.
+      expect(
+        onStream.map((s) => s.offset),
+        contains(offsets.offsetFor(participant.thisNode.uId)),
+      );
+      expect(
+        onStream.last.remoteTime!,
+        greaterThan(onStream.first.remoteTime!),
+      );
+
+      await coordinator.stopStream('SyncSeries');
+    });
+
     test(
       'a departed peer forgets its offset rather than going stale',
       () async {
