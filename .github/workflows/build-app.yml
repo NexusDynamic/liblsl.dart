@@ -1,17 +1,23 @@
-name: Build lsl_viewer
+name: Build app
 
-# Builds apps/lsl_viewer for every target we distribute (iOS is not built: it
-# is not published to the App Store). Called by release.yml for lsl_viewer-v*
-# tags; can also be run by hand to try the builds without releasing.
-# Each target is uploaded as a workflow artifact named lsl_viewer-<target>;
-# the unzipped web build is also uploaded as site-lsl_viewer. Desktop targets
-# also build the `lsl` command line tool (packages/lsl_tools): it goes in the
-# viewer's archive under cli/ (Linux, Windows) and in its own
+# Builds one of the apps in apps/ for every target it has a platform folder
+# for: Linux, Windows, macOS, Android and, where there is one, the web (iOS is
+# not built: the apps are not published to the App Store). Called by
+# release.yml for an app's `<app>-v*` tag; can also be run by hand to try the
+# builds without releasing.
+# Each target is uploaded as a workflow artifact named <app>-<target>; the
+# unzipped web build is also uploaded as site-<app>. For lsl_viewer, desktop
+# targets also build the `lsl` command line tool (packages/lsl_tools): it goes
+# in the viewer's archive under cli/ (Linux, Windows) and in its own
 # lsl-cli-<version>-<target> archive.
 
 on:
   workflow_call:
     inputs:
+      app:
+        description: "The app to build: a folder of apps/"
+        required: true
+        type: string
       version:
         description: "Version string used in the artifact file names"
         required: true
@@ -30,8 +36,21 @@ on:
         required: false
       ANDROID_KEY_PASSWORD:
         required: false
+    outputs:
+      has-web:
+        description: "Whether the app has a web build (and a site-<app> artifact)"
+        value: ${{ jobs.plan.outputs.has-web }}
   workflow_dispatch:
     inputs:
+      app:
+        description: "The app to build"
+        required: true
+        type: choice
+        options:
+          - lsl_viewer
+          - liblsl_test
+          - transport_timing
+          - transport_timing_analysis
       version:
         description: "Version string used in the artifact file names"
         required: false
@@ -51,26 +70,41 @@ defaults:
     shell: bash
 
 jobs:
+  # The targets: the web only for apps with a web folder.
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      has-web: ${{ steps.plan.outputs.has-web }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Choose targets
+        id: plan
+        env:
+          APP: ${{ inputs.app }}
+        run: |
+          [ -f "apps/$APP/pubspec.yaml" ] || { echo "::error::No app named '$APP' in apps/."; exit 1; }
+          TARGETS='{"target":"linux","os":"ubuntu-latest"},{"target":"windows","os":"windows-latest"},{"target":"macos","os":"macos-latest"},{"target":"android","os":"ubuntu-latest"}'
+          HAS_WEB=false
+          if [ -d "apps/$APP/web" ]; then
+            TARGETS="$TARGETS,{\"target\":\"web\",\"os\":\"ubuntu-latest\"}"
+            HAS_WEB=true
+          fi
+          echo "matrix={\"include\":[$TARGETS]}" >> "$GITHUB_OUTPUT"
+          echo "has-web=$HAS_WEB" >> "$GITHUB_OUTPUT"
+
   build:
+    needs: plan
     name: ${{ matrix.target }}
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - target: linux
-            os: ubuntu-latest
-          - target: windows
-            os: windows-latest
-          - target: macos
-            os: macos-latest
-          - target: android
-            os: ubuntu-latest
-          - target: web
-            os: ubuntu-latest
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     runs-on: ${{ matrix.os }}
     env:
+      APP: ${{ inputs.app }}
       VERSION: ${{ inputs.version }}
-      NAME: lsl_viewer-${{ inputs.version }}-${{ matrix.target }}
+      NAME: ${{ inputs.app }}-${{ inputs.version }}-${{ matrix.target }}
 
     steps:
       - uses: actions/checkout@v6
@@ -99,7 +133,7 @@ jobs:
           pub-cache-key: "flutter-pub-:os:-:channel:-:version:-:arch:-main"
 
       - name: Get dependencies
-        working-directory: apps/lsl_viewer
+        working-directory: apps/${{ inputs.app }}
         run: flutter pub get
 
       - name: Write Android signing config
@@ -109,7 +143,7 @@ jobs:
           KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        working-directory: apps/lsl_viewer/android
+        working-directory: apps/${{ inputs.app }}/android
         run: |
           if [ -z "$KEYSTORE_BASE64" ]; then
             echo "::warning::No ANDROID_KEYSTORE_BASE64 secret: the APKs are signed with the debug key."
@@ -124,7 +158,7 @@ jobs:
           } > key.properties
 
       - name: Build
-        working-directory: apps/lsl_viewer
+        working-directory: apps/${{ inputs.app }}
         run: |
           case "${{ matrix.target }}" in
             android) flutter build apk --release --split-per-abi ;;
@@ -134,14 +168,14 @@ jobs:
 
       # A bundle: bin/lsl[.exe] and lib/ with liblsl (from its build hook).
       - name: Build lsl command line tool
-        if: contains(fromJSON('["linux", "windows", "macos"]'), matrix.target)
+        if: inputs.app == 'lsl_viewer' && contains(fromJSON('["linux", "windows", "macos"]'), matrix.target)
         working-directory: packages/lsl_tools
         run: |
           dart build cli -o build/lsl-cli
           build/lsl-cli/bundle/bin/lsl --help
 
       - name: Package
-        working-directory: apps/lsl_viewer/build
+        working-directory: apps/${{ inputs.app }}/build
         run: |
           mkdir -p "$GITHUB_WORKSPACE/dist"
           DIST="$GITHUB_WORKSPACE/dist"
@@ -149,20 +183,26 @@ jobs:
           CLI_NAME="lsl-cli-$VERSION-${{ matrix.target }}"
           case "${{ matrix.target }}" in
             linux)
-              cp -r "$CLI" linux/x64/release/bundle/cli
+              if [ -d "$CLI" ]; then
+                cp -r "$CLI" linux/x64/release/bundle/cli
+                tar -C "$CLI" -czf "$DIST/$CLI_NAME-x64.tar.gz" .
+              fi
               tar -C linux/x64/release/bundle -czf "$DIST/$NAME-x64.tar.gz" .
-              tar -C "$CLI" -czf "$DIST/$CLI_NAME-x64.tar.gz" .
               ;;
             windows)
-              cp -r "$CLI" windows/x64/runner/Release/cli
+              if [ -d "$CLI" ]; then
+                cp -r "$CLI" windows/x64/runner/Release/cli
+                (cd "$CLI" && 7z a -tzip "$DIST/$CLI_NAME-x64.zip" .)
+              fi
               (cd windows/x64/runner/Release && 7z a -tzip "$DIST/$NAME-x64.zip" .)
-              (cd "$CLI" && 7z a -tzip "$DIST/$CLI_NAME-x64.zip" .)
               ;;
             macos)
               # Unsigned: users need to right-click → Open the first time.
-              APP="$(find macos/Build/Products/Release -maxdepth 1 -name '*.app' | head -n1)"
-              ditto -c -k --keepParent "$APP" "$DIST/$NAME.zip"
-              (cd "$CLI" && zip -qr "$DIST/$CLI_NAME-$(uname -m).zip" .)
+              BUNDLE="$(find macos/Build/Products/Release -maxdepth 1 -name '*.app' | head -n1)"
+              ditto -c -k --keepParent "$BUNDLE" "$DIST/$NAME.zip"
+              if [ -d "$CLI" ]; then
+                (cd "$CLI" && zip -qr "$DIST/$CLI_NAME-$(uname -m).zip" .)
+              fi
               ;;
             android)
               for apk in app/outputs/flutter-apk/app-*-release.apk; do
@@ -179,7 +219,7 @@ jobs:
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: lsl_viewer-${{ matrix.target }}
+          name: ${{ inputs.app }}-${{ matrix.target }}
           path: dist/*
           if-no-files-found: error
 
@@ -188,6 +228,6 @@ jobs:
         if: matrix.target == 'web'
         uses: actions/upload-artifact@v4
         with:
-          name: site-lsl_viewer
-          path: apps/lsl_viewer/build/web
+          name: site-${{ inputs.app }}
+          path: apps/${{ inputs.app }}/build/web
           if-no-files-found: error

@@ -5,8 +5,8 @@ name: Release
 #
 #   parse → test ─┬→ pub.dev (packages without `publish_to: none`)
 #                 │     └→ GitHub release ─┬→ Zenodo draft (liblsl only)
-#                 │                        └→ app binaries (lsl_viewer only)
-#                 └→ lsl_viewer builds ────────┘
+#                 │                        └→ app binaries (apps/ only)
+#                 └→ app builds ───────────────┘
 #
 # Unscoped tags (v1.2.3) and tags whose version does not match the package's
 # pubspec fail in `parse`, before anything else runs.
@@ -47,7 +47,7 @@ jobs:
             echo "- Path: \`${{ steps.parse.outputs.path }}\`"
             echo "- Publish to pub.dev: ${{ steps.parse.outputs.publishable }}"
             echo "- Zenodo: ${{ steps.parse.outputs.package == 'liblsl' }}"
-            echo "- App binaries: ${{ steps.parse.outputs.package == 'lsl_viewer' }}"
+            echo "- App binaries: ${{ steps.parse.outputs.is_app }}"
           } >> "$GITHUB_STEP_SUMMARY"
 
   # A tag is normally put on a commit of main that test.yml already passed on;
@@ -90,13 +90,14 @@ jobs:
     uses: ./.github/workflows/test.yml
 
   # Builds run alongside the tests but are only attached once tests pass.
-  build-lsl-viewer:
+  build-app:
     needs: parse
-    if: needs.parse.outputs.package == 'lsl_viewer'
-    uses: ./.github/workflows/build-lsl-viewer.yml
+    if: needs.parse.outputs.is_app == 'true'
+    uses: ./.github/workflows/build-app.yml
     with:
+      app: ${{ needs.parse.outputs.package }}
       version: ${{ needs.parse.outputs.version }}
-      base-href: /${{ github.event.repository.name }}/lsl_viewer/
+      base-href: /${{ github.event.repository.name }}/${{ needs.parse.outputs.package }}/
     secrets: inherit
 
   pub-publish:
@@ -310,13 +311,13 @@ jobs:
             echo "Review and publish the draft on Zenodo."
           } >> "$GITHUB_STEP_SUMMARY"
 
-  lsl-viewer-assets:
-    needs: [parse, github-release, build-lsl-viewer]
+  app-assets:
+    needs: [parse, github-release, build-app]
     if: >-
       !cancelled()
-      && needs.parse.outputs.package == 'lsl_viewer'
+      && needs.parse.outputs.is_app == 'true'
       && needs.github-release.result == 'success'
-      && needs.build-lsl-viewer.result == 'success'
+      && needs.build-app.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -324,14 +325,16 @@ jobs:
       - name: Download builds
         uses: actions/download-artifact@v4
         with:
-          pattern: lsl_viewer-*
+          pattern: ${{ needs.parse.outputs.package }}-*
           path: dist
           merge-multiple: true
 
+      # Apps without a web folder (those that need liblsl) have no web build.
       - name: Download web site
+        if: needs.build-app.outputs.has-web == 'true'
         uses: actions/download-artifact@v4
         with:
-          name: site-lsl_viewer
+          name: site-${{ needs.parse.outputs.package }}
           path: site
 
       - name: Attach builds to the GitHub release
@@ -346,12 +349,12 @@ jobs:
 
       # Shares gh-pages with the benchmark data (dev/bench), so keep other files.
       - name: Deploy web build to GitHub Pages
-        if: needs.parse.outputs.prerelease != 'true'
+        if: needs.build-app.outputs.has-web == 'true' && needs.parse.outputs.prerelease != 'true'
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_branch: gh-pages
           publish_dir: site
-          destination_dir: lsl_viewer
+          destination_dir: ${{ needs.parse.outputs.package }}
           keep_files: true
-          commit_message: "Deploy lsl_viewer ${{ needs.parse.outputs.version }}"
+          commit_message: "Deploy ${{ needs.parse.outputs.package }} ${{ needs.parse.outputs.version }}"
