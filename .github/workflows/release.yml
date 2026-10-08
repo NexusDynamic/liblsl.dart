@@ -50,8 +50,43 @@ jobs:
             echo "- App binaries: ${{ steps.parse.outputs.package == 'lsl_viewer' }}"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  test:
+  # A tag is normally put on a commit of main that test.yml already passed on;
+  # those tests are not run again. A run still in progress is waited for.
+  tested:
     needs: parse
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+    outputs:
+      passed: ${{ steps.check.outputs.passed }}
+    steps:
+      - name: Look for a passed Test run of this commit
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUNS_URL: repos/${{ github.repository }}/actions/workflows/test.yml/runs?head_sha=${{ github.sha }}&per_page=50
+        run: |
+          PASSED=false
+          # Up to an hour, for a run that started just before the tag was pushed.
+          for _ in $(seq 60); do
+            RUNS="$(gh api "$RUNS_URL" --jq '[.workflow_runs[] | {status, conclusion}]')" || break
+            if [ "$(echo "$RUNS" | jq 'any(.[]; .conclusion == "success")')" = "true" ]; then
+              PASSED=true
+              break
+            fi
+            [ "$(echo "$RUNS" | jq 'any(.[]; .status != "completed")')" = "true" ] || break
+            sleep 60
+          done
+          echo "passed=$PASSED" >> "$GITHUB_OUTPUT"
+          echo "Test already passed on ${{ github.sha }}: $PASSED" >> "$GITHUB_STEP_SUMMARY"
+
+  test:
+    needs: [parse, tested]
+    # Also when the lookup itself failed.
+    if: >-
+      !cancelled()
+      && needs.parse.result == 'success'
+      && needs.tested.outputs.passed != 'true'
     uses: ./.github/workflows/test.yml
 
   # Builds run alongside the tests but are only attached once tests pass.
@@ -65,8 +100,11 @@ jobs:
     secrets: inherit
 
   pub-publish:
-    needs: [parse, test]
-    if: needs.parse.outputs.publishable == 'true'
+    needs: [parse, tested, test]
+    if: >-
+      !cancelled()
+      && needs.parse.outputs.publishable == 'true'
+      && (needs.test.result == 'success' || (needs.test.result == 'skipped' && needs.tested.outputs.passed == 'true'))
     runs-on: ubuntu-latest
     # Optional protection: pub.dev can require this environment, and GitHub can
     # require a reviewer for it (Settings → Environments → pub.dev).
@@ -143,11 +181,12 @@ jobs:
         run: flutter pub publish --force
 
   github-release:
-    needs: [parse, test, pub-publish]
+    needs: [parse, tested, test, pub-publish]
     # pub-publish is skipped for unpublished packages; that's fine, a failure isn't.
     if: >-
       !cancelled()
-      && needs.test.result == 'success'
+      && needs.parse.result == 'success'
+      && (needs.test.result == 'success' || (needs.test.result == 'skipped' && needs.tested.outputs.passed == 'true'))
       && (needs.pub-publish.result == 'success' || needs.pub-publish.result == 'skipped')
     runs-on: ubuntu-latest
     permissions:

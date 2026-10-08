@@ -3,6 +3,8 @@ import 'package:signal_viewer_lsl/signal_viewer_lsl.dart';
 import 'package:signal_viewer_serial/signal_viewer_serial.dart';
 import 'package:signal_viewer_xdf/signal_viewer_xdf.dart';
 
+import 'serial_ports.dart';
+
 /// How the LSL Viewer presents itself.
 const lslViewerConfig = ViewerConfig(
   title: 'LSL Viewer',
@@ -17,7 +19,7 @@ const lslViewerConfig = ViewerConfig(
 List<SourceProvider> lslViewerProviders() => [
   LslProvider(),
   XdfProvider(),
-  SerialStreamProvider(),
+  SerialStreamProvider(serial: lslViewerSerialPorts()),
 ];
 
 /// Opens the XDF recordings given on the command line (desktop).

@@ -3,16 +3,17 @@ import 'package:serial_transport/serial_transport.dart';
 import 'package:signal_viewer/signal_viewer.dart';
 
 import 'cyton_session.dart';
-import 'platform_serial.dart';
 import 'serial_session.dart';
 
 /// Streams of numbers from serial ports (e.g. an Arduino printing sensor
 /// values), one tab each: native ports on desktop, WebSerial in browsers.
+/// Other platforms (e.g. USB serial devices on Android) need a [serial]
+/// provider from the app.
 class SerialStreamProvider extends SourceProvider {
   final SerialPortProvider serial;
 
   SerialStreamProvider({SerialPortProvider? serial})
-    : serial = serial ?? platformSerialPorts();
+    : serial = serial ?? SerialPortProvider.platform();
 
   bool get supported => serial.isSupported;
 

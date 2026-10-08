@@ -1,5 +1,6 @@
 ## 0.4.0
 
+- `test` constraint relaxed to `^1.30.0`, which resolves alongside `flutter_test`
 - Participant outlet with no consumers for `nodeTimeout` is considered as dropped.
 - `ClockModel.hop` throws a `StateError` before the first estimate
 - New `NetworkStream.inletHealth`, a stream of `InletHealth`: a transport

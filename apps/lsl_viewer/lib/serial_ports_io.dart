@@ -5,7 +5,7 @@ import 'dart:typed_data';
 import 'package:serial_transport/serial_transport.dart';
 import 'package:usb_serial/usb_serial.dart';
 
-SerialPortProvider platformSerialPorts() {
+SerialPortProvider lslViewerSerialPorts() {
   if (Platform.isAndroid) return _AndroidUsbSerialProvider();
   return SerialPortProvider.platform();
 }

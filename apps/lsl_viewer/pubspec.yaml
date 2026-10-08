@@ -1,7 +1,7 @@
 name: lsl_viewer
 description: "Lab Streaming Layer stream and XDF recording viewer"
 publish_to: 'none'
-version: 0.1.1+1
+version: 0.2.0+0
 
 resolution: workspace
 
@@ -11,10 +11,14 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  serial_transport: ^0.1.0
   signal_viewer: ^0.1.0
   signal_viewer_lsl: ^0.2.0
   signal_viewer_serial: ^0.1.0
   signal_viewer_xdf: ^0.1.0
+  # USB serial devices on Android (a patched copy, see the workspace's
+  # third_party/usb_serial).
+  usb_serial: ^0.5.2
 
 dev_dependencies:
   flutter_launcher_icons: ^0.14.4

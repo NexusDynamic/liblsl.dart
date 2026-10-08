@@ -1,5 +1,6 @@
 ## 0.2.1
 
+- `test` constraint relaxed to `^1.30.0`, which resolves alongside `flutter_test`
 - Data streams report their peers' clock-offset estimates through
   `clockSyncs` (`PeerClockOffsets.estimates`), as LSL streams do.
 - Data streams relay source clocks (`sendDataAt`, `upstream`): a sample
