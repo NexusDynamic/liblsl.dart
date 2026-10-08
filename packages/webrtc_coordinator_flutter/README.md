@@ -1,16 +1,27 @@
 # webrtc_coordinator_flutter
 
-The [`flutter_webrtc`](https://pub.dev/packages/flutter_webrtc) binding for
-[`webrtc_coordinator`](https://pub.dev/packages/webrtc_coordinator): an
-`RtcPeerAdapter` backed by real peer connections, so
-[`peer_coordinator`](https://pub.dev/packages/peer_coordinator) sessions can
-run peer-to-peer over WebRTC data channels in a Flutter app.
+[![Pub Version](https://img.shields.io/pub/v/webrtc_coordinator_flutter)](https://pub.dev/packages/webrtc_coordinator_flutter)
 
-All transport logic (the dial state machine, routing, framing, streams) lives
-in the pure-Dart `webrtc_coordinator` package, which is tested headlessly
-against a fake adapter. This package only adds what needs a device: real SDP,
-ICE and SCTP. It exists separately because `flutter_webrtc` is a plugin with
-native code, which a pure-Dart package cannot depend on.
+`webrtc_coordinator_flutter` connects
+[`webrtc_coordinator`](https://pub.dev/packages/webrtc_coordinator) to
+[`flutter_webrtc`](https://pub.dev/packages/flutter_webrtc). It provides an
+`RtcPeerAdapter` based on real peer connections, so that
+[`peer_coordinator`](https://pub.dev/packages/peer_coordinator) sessions run
+peer-to-peer over WebRTC data channels in a Flutter application.
+
+The transport logic (the dial state machine, routing, framing and streams)
+is in the pure-Dart `webrtc_coordinator` package, where it is tested against
+a fake adapter. This package adds the parts that require a device: SDP, ICE
+and SCTP. It is a separate package because `flutter_webrtc` is a plugin with
+native code.
+
+[API documentation](https://pub.dev/documentation/webrtc_coordinator_flutter/latest/)
+
+## Installation
+
+```bash
+flutter pub add webrtc_coordinator_flutter
+```
 
 ## Usage
 
@@ -35,21 +46,20 @@ await session.initialize();
 await session.join();
 ```
 
-The hub only handles discovery, election and signalling; run one with
+The hub handles discovery, election and signalling, and is started with
 `dart run peer_coordinator:hub` (see the
-[`peer_coordinator` README](https://pub.dev/packages/peer_coordinator)).
-Everything else goes directly between peers.
+[`peer_coordinator` README](https://pub.dev/packages/peer_coordinator)). All
+other traffic passes directly between peers.
 
 ## Platform setup
 
-Only data channels are used (no camera or microphone), so the app needs
-network access and nothing more:
+Only data channels are used, so an application only requires network access.
 
-- **Android**: `<uses-permission android:name="android.permission.INTERNET"/>`
-  in `AndroidManifest.xml`.
-- **macOS**: the `com.apple.security.network.client` and
-  `com.apple.security.network.server` entitlements.
-- iOS, Windows, Linux and web need no extra configuration.
+| Platform | Configuration |
+| --- | --- |
+| Android | `<uses-permission android:name="android.permission.INTERNET"/>` in `AndroidManifest.xml` |
+| macOS | The entitlements `com.apple.security.network.client` and `com.apple.security.network.server` |
+| iOS, Windows, Linux, web | None |
 
-See the [`flutter_webrtc` documentation](https://pub.dev/packages/flutter_webrtc)
-for anything platform-specific.
+The [`flutter_webrtc` documentation](https://pub.dev/packages/flutter_webrtc)
+covers further platform-specific details.

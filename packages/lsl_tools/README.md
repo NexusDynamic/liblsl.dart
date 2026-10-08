@@ -1,30 +1,39 @@
 # lsl_tools
 
-Lab Streaming Layer tools in pure Dart, and the `lsl` command line tool:
-list, record to XDF, share across networks, bridge, relay, replay and
-generate LSL streams.
+[![Pub Version](https://img.shields.io/pub/v/lsl_tools)](https://pub.dev/packages/lsl_tools)
 
-- **`lsl`:** a facade over `package:liblsl` that is safe to import on the
-  web, where `lsl.supported` is false. It covers discovery, inlets and
-  outlets.
-- **`LslRecorder`:** records streams to XDF as LabRecorder does (raw time
-  stamps, clock offsets, footers).
-- **`LslBridgeServer`, `LslBridgeClient`, `LslBridgeRepublisher`:** carry
-  LSL streams over a WebSocket, across networks multicast doesn't reach and
-  to and from browsers. The server can also relay streams between its
-  clients. The client runs in browsers too.
-- **`LslSignalGenerator`, `LslMarkerSender`:** test outlets.
+`lsl_tools` provides tools for Lab Streaming Layer (LSL) in pure Dart, and
+the `lsl` command line tool built from them. The tools list streams, record
+them to XDF, replay recordings, generate test streams, and carry streams
+over a WebSocket to other networks and to web browsers.
 
-**Setting up a bridge or relay:** see [doc/relay.md](doc/relay.md), also
-published at <https://nexusdynamic.org/liblsl.dart/relay.html>.
+| Component | Purpose |
+| --- | --- |
+| `lsl` | A facade over `package:liblsl` for discovery, inlets and outlets. It can be imported on the web, where `lsl.supported` is false |
+| `LslRecorder` | Records streams to XDF in the same way as LabRecorder (raw time stamps, clock offsets, footers) |
+| `LslBridgeServer`, `LslBridgeClient`, `LslBridgeRepublisher` | Carry LSL streams over a WebSocket, across networks that multicast does not reach and to and from browsers. The server can also relay streams between its clients, and the client runs in browsers |
+| `LslSignalGenerator`, `LslMarkerSender` | Test outlets |
+
+The [bridge and relay guide](doc/relay.md), also published at
+<https://nexusdynamic.org/liblsl.dart/relay.html>, describes how to set up a
+bridge or relay.
+
+[API documentation](https://pub.dev/documentation/lsl_tools/latest/)
+
+## Installation
+
+```bash
+dart pub add lsl_tools
+```
 
 ## The `lsl` command line tool
 
 Prebuilt bundles are attached to each
 [`lsl_viewer` release](https://github.com/NexusDynamic/liblsl.dart/releases?q=lsl_viewer&expanded=true)
-as `lsl-cli-<version>-<os>`. Run `bin/lsl` and keep `lib/`, which holds
-liblsl, next to it. From a clone, use `dart run lsl_tools:lsl …`, or
-`dart build cli` for the same bundle.
+as `lsl-cli-<version>-<os>`. The tool is `bin/lsl`; the `lib/` directory,
+which holds liblsl, must stay next to it. From a clone of the repository the
+tool is run with `dart run lsl_tools:lsl …`, and `dart build cli` produces
+the same bundle.
 
 ```sh
 lsl list [--wait 2]                              # streams on the network
@@ -42,15 +51,16 @@ lsl bridge ws://host:8765 [-s EEG] [--token t] [--suffix " (remote)"]
 lsl publish wss://relay.example.org [-s EEG] [--token t] [--rescan 5]
 ```
 
-| Command | Does |
+| Command | Purpose |
 | --- | --- |
 | `share` | Shares LSL streams from here over a WebSocket. With `--accept`, clients can publish streams, which go to the other clients and to LSL here. |
-| `relay` | Passes streams between WebSocket clients only. It needs no LSL, e.g. on a server. |
+| `relay` | Passes streams between WebSocket clients only. It requires no LSL and can run on a server. |
 | `bridge` | Publishes a bridge's streams as LSL streams here, and follows them as they come and go. |
 | `publish` | Publishes LSL streams from here on a bridge or relay that accepts them, connecting out. |
 
 `-s` takes names or types, and `*` is a wildcard. `--peer <address>`
-(before the command) looks for streams on computers multicast doesn't reach.
+(before the command) looks for streams on computers that multicast does not
+reach.
 `lsl help <command>` lists every option.
 
 ## From Dart

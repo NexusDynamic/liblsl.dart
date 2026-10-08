@@ -1,5 +1,7 @@
 # signal_viewer_lsl
 
+[![Pub Version](https://img.shields.io/pub/v/signal_viewer_lsl)](https://pub.dev/packages/signal_viewer_lsl)
+
 [Lab Streaming Layer](https://labstreaminglayer.org/) (LSL) streams for
 [`signal_viewer`](https://pub.dev/packages/signal_viewer).
 
@@ -9,6 +11,16 @@ streams, and shares them with other networks or a browser through the LSL
 bridge. The LSL facade, recorder and bridge come from
 [`lsl_tools`](https://pub.dev/packages/lsl_tools), which this package
 re-exports.
+
+[API documentation](https://pub.dev/documentation/signal_viewer_lsl/latest/)
+
+## Installation
+
+```bash
+flutter pub add signal_viewer signal_viewer_lsl
+```
+
+## Usage
 
 ```dart
 import 'package:signal_viewer/signal_viewer.dart';

@@ -1,217 +1,136 @@
-# liblsl dart Lab Streaming Layer (LSL) library
+# liblsl: Lab Streaming Layer for Dart and Flutter
 
 [![Pub Publisher](https://img.shields.io/pub/publisher/liblsl?style=flat-square)](https://pub.dev/publishers/zeyus.com/packages) [![Pub Version](https://img.shields.io/pub/v/liblsl)](https://pub.dev/packages/liblsl) [![melos](https://img.shields.io/badge/maintained%20with-melos-f700ff.svg?style=flat-square)](https://github.com/invertase/melos) [![CI Test](https://github.com/NexusDynamic/liblsl.dart/actions/workflows/test.yml/badge.svg)](https://github.com/NexusDynamic/liblsl.dart/actions/workflows/test.yml) [![status](https://joss.theoj.org/papers/2d813b551058e59edacefd35ea281e40/status.svg)](https://joss.theoj.org/papers/2d813b551058e59edacefd35ea281e40) [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20340247.svg)](https://doi.org/10.5281/zenodo.20340247)
 
-[API Documentation](https://pub.dev/documentation/liblsl/latest/) | [Example](./example/liblsl_example.dart) | [Tests](./test/liblsl_test.dart)
+`liblsl` is a Dart interface to [liblsl](https://github.com/sccn/liblsl),
+the C++ library of [Lab Streaming Layer](https://labstreaminglayer.org)
+(LSL). LSL transmits time series, such as EEG and other physiological
+signals, events and markers, between applications and devices on a local
+network, and provides the clock synchronisation needed to align them. With
+this package a Dart or Flutter application can send and receive LSL streams
+and interoperate with any other LSL software, for example LabRecorder.
 
-This package provides a Dart wrapper for liblsl, using the dart native-assets build system and ffi.
+The package covers the whole C API. The C++ library is compiled from source
+by the Dart build hooks and called through FFI, so no separately installed
+library is required.
 
-Submitted [JOSS paper](./paper/paper.md): markdown version of the JOSS paper.
+[API documentation](https://pub.dev/documentation/liblsl/latest/) ·
+[Guide: streaming data between two devices](https://github.com/NexusDynamic/liblsl.dart/blob/main/docs/streaming-between-devices.md) ·
+[JOSS paper](./paper/paper.md) ·
+[Review and test guide](./REVIEW_TESTING.md)
 
-[Take a look at the review/test guide](./REVIEW_TESTING.md) for testing options and instructions.
+## Platforms
 
-## Targets
+Windows, macOS, Linux, Android and iOS are supported. The package has also
+been run on the Meta Quest 2 (Android) and, with Dart only, on a Raspberry
+Pi 4 (Raspberry Pi OS).
 
-- [x] Linux
-- [x] OSX
-- [x] Windows
-- [x] iOS
-- [x] Android
-- [ ] Web - not supported: liblsl is a native library. For browser apps, the
-  [`peer_coordinator`](https://github.com/NexusDynamic/liblsl.dart/tree/main/packages/peer_coordinator)
-  WebSocket transport and the
-  [`lsl_tools`](https://github.com/NexusDynamic/liblsl.dart/tree/main/packages/lsl_tools)
-  LSL bridge can relay streams to and from the browser.
+The web is not supported, because liblsl is a native library. For browser
+applications, the WebSocket transport of
+[`peer_coordinator`](https://github.com/NexusDynamic/liblsl.dart/tree/main/packages/peer_coordinator) and the LSL
+bridge of [`lsl_tools`](https://github.com/NexusDynamic/liblsl.dart/tree/main/packages/lsl_tools) relay streams to
+and from the browser.
 
-Also confirmed working on:
-
- - Meta Quest 2 (Android).
- - Raspberry Pi 4 (Linux/Raspberry Pi OS), only dart tested so far:
-   
-   `sudo apt update && sudo apt install build-essential clang llvm`
-   
-   `dart test`
-   
-   ![screenshot of tests passing on RPi](./doc/image.png)
-
-## Introduction
-
-The Lab Streaming Layer (LSL) is a system for streaming time series data, such as EEG or other physiological signals. It allows for real-time data sharing between different applications and devices.
-
-LSL handles the heavy lifting of synchronizing data streams and managing the timing and drift correction of data. This can apply to time-critical real-time data, but can also be used to manipulate the data and pass it on to another stream or application.
-
-You're not limited to EEG, LSL is used in all kinds of instrumentation, and you can also use it for non-frequent data streams, such as events or triggers, or even just passing messages and states between devices and applications. You can also use it to send message streams to a central logging server.
-
-There's no need to go over all the details of LSL here, check out the excellent documentation for [LSL](https://labstreaminglayer.readthedocs.io/) and more information about [liblsl](https://labstreaminglayer.readthedocs.io/dev/app_dev.html#).
-
-### Why this Dart package?
-
-This package is a wrapper around the C++ liblsl library, allowing you to use LSL in your Dart applications. It uses the dart native-assets build system to compile the C++ code into a shared library that can be used in Dart.
-
-What this means is that with very little effort, you can have bidirectional communcations in your Dart application on any supported platform, and can easily integrate it with any other LSL-enabled application or device.
-
-### Flutter
-
-This package will work with flutter without any issues, for an example see the [liblsl_test](../../apps/liblsl_test) package, which demonstrates an integration test that works on your device.
-
-## Important notes
-
-### Inlets and outlets
-
-By design, this library uses Dart [isolates](https://dart.dev/language/isolates) to create an independent thread for each inlet and outlet. This means that you can have multiple inlets and outlets running at the same time, and the performance should remain high as there is no blocking of the main isolate. That said, once the number of streams goes beyond your system's number of CPU cores, it is possible that performance may degrade at some point. If you encounter any issues with performance, please let me know.
-
-### Multicast
-
-LSL uses multicast UDP packets to discover communicate between devices and applications. Multicast packets may be blocked on various managed switches and routers, or by your network or machine firewall. If you are having issues with LSL, check your network settings and firewall settings to ensure that multicast packets are allowed, the method to do this varies by platform and network infrastructure.
-
-### No multicast? No problem!
-
-It is possible to use LSL without multicast, this requires understanding your network infrastructure and the IP addresses of the devices you communicate with. The library provides a way to configure the LSL API, which *must* be called before invoking any other LSL functions. For further information, refer to the [LSL configuration files](https://labstreaminglayer.readthedocs.io/info/lslapicfg.html) page of the LSL documentation.
-
-```dart
-import 'package:liblsl/liblsl.dart';
-/// Configure LSL to run in an enviroment that does not support
-/// multicast. Devices that participat in the LSL network must have
-/// their IP addresses manually specified, and this configuration
-/// needs to be applied on all devices.
-final apiConfig = LSLApiConfig(
-    knownPeers: [
-        '10.0.0.100',
-        '10.0.0.100',
-    ],
-);
-LSL.setConfigContent(apiConfig);
-
-// Now you can continue as normal
-```
-
-### Android
-
-Your application will require the `INTERNET`, `CHANGE_WIFI_MULTICAST_STATE`, `ACCESS_NETWORK_STATE`, and `ACCESS_WIFI_STATE` permissions in your `AndroidManifest.xml` file. This is required for multicast UDP communication, which is used by LSL.
-
-```xml
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- ... other AndroidManifest.xml nodes -->
-    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
-    <uses-permission android:name="android.permission.INTERNET"/>
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
-    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>
-</manifest>
-```
-
-### iOS
-
-There's a very unfortunate situation in iOS where you cannot access multicast networking without the special entitlement [`com.apple.developer.networking.multicast`](https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.developer.networking.multicast). This is a special entitlement that is only available to Apple developers with a paid developer account, and by explicit request. If you don't have this entitlement, you will not be able to use LSL on iOS, and unfortunately, there's not much I can do about this. If you have a developer account, see the above entitlement documentation, and then visit the [Multicast Networking Entitlement Request page](https://developer.apple.com/contact/request/networking-multicast).
-
-You will also need the following configured in your `Info.plist` file:
-
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <!-- ... other Info.plist nodes -->
-  <key>NSBonjourServices</key>
-	<array>
-		<string>liblsl._tcp</string>
-		<string>liblsl._udp</string>
-	</array>
-    <key>NSLocalNetworkUsageDescription</key>
-	<string>Allow LSL to find other devices and communicate</string>
-</dict>
-</plist>
-```
-
-### macOS and Linux: open file limit
-
-Every outlet, inlet and resolver uses several sockets, and the default limit on open files per process (256 on macOS, 1024 on most Linux desktops) runs out with a few dozen streams: liblsl then logs `Too many open files` and fails to create outlets and inlets.
-
-So on macOS and Linux, loading liblsl raises the process's soft open-file limit:
-
-- A soft limit of 65536 or more is left untouched.
-- Otherwise it is raised as far as the system allows (the hard limit, and on macOS `kern.maxfilesperproc`), up to 1048576. The hard limit is never changed and the limit is never lowered.
-- If the system refuses (e.g. a sandbox or device management), liblsl prints a warning to stderr and carries on; raise the limit yourself with `ulimit -n`.
-- Set the environment variable `LIBLSL_DART_NO_RLIMIT=1` to leave the limit alone.
-
-The limit is per process, so child processes your app starts inherit the raised limit.
-
-### macOS: network settings
-
-macOS's default TCP buffers are small, which slows high-rate transfers, and `maxfiles` bounds how far the open-file limit can be raised. For demanding setups:
+## Installation
 
 ```bash
-sudo sysctl -w net.inet.tcp.mssdflt=1420
-sudo sysctl -w net.inet.tcp.win_scale_factor=7
-sudo sysctl -w net.inet.tcp.sendspace=861275
-sudo sysctl -w net.inet.tcp.recvspace=861275
-sudo sysctl -w net.inet.tcp.autosndbufmax=8388608
-sudo sysctl -w net.inet.tcp.autorcvbufmax=8388608
-sudo sysctl -w net.inet.ip.portrange.first=32768
-sudo launchctl limit maxfiles 65536 200000
+dart pub add liblsl
 ```
 
-These settings last until reboot.
+A C++ toolchain is required, since the library is compiled when the
+application is first built. On Debian-based Linux:
 
-## API Usage
+```bash
+sudo apt install build-essential clang llvm
+```
 
-More documentation will come, but see [liblsl_example.dart](./example/liblsl_example.dart), [liblsl_test.dart](./test/liblsl_test.dart) also see the [liblsl_test](https://github.com/NexusDynamic/liblsl.dart/tree/main/apps/liblsl_test) package for a working example with flutter for all supported target devices.
+Flutter applications use the package in the same way. The
+[`liblsl_test`](https://github.com/NexusDynamic/liblsl.dart/tree/main/apps/liblsl_test) application is a working
+Flutter example for every supported platform.
+
+## Usage
+
+A sender describes its stream, opens an outlet and pushes samples:
 
 ```dart
-import 'package:liblsl/liblsl.dart';
+import 'package:liblsl/lsl.dart';
 
-// Create a stream info
 final info = await LSL.createStreamInfo(
-  streamName: 'MyStream',
-  streamType: 'EEG',
-  channelCount: 8,
-  nominalSrate: 100.0,
-  channelFormat: ChannelFormat.float32,
-  sourceId: 'EEGSystem',
+  streamName: 'GuideStream',
+  streamType: LSLContentType.custom('Example'),
+  channelCount: 2,
+  sampleRate: 10.0,
+  channelFormat: LSLChannelFormat.double64,
+  sourceId: 'guide-sender-1',
 );
+final outlet = await LSL.createOutlet(streamInfo: info);
 
-// Create a stream outlet to send data
-final outlet = await LSL.createOutlet(
-    streamInfo: info,
-    chunkSize: 0,
-    maxBuffer: 1
-);
-
-// throws an exception if no consumer is found (e.g. lab recorder)
-await outlet.waitForConsumer(timeout: 5.0);
-
-// send a sample to the outlet
-final sample = List<double>.filled(8, 0.0);
-
-await outlet.pushSample(sample);
-
-// To receive data, a stream inlet is needed,
-// this should be from a resolved stream, although
-// you could technically create it manually
-
-// find max 1 of all availble streams
-final streams = await LSL.resolveStreams(
-    waitTime: 1.0,
-    maxStreams: 1,
-);
-
-// create an inlet for the first stream
-final inlet = await LSL.createInlet(streamInfo: streams[0]);
-
-// get the sample
-final sample = await inlet.pullSample();
-
-// do something with the values
-print('Sample: ${sample[0]}, timesatamp: ${sample.timestamp}');
-
-// clear the streaminfos
-streams.destroy();
-
-// clear up memory from inlet, outlet, resolver, etc
-inlet.destroy();
-outlet.destroy();
-
-
+outlet.pushSample([1.0, 2.0]);
 ```
+
+A receiver resolves the stream, opens an inlet and pulls samples. Each
+sample has a timestamp on the sender's clock, and the time correction maps
+it onto the receiver's clock:
+
+```dart
+final streams = await LSL.resolveStreamsByProperty(
+  property: LSLStreamProperty.name,
+  value: 'GuideStream',
+  waitTime: 10.0,
+  minStreamCount: 1,
+);
+final inlet = await LSL.createInlet<double>(streamInfo: streams.first);
+
+final offset = await inlet.getTimeCorrection(timeout: 5.0);
+final sample = await inlet.pullSample(timeout: 2.0);
+final sentAt = sample.timestamp + offset;
+```
+
+Native resources are released explicitly:
+
+```dart
+inlet.destroy();
+streams.destroy();
+outlet.destroy();
+info.destroy();
+```
+
+These fragments follow [`example/send.dart`](./example/send.dart) and
+[`example/receive.dart`](./example/receive.dart), which the
+[guide](https://github.com/NexusDynamic/liblsl.dart/blob/main/docs/streaming-between-devices.md) explains step by
+step. [`example/liblsl_example.dart`](./example/liblsl_example.dart) shows
+several streams in one program.
+
+### Isolates and direct calls
+
+By default every outlet and inlet runs in its own
+[isolate](https://dart.dev/language/isolates), so that sending and receiving
+do not block the main isolate. Performance can degrade when the number of
+streams exceeds the number of CPU cores.
+
+An outlet or inlet created with `useIsolates: false` is called directly
+through FFI. The `*Sync` methods, such as `pushSampleSync` and
+`pullSampleSync`, are available in this mode and have no asynchronous
+overhead, which suits code with strict timing requirements.
+
+### Receiving samples as they arrive
+
+`sampleStream()` delivers each sample when it arrives, together with the
+local clock at that moment. It uses one isolate per inlet, which waits
+inside the native pull call, so no polling interval is added to the receive
+time. `chunkStream()` is the chunked equivalent.
+
+```dart
+final subscription = inlet.sampleStream().listen((sample) {
+  final latency = sample.receivedClock - (sample.timestamp + offset);
+});
+await subscription.cancel();
+```
+
+The stream reports an `LSLSampleListenerException` if its isolate ends for
+any reason other than cancellation. A listener that is slower than the
+stream accumulates a queue; the `onBacklog` and `maxBacklog` parameters
+report and bound it.
 
 ### Chunked transfer
 
@@ -248,7 +167,7 @@ In direct mode (`useIsolates: false`) the `*Sync` variants
 `pullChunkPointerSync`) skip all async overhead. String streams support
 the list forms (`pushChunk`/`pullChunk`) but not the typed ones.
 
-### Explicit timestamps & pushthrough
+### Explicit timestamps and pushthrough
 
 By default a pushed sample is stamped with the current `LSL.localClock()`.
 When the data was captured earlier (e.g. an event detected a few ms ago, or
@@ -310,7 +229,7 @@ usage and latency jitter for high-bandwidth streams, but:
 
 - each push blocks for as long as the slowest consumer needs (in direct
   mode this stalls the calling isolate);
-- it is **not** compatible with string-format streams (an `ArgumentError`
+- it is not compatible with string-format streams (an `ArgumentError`
   is thrown at creation);
 - only one thread/isolate may push at a time;
 - `bufsizeInSamples` / `bufsizeInThousandths` change the unit of
@@ -318,10 +237,10 @@ usage and latency jitter for high-bandwidth streams, but:
 
 ### Benchmarking
 
-A standalone benchmark suite compares the transport modes and operations —
-see [benchmark/README.md](./benchmark/README.md). CI runs it on every commit
-to `main` and every release; the results over time are charted in the
-[benchmark history](https://nexusdynamic.org/liblsl.dart/dev/bench/).
+A benchmark suite compares the transport modes and operations; see
+[benchmark/README.md](./benchmark/README.md). It runs in CI on every commit
+to `main` and on every release, and the results over time are charted in
+the [benchmark history](https://nexusdynamic.org/liblsl.dart/dev/bench/).
 
 ```sh
 dart run benchmark/bin/liblsl_benchmark.dart --smoke
@@ -329,7 +248,7 @@ dart run benchmark/bin/liblsl_benchmark.dart --smoke
 
 ## Direct FFI usage
 
-If you want to use the FFI directly, you can do so by importing the `native_liblsl.dart` file.
+The generated FFI bindings can be used directly by importing `native_liblsl.dart`.
 
 ```dart
 import 'package:liblsl/native_liblsl.dart';
@@ -371,40 +290,125 @@ sampleStr.free();
 stringArray.free();
 ```
 
-## Testing
+## Network and platform notes
 
-Set up the environment (for more details, see the [REVIEW_TESTING.md](https://github.com/NexusDynamic/liblsl.dart/blob/main/packages/liblsl/REVIEW_TESTING.md) file):
+### Multicast
+
+LSL discovers streams with multicast UDP. Managed switches, routers and
+firewalls can block multicast, in which case streams on other devices are
+not found. The network and the firewall of each device must permit it.
+
+### Networks without multicast
+
+LSL can be used without multicast when the IP addresses of the devices are
+known. The configuration is applied before any other LSL call, and on every
+device. The options correspond to the
+[LSL configuration file](https://labstreaminglayer.readthedocs.io/info/lslapicfg.html).
+
+```dart
+LSL.setConfigContent(LSLApiConfig(knownPeers: ['10.0.0.100', '10.0.0.101']));
+```
+
+### Android
+
+An application requires the `INTERNET`, `CHANGE_WIFI_MULTICAST_STATE`, `ACCESS_NETWORK_STATE`, and `ACCESS_WIFI_STATE` permissions in its `AndroidManifest.xml`, for the multicast UDP communication that LSL uses.
+
+```xml
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- ... other AndroidManifest.xml nodes -->
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>
+</manifest>
+```
+
+### iOS
+
+Multicast networking on iOS requires the entitlement
+[`com.apple.developer.networking.multicast`](https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.developer.networking.multicast),
+which Apple grants on request to paid developer accounts through the
+[Multicast Networking Entitlement Request page](https://developer.apple.com/contact/request/networking-multicast).
+Without it, LSL cannot be used on iOS.
+
+The following entries are also required in `Info.plist`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- ... other Info.plist nodes -->
+  <key>NSBonjourServices</key>
+	<array>
+		<string>liblsl._tcp</string>
+		<string>liblsl._udp</string>
+	</array>
+    <key>NSLocalNetworkUsageDescription</key>
+	<string>Allow LSL to find other devices and communicate</string>
+</dict>
+</plist>
+```
+
+### macOS and Linux: open file limit
+
+Every outlet, inlet and resolver uses several sockets, and the default limit on open files per process (256 on macOS, 1024 on most Linux desktops) runs out with a few dozen streams: liblsl then logs `Too many open files` and fails to create outlets and inlets.
+
+So on macOS and Linux, loading liblsl raises the process's soft open-file limit:
+
+- A soft limit of 65536 or more is left untouched.
+- Otherwise it is raised as far as the system allows (the hard limit, and on macOS `kern.maxfilesperproc`), up to 1048576. The hard limit is never changed and the limit is never lowered.
+- If the system refuses (e.g. a sandbox or device management), liblsl prints a warning to stderr and carries on; the limit can then be raised with `ulimit -n`.
+- Set the environment variable `LIBLSL_DART_NO_RLIMIT=1` to leave the limit alone.
+
+The limit is per process, so child processes that the application starts inherit the raised limit.
+
+### macOS: network settings
+
+macOS's default TCP buffers are small, which slows high-rate transfers, and `maxfiles` bounds how far the open-file limit can be raised. For demanding setups:
+
+```bash
+sudo sysctl -w net.inet.tcp.mssdflt=1420
+sudo sysctl -w net.inet.tcp.win_scale_factor=7
+sudo sysctl -w net.inet.tcp.sendspace=861275
+sudo sysctl -w net.inet.tcp.recvspace=861275
+sudo sysctl -w net.inet.tcp.autosndbufmax=8388608
+sudo sysctl -w net.inet.tcp.autorcvbufmax=8388608
+sudo sysctl -w net.inet.ip.portrange.first=32768
+sudo launchctl limit maxfiles 65536 200000
+```
+
+These settings last until reboot.
+
+## Testing
 
 ```bash
 dart test
 ```
 
-The tests need a few thousand open files; liblsl raises the limit itself (see [the open file limit](#macos-and-linux-open-file-limit)).
+The tests need a few thousand open files; the limit is raised automatically
+(see [the open file limit](#macos-and-linux-open-file-limit)). The
+[review and test guide](./REVIEW_TESTING.md) describes further options.
 
-## Contributing
+## Contributing and support
 
-See the [CONTRIBUTING.md](https://github.com/NexusDynamic/liblsl.dart/blob/main/CONTRIBUTING.md) file for guidelines on how to contribute to this project.
-
-## Code of Conduct
-
-This project and everyone participating in it must uphold [Code of Conduct](https://github.com/NexusDynamic/liblsl.dart/blob/main/CODE_OF_CONDUCT.md). By participating, you are expected to uphold this code.
-
-## Support
-
-Please see the [SUPPORT.md](https://github.com/NexusDynamic/liblsl.dart/blob/main/SUPPORT.md) file for information on how to get support for liblsl.dart and where to ask questions or discuss potential features.
+Contribution guidelines are in [CONTRIBUTING.md](https://github.com/NexusDynamic/liblsl.dart/blob/main/CONTRIBUTING.md),
+and participants are expected to uphold the
+[Code of Conduct](https://github.com/NexusDynamic/liblsl.dart/blob/main/CODE_OF_CONDUCT.md).
+[SUPPORT.md](https://github.com/NexusDynamic/liblsl.dart/blob/main/SUPPORT.md) describes where to ask questions and
+discuss features. Security vulnerabilities are reported as described in
+[SECURITY.md](https://github.com/NexusDynamic/liblsl.dart/blob/main/SECURITY.md).
 
 [![Matrix chat room](https://img.shields.io/matrix/NexusDynamic%3Aneuro.wang?server_fqdn=matrix.neuro.wang&fetchMode=summary&logo=matrix&label=Matrix%20Chat%20Room)
 ](https://matrix.to/#/#NexusDynamic:neuro.wang)
 
-## Security
+## License
 
-Please see the [SECURITY.md](https://github.com/NexusDynamic/liblsl.dart/blob/main/SECURITY.md) file for information on how to report security vulnerabilities for liblsl.dart.
+This project is licensed under the MIT License; see
+[LICENSE](https://github.com/NexusDynamic/liblsl.dart/blob/main/packages/liblsl/LICENSE).
 
-# License
+## Acknowledgments
 
-This project is licensed under the MIT License - see the [LICENSE](https://github.com/NexusDynamic/liblsl.dart/blob/main/packages/liblsl/LICENSE) file for details.
-
-# Acknowledgments
-
-- [Christian A. Kothe: liblsl](https://github.com/sccn/liblsl) for the LSL library
+- [liblsl](https://github.com/sccn/liblsl) by Christian A. Kothe and
+  contributors, the LSL library
 - The [Dart programming language](https://dart.dev/) by Google

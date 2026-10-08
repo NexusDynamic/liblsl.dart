@@ -1,5 +1,7 @@
 # signal_viewer_xdf
 
+[![Pub Version](https://img.shields.io/pub/v/signal_viewer_xdf)](https://pub.dev/packages/signal_viewer_xdf)
+
 [XDF](https://github.com/sccn/xdf/wiki/Specifications) recordings for
 [`signal_viewer`](https://pub.dev/packages/signal_viewer).
 
@@ -7,6 +9,16 @@
 shows each stream in a tab. Files are indexed in one pass and read on
 demand, so recordings larger than memory can be viewed. Reading and clock
 synchronisation come from the [`xdf`](https://pub.dev/packages/xdf) package.
+
+[API documentation](https://pub.dev/documentation/signal_viewer_xdf/latest/)
+
+## Installation
+
+```bash
+flutter pub add signal_viewer signal_viewer_xdf
+```
+
+## Usage
 
 ```dart
 import 'package:signal_viewer/signal_viewer.dart';

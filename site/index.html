@@ -3,35 +3,50 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>LSL Viewer – free XDF file viewer and Lab Streaming Layer stream viewer</title>
-  <meta name="description" content="Open and view XDF files (LabRecorder recordings) in your browser or on the desktop, and view live Lab Streaming Layer (LSL) streams. Record to XDF, replay XDF over LSL, and relay streams over WebSockets. Free and open source for Windows, macOS, Linux, Android and the web.">
-  <meta name="keywords" content="XDF viewer, XDF file viewer, XDF reader, open XDF file, LabRecorder, Lab Streaming Layer, LSL viewer, LSL stream viewer, EEG viewer, liblsl, pyxdf alternative, Dart, Flutter">
+  <title>liblsl.dart: Lab Streaming Layer, XDF and multi-device experiments in Dart and Flutter</title>
+  <meta name="description" content="Dart and Flutter libraries and applications for Lab Streaming Layer (LSL), XDF recordings, networked multimodal data collection and the coordination of multiple devices in experiments. Includes LSL Viewer, an XDF file viewer and LSL stream viewer for the desktop, Android and the web.">
+  <meta name="keywords" content="Lab Streaming Layer, LSL, liblsl, XDF, XDF viewer, XDF file viewer, XDF reader, LabRecorder, LSL viewer, LSL stream viewer, EEG viewer, multi-device experiment, hyperscanning, latency measurement, clock synchronisation, Dart, Flutter">
   <link rel="canonical" href="https://nexusdynamic.org/liblsl.dart/">
   <meta property="og:type" content="website">
-  <meta property="og:title" content="LSL Viewer – XDF file viewer and LSL stream viewer">
-  <meta property="og:description" content="View XDF recordings and live Lab Streaming Layer streams in the browser or on the desktop. Free and open source.">
+  <meta property="og:title" content="liblsl.dart: Lab Streaming Layer, XDF and multi-device experiments in Dart and Flutter">
+  <meta property="og:description" content="Libraries and applications for Lab Streaming Layer, XDF recordings and the coordination of multiple devices in experiments, on desktop, mobile and the web.">
   <meta property="og:url" content="https://nexusdynamic.org/liblsl.dart/">
   <meta property="og:image" content="https://nexusdynamic.org/liblsl.dart/icon.png">
   <meta name="twitter:card" content="summary">
-  <link rel="icon" type="image/png" href="icon.png">
+  <link rel="icon" type="image/svg+xml" href="nexusdynamic.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#3c0366">
   <link rel="stylesheet" href="style.css">
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
-    "@type": "SoftwareApplication",
-    "name": "LSL Viewer",
-    "alternateName": ["XDF viewer", "LSL stream viewer"],
-    "description": "Viewer for XDF recordings (LabRecorder) and live Lab Streaming Layer (LSL) streams: filtering, re-referencing, power spectra, signal quality, trigger decoding, recording to XDF, replaying XDF over LSL, and a WebSocket bridge/relay for LSL.",
-    "applicationCategory": "Science",
-    "operatingSystem": "Windows, macOS, Linux, Android, Web browser",
-    "url": "https://nexusdynamic.org/liblsl.dart/",
-    "installUrl": "https://nexusdynamic.org/liblsl.dart/lsl_viewer/",
-    "downloadUrl": "https://github.com/NexusDynamic/liblsl.dart/releases?q=lsl_viewer&expanded=true",
-    "softwareHelp": "https://nexusdynamic.org/liblsl.dart/relay.html",
-    "codeRepository": "https://github.com/NexusDynamic/liblsl.dart",
-    "license": "https://opensource.org/licenses/MIT",
-    "isAccessibleForFree": true,
-    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+    "@graph": [
+      {
+        "@type": "SoftwareSourceCode",
+        "name": "liblsl.dart",
+        "description": "Dart and Flutter libraries and applications for Lab Streaming Layer (LSL), XDF recordings, networked multimodal data collection and the coordination of multiple devices in experiments.",
+        "url": "https://nexusdynamic.org/liblsl.dart/",
+        "codeRepository": "https://github.com/NexusDynamic/liblsl.dart",
+        "programmingLanguage": "Dart",
+        "license": "https://opensource.org/licenses/MIT"
+      },
+      {
+        "@type": "SoftwareApplication",
+        "name": "LSL Viewer",
+        "alternateName": ["XDF viewer", "LSL stream viewer"],
+        "description": "Viewer for XDF recordings (LabRecorder) and live Lab Streaming Layer (LSL) streams: filtering, re-referencing, power spectra, signal quality, trigger decoding, recording to XDF, replaying XDF over LSL, and a WebSocket bridge and relay for LSL.",
+        "applicationCategory": "Science",
+        "operatingSystem": "Windows, macOS, Linux, Android, Web browser",
+        "url": "https://nexusdynamic.org/liblsl.dart/",
+        "installUrl": "https://nexusdynamic.org/liblsl.dart/lsl_viewer/",
+        "downloadUrl": "https://github.com/NexusDynamic/liblsl.dart/releases?q=lsl_viewer&expanded=true",
+        "softwareHelp": "https://nexusdynamic.org/liblsl.dart/guides.html",
+        "license": "https://opensource.org/licenses/MIT",
+        "isAccessibleForFree": true,
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+      }
+    ]
   }
   </script>
 </head>
@@ -39,124 +54,169 @@
   <header class="hero">
     <div class="wrap">
       <div class="brand">
-        <img src="icon.png" alt="" width="72" height="72">
-        <h1>LSL Viewer: XDF file viewer and Lab Streaming Layer stream viewer</h1>
+        <img src="nexusdynamic.svg" alt="" width="56" height="56">
+        <h1>liblsl.dart</h1>
       </div>
       <p class="tagline">
-        Open <strong>XDF recordings</strong> (the files LabRecorder writes)
-        of any size, right in your browser, and watch <strong>live LSL
-        streams</strong> (EEG, markers, motion, audio, anything). Free and
-        open source, on Windows, macOS, Linux, Android and the web.
+        Dart and Flutter libraries and applications for Lab Streaming Layer
+        (LSL), networked multimodal data collection, the coordination of
+        multiple devices in experiments, and XDF recordings.
       </p>
       <div class="buttons">
-        <a class="button" href="lsl_viewer/">Open the web app</a>
-        <a class="button secondary" href="https://github.com/NexusDynamic/liblsl.dart/releases?q=lsl_viewer&amp;expanded=true">Download for desktop / Android</a>
+        <a class="button" href="guides.html">Guides</a>
+        <a class="button secondary" href="lsl_viewer/">LSL Viewer web app</a>
+        <a class="button secondary" href="https://github.com/NexusDynamic/liblsl.dart">Source on GitHub</a>
       </div>
     </div>
   </header>
 
   <main class="wrap">
-    <!-- screenshot -->
-    <figure>
-      <img src="screenshot.png" alt="LSL Viewer showing EEG channels from an XDF recording" width="1600" height="900" loading="lazy">
-    </figure>
-    <!-- /screenshot -->
-
     <section>
-      <h2>What it does</h2>
-      <div class="grid">
-        <div class="card">
-          <h3>XDF viewer and reader</h3>
-          <p>
-            Open <code>.xdf</code> files from LabRecorder and other LSL
-            recorders, with one tab per stream. Big files are indexed once
-            and stay fast to scroll and zoom. In the browser the file is read
-            locally and never uploaded.
-          </p>
-        </div>
-        <div class="card">
-          <h3>Live LSL stream viewer</h3>
-          <p>
-            Find the LSL streams on your network and view them live, with
-            filters, re-referencing, power spectra, signal quality and
-            trigger decoding.
-          </p>
-        </div>
-        <div class="card">
-          <h3>Record and replay</h3>
-          <p>
-            Record LSL streams to XDF (as LabRecorder does), and replay an
-            XDF recording as LSL streams in real time to test your pipeline
-            without the hardware.
-          </p>
-        </div>
-        <div class="card">
-          <h3>LSL over the internet</h3>
-          <p>
-            Share streams over a WebSocket bridge, view them in a browser,
-            publish from a browser, or relay between browsers.
-            <a href="relay.html">Set up a bridge or relay</a>.
-          </p>
-        </div>
-        <div class="card">
-          <h3>Devices</h3>
-          <p>
-            OpenBCI Cyton (+ Daisy) and serial devices that print numbers
-            (e.g. an Arduino): on desktop, on Android over USB, and in Chrome
-            or Edge with WebSerial.
-          </p>
-        </div>
-        <div class="card">
-          <h3>Command line</h3>
-          <p>
-            The <code>lsl</code> tool lists, records, shares, bridges,
-            relays, replays and generates streams. It comes with each
-            desktop release.
-          </p>
-        </div>
-      </div>
+      <h2>Overview</h2>
+      <p>
+        The software in this project supports experiments that collect data
+        on several devices, and is intended in particular for multimodal and
+        multi-participant research. The libraries and applications run on
+        Windows, macOS, Linux, Android and iOS, and in part in web browsers,
+        so that a procedure developed in one laboratory can be reproduced in
+        another with different hardware.
+      </p>
+      <p>
+        The LSL Viewer application displays XDF recordings and live LSL
+        streams. The <code>liblsl</code> package is a Dart interface to the
+        C++ LSL library, and <code>xdf</code> reads and writes XDF
+        recordings. <code>peer_coordinator</code> coordinates the devices of
+        an experiment over LSL, WebSocket or WebRTC. The
+        <code>transport_timing</code> application measures latency, jitter,
+        loss and clock drift between devices, and its results are examined
+        in <code>transport_timing_analysis</code>. All libraries are
+        published on <a href="https://pub.dev/publishers/zeyus.com/packages">pub.dev</a>,
+        and the project is MIT licensed.
+      </p>
     </section>
 
     <section>
-      <h2>Get it</h2>
-      <ul>
-        <li><strong>Web:</strong> <a href="lsl_viewer/">open LSL Viewer in your browser</a>. No install; XDF files, serial devices, and LSL through a <a href="relay.html">bridge</a>.</li>
-        <li><strong>Windows, macOS, Linux, Android:</strong> from the <a href="https://github.com/NexusDynamic/liblsl.dart/releases?q=lsl_viewer&amp;expanded=true">releases page</a> (<code>lsl_viewer</code> releases). The desktop archives also contain the <code>lsl</code> command line tool, which is also available on its own as <code>lsl-cli-…</code>.</li>
-        <li><strong>From source:</strong> <code>flutter run</code> in <a href="https://github.com/NexusDynamic/liblsl.dart/tree/main/apps/lsl_viewer">apps/lsl_viewer</a>.</li>
-      </ul>
+      <h2>Guides</h2>
+      <table>
+        <thead><tr><th>Guide</th><th>Result</th></tr></thead>
+        <tbody>
+          <tr><td><a href="streaming-between-devices.html">Streaming data between two devices</a></td><td>A stream of timestamped samples sent from one device and received on another</td></tr>
+          <tr><td><a href="coordinated-experiment.html">A coordinated experiment</a></td><td>Several devices running one program, in which a coordinator starts a data stream on all of them and announces trials</td></tr>
+          <tr><td><a href="validating-timing.html">Validating timing in a lab</a></td><td>Measured latency, jitter, loss and clock drift between the devices of a lab</td></tr>
+          <tr><td><a href="relay.html">Sharing LSL streams over the network</a></td><td>LSL streams available in web browsers and across networks</td></tr>
+        </tbody>
+      </table>
     </section>
 
     <section>
-      <h2>For developers</h2>
+      <h2>Viewing recordings and streams</h2>
+      <p>
+        LSL Viewer opens XDF recordings of any size, such as those written
+        by LabRecorder, with one tab per stream, and displays live LSL
+        streams with filtering, re-referencing, power spectra, signal
+        quality measures and trigger decoding. It records streams to XDF,
+        replays recordings as LSL streams, and connects to OpenBCI Cyton
+        boards and other serial devices. In the web app, files are read
+        locally in the browser.
+      </p>
+      <p>
+        <a href="lsl_viewer/">Web app</a> ·
+        <a href="https://github.com/NexusDynamic/liblsl.dart/releases?q=lsl_viewer&amp;expanded=true">Downloads for Windows, macOS, Linux and Android</a> ·
+        <a href="https://github.com/NexusDynamic/liblsl.dart/tree/main/apps/lsl_viewer">Documentation and source</a>
+      </p>
+      <figure>
+        <img src="screenshot.png" alt="LSL Viewer showing EEG channels from an XDF recording" width="1914" height="1508" loading="lazy">
+      </figure>
+      <p>
+        A browser cannot use LSL directly. LSL streams are made available to
+        the web app, and to other networks, through a WebSocket bridge that
+        is started from the desktop application or with the
+        <code>lsl</code> command line tool; see the
+        <a href="relay.html">bridge and relay guide</a>.
+      </p>
+      <p>
+        The viewer is also available as a Flutter library,
+        <a href="https://pub.dev/packages/signal_viewer">signal_viewer</a>,
+        with source providers for
+        <a href="https://pub.dev/packages/signal_viewer_lsl">LSL streams</a>,
+        <a href="https://pub.dev/packages/signal_viewer_xdf">XDF recordings</a> and
+        <a href="https://pub.dev/packages/signal_viewer_serial">serial devices</a>,
+        and its signal engine as
+        <a href="https://pub.dev/packages/signal_core">signal_core</a>.
+      </p>
+    </section>
+
+    <section>
+      <h2>Streaming and recording data</h2>
       <div class="grid">
-        <div class="card">
-          <h3><a href="https://pub.dev/packages/xdf">xdf</a></h3>
-          <p>Read and write XDF files in pure Dart, on every platform including the web. It uses pyxdf's clock synchronisation, dejittering and defaults, and is tested against pyxdf.</p>
-        </div>
         <div class="card">
           <h3><a href="https://pub.dev/packages/liblsl">liblsl</a></h3>
-          <p>Dart and Flutter bindings for Lab Streaming Layer, with full parity with the C library (<a href="https://joss.theoj.org/papers/2d813b551058e59edacefd35ea281e40">JOSS paper</a>).</p>
+          <p>Dart and Flutter interface to the C++ <code>liblsl</code> library, with full parity with the C API. It is described in a <a href="https://joss.theoj.org/papers/2d813b551058e59edacefd35ea281e40">JOSS paper</a>, and its <a href="dev/bench/">benchmark history</a> is published.</p>
         </div>
         <div class="card">
-          <h3><a href="https://github.com/NexusDynamic/liblsl.dart/tree/main/packages/lsl_tools">lsl_tools</a></h3>
-          <p>Record to XDF, the WebSocket bridge and relay, test outlets, and the <code>lsl</code> command line tool.</p>
+          <h3><a href="https://pub.dev/packages/xdf">xdf</a></h3>
+          <p>Reader and writer for XDF files in pure Dart, on all platforms including the web. It implements the clock synchronisation and jitter removal of pyxdf and is tested against it.</p>
+        </div>
+        <div class="card">
+          <h3><a href="https://pub.dev/packages/lsl_tools">lsl_tools</a></h3>
+          <p>Recording to XDF, the WebSocket bridge and relay, test outlets, and the <code>lsl</code> command line tool, which is included in the desktop releases of LSL Viewer.</p>
         </div>
       </div>
     </section>
 
     <section>
-      <h2>Questions</h2>
-      <h3>How do I open an XDF file?</h3>
-      <p>Go to the <a href="lsl_viewer/">web app</a> and choose <em>Open recording…</em>, or drop the <code>.xdf</code> file onto the window. On the desktop you can also pass the file on the command line.</p>
-      <h3>Can I view LSL streams in a browser?</h3>
-      <p>Browsers can't use LSL directly. Run <code>lsl share</code> (or <em>Share or relay streams…</em> in the desktop app) on the lab computer and connect to it from the web app. See the <a href="relay.html">bridge and relay guide</a>.</p>
-      <h3>Is it free?</h3>
-      <p>Yes. It is MIT licensed, with source on <a href="https://github.com/NexusDynamic/liblsl.dart">GitHub</a>.</p>
+      <h2>Coordinating devices in an experiment</h2>
+      <div class="grid">
+        <div class="card">
+          <h3><a href="https://pub.dev/packages/peer_coordinator">peer_coordinator</a></h3>
+          <p>Transport-neutral coordination of devices: election of a coordinator, membership, heartbeat, data streams that are started and stopped on all devices together, and timing information on every message.</p>
+        </div>
+        <div class="card">
+          <h3><a href="https://pub.dev/packages/liblsl_coordinator">liblsl_coordinator</a></h3>
+          <p>The LSL transport for <code>peer_coordinator</code>, for local networks and research hardware.</p>
+        </div>
+        <div class="card">
+          <h3><a href="https://pub.dev/packages/webrtc_coordinator">webrtc_coordinator</a></h3>
+          <p>A peer-to-peer WebRTC transport for <code>peer_coordinator</code>, with a <a href="https://pub.dev/packages/webrtc_coordinator_flutter">Flutter binding</a>.</p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Validating timing</h2>
+      <div class="grid">
+        <div class="card">
+          <h3><a href="https://github.com/NexusDynamic/liblsl.dart/tree/main/apps/transport_timing">transport_timing</a></h3>
+          <p>An application that measures one-way latency, jitter, loss and clock drift between devices over LSL, WebSocket and WebRTC. <a href="https://github.com/NexusDynamic/liblsl.dart/releases?q=transport_timing&amp;expanded=true">Downloads</a>.</p>
+        </div>
+        <div class="card">
+          <h3><a href="https://github.com/NexusDynamic/liblsl.dart/tree/main/apps/transport_timing_analysis">transport_timing_analysis</a></h3>
+          <p>An application that collates and visualises the logs of a timing run from all devices. <a href="transport_timing_analysis/">Web app</a>.</p>
+        </div>
+        <div class="card">
+          <h3><a href="https://pub.dev/packages/timing_core">timing_core</a></h3>
+          <p>The record format and analysis behind both applications. The logs are XDF files.</p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Devices</h2>
+      <div class="grid">
+        <div class="card">
+          <h3><a href="https://pub.dev/packages/openbci_cyton">openbci_cyton</a></h3>
+          <p>OpenBCI Cyton and Cyton + Daisy boards over the USB dongle: commands, channel settings and samples in microvolts.</p>
+        </div>
+        <div class="card">
+          <h3><a href="https://pub.dev/packages/serial_transport">serial_transport</a></h3>
+          <p>Serial ports on Linux, macOS and Windows, and WebSerial in browsers, through one interface.</p>
+        </div>
+      </div>
     </section>
   </main>
 
   <footer><div class="wrap">
-    Part of <a href="https://github.com/NexusDynamic/liblsl.dart">liblsl.dart</a>.
+    <a href="https://github.com/NexusDynamic/liblsl.dart">liblsl.dart</a> is a <a href="https://nexusdynamic.org/">NexusDynamic</a> project and is MIT licensed.
     Lab Streaming Layer is at <a href="https://labstreaminglayer.org">labstreaminglayer.org</a>.
   </div></footer>
 </body>

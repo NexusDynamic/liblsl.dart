@@ -1,17 +1,19 @@
 name: Pages site
 
-# Builds the landing page and guides (site/, rendered with site/build.py) and
-# publishes them at the root of gh-pages. That branch also holds the web
-# viewer (lsl_viewer/, from release.yml) and benchmark data (dev/bench), so
-# keep_files leaves them in place.
+# Builds the landing page and guides (site/ and docs/, rendered with
+# site/build.py) and publishes them at the root of gh-pages. That branch also
+# holds the web apps (lsl_viewer/ and transport_timing_analysis/, from
+# release.yml) and benchmark data (dev/bench), so keep_files leaves them in
+# place.
 
 on:
   push:
     branches: [main]
     paths:
       - "site/**"
+      - "docs/**"
       - "packages/lsl_tools/doc/**"
-      - "apps/lsl_viewer/assets/icon/**"
+      - "lsl_and_xdf_viewer_screenshot.png"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -34,7 +36,7 @@ jobs:
 
       - name: Build
         run: |
-          pip install "markdown>=3.5,<4"
+          pip install "markdown>=3.5,<4" "pymdown-extensions>=10,<11"
           python3 site/build.py
 
       - name: Deploy

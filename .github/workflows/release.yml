@@ -347,7 +347,8 @@ jobs:
             dist/*.apk
           fail_on_unmatched_files: true
 
-      # Shares gh-pages with the benchmark data (dev/bench), so keep other files.
+      # To /<app>/ of gh-pages, which also holds the site (pages.yml), the
+      # other apps and the benchmark data (dev/bench), so keep other files.
       - name: Deploy web build to GitHub Pages
         if: needs.build-app.outputs.has-web == 'true' && needs.parse.outputs.prerelease != 'true'
         uses: peaceiris/actions-gh-pages@v4

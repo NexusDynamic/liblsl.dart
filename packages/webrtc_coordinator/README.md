@@ -1,30 +1,41 @@
 # webrtc_coordinator
 
-A genuinely peer-to-peer transport for
-[`peer_coordinator`](https://pub.dev/packages/peer_coordinator): coordination and data over WebRTC
-data channels, with the hub demoted to discovery and connection setup.
+[![Pub Version](https://img.shields.io/pub/v/webrtc_coordinator)](https://pub.dev/packages/webrtc_coordinator)
 
-Pure Dart. It ships no WebRTC implementation — you supply an `RtcPeerAdapter`.
-[`webrtc_coordinator_flutter`](https://pub.dev/packages/webrtc_coordinator_flutter) provides one
-backed by `flutter_webrtc`; `package:webrtc_coordinator/testing.dart` provides a
-fake for headless tests.
+`webrtc_coordinator` is a peer-to-peer transport for
+[`peer_coordinator`](https://pub.dev/packages/peer_coordinator). Coordination
+messages and data travel directly between devices over WebRTC data
+channels, and a hub is used only for discovery and connection setup.
 
-## Why
+The package is pure Dart and contains no WebRTC implementation. An
+application supplies an `RtcPeerAdapter`:
+[`webrtc_coordinator_flutter`](https://pub.dev/packages/webrtc_coordinator_flutter)
+provides one based on `flutter_webrtc`, and
+`package:webrtc_coordinator/testing.dart` provides a fake adapter for tests
+that run without a device.
 
-The WebSocket transport relays every byte. The hub is on the data path by
-design, so every message and every sample costs two network hops. Here it costs
-one: peers exchange an offer and an answer through the hub, and everything
-after that goes directly between them.
+[API documentation](https://pub.dev/documentation/webrtc_coordinator/latest/)
 
-The hop count is the obvious win. The less obvious one is that a data channel
-can be **unreliable and unordered**, which a relay cannot offer at all — so a
-latency-critical sampling stream can stop paying for retransmissions it does
-not want.
+## Comparison with the WebSocket transport
 
-No core changes were needed for any of this. The abstraction was built for it:
-LSL is already peer-to-peer behind the same interfaces.
+The WebSocket transport of `peer_coordinator` relays every message through
+the hub, so each message takes two network hops. With this transport, peers
+exchange an offer and an answer through the hub and then communicate
+directly, in one hop.
 
-## Using it
+A data channel can also be unreliable and unordered, which a relay cannot
+provide. A stream for which latency matters more than completeness can then
+avoid the cost of retransmissions.
+
+## Installation
+
+```bash
+dart pub add webrtc_coordinator
+```
+
+A Flutter application adds `webrtc_coordinator_flutter` as well.
+
+## Usage
 
 ```dart
 import 'package:peer_coordinator/peer_coordinator.dart';
@@ -44,118 +55,105 @@ final config = CoordinationConfig(
 );
 ```
 
-Run the same hub as the WebSocket transport:
+The hub is the one used by the WebSocket transport:
 
 ```sh
 dart run peer_coordinator:hub --host 0.0.0.0 --port 8080
 ```
 
-## What still goes through the hub
+## What passes through the hub
 
-Discovery and signalling, and nothing else.
+| Traffic | Path |
+| --- | --- |
+| Endpoint registration, peer queries, election | Hub |
+| WebRTC offers, answers and ICE candidates | Hub |
+| Coordination messages | Direct |
+| Data samples | Direct |
 
-| | Hub | Direct |
-|---|---|---|
-| Endpoint registration, peer queries, election | ✅ | |
-| WebRTC offers, answers, ICE candidates | ✅ | |
-| Coordination messages | | ✅ |
-| Data samples | | ✅ |
+`test/transports/rtc_transport_test.dart` verifies this: after a complete
+data exchange, the routing table of the hub is empty for every stream.
 
-`test/transports/rtc_transport_test.dart` pins this: after a full data exchange
-the hub's routing table is empty for every stream, so it could not have relayed
-a byte even if one had arrived.
+## ICE and NAT
 
-## How it is put together
+`iceServers` is empty by default, which gives host candidates only: peers on
+one local network connect directly and no third party is involved. STUN
+servers can be added for peers behind NAT.
 
-* **One `RTCPeerConnection` per peer pair**, keyed on node uId — the only
-  identifier stable across an election role change — and shared by every stream
-  between those two peers.
-* **One data channel per stream**, opened `negotiated: true` with an id derived
-  from the stream name (`rtcChannelIdFor`), so neither end has to exchange
-  channel metadata. Derivation collisions are asserted on at open time rather
-  than trusted.
-* **Glare** is resolved by rule, not negotiation: the lexicographically lower
-  node uId makes the offer.
-* **Routing is local.** The hub's `RelayRouting` becomes
-  `RtcMesh.subscribersFor`, filled by the `open` signal a subscriber sends. A
-  producer sends on exactly the channels whose far end asked for them.
-* **Samples reuse `WsSampleFrame` verbatim**, so the encoders and
-  `decodeChannels` stay shared and covered by the WebSocket transport's tests.
-  Its slot fields are written as zero and never read — a data channel identifies
-  its sender by being that channel.
+A connection relayed by a TURN server passes through that server, in the
+same way as traffic through the hub. The single-hop property described above
+therefore holds for host and server-reflexive (STUN) connectivity, and does
+not hold for TURN.
 
-### The adapter seam
+## Design
 
-`flutter_webrtc` cannot run in a headless `dart test` VM, so every call into it
-goes through `lib/src/rtc/rtc_adapter.dart`, with `FakeRtcPeerAdapter` on the
-other side for tests. **No `flutter_webrtc` type may appear in a signature
-there**: session descriptions and ICE candidates cross as plain JSON maps, and
-`RTCPeerConnectionState`'s six values cross as `RtcLinkState`'s three.
+There is one `RTCPeerConnection` for each pair of peers, shared by all
+streams between them. It is keyed on the node uId, which is the only
+identifier that remains stable when the role of a node changes in an
+election.
 
-That is what makes the dial state machine, glare resolution, routing fan-out and
-framing testable without a device — which is nearly all of the transport. Only
-the binding needs one.
+Each stream has one data channel, opened with `negotiated: true` and an id
+derived from the stream name (`rtcChannelIdFor`), so that the two ends do
+not exchange channel metadata. Collisions of derived ids are checked when a
+channel is opened.
 
-## ICE, NAT, and what "peer-to-peer" means here
+When two peers dial each other at the same time, the node with the
+lexicographically lower uId makes the offer.
 
-`iceServers` defaults to empty: host candidates only, pure LAN peer-to-peer with
-no third party involved, which is the open-network case this exists for. STUN is
-opt-in for crossing a NAT.
+Routing is local to each peer. `RtcMesh.subscribersFor` takes the place of
+the hub's `RelayRouting` and is filled by the `open` signal that a
+subscriber sends. A producer sends on exactly the channels whose far end has
+asked for them.
 
-**TURN reintroduces a relay.** A TURN-relayed connection is peer-to-peer in name
-only — the bytes go through someone else's server, exactly as they do through
-the hub — so the halved hop count does not survive it. The claim in this README
-holds for host and srflx connectivity.
+Samples use the `WsSampleFrame` format of the WebSocket transport, so the
+encoders and `decodeChannels` are shared and covered by the tests of that
+transport. The slot fields of the frame are written as zero and are not
+read, since a data channel identifies its sender.
 
-## Contracts that are easy to get wrong
+### The adapter
 
-Three, two of which have already been got wrong once elsewhere:
+`flutter_webrtc` cannot run in a `dart test` process, so every call to it
+passes through `lib/src/rtc/rtc_adapter.dart`, and tests use
+`FakeRtcPeerAdapter` in its place. No `flutter_webrtc` type appears in a
+signature of that interface: session descriptions and ICE candidates cross
+it as JSON maps, and the six values of `RTCPeerConnectionState` cross as the
+three values of `RtcLinkState`. This makes the dial state machine, the
+resolution of simultaneous dials, the routing and the framing testable
+without a device.
 
-1. **`discoverOnce` must wait out its full timeout when nothing matches.**
-   Election concludes "no better candidate exists" precisely by finding nothing
-   after the full timeout. Returning early on an empty result makes every node
-   elect itself and splits the session.
-2. **`PeerHandle.take()` transfers ownership exactly once**, and `addInlet` must
-   call it before touching the handle, so a discovery cycle cannot free a
-   resource a stream is still using.
-3. **`inbox` must be a broadcast stream.** Several subscribers read it.
+### Contracts for implementers
 
-And one specific to keeping this package testable:
-
-4. **The fake's delivery must stay asynchronous**, as `InMemoryBus` is careful
-   to be. A synchronous fake makes ordering bugs invisible and lets the suite
-   validate behaviour no real transport has.
+| Contract | Reason |
+| --- | --- |
+| `discoverOnce` waits for its full timeout when nothing matches | The election concludes that no better candidate exists from an empty result after the timeout. An early return makes every node elect itself and splits the session |
+| `PeerHandle.take()` transfers ownership exactly once, and `addInlet` calls it before using the handle | A discovery cycle must not free a resource that a stream is using |
+| `inbox` is a broadcast stream | Several subscribers read it |
+| Delivery by the fake adapter is asynchronous, as in `InMemoryBus` | A synchronous fake hides ordering errors and validates behaviour that no real transport has |
 
 ## Testing
 
 ```sh
 dart analyze
-dart test              # 35 tests, including the participation-mode gate
+dart test
 dart run benchmark/rtc_latency_bench.dart 60 5
 ```
 
-`test/transports/participation_modes_test.dart` runs `peer_coordinator`'s shared
-`runParticipationScenarios` suite — the same one the in-memory and WebSocket
-transports run. A participation mode is a property of the coordination layer,
-not of how bytes move, so anything that passes there and fails here is a
-transport bug. **That is the acceptance gate.**
+`test/transports/participation_modes_test.dart` runs the shared
+`runParticipationScenarios` suite of `peer_coordinator`, which the in-memory
+and WebSocket transports also run. A participation mode is a property of the
+coordination layer, so a scenario that passes there and fails here indicates
+a defect in this transport.
 
-The benchmark's WebRTC arm runs against the fake, so it measures the library's
-own overhead with the network removed — a useful regression check, not an
-estimate of real peer-to-peer latency. For that, run two devices on one LAN with
-the Flutter binding.
+The WebRTC arm of the benchmark runs against the fake adapter. It measures
+the overhead of the library with the network removed and serves as a
+regression check. Real peer-to-peer latency is measured with two devices on
+one local network and the Flutter binding, for example with
+[`transport_timing`](https://github.com/NexusDynamic/liblsl.dart/tree/main/apps/transport_timing).
 
-## Known gaps
+## Known limitations
 
-* **Headless testing stops at the adapter boundary.** Anything the fake does not
-  model — ICE restarts, packet loss, the actual difference between reliable and
-  unreliable delivery — is only exercised on a device.
-* **`maxRetransmits: 0` cannot be expressed through `flutter_webrtc`.** Its
-  `RTCDataChannelInit.toMap` writes the field only when it is positive, so zero
-  silently produces a reliable channel. The binding logs a warning; use `1` for
-  near-unreliable delivery.
-* **`WsControl.peerGone` is still consumed by nobody.** The hub broadcasts it on
-  socket close, which would be a faster departure signal than waiting for ICE to
-  fail. `RtcMesh.peerLost` currently fires on link state alone.
-* **Mobile and NAT.** Multiple NICs, Wi-Fi client isolation and carrier NAT all
-  make host candidates fail in ways a LAN test will not show.
+| Limitation | Detail |
+| --- | --- |
+| Tests without a device stop at the adapter | ICE restarts, packet loss and the difference between reliable and unreliable delivery are exercised only on a device |
+| `maxRetransmits: 0` cannot be expressed through `flutter_webrtc` | `RTCDataChannelInit.toMap` writes the field only when it is positive, so zero produces a reliable channel. The binding logs a warning; `1` gives nearly unreliable delivery |
+| `WsControl.peerGone` is not used | The hub broadcasts it when a socket closes, which would signal a departure sooner than a failed ICE connection. `RtcMesh.peerLost` currently depends on the link state alone |
+| Mobile networks and NAT | Multiple network interfaces, Wi-Fi client isolation and carrier NAT can make host candidates fail in ways that a test on a local network does not show |

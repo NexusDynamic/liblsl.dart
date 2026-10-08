@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Prepare a package release: set the pubspec version (and, for liblsl, the
-# citation metadata), then print the tag to push.
+# citation metadata; for an app, the download links in the READMEs), then
+# print the tag to push.
 #
 #   tool/release.sh <package> <version>
 #   tool/release.sh liblsl 1.0.0
@@ -25,8 +26,10 @@ fi
 
 if [ -f "$ROOT/packages/$PACKAGE/pubspec.yaml" ]; then
   PKG_DIR="$ROOT/packages/$PACKAGE"
+  IS_APP=false
 elif [ -f "$ROOT/apps/$PACKAGE/pubspec.yaml" ]; then
   PKG_DIR="$ROOT/apps/$PACKAGE"
+  IS_APP=true
 else
   echo "error: no package or app named '$PACKAGE'" >&2
   exit 66
@@ -38,6 +41,19 @@ TAG_VERSION="${VERSION%%+*}"
 sed -i.bak -E "s/^version: .*/version: $VERSION/" "$PKG_DIR/pubspec.yaml"
 rm -f "$PKG_DIR/pubspec.yaml.bak"
 echo "Set $PACKAGE pubspec version to $VERSION"
+
+# Links to an app's latest release, `[<text> <version>](…/releases/tag/<app>-v<version>)`,
+# in the root README and the app's own. Prereleases are not linked.
+if [ "$IS_APP" = true ] && [[ "$TAG_VERSION" != *-* ]]; then
+  for readme in "$ROOT/README.md" "$PKG_DIR/README.md"; do
+    [ -f "$readme" ] || continue
+    sed -i.bak -E \
+      "s#\[([^]0-9]*)[^]]*\]\((https://github.com/[^/]+/[^/]+/releases/tag/$PACKAGE-v)[^)]*\)#[\1$TAG_VERSION](\2$TAG_VERSION)#g" \
+      "$readme"
+    rm -f "$readme.bak"
+  done
+  echo "Set $PACKAGE download links to $TAG_VERSION"
+fi
 
 if [ "$PACKAGE" = "liblsl" ]; then
   TODAY="$(date -u +%Y-%m-%d)"

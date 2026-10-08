@@ -1,5 +1,7 @@
 # signal_viewer
 
+[![Pub Version](https://img.shields.io/pub/v/signal_viewer)](https://pub.dev/packages/signal_viewer)
+
 A Flutter viewer for multichannel signals such as EEG, from recordings, live
 devices and network streams. It is the viewer behind
 [LSL Viewer](https://nexusdynamic.org/liblsl.dart/lsl_viewer/), packaged so
@@ -21,6 +23,16 @@ Streaming Layer streams,
 recordings and
 [`signal_viewer_serial`](https://pub.dev/packages/signal_viewer_serial) for
 serial devices.
+
+[API documentation](https://pub.dev/documentation/signal_viewer/latest/)
+
+## Installation
+
+```bash
+flutter pub add signal_viewer
+```
+
+## Usage
 
 ```dart
 import 'package:signal_viewer/signal_viewer.dart';

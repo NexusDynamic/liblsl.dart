@@ -1,3 +1,8 @@
+# 1.1.1-dev.0
+
+- New `example/send.dart` and `example/receive.dart`: a stream between two
+  devices.
+
 # 1.1.0
 
 ## New features
