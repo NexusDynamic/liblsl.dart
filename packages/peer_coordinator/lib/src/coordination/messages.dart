@@ -505,11 +505,19 @@ class StartStreamMessage extends CoordinationMessage {
   final DataStreamConfig streamConfig;
   final DateTime? startAt; // Optional future start time
 
+  /// [startAt] as a reading of the sender's transport clock, in seconds.
+  ///
+  /// This is what receivers schedule against: with the clock offset to the
+  /// sender it gives the same instant on every node, which [startAt] does
+  /// only as far as the nodes' wall clocks agree.
+  final double? startAtClock;
+
   StartStreamMessage({
     required super.fromNodeUId,
     required this.streamName,
     required this.streamConfig,
     this.startAt,
+    this.startAtClock,
     super.messageId,
     super.parentMessageId,
     super.timestamp,
@@ -526,6 +534,7 @@ class StartStreamMessage extends CoordinationMessage {
     'streamName': streamName,
     'streamConfig': streamConfig.toMap(),
     'startAt': startAt?.toIso8601String(),
+    'startAtClock': startAtClock,
     'metadata': metadata,
   };
 
@@ -535,6 +544,7 @@ class StartStreamMessage extends CoordinationMessage {
         streamName: map['streamName'],
         streamConfig: DataStreamConfigFactory().fromMap(map['streamConfig']),
         startAt: map['startAt'] != null ? DateTime.parse(map['startAt']) : null,
+        startAtClock: (map['startAtClock'] as num?)?.toDouble(),
         messageId: map['messageId'],
         parentMessageId: map['parentMessageId'],
         timestamp: DateTime.parse(map['timestamp']),

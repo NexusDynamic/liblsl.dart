@@ -212,7 +212,11 @@ class InletResource extends LSLResource {
 
 /// LSL Transport implementation for coordination.
 class LSLTransport<T extends LSLTransportConfig> extends LSLResource
-    implements ITransport, IResourceManager {
+    implements ITransport, IResourceManager, ITransportClock {
+  /// LSL's clock, which every LSL timestamp is a reading of.
+  @override
+  double now() => LSL.localClock();
+
   /// The transport ID
   @override
   String get id => 'lsl_transport';

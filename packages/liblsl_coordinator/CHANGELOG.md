@@ -1,3 +1,10 @@
+## 0.5.1
+
+- `startStream(startAt:)` allows scheduling a synchronised start
+  for a stream and all its participants. The LSL clock is used so
+  there is no reliance on syncrhonised system clocks.
+- New `example/experiment.dart`, a minimal coordinated experiment.
+
 ## 0.5.0
 
 - Fixed a crash (a segmentation fault inside `lsl_create_inlet`) when a

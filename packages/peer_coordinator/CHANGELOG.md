@@ -1,3 +1,10 @@
+## 0.4.1
+
+- `PeerSession.startStream(startAt:)` now schedules the start. Every node
+  waits for that instant and starts the stream then. Uses transport clock.
+  participants align clocks using the measured offset. Stopping or destroying
+  the stream before the time cancels the start.
+
 ## 0.4.0
 
 - `test` constraint relaxed to `^1.30.0`, which resolves alongside `flutter_test`

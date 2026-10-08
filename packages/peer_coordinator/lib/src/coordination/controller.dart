@@ -1525,6 +1525,7 @@ class CoordinationController {
     String streamName,
     DataStreamConfig config, {
     DateTime? startAt,
+    double? startAtClock,
   }) async {
     _ensureLive('start a stream');
     if (!_state.isCoordinator) {
@@ -1534,6 +1535,7 @@ class CoordinationController {
       streamName,
       config,
       startAt: startAt,
+      startAtClock: startAtClock,
     );
   }
 

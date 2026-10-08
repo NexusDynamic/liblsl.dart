@@ -443,12 +443,14 @@ class CoordinatorMessageHandler extends CoordinationMessageHandler
     String streamName,
     DataStreamConfig config, {
     DateTime? startAt,
+    double? startAtClock,
   }) async {
     final message = StartStreamMessage(
       fromNodeUId: thisNode.uId,
       streamName: streamName,
       streamConfig: config,
       startAt: startAt,
+      startAtClock: startAtClock,
     );
     await sendMessage(message);
   }
@@ -826,6 +828,7 @@ class ParticipantMessageHandler extends CoordinationMessageHandler
         streamName: message.streamName,
         streamConfig: message.streamConfig,
         startAt: message.startAt,
+        startAtClock: message.startAtClock,
         fromNodeUId: message.fromNodeUId,
         timestamp: message.timestamp,
         messageId: message.messageId,

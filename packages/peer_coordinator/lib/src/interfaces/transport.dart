@@ -38,6 +38,18 @@ abstract interface class IAuthenticatedTransport {
   set localNodeUId(String nodeUId);
 }
 
+/// A transport whose timestamps are not readings of [PeerClock].
+///
+/// Opt-in, like [IAuthenticatedTransport]: a transport that stamps messages
+/// with [PeerClock] needs nothing here. One that has a clock of its own (LSL's
+/// `lsl_local_clock()`) implements this, so that code which schedules against
+/// message timestamps reads the same clock the timestamps came from.
+abstract interface class ITransportClock {
+  /// The local clock in seconds, in the domain of
+  /// [MessageTiming.receivedClock].
+  double now();
+}
+
 /// Interface for all transport implementations.
 ///
 /// Transports are [IResourceManager]s because they are what actually own the

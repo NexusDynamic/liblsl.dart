@@ -232,10 +232,15 @@ final class StreamStartEvent extends StreamLifecycleEvent {
   final DataStreamConfig streamConfig;
   final DateTime? startAt;
 
+  /// [startAt] on the sender's transport clock; see
+  /// [StartStreamMessage.startAtClock].
+  final double? startAtClock;
+
   StreamStartEvent({
     required super.streamName,
     required this.streamConfig,
     this.startAt,
+    this.startAtClock,
     required super.fromNodeUId,
     super.timestamp,
     super.messageId,

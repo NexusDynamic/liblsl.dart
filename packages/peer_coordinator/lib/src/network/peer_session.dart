@@ -63,6 +63,45 @@ class PeerSession extends CoordinationSession with InstanceUID {
   /// in-flight removal take the inlet away for good.
   final Map<String, Lock> _inletLocks = {};
 
+  /// Scheduled starts that have not happened yet, by stream name.
+  ///
+  /// A start waits here until its time. Whatever supersedes it (a stop, a
+  /// destroy, another start, leaving) removes or replaces the entry, and the
+  /// waiter then finds its token gone and does nothing.
+  final Map<String, Object> _pendingStarts = {};
+
+  /// The local clock, in the domain the transport stamps messages in.
+  double _clockNow() {
+    final transport = _transport;
+    return transport is ITransportClock
+        ? (transport as ITransportClock).now()
+        : PeerClock.now();
+  }
+
+  /// Waits until [_clockNow] reaches [target], and returns whether the start
+  /// of [streamName] this wait belongs to is still wanted.
+  ///
+  /// Sleeps in steps of at most 100 ms so that a cancelled wait does not hold
+  /// a long timer, and spins through the last millisecond, since a timer
+  /// fires no more finely than that.
+  Future<bool> _waitForScheduledStart(String streamName, double target) async {
+    final token = Object();
+    _pendingStarts[streamName] = token;
+    while (identical(_pendingStarts[streamName], token)) {
+      final remaining = target - _clockNow();
+      if (remaining <= 0) break;
+      if (remaining > 0.0015) {
+        final step = min(remaining - 0.001, 0.1);
+        await Future<void>.delayed(
+          Duration(microseconds: (step * 1e6).round()),
+        );
+      }
+    }
+    if (!identical(_pendingStarts[streamName], token)) return false;
+    _pendingStarts.remove(streamName);
+    return true;
+  }
+
   Lock _inletLockFor(String streamName, String nodeUId) =>
       _inletLocks.putIfAbsent('$streamName//$nodeUId', Lock.new);
 
@@ -307,7 +346,14 @@ class PeerSession extends CoordinationSession with InstanceUID {
 
     if (stream != null) {
       if (!stream.started) {
-        await stream.start();
+        final target = _localStartClock(event);
+        if (target == null) {
+          _pendingStarts.remove(event.streamName);
+        } else if (!await _waitForScheduledStart(event.streamName, target)) {
+          logger.info('Scheduled start of ${event.streamName} was cancelled');
+          return;
+        }
+        if (!stream.started) await stream.start();
         logger.info('Started stream: ${event.streamName}');
         // Notify coordinator we're ready
         await _controller.markStreamReady(event.streamName);
@@ -328,6 +374,27 @@ class PeerSession extends CoordinationSession with InstanceUID {
     }
   }
 
+  /// When [event] asks this node to start, on the local clock, or null to
+  /// start at once.
+  ///
+  /// The coordinator's clock reading is mapped with the offset the transport
+  /// measured for the message that carried it. Without an offset the wall
+  /// clocks are all there is, and they agree only as well as the devices'
+  /// time synchronisation does.
+  double? _localStartClock(StreamStartEvent event) {
+    final startAtClock = event.startAtClock;
+    final offset = event.timing?.clockOffset;
+    if (startAtClock != null && offset != null) return startAtClock + offset;
+    final startAt = event.startAt;
+    if (startAt == null) return null;
+    logger.warning(
+      'No clock offset to the coordinator for the start of '
+      '${event.streamName}; scheduling by wall clock',
+    );
+    return _clockNow() +
+        startAt.difference(DateTime.now()).inMicroseconds / 1e6;
+  }
+
   Future<DataStream?> _getDataStreamLocked(String streamName) async {
     return await _streamLock.synchronized(() {
       return _dataStreams[streamName];
@@ -335,6 +402,7 @@ class PeerSession extends CoordinationSession with InstanceUID {
   }
 
   Future<void> _handleStreamStop(StreamStopEvent event) async {
+    _pendingStarts.remove(event.streamName);
     final DataStream? stream = await _getDataStreamLocked(event.streamName);
 
     if (stream != null) {
@@ -384,6 +452,7 @@ class PeerSession extends CoordinationSession with InstanceUID {
   }
 
   Future<void> _handleStreamDestroy(StreamDestroyEvent event) async {
+    _pendingStarts.remove(event.streamName);
     await _streamLock.synchronized(() async {
       final stream = _dataStreams[event.streamName];
       if (stream != null) {
@@ -675,16 +744,46 @@ class PeerSession extends CoordinationSession with InstanceUID {
 
   bool get isAcceptingNodes => _controller.isAcceptingNodes;
 
+  /// Starts [streamName] on every node.
+  ///
+  /// Without [startAt] each node starts when the command reaches it. With
+  /// [startAt], a time on this node's wall clock, every node waits for that
+  /// instant: it is sent as a reading of this node's transport clock, which
+  /// each participant maps onto its own with the clock offset measured for
+  /// the coordination stream. The nodes then start together to within that
+  /// offset's uncertainty and the granularity of their timers, whether or not
+  /// their wall clocks agree. A [startAt] in the past starts at once.
+  ///
+  /// Completes when this node has started, which with [startAt] is at that
+  /// time. Stopping or destroying the stream before then cancels the start.
   Future<void> startStream(String streamName, {DateTime? startAt}) async {
     final DataStream? stream = await _getDataStreamLocked(streamName);
     if (stream == null) {
       throw ArgumentError('Stream not found: $streamName');
     }
-    // Start the stream ourselves
-    await stream.start();
+    if (startAt == null) {
+      _pendingStarts.remove(streamName);
+      // Start the stream ourselves
+      await stream.start();
 
-    /// Send start command to all participants
-    await _controller.startStream(streamName, stream.config, startAt: startAt);
+      /// Send start command to all participants
+      await _controller.startStream(streamName, stream.config);
+      return;
+    }
+
+    final startAtClock =
+        _clockNow() + startAt.difference(DateTime.now()).inMicroseconds / 1e6;
+    // The command goes out first, so that the participants have it in hand
+    // while this node waits for the same instant.
+    await _controller.startStream(
+      streamName,
+      stream.config,
+      startAt: startAt,
+      startAtClock: startAtClock,
+    );
+    if (await _waitForScheduledStart(streamName, startAtClock)) {
+      await stream.start();
+    }
   }
 
   /// Start collecting `streamReady` acks for [streamName] from [expected].
@@ -819,6 +918,7 @@ class PeerSession extends CoordinationSession with InstanceUID {
 
   /// Stop a stream (pause polling, keep stream in registry for potential resumption)
   Future<void> stopStream(String streamName) async {
+    _pendingStarts.remove(streamName);
     await _controller.stopStream(streamName);
     // If coordinator, also handle local stream
     if (isCoordinator) {
@@ -832,6 +932,7 @@ class PeerSession extends CoordinationSession with InstanceUID {
 
   /// Destroy a stream completely (remove from registry and dispose all resources)
   Future<void> destroyStream(String streamName) async {
+    _pendingStarts.remove(streamName);
     await _controller.destroyStream(streamName);
     // If coordinator, also handle local stream
     // @TODO: remove some of the redundant isCoordinator checks
@@ -896,6 +997,7 @@ class PeerSession extends CoordinationSession with InstanceUID {
   }
 
   Future<void> _disposeStreams() async {
+    _pendingStarts.clear();
     // Dispose streams
     await _streamLock.synchronized(() async {
       logger.finest('Disposing ${_dataStreams.length} data streams...');
