@@ -46,6 +46,7 @@ or with the <strong><code>lsl</code> command line tool</strong>.</p>
 <li><a href="#setup-3-a-relay-between-browsers">Setup 3: a relay between browsers</a></li>
 <li><a href="#security-tokens-origins-and-tls">Security: tokens, origins and TLS</a></li>
 <li><a href="#running-a-relay-on-a-server-wss">Running a relay on a server (wss://)</a></li>
+<li><a href="#timing-clock-offsets-drift-and-latency">Timing: clock offsets, drift and latency</a></li>
 <li><a href="#command-reference">Command reference</a></li>
 <li><a href="#limitations">Limitations</a></li>
 <li><a href="#troubleshooting">Troubleshooting</a></li>
@@ -248,6 +249,45 @@ connects out, so the lab needs no open ports:</p>
 </code></pre>
 <p>Everyone connected to the relay then sees them. <code>lsl bridge
 wss://relay.example.org</code> elsewhere turns them back into LSL streams.</p>
+<h2 id="timing-clock-offsets-drift-and-latency">Timing: clock offsets, drift and latency</h2>
+<p>A sample keeps the time stamp its origin gave it all the way through a
+bridge or relay. Nothing on the way rewrites it. Beside the samples, every
+two seconds, travels the stream's <strong>clock chain</strong>: one entry per hop, each
+with</p>
+<ul>
+<li>the <strong>offset</strong> between that hop's two clocks and its <strong>drift</strong>, measured
+  the way LSL measures an outlet's clock (bursts of probes, the fastest
+  round trip of each, a line fitted through the last minute);</li>
+<li>the <strong>uncertainty</strong>: the round trip of the measurement, so the true
+  offset is within ± half of it;</li>
+<li>the <strong>latency</strong>: how long after its time stamp a sample arrived at that
+  hop (cumulative, so the difference between two hops is what the second
+  one added), and its jitter.</li>
+</ul>
+<p>The receiving end adds the hops up and puts time stamps on its own clock,
+smoothed like an LSL inlet's unless it is told not to. So by default a
+bridged stream lines up with local ones, and the error bound is the sum of
+the hops' uncertainties: well under a millisecond per hop on a LAN, a few
+ms per hop over the internet.</p>
+<p>Where to see the chain:</p>
+<ul>
+<li><strong><code>lsl bridge --stats 5</code></strong> prints it for each stream every 5 seconds:
+  the totals, then each hop, which shows <em>which</em> hop is slow or noisy.</li>
+<li><strong>The <code>BridgeTiming</code> stream</strong> that <code>lsl bridge</code> publishes beside the
+  others (a string stream, one JSON sample per stream every two seconds:
+  <code>stream</code>, <code>offset</code>, <code>uncertainty</code>, <code>drift_ppm</code>, <code>latency</code>, <code>hops</code>).
+  Record it with the data and the figures are in the file.
+  <code>--no-timing-stream</code> turns it off.</li>
+<li><strong>LSL Viewer</strong>: the stream's <em>Info</em> shows the bound, the latency and each
+  hop.</li>
+<li><strong>In code</strong>: <code>LslInlet.chain()</code> and <code>LslInlet.timeCorrectionEx()</code>. Open a
+  bridge inlet with <code>LslInletOptions(clockSync: false)</code> to get the raw time
+  stamps with the correction beside them, as a recorder wants.</li>
+</ul>
+<p>The same chain continues through a <code>peer_coordinator</code> session (WebRTC):
+<code>LslDataStreamPump</code> sends an inlet's samples through a <code>DataStream</code> and
+<code>DataStreamInlet</code> receives them as an inlet again, for a <code>BridgeOutlet</code>, an
+LSL outlet or <code>LslRecorder.fromInlets</code>.</p>
 <h2 id="command-reference">Command reference</h2>
 <p><code>lsl share</code> shares LSL streams, and with <code>--accept</code> takes published ones.</p>
 <table>
@@ -338,6 +378,16 @@ follows them as they come and go.</p>
 <td>none</td>
 <td>Added to the names published here</td>
 </tr>
+<tr>
+<td><code>--[no-]timing-stream</code></td>
+<td>on</td>
+<td>Publish the <code>BridgeTiming</code> stream (see <a href="#timing-clock-offsets-drift-and-latency">Timing</a>)</td>
+</tr>
+<tr>
+<td><code>--stats</code></td>
+<td>off</td>
+<td>Every this many seconds, print each stream's clock offset, bound, drift and latency per hop</td>
+</tr>
 </tbody>
 </table>
 <p><code>--peer &lt;address&gt;</code> goes before any command and looks for LSL streams on a
@@ -350,12 +400,14 @@ protocol (JSON control messages and binary sample frames) is documented in
 <ul>
 <li><strong>Values travel as 32-bit floats.</strong> <code>double64</code> and <code>int64</code> streams lose
   precision, and string streams keep only their first channel.</li>
-<li><strong>Time stamps:</strong> each client estimates the offset between its clock and
-  the server's from pings every 2 s, keeping the fastest round trip of the
-  last 10, and converts time stamps to its own clock. Expect accuracy of
-  about half the network's round-trip asymmetry, typically well under a
-  millisecond on a LAN and a few ms over the internet. Record on the
-  computer with the devices when timing matters.</li>
+<li><strong>Time stamps</strong> are as good as the network is symmetric: each hop's
+  offset is off by up to half the difference between its two directions'
+  delays, and the bounds add up over hops. The chain reports the bound
+  (see <a href="#timing-clock-offsets-drift-and-latency">Timing</a>); it cannot make
+  it smaller. In a browser the clock is also only as fine as the browser
+  allows (5 µs to 1 ms).</li>
+<li><strong>Every program must speak protocol 2.</strong> An older <code>lsl</code> or viewer is
+  refused when it connects, rather than given time stamps it would misread.</li>
 <li><strong>No automatic reconnect.</strong> If the connection drops, connect again.</li>
 <li><strong>Trusted groups only:</strong> see
   <a href="#security-tokens-origins-and-tls">Security</a>.</li>
