@@ -77,7 +77,7 @@ jobs:
       matrix: ${{ steps.plan.outputs.matrix }}
       has-web: ${{ steps.plan.outputs.has-web }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Choose targets
         id: plan
@@ -107,7 +107,7 @@ jobs:
       NAME: ${{ inputs.app }}-${{ inputs.version }}-${{ matrix.target }}
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           submodules: recursive
 
@@ -119,7 +119,7 @@ jobs:
 
       - name: Setup Java
         if: matrix.target == 'android'
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '17'
@@ -217,7 +217,7 @@ jobs:
           ls -la "$DIST"
 
       - name: Upload
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ inputs.app }}-${{ matrix.target }}
           path: dist/*
@@ -226,7 +226,7 @@ jobs:
       # The web build is also kept unzipped, for GitHub Pages.
       - name: Upload web site
         if: matrix.target == 'web'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: site-${{ inputs.app }}
           path: apps/${{ inputs.app }}/build/web
