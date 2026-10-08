@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:io' show sleep;
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:liblsl/lsl.dart';
@@ -210,6 +212,238 @@ void main() {
     }
   }, tags: 'lsl');
 
+  group('a listener that falls behind', () {
+    Future<void> cleanUp(
+      LSLOutlet outlet,
+      LSLInlet<dynamic> inlet,
+      List<LSLStreamInfo> infos,
+    ) async {
+      await inlet.destroy();
+      await outlet.destroy();
+      for (final info in infos) {
+        info.destroy();
+      }
+    }
+
+    /// Pushes [count] samples and keeps this isolate busy for long enough
+    /// that the listening isolate has pulled whatever it is going to.
+    void pushWhileBusy(LSLOutlet outlet, int count) {
+      for (var i = 0; i < count; i++) {
+        outlet.pushSampleSync([i, i]);
+      }
+      sleep(const Duration(milliseconds: 400));
+    }
+
+    Future<void> until(bool Function() done) async {
+      final deadline = DateTime.now().add(const Duration(seconds: 10));
+      while (!done() && DateTime.now().isBefore(deadline)) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+    }
+
+    test('is told, and loses nothing, when there is no limit', () async {
+      final (outlet, inlet, infos) = await createPair<int>(
+        LSLChannelFormat.int32,
+      );
+      final received = <int>[];
+      final reports = <LSLBacklog>[];
+      final subscription = inlet
+          .sampleStream(onBacklog: reports.add)
+          .listen((s) => received.add(s.data[0]));
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+
+      const count = 3000;
+      pushWhileBusy(outlet, count);
+      await until(() => received.length == count);
+      await subscription.cancel();
+
+      expect(received, [for (var i = 0; i < count; i++) i]);
+      // All of them were queued when this isolate got to the first.
+      expect(reports.first.cleared, isFalse);
+      expect(reports.first.queued, greaterThan(2500));
+      expect(reports.last.cleared, isTrue);
+      expect(reports.last.peak, reports.first.queued);
+      expect(reports.where((r) => r.cleared), hasLength(1));
+
+      await cleanUp(outlet, inlet, infos);
+    }, tags: 'lsl');
+
+    test('is not told about a queue below the threshold', () async {
+      final (outlet, inlet, infos) = await createPair<int>(
+        LSLChannelFormat.int32,
+      );
+      var received = 0;
+      final reports = <LSLBacklog>[];
+      final subscription = inlet
+          .sampleStream(onBacklog: reports.add)
+          .listen((_) => received++);
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      pushWhileBusy(outlet, 500);
+      await until(() => received == 500);
+      await subscription.cancel();
+
+      expect(received, 500);
+      expect(reports, isEmpty);
+
+      await cleanUp(outlet, inlet, infos);
+    }, tags: 'lsl');
+
+    test('with maxBacklog the queue stays within it and the rest waits in '
+        'the inlet', () async {
+      final (outlet, inlet, infos) = await createPair<int>(
+        LSLChannelFormat.int32,
+      );
+      final received = <int>[];
+      final reports = <LSLBacklog>[];
+      final subscription = inlet
+          .sampleStream(
+            maxBacklog: 100,
+            backlogWarnAt: 1,
+            onBacklog: reports.add,
+          )
+          .listen((s) => received.add(s.data[0]));
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+
+      const count = 3000;
+      pushWhileBusy(outlet, count);
+      await until(() => received.length == count);
+      await subscription.cancel();
+
+      expect(received, [for (var i = 0; i < count; i++) i]);
+      expect(reports, isNotEmpty);
+      expect(reports.map((r) => r.peak).reduce(max), lessThanOrEqualTo(100));
+
+      await cleanUp(outlet, inlet, infos);
+    }, tags: 'lsl');
+
+    test('with maxBacklog a paused subscription stops the pulling', () async {
+      final (outlet, inlet, infos) = await createPair<int>(
+        LSLChannelFormat.int32,
+      );
+      final received = <LSLTimedSample<int>>[];
+      final subscription = inlet
+          .sampleStream(wakeInterval: 0.05, maxBacklog: 1000)
+          .listen(received.add);
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      subscription.pause();
+      // The pull it was in when it was paused has timed out by then.
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      for (var i = 0; i < 50; i++) {
+        outlet.pushSampleSync([i, i]);
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      expect(received, isEmpty);
+
+      final resumedAt = LSL.localClock();
+      subscription.resume();
+      await until(() => received.length == 50);
+      expect(
+        [for (final s in received) s.data[0]],
+        [for (var i = 0; i < 50; i++) i],
+      );
+      // They waited in the inlet, not in the stream: none was pulled until
+      // the subscription was resumed.
+      expect(
+        received.map((s) => s.receivedClock).reduce(min),
+        greaterThanOrEqualTo(resumedAt),
+      );
+
+      // Cancelling does not wait for a paused listener to be resumed.
+      subscription.pause();
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      final watch = Stopwatch()..start();
+      await subscription.cancel();
+      expect(watch.elapsedMilliseconds, lessThan(1000));
+
+      await cleanUp(outlet, inlet, infos);
+    }, tags: 'lsl');
+
+    test('chunks count their samples', () async {
+      final (outlet, inlet, infos) = await createPair<int>(
+        LSLChannelFormat.int32,
+      );
+      var received = 0;
+      final reports = <LSLBacklog>[];
+      final subscription = inlet
+          .chunkStream(
+            maxSamples: 64,
+            backlogWarnAt: 500,
+            onBacklog: reports.add,
+          )
+          .listen((c) => received += c.sampleCount);
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      pushWhileBusy(outlet, 3000);
+      await until(() => received == 3000);
+      await subscription.cancel();
+
+      expect(received, 3000);
+      expect(reports.first.queued, greaterThan(2000));
+      expect(reports.last.cleared, isTrue);
+
+      await cleanUp(outlet, inlet, infos);
+    }, tags: 'lsl');
+  });
+
+  group('an inlet that is being listened to', () {
+    test('cannot be pulled from or flushed', () async {
+      final (outlet, inlet, infos) = await createPair<int>(
+        LSLChannelFormat.int32,
+      );
+      final subscription = inlet.sampleStream().listen((_) {});
+      expect(() => inlet.pullSampleSync(), throwsA(isA<LSLException>()));
+      expect(() => inlet.pullChunkSync(), throwsA(isA<LSLException>()));
+      expect(() => inlet.pullChunkTypedSync(), throwsA(isA<LSLException>()));
+      expect(() => inlet.flushSync(), throwsA(isA<LSLException>()));
+      expect(inlet.flush(), throwsA(isA<LSLException>()));
+      await subscription.cancel();
+
+      outlet.pushSampleSync([1, 2]);
+      expect(inlet.pullSampleSync(timeout: 2).data, [1, 2]);
+      expect(inlet.flushSync(), 0);
+
+      await inlet.destroy();
+      await outlet.destroy();
+      for (final info in infos) {
+        info.destroy();
+      }
+    }, tags: 'lsl');
+
+    for (final isolates in [false, true]) {
+      test('stops its listener when it is destroyed '
+          '(${isolates ? 'isolate' : 'direct'} mode)', () async {
+        final (outlet, inlet, infos) = await createPair<int>(
+          LSLChannelFormat.int32,
+          inletIsolates: isolates,
+        );
+        final samples = <int>[];
+        final errors = <Object>[];
+        final done = Completer<void>();
+        inlet.sampleStream().listen(
+          (s) => samples.add(s.data[0]),
+          onError: (Object e) => errors.add(e),
+          onDone: done.complete,
+        );
+        outlet.pushSampleSync([5, 5]);
+        final deadline = DateTime.now().add(const Duration(seconds: 5));
+        while (samples.isEmpty && DateTime.now().isBefore(deadline)) {
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+        expect(samples, [5]);
+
+        // Not cancelled first.
+        await inlet.destroy();
+        await done.future.timeout(const Duration(seconds: 5));
+        expect(errors.single, isA<LSLSampleListenerException>());
+        expect('${errors.single}', contains('destroyed'));
+
+        await outlet.destroy();
+        for (final info in infos) {
+          info.destroy();
+        }
+      }, tags: 'lsl');
+    }
+  });
+
   group('chunkStream', () {
     Future<void> cleanUp(
       LSLOutlet outlet,
@@ -317,6 +551,73 @@ void main() {
       expect(chunks.fold<int>(0, (n, c) => n + c.sampleCount), count);
       // About one every 100 ms over half a second, not one per sample.
       expect(chunks.length, lessThan(15));
+
+      await cleanUp(outlet, inlet, infos);
+    }, tags: 'lsl');
+
+    test('readyCount is what was there when the clock was read', () async {
+      final (outlet, inlet, infos) = await createPair<int>(
+        LSLChannelFormat.int32,
+      );
+      for (var i = 0; i < 50; i++) {
+        outlet.pushSampleSync([i, i]);
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      final chunks = <LSLTimedChunk>[];
+      final subscription = inlet.chunkStream(coalesce: 0.2).listen(chunks.add);
+      // These arrive while it is collecting.
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      for (var i = 50; i < 60; i++) {
+        outlet.pushSampleSync([i, i]);
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+      await subscription.cancel();
+
+      expect(chunks.first.sampleCount, 60);
+      expect(chunks.first.readyCount, 50);
+      // Without coalesce, everything in a chunk was ready.
+      for (var i = 0; i < 5; i++) {
+        outlet.pushSampleSync([i, i]);
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      final chunk = await inlet.chunkStream().first.timeout(
+        const Duration(seconds: 5),
+      );
+      expect(chunk.readyCount, chunk.sampleCount);
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+
+      await cleanUp(outlet, inlet, infos);
+    }, tags: 'lsl');
+
+    test("a sender's chunking is in the first sample's latency and not in "
+        "the last ready one's", () async {
+      final (outlet, inlet, infos) = await createPair<double>(
+        LSLChannelFormat.double64,
+      );
+      final chunks = <LSLTimedChunk>[];
+      final subscription = inlet.chunkStream().listen(chunks.add);
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      // 20 samples at 200 Hz: liblsl spreads their time stamps over 95 ms
+      // and sends them together.
+      for (var k = 0; k < 10; k++) {
+        outlet.pushChunkSync([
+          for (var i = 0; i < 20; i++) [i.toDouble(), 0.0],
+        ]);
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      await subscription.cancel();
+
+      expect(chunks.fold<int>(0, (n, c) => n + c.sampleCount), 200);
+      final whole = chunks.where((c) => c.sampleCount == 20).toList();
+      expect(whole, isNotEmpty);
+      for (final c in whole) {
+        expect(c.receivedClock - c.timestamps.first, greaterThan(0.09));
+        expect(
+          c.receivedClock - c.timestamps[c.readyCount - 1],
+          lessThan(0.02),
+        );
+      }
 
       await cleanUp(outlet, inlet, infos);
     }, tags: 'lsl');

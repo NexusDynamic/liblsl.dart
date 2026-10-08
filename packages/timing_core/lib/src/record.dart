@@ -290,7 +290,9 @@ final class RunLogWriter {
     ]);
     final received = _received[sourceId];
     if (offset != null && received != null) {
-      _xdf.writeClockOffset(received.id, receivedClock, offset);
+      // On the sender's clock like LabRecorder writes it.
+      // Readers evaluate the offsets at the stream's time stamps.
+      _xdf.writeClockOffset(received.id, receivedClock - offset, offset);
     } else if (offset != null) {
       // Before the source's first sample: its stream does not exist yet.
       (_earlyOffsets[sourceId] ??= []).add((receivedClock, offset));
@@ -325,7 +327,7 @@ final class RunLogWriter {
       entry.value.flush();
       for (final (time, offset)
           in _earlyOffsets[entry.key] ?? const <(double, double)>[]) {
-        _xdf.writeClockOffset(entry.value.id, time, offset);
+        _xdf.writeClockOffset(entry.value.id, time - offset, offset);
       }
     }
     for (final buffer in _clock.values) {

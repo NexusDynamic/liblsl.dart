@@ -138,7 +138,9 @@ class XdfWriter {
     }
   }
 
-  /// Write a clock offset of stream [id], see [XdfClockOffset].
+  /// Write a clock offset of stream [id], see [XdfClockOffset]. [time] is
+  /// on the stream's clock: the recorder's clock at the measurement minus
+  /// [value].
   void writeClockOffset(int id, double time, double value) {
     final s = _stream(id);
     final w = XdfBytesWriter()

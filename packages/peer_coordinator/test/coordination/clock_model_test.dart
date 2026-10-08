@@ -39,6 +39,14 @@ void main() {
       expect(ClockModel().ready, isFalse);
     });
 
+    test('is no hop before the first estimate', () {
+      expect(() => ClockModel().hop(node: 'a', via: 'lsl'), throwsStateError);
+      expect(
+        fitted(offset: 5, drift: 0).hop(node: 'a', via: 'lsl').uncertainty,
+        0.002,
+      );
+    });
+
     test('recovers offset and drift from noisy estimates', () {
       final model = fitted(offset: 1234.5, drift: 50e-6, noise: 200e-6);
       expect(model.drift, closeTo(50e-6, 5e-6));

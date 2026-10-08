@@ -86,7 +86,7 @@ PairReport _pair(
     latency[i] = latencyRaw[i] - (loopback && offset.isNaN ? 0 : offset);
     latencyFitted[i] = clock == null
         ? (loopback ? latency[i] : double.nan)
-        : latencyRaw[i] - clock.offsetAt(source);
+        : latencyRaw[i] - clock.offsetAt(source, r.receivedClock[i]);
     if (latency[i].isNaN) untimed++;
   }
 
@@ -210,8 +210,9 @@ final class _ClockModel {
     final segments = <_Segment>[];
     var resets = 0;
     var x = <double>[], y = <double>[];
+    var since = double.negativeInfinity;
     void close() {
-      if (x.isNotEmpty) segments.add(_Segment(x, y));
+      if (x.isNotEmpty) segments.add(_Segment(x, y, since));
       x = [];
       y = [];
     }
@@ -223,6 +224,7 @@ final class _ClockModel {
       }
       final offset = syncs.offset[i];
       if (offset.isNaN) continue;
+      if (x.isEmpty) since = syncs.receivedClock[i];
       // Fitted against the sender's clock, which is what a sample's
       // timestamp is read on. Without it, the receiver's clock mapped back
       // is the same instant to within the offset's own error.
@@ -248,13 +250,21 @@ final class _ClockModel {
       x.add(source);
       y.add(offset);
     }
-    return x.isEmpty ? null : _ClockModel([_Segment(x, y)], 0);
+    return x.isEmpty
+        ? null
+        : _ClockModel([_Segment(x, y, double.negativeInfinity)], 0);
   }
 
-  double offsetAt(double sourceClock) {
+  /// The offset for a sample stamped [sourceClock] that arrived at
+  /// [receivedClock].
+  ///
+  /// The stretch is chosen on the receiver's clock, because a
+  /// clock reset on the sender/outlet cannot be accounted for on the
+  /// sender.
+  double offsetAt(double sourceClock, double receivedClock) {
     var segment = _segments.first;
     for (final s in _segments) {
-      if (s.start <= sourceClock) segment = s;
+      if (s.since <= receivedClock) segment = s;
     }
     return segment.at(sourceClock);
   }
@@ -277,7 +287,8 @@ final class _ClockModel {
 }
 
 final class _Segment {
-  final double start;
+  /// The receiver's clock at this stretch's first estimate.
+  final double since;
   final int count;
   final double first;
   final double last;
@@ -287,9 +298,8 @@ final class _Segment {
   /// and extrapolating that line would turn their noise into drift.
   final LinearFit? fit;
 
-  _Segment(List<double> x, List<double> y)
-    : start = x.first,
-      count = x.length,
+  _Segment(List<double> x, List<double> y, this.since)
+    : count = x.length,
       first = y.first,
       last = y.last,
       mean = y.reduce((a, b) => a + b) / y.length,

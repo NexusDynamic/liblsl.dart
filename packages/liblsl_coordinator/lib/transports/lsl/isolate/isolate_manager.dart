@@ -1266,18 +1266,41 @@ final class IsolateStreamManager {
   /// back only its address; the worker adopts it and owns it from then on. The
   /// time correction warmed here is cached by liblsl, so the worker's own
   /// warm-up for this inlet returns without another round trip.
-  static Future<LSLInlet> _openInletOffThread(
-    int streamInfoAddr,
-    StreamDataType dataType,
-  ) async {
-    final inletAddress = await Isolate.run(
+  ///
+  /// In two steps, because of whose the stream info is. It belongs to the
+  /// main isolate, which frees it once this worker has answered a removal or
+  /// been stopped, and neither waits for the helper: a removal during an
+  /// open is answered at once, and a stopped worker's helper runs on. So the
+  /// helper gets a copy of its own ([_openNativeInletOffThread]), and the
+  /// caller decides, before it touches the original again, whether the inlet
+  /// is still wanted ([_adoptInlet]) or only to be destroyed.
+  static Future<int> _openNativeInletOffThread(int streamInfoAddr) {
+    // Copied here, before anything is awaited, while the original is
+    // certainly alive. The helper frees the copy.
+    final copy = native.lsl_copy_streaminfo(
+      native.lsl_streaminfo.fromAddress(streamInfoAddr),
+    );
+    if (copy == nullptr) {
+      throw LSLException('Failed to copy the stream info to open an inlet');
+    }
+    final copyAddr = copy.address;
+    return Isolate.run(
       () => _openNativeInlet(
-        streamInfoAddr,
+        copyAddr,
         inletCreateTimeout,
         InletWorker.timeCorrectionTimeout,
       ),
       debugName: 'inlet-open',
     );
+  }
+
+  /// Wraps the inlet at [inletAddress], opened for the stream info at
+  /// [streamInfoAddr], which has to be alive until this completes.
+  static Future<LSLInlet> _adoptInlet(
+    int streamInfoAddr,
+    int inletAddress,
+    StreamDataType dataType,
+  ) async {
     final streamInfo = LSLStreamInfo.fromStreamInfoAddr(streamInfoAddr);
     final inlet = await _createTypedInlet(streamInfo, dataType);
     await inlet.createFromPointer(
@@ -1287,21 +1310,29 @@ final class IsolateStreamManager {
     return inlet;
   }
 
-  /// The native half of [_openInletOffThread]; runs on the helper isolate.
+  /// Destroys an inlet that was opened and is not wanted after all, without
+  /// touching the stream info it was opened for.
+  static void _discardNativeInlet(int inletAddress) =>
+      native.lsl_destroy_inlet(native.lsl_inlet.fromAddress(inletAddress));
+
+  /// The native half of [_openNativeInletOffThread]; runs on the helper
+  /// isolate, and frees the stream info it is given.
   ///
   /// Matches what [_createTypedInlet] builds: liblsl's default 360 s buffer,
   /// a chunk size of 1, recovery on.
   static int _openNativeInlet(
-    int streamInfoAddr,
+    int streamInfoCopyAddr,
     double openTimeout,
     double warmTimeout,
   ) {
-    final inlet = native.lsl_create_inlet(
-      native.lsl_streaminfo.fromAddress(streamInfoAddr),
-      360,
-      1,
-      1,
-    );
+    final info = native.lsl_streaminfo.fromAddress(streamInfoCopyAddr);
+    final native.lsl_inlet inlet;
+    try {
+      inlet = native.lsl_create_inlet(info, 360, 1, 1);
+    } finally {
+      // The inlet has its own copy by now.
+      native.lsl_destroy_streaminfo(info);
+    }
     if (inlet == nullptr) {
       throw LSLException('Failed to create inlet');
     }
@@ -1442,6 +1473,11 @@ final class InletWorker extends IsolateWorker {
 
   /// Opens that a `removeInlet` cancelled while they were still in flight.
   final Set<int> _cancelledOpens = <int>{};
+
+  /// Stream infos whose opened inlet is being wrapped and put in the list:
+  /// the short stretch after the helper in which the stream info is in use
+  /// again. A removal waits for it.
+  final Map<int, Completer<void>> _adoptingInlets = {};
 
   /// List of time corrections for each inlet (fragile, needs to be exactly
   /// the same length as inlets)
@@ -1772,12 +1808,11 @@ final class InletWorker extends IsolateWorker {
     logger.finest(
       '[${config.debugName}] Adding inlet for address ${message.address} in stream ${config.streamId}',
     );
-    final LSLInlet newInlet;
+    final int opened;
     _openingInlets.add(message.address);
     try {
-      newInlet = await IsolateStreamManager._openInletOffThread(
+      opened = await IsolateStreamManager._openNativeInletOffThread(
         message.address,
-        config.dataType,
       );
     } catch (e, st) {
       _openingInlets.remove(message.address);
@@ -1804,15 +1839,40 @@ final class InletWorker extends IsolateWorker {
     }
     _openingInlets.remove(message.address);
     if (_cancelledOpens.remove(message.address)) {
-      await newInlet.destroy();
+      // The removal was answered while the helper was working, and the main
+      // isolate has freed the stream info since. Only the inlet is touched.
+      IsolateStreamManager._discardNativeInlet(opened);
       return 'Inlet for address ${message.address} in stream '
           '${config.streamId} was removed while it was being opened';
     }
-    await inletAddRemoveLock.synchronized(() {
-      inlets.add(newInlet);
-      // Null, not 0.0: this inlet has no clock-offset estimate yet.
-      timeCorrections.add(null);
-    });
+    // From here the stream info is used again, so a removal that arrives
+    // now waits until the inlet is in the list and then removes it there.
+    final adopting = _adoptingInlets[message.address] = Completer<void>();
+    final LSLInlet newInlet;
+    try {
+      newInlet = await IsolateStreamManager._adoptInlet(
+        message.address,
+        opened,
+        config.dataType,
+      );
+      await inletAddRemoveLock.synchronized(() {
+        inlets.add(newInlet);
+        // Null, not 0.0: this inlet has no clock-offset estimate yet.
+        timeCorrections.add(null);
+      });
+    } catch (e, st) {
+      logger.severe(
+        '[${config.debugName}] Failed to adopt the inlet opened for address '
+        '${message.address} in stream ${config.streamId}: $e',
+        e,
+        st,
+      );
+      return 'Failed to adopt the inlet for address ${message.address} in '
+          'stream ${config.streamId}: $e';
+    } finally {
+      _adoptingInlets.remove(message.address);
+      adopting.complete();
+    }
     if (config.eventDrivenInlets && running && !paused) _listen(newInlet);
     // Warm up only the inlet just added, not every inlet on the stream. See
     // [_warmTimeCorrectionForNewestInlet] for why the old full sweep here was
@@ -1826,6 +1886,7 @@ final class InletWorker extends IsolateWorker {
       _cancelledOpens.add(message.address);
       return;
     }
+    await _adoptingInlets[message.address]?.future;
     await inletAddRemoveLock.synchronized(() async {
       final index = inlets.indexWhere(
         (inlet) => inlet.streamInfo.streamInfo.address == message.address,
@@ -2183,7 +2244,21 @@ final class InletWorker extends IsolateWorker {
     }
     late final StreamSubscription<void> subscription;
     subscription = inlet
-        .sampleStream(debugFailAfter: debugFailAfter)
+        .sampleStream(
+          debugFailAfter: debugFailAfter,
+          // Nothing is held back or dropped here; the main isolate is told
+          // which inlet it is not keeping up with.
+          onBacklog: (backlog) => backlog.cleared
+              ? logger.info(
+                  '[${config.debugName}] Caught up with $sourceId on stream '
+                  '${config.streamId} (was ${backlog.peak} samples behind)',
+                )
+              : logger.warning(
+                  '[${config.debugName}] ${backlog.queued} samples from '
+                  '$sourceId on stream ${config.streamId} are waiting to be '
+                  'forwarded: this isolate is not keeping up with the stream',
+                ),
+        )
         .listen(
           (sample) {
             final index = inlets.indexOf(inlet);
@@ -2309,16 +2384,35 @@ final class InletWorker extends IsolateWorker {
     LSLInlet? fresh;
     _reopeningInlets.add(inlet);
     try {
+      final int opened;
       try {
-        fresh = await IsolateStreamManager._openInletOffThread(
-          address,
-          config.dataType,
-        );
+        opened = await IsolateStreamManager._openNativeInletOffThread(address);
       } catch (e) {
         // Removed or stopped while it was opening: nothing left to restart.
         if (!running || !inlets.contains(inlet)) return;
         _noteListenerFailure(inlet, 'the inlet could not be reopened: $e');
         return;
+      }
+      if (!running || !inlets.contains(inlet)) {
+        // Removed while it was opening, and the main isolate has freed the
+        // stream info since. Only the new inlet is touched.
+        IsolateStreamManager._discardNativeInlet(opened);
+        return;
+      }
+      // The stream info is used again from here; a removal waits.
+      final adopting = _adoptingInlets[address] = Completer<void>();
+      try {
+        fresh = await IsolateStreamManager._adoptInlet(
+          address,
+          opened,
+          config.dataType,
+        );
+      } catch (e) {
+        _noteListenerFailure(inlet, 'the reopened inlet could not be used: $e');
+        return;
+      } finally {
+        _adoptingInlets.remove(address);
+        adopting.complete();
       }
       await inletAddRemoveLock.synchronized(() async {
         final index = running ? inlets.indexOf(inlet) : -1;

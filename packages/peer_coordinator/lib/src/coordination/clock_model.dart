@@ -83,23 +83,30 @@ final class ClockModel {
   double offsetAt(double t) => _offset + _drift * (t - _at);
 
   /// This model as one hop of a [ClockChain].
+  ///
+  /// Throws a [StateError] before the first estimate ([ready]): a hop says
+  /// how one clock maps onto another, and one with nothing behind it would
+  /// read as an offset of zero known exactly.
   ClockHop hop({
     required String node,
     required String via,
     double? latency,
     double? jitter,
     double? held,
-  }) => ClockHop(
-    node: node,
-    via: via,
-    offset: _offset,
-    drift: _drift,
-    at: _at,
-    uncertainty: ready ? uncertainty : 0,
-    latency: latency,
-    jitter: jitter,
-    held: held,
-  );
+  }) {
+    if (!ready) throw StateError('No clock-offset estimate yet for $node');
+    return ClockHop(
+      node: node,
+      via: via,
+      offset: _offset,
+      drift: _drift,
+      at: _at,
+      uncertainty: uncertainty,
+      latency: latency,
+      jitter: jitter,
+      held: held,
+    );
+  }
 }
 
 /// Smooths the timestamps of a regular-rate stream, as liblsl's

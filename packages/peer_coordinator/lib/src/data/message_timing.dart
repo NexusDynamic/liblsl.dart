@@ -25,9 +25,9 @@ final class MessageTiming {
   /// Seconds to *add* to [sourceClock] to map it into the local clock domain.
   ///
   /// LSL: `lsl_time_correction()`, refreshed periodically per inlet. In-memory:
-  /// zero, since both ends share a process and therefore a clock. WebSocket:
-  /// null — the two ends have unrelated monotonic epochs and nothing estimates
-  /// the offset yet.
+  /// zero, since both ends share a process and therefore a clock. WebSocket
+  /// and WebRTC: the coordination layer's own estimate (`ClockSyncService`),
+  /// and null until the first one has been made.
   ///
   /// Null means "not known", which is distinct from a known offset of zero.
   final double? clockOffset;

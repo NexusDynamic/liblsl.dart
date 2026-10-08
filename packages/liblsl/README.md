@@ -319,8 +319,9 @@ usage and latency jitter for high-bandwidth streams, but:
 ### Benchmarking
 
 A standalone benchmark suite compares the transport modes and operations —
-see [benchmark/README.md](./benchmark/README.md). CI tracks results per
-commit and release on the `gh-pages` branch.
+see [benchmark/README.md](./benchmark/README.md). CI runs it on every commit
+to `main` and every release; the results over time are charted in the
+[benchmark history](https://nexusdynamic.org/liblsl.dart/dev/bench/).
 
 ```sh
 dart run benchmark/bin/liblsl_benchmark.dart --smoke

@@ -1,5 +1,7 @@
 ## 0.4.0
 
+- Participant outlet with no consumers for `nodeTimeout` is considered as dropped.
+- `ClockModel.hop` throws a `StateError` before the first estimate
 - New `NetworkStream.inletHealth`, a stream of `InletHealth`: a transport
   reports here when its receiving end for one peer stops working by itself,
   and when it works again.

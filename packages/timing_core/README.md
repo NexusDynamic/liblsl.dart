@@ -1,13 +1,12 @@
 # timing_core
 
-The record format and analysis behind `transport_timing`: what each device
-writes during a timing run, and how the logs become latency, jitter, loss,
-clock offset and drift per sender and receiver. Pure Dart, web-safe, no
-dependencies beyond `xdf`.
+The record format and analysis behind `transport_timing`. Has the alignment 
+and clock handling functionality for the benchmarking / testing of the transport layer
+in the user's environment.
 
 ## Recording
 
-Each device writes one log per run. The header says what was run and how;
+Each device writes one log per run. The header contains run info and
 logs with the same `runId` are analysed together.
 
 ```dart
@@ -96,3 +95,54 @@ For each sender and receiver, a `PairReport` gives:
 
 A receiver's log is enough for all of this except losses at the very start
 or end of a run and the sender's device name, which need the sender's log.
+
+## Result Reporting
+
+**Timestamp / Data alignment**
+
+Alignment uses a sample's time stamp and the
+clock offset: `time on this clock = time stamp + offset`.
+
+- The time stamp is the sender's clock when it sent (or, for LSL, pushed)
+  the sample. So keep in mind for reporting that this doesn't include
+  overhead from an application, or latency from a mouse, keyboard, etc
+  if you use something to trigger events.
+- The offset comes from timed round trips, and the fastest of a burst is
+  kept. Whatever the two directions of that round trip each took, the
+  offset is wrong by no more than half the round trip: that is the
+  `uncertainty` (the whole round trip) and the "±" in the report (half of
+  it).
+- Between estimates the clocks drift apart, by tens of ppm, which is tens
+  of microseconds per second. `residualSd` shows how good the linear fit is.
+  If the drift is not linear, it would be visible here.
+
+**Latency reporting**
+
+`latency = received − (time stamp + offset)`. It is resolved no finer than
+the offset is known, so a latency below the "±" is indistinguishable from
+zero, which also means negative values are possible (but not because you
+discovered time travel, just because of the uncertainty).
+
+What `received` means depends on how samples are consumed:
+
+- Event-driven (`LSLInlet.sampleStream()`, WebSocket, WebRTC): the clock is
+  read as the sample becomes available to the process. The latency is the
+  sender's send path, the network, and the receiver's network stack.
+- Polled: the clock is read when the next poll finds the sample, so the
+  latency also has a wait of between zero and one poll interval in it.
+- A sample that was already waiting when receiving began (before the first
+  listen, after a pause) has the time it was collected, not the time it
+  arrived, and so do samples held back by `maxBacklog`.
+  This is more for diagnostic purposes, to identify if your consumer is keeping
+  up with the stream. For reporting latency, it is correct to say that a stalled
+  consumer adds latency, but for identifying possible slow points in your
+  topology, you might want to exclude the backlog wait.
+- A sender that uses chunking may wait until the number of samples required
+  by `chunkSize` is met. The first sample in a chunk will have a longer
+  wait time than the last.
+
+If you need accurate benchmarking of end to end latency, including hardware,
+OS and Application, you can use the interactive benchmark in `transport_timing`
+but you will need a seperate device with a high precision clock (e.g. a Bela board),
+a photodiode and an FSR sensor. This will allow you to characterise the complete latency
+of a "touch" to "display render".

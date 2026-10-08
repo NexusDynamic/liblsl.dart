@@ -155,7 +155,9 @@ class LslRecorder {
       if (s.error != null) continue;
       try {
         final offset = await s.inlet.timeCorrection();
-        _writer.writeClockOffset(s.id, lsl.clock(), offset);
+        // On the stream's clock, as LabRecorder writes it: readers evaluate
+        // the offsets at the stream's time stamps.
+        _writer.writeClockOffset(s.id, lsl.clock() - offset, offset);
         s.offsets++;
       } catch (_) {
         // No offset now (e.g. the sender is gone for a moment).

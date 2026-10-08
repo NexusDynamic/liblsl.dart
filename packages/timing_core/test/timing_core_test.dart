@@ -161,6 +161,45 @@ void main() {
       expect(recording.stream('tt.markers')!.strings.first, ['touch 1']);
     });
 
+    test('a reader that synchronises gets the receiving clock, however far '
+        'apart and drifting the two clocks are', () async {
+      // Clocks a day of uptime apart, drifting by 50 ppm.
+      double offsetAt(double source) => 1e5 + 50e-6 * (source - 1000);
+      final bytes = await record(header('a'), (log) {
+        for (var k = 0; k <= 60; k += 5) {
+          final remote = 1000.0 + k;
+          log.clockSync(
+            'B',
+            receivedClock: remote + offsetAt(remote),
+            offset: offsetAt(remote),
+            remoteTime: remote,
+          );
+        }
+        for (var seq = 0; seq < 600; seq++) {
+          final sent = 1000 + seq / 10;
+          log.received(
+            'B',
+            seq,
+            receivedClock: sent + offsetAt(sent) + 0.002,
+            sourceClock: sent,
+            clockOffset: offsetAt(sent),
+          );
+        }
+      });
+      final received = loadXdf(
+        bytes,
+      ).streams.firstWhere((s) => s.info.name == 'tt.received');
+      for (final i in [0, 299, 599]) {
+        final sent = 1000 + i / 10;
+        expect(received.timestamps[i], closeTo(sent + offsetAt(sent), 1e-6));
+        // received_clock − time stamp: the README's one subtraction.
+        expect(
+          received.channels[2][i] - received.timestamps[i],
+          closeTo(0.002, 1e-6),
+        );
+      }
+    });
+
     test('rejects files that are not run logs', () async {
       expect(() => RunLog.parse(Uint8List(0)), throwsFormatException);
       expect(
@@ -340,6 +379,47 @@ void main() {
     expect(pair.clock!.estimates, 13);
     expect(pair.clock!.driftPpm, closeTo(0, 1e-6));
     expect(pair.clock!.offsetLast, 5);
+    expect(pair.series.latencyFitted, [closeTo(0.5, 1e-9), closeTo(0.5, 1e-9)]);
+  });
+
+  test('a clock reset that sets the sender back restarts the fit', () async {
+    // A restarted device: its clock read about 1000 and starts again at 0.
+    final log = await recorded(header('a'), (w) {
+      for (var k = 0; k < 5; k++) {
+        w.clockSync(
+          'B',
+          receivedClock: 100.0 + k,
+          offset: -900,
+          remoteTime: 1000.0 + k,
+        );
+      }
+      for (var k = 0; k < 8; k++) {
+        w.clockSync(
+          'B',
+          receivedClock: 105.0 + k,
+          offset: 105,
+          remoteTime: k * 1.0,
+          clockReset: k == 0,
+        );
+      }
+      w
+        ..received(
+          'B',
+          1,
+          receivedClock: 102.5,
+          sourceClock: 1002,
+          clockOffset: -900,
+        )
+        ..received(
+          'B',
+          2,
+          receivedClock: 108.5,
+          sourceClock: 3,
+          clockOffset: 105,
+        );
+    });
+    final pair = analyse([log]).runs.single.pairs.single;
+    expect(pair.clock!.resets, 1);
     expect(pair.series.latencyFitted, [closeTo(0.5, 1e-9), closeTo(0.5, 1e-9)]);
   });
 

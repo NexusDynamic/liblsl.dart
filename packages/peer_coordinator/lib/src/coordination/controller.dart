@@ -581,7 +581,7 @@ class CoordinationController {
   /// counts: by then the coordinator has heard no heartbeat for that long and
   /// evicts by its own rule, so nothing shorter-lived (an inlet recovering)
   /// is mistaken for it. Only while `ready`, because an outlet has no
-  /// consumer until the coordinator has found it.
+  /// consumer until the coordinator has found it; see [_armNoConsumerTimer].
   ///
   /// Subscribed per role: the presence stream belongs to the outlet, and
   /// taking a role recreates the outlet.
@@ -589,32 +589,36 @@ class CoordinationController {
     _stopWatchingOutletConsumers();
     _outletConsumerSubscription = _coordinationStream.outletConsumerPresence
         .listen((present) {
-          if (present) {
-            _noConsumerTimer?.cancel();
-            _noConsumerTimer = null;
-            return;
-          }
-          _noConsumerTimer ??= Timer(
-            coordinationConfig.sessionConfig.nodeTimeout,
-            () {
-              _noConsumerTimer = null;
-              if (_stopping ||
-                  _state.isCoordinator ||
-                  _state.phase != CoordinationPhase.ready) {
-                return;
-              }
-              logger.warning(
-                '[CONTROLLER-${thisNode.uId}] Nothing has consumed the '
-                'coordination outlet for '
-                '${coordinationConfig.sessionConfig.nodeTimeout}: the '
-                'coordinator is not reading this node',
-              );
-              unawaited(
-                _onCoordinatorLost(SessionEndReason.coordinatorTransportLost),
-              );
-            },
-          );
+          _noConsumerTimer?.cancel();
+          _noConsumerTimer = null;
+          if (!present) _armNoConsumerTimer();
         });
+  }
+
+  /// Counts one [CoordinationSessionConfig.nodeTimeout] without a consumer.
+  ///
+  /// The whole of it has to be spent `ready`. An outlet starts out without a
+  /// consumer, so the count usually begins while this node is still joining;
+  /// one that began then says nothing about how long the coordinator has not
+  /// been reading an accepted node, and firing on it ended sessions moments
+  /// after they were joined. Such a count is started again instead.
+  void _armNoConsumerTimer() {
+    final wasReady = _state.phase == CoordinationPhase.ready;
+    _noConsumerTimer = Timer(coordinationConfig.sessionConfig.nodeTimeout, () {
+      _noConsumerTimer = null;
+      if (_stopping || _state.isCoordinator) return;
+      if (!wasReady || _state.phase != CoordinationPhase.ready) {
+        _armNoConsumerTimer();
+        return;
+      }
+      logger.warning(
+        '[CONTROLLER-${thisNode.uId}] Nothing has consumed the '
+        'coordination outlet for '
+        '${coordinationConfig.sessionConfig.nodeTimeout}: the '
+        'coordinator is not reading this node',
+      );
+      unawaited(_onCoordinatorLost(SessionEndReason.coordinatorTransportLost));
+    });
   }
 
   void _stopWatchingOutletConsumers() {

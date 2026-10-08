@@ -12,7 +12,7 @@ export 'package:liblsl/src/lsl/helper.dart' show LSLMapper;
 export 'package:liblsl/src/lsl/outlet.dart' show LSLOutlet;
 export 'package:liblsl/src/lsl/inlet.dart' show LSLInlet;
 export 'package:liblsl/src/lsl/sample_listener.dart'
-    show LSLTimedSample, LSLTimedChunk;
+    show LSLTimedSample, LSLTimedChunk, LSLBacklog;
 export 'package:liblsl/src/lsl/stream_resolver.dart';
 export 'package:liblsl/src/lsl/sample.dart' show LSLSample, LSLSamplePointer;
 export 'package:liblsl/src/lsl/chunk.dart'

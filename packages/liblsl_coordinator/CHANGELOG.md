@@ -1,5 +1,15 @@
 ## 0.5.0
 
+- Fixed a crash (a segmentation fault inside `lsl_create_inlet`) when a
+  peer's inlet was removed, or its stream stopped, while that inlet was still
+  being opened. The helper isolate that opens an inlet was reading a stream
+  info the main isolate had already freed; it now works on its own copy, and
+  a removal that arrives as the opened inlet is being taken over waits for
+  that to finish. Present since inlets were first opened off the worker.
+- The package no longer depends on the Flutter SDK for its tests, so its
+  LSL-backed tests run with `dart test` (and `melos run test:lsl`).
+- Event-driven inlets log a warning when the inlet worker is not keeping up
+  with a stream (`LSLInlet.sampleStream`'s `onBacklog`), naming the source.
 - New `LSLTransportConfig.eventDrivenInlets` receives without polling. Each inlet
   gets an isolate that waits `lsl_pull_sample`. Results in one isolate per inlet
   instead of one per stream (can grow quickly).

@@ -161,9 +161,15 @@ class XdfStreamInfo {
       '${format.name})';
 }
 
-/// A clock offset measurement: at [time] (the recorder's LSL clock), the
-/// stream's clock was [value] seconds behind (add it to the stream's time
-/// stamps to get the recorder's time).
+/// A clock offset measurement: at [time] on the stream's own clock, that
+/// clock was [value] seconds behind the recorder's (add it to the stream's
+/// time stamps to get the recorder's time).
+///
+/// [time] is the file's `CollectionTime`. LabRecorder writes the recorder's
+/// clock at the measurement minus the offset, which is the stream's clock,
+/// and readers (pyxdf, and this package) evaluate the line they fit through
+/// the offsets at the stream's time stamps. A writer that has the recorder's
+/// clock has to subtract [value] from it.
 class XdfClockOffset {
   final double time;
   final double value;

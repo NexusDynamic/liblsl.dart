@@ -2,8 +2,14 @@
 
 Benchmarks the Dart wrapper end-to-end over loopback: a producer and a
 consumer exchange float32 samples and the consumer measures per-sample
-latency (an `LSL.localClock()` timestamp is embedded in channel 0 at push
-time) plus achieved throughput, loss, and RSS growth.
+latency plus achieved throughput, loss, and RSS growth.
+
+The chunked consumers pull one pushed chunk at a time. Before liblsl 1.1.0
+the bencmark asked for chunks of 256 samples with the outlet's `chunkSize`
+set to 32, resulting in inaccurate measurements.
+
+
+Results over time from CI: <https://nexusdynamic.org/liblsl.dart/dev/bench/>
 
 ## Running
 
@@ -35,6 +41,15 @@ Transport modes are tested with per-sample and chunked operations:
 - `isolateAsync` — `useIsolates: true` objects driven from the main isolate
   with the async API; measures the wrapper's isolate plumbing on top of
   transport cost.
+- `eventStream` — a `directSync` producer received in the main isolate with
+  `LSLInlet.sampleStream()` (per-sample) or `chunkStream()` (chunked).
+   Regardless of the `useIsolates` setting, the event-drive samples will
+   always add one extra isolate per inlet. (this is because the event-driven
+   part of this relies on a blocking pull in liblsl, rather than a callback
+   mechanism. The pull is time-limited so the thread can respond to stop
+   requests, so depending on the interval setting, it might introduce a
+   very small delay if that isolate becomes busy, but this is fairly
+   negligable).
 
 Chunked pushes blocks of `chunkSize` samples (default 32); all
 samples in a block carry the same push-time timestamp, so their reported

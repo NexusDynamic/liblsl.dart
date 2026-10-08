@@ -47,7 +47,7 @@ line tool) · [Website](https://nexusdynamic.org/liblsl.dart/) ·
 
 | Package | What it is |
 | --- | --- |
-| [liblsl](./packages/liblsl) [![Pub Version](https://img.shields.io/pub/v/liblsl)](https://pub.dev/packages/liblsl) [![status](https://joss.theoj.org/papers/2d813b551058e59edacefd35ea281e40/status.svg)](https://joss.theoj.org/papers/2d813b551058e59edacefd35ea281e40) [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20340247.svg)](https://doi.org/10.5281/zenodo.20340247) | Dart/Flutter bindings for liblsl, with full parity with the C library ([JOSS paper](./packages/liblsl/paper/paper.md)) |
+| [liblsl](./packages/liblsl) [![Pub Version](https://img.shields.io/pub/v/liblsl)](https://pub.dev/packages/liblsl) [![status](https://joss.theoj.org/papers/2d813b551058e59edacefd35ea281e40/status.svg)](https://joss.theoj.org/papers/2d813b551058e59edacefd35ea281e40) [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20340247.svg)](https://doi.org/10.5281/zenodo.20340247) | Dart/Flutter bindings for liblsl, with full parity with the C library ([JOSS paper](./packages/liblsl/paper/paper.md), [benchmark history](https://nexusdynamic.org/liblsl.dart/dev/bench/)) |
 | [xdf](./packages/xdf) [![Pub Version](https://img.shields.io/pub/v/xdf)](https://pub.dev/packages/xdf) | Read and write XDF files in pure Dart (all platforms, including the web); pyxdf's algorithms, tested against pyxdf |
 | [signal_core](./packages/signal_core) [![Pub Version](https://img.shields.io/pub/v/signal_core)](https://pub.dev/packages/signal_core) | Format-agnostic multichannel signal engine (summary pyramids, filters) behind the viewer and `xdf` |
 | [lsl_tools](./packages/lsl_tools) | Record to XDF, the WebSocket bridge/relay, test outlets, and the `lsl` command line tool |

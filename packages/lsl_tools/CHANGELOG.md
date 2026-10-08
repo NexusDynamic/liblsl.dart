@@ -1,5 +1,7 @@
 ## 0.2.0
 
+- Fixed: `LslRecorder` clock offset did not match standard `XDF`
+- An event-driven inlet's latency is measured until the end of the chunk
 - New `receiveChunks(inlet, options)`, stream version of inlet samples.
 - The latency in an LSL inlet's `ClockChain` does not include the wait/polling
   delay when using event driven mode.

@@ -12,6 +12,12 @@ enum TransportMode {
   /// Like [directSync] but the outlet is created with
   /// `LSLTransportOptions.syncBlocking` (zero-copy blocking socket writes).
   directSyncBlocking,
+
+  /// A [directSync] producer received with `LSLInlet.sampleStream()` (or
+  /// `chunkStream()` for chunk operations) from the main isolate: the
+  /// event-driven receive path, timed by the clock its isolate reads as
+  /// each sample arrives.
+  eventStream,
 }
 
 /// Which operation is benchmarked.
@@ -109,6 +115,18 @@ const _defaultScenarios = [
   ),
   ScenarioConfig(
     mode: TransportMode.isolateAsync,
+    op: OpKind.chunkTyped,
+    channels: 64,
+    rateHz: 1000,
+  ),
+  ScenarioConfig(
+    mode: TransportMode.eventStream,
+    op: OpKind.sample,
+    channels: 8,
+    rateHz: 500,
+  ),
+  ScenarioConfig(
+    mode: TransportMode.eventStream,
     op: OpKind.chunkTyped,
     channels: 64,
     rateHz: 1000,

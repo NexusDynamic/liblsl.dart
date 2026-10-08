@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:ffi';
+import 'dart:io' show sleep;
 import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:logging/logging.dart';
 import 'package:liblsl/native_liblsl.dart';
 import 'package:liblsl/src/ffi/mem.dart';
 import 'package:liblsl/src/lsl/exception.dart';
@@ -21,6 +23,12 @@ final class LSLTimedSample<T> {
   /// `lsl_local_clock()` as the pull that returned this sample came back:
   /// when the sample became available to this process, not when a listener
   /// got round to it.
+  ///
+  /// That is its arrival only for a sample the isolate was waiting for. One
+  /// that was already in the inlet's buffer has the time it was taken out
+  /// instead, which is later: whatever arrived before the stream was
+  /// listened to, and with `maxBacklog` whatever arrived while the isolate
+  /// was held back (a queue at its limit, a paused subscription).
   final double receivedClock;
 
   const LSLTimedSample(this.data, this.timestamp, this.receivedClock);
@@ -47,10 +55,23 @@ final class LSLTimedChunk {
   final int channelCount;
 
   /// `lsl_local_clock()` as the pull that returned the first sample came
-  /// back: when the chunk began to be available to this process. The later
-  /// samples were already queued then, or arrived within the `coalesce`
-  /// time after it.
+  /// back: when the chunk began to be available to this process. The first
+  /// [readyCount] samples were in the inlet by then; the rest arrived within
+  /// the `coalesce` time after it. As [LSLTimedSample.receivedClock], it is
+  /// an arrival only if the isolate was waiting for the first sample.
   final double receivedClock;
+
+  /// How many samples, from the first, were already in the inlet when
+  /// [receivedClock] was read. All of them unless `coalesce` was given.
+  ///
+  /// A sender that pushes chunks delivers their samples together, with time
+  /// stamps spread over the chunk, so the first sample's is older than its
+  /// arrival by the time the sender took to fill the chunk. The sample that
+  /// waited least is the last one that was ready:
+  /// `receivedClock - timestamps[readyCount - 1]` is the transit time with
+  /// no chunking in it, where `receivedClock - timestamps.first` has the
+  /// sender's.
+  final int readyCount;
 
   const LSLTimedChunk(
     this.timestamps,
@@ -58,7 +79,8 @@ final class LSLTimedChunk {
     this.receivedClock, {
     this.data,
     this.strings,
-  });
+    int? readyCount,
+  }) : readyCount = readyCount ?? timestamps.length;
 
   int get sampleCount => timestamps.length;
 
@@ -68,25 +90,89 @@ final class LSLTimedChunk {
       'receivedClock: $receivedClock}';
 }
 
+/// How far the listener of a sample or chunk stream is behind the isolate
+/// that pulls for it. See `onBacklog` of [LSLInlet.sampleStream].
+final class LSLBacklog {
+  /// Samples that have been pulled from the inlet and not yet reached the
+  /// stream: what is queued between the two isolates.
+  final int queued;
+
+  /// The most [queued] has been since it went over the threshold.
+  final int peak;
+
+  /// Whether this is the report that the queue is back under half the
+  /// threshold. Nothing more is reported until it goes over again.
+  final bool cleared;
+
+  const LSLBacklog({
+    required this.queued,
+    required this.peak,
+    this.cleared = false,
+  });
+
+  @override
+  String toString() =>
+      'LSLBacklog{queued: $queued, peak: $peak, cleared: $cleared}';
+}
+
+/// Stops a running listener, which then ends its stream with [reason] as an
+/// [LSLSampleListenerException]. Completes once its isolate has left liblsl.
+typedef LSLListenerStop = Future<void> Function(String reason);
+
+final _log = Logger('liblsl');
+
+void _logBacklog(LSLBacklog backlog) => backlog.cleared
+    ? _log.info(
+        'The listener of a sample stream has caught up '
+        '(it was ${backlog.peak} samples behind)',
+      )
+    : _log.warning(
+        'The listener of a sample stream is ${backlog.queued} samples '
+        'behind and is not keeping up: they are queued in memory without '
+        'limit. Do less per sample, use chunkStream, or set maxBacklog',
+      );
+
+// The words of the block of memory the two isolates share. Each has one
+// writer, so they are read and written as they are, without a lock.
+/// Nonzero: the isolate is to leave. Written by the listening side.
+const _stop = 0;
+
+/// Nonzero: the isolate is not to pull. Written by the listening side.
+const _paused = 1;
+
+/// Samples sent by the isolate, modulo 2^32.
+const _sent = 2;
+
+/// Samples that have reached the stream, modulo 2^32. Written by the
+/// listening side.
+const _received = 3;
+const _controlWords = 4;
+const _mask = 0xFFFFFFFF;
+
 /// What the listening isolate needs; addresses, because pointers do not
 /// cross isolates.
 final class _ListenerArgs {
   final int inletAddress;
   final int streamInfoAddress;
-  final int stopFlagAddress;
+  final int controlAddress;
   final double wakeInterval;
   final int maxSamples;
   final double coalesce;
+
+  /// Samples the listening side may be behind before the isolate stops
+  /// pulling; zero for no limit.
+  final int maxBacklog;
   final int? debugFailAfter;
   final SendPort port;
 
   const _ListenerArgs({
     required this.inletAddress,
     required this.streamInfoAddress,
-    required this.stopFlagAddress,
+    required this.controlAddress,
     required this.wakeInterval,
     required this.maxSamples,
     required this.coalesce,
+    required this.maxBacklog,
     required this.debugFailAfter,
     required this.port,
   });
@@ -115,13 +201,24 @@ Stream<LSLTimedSample<T>> listenToInlet<T>({
   required int inletAddress,
   required int streamInfoAddress,
   required double wakeInterval,
+  required int backlogWarnAt,
+  int? maxBacklog,
+  void Function(LSLBacklog backlog)? onBacklog,
+  void Function(LSLListenerStop stop)? onStarted,
+  void Function(LSLListenerStop stop)? onEnded,
   int? debugFailAfter,
 }) => _listenTo<LSLTimedSample<T>>(
   _listenForSamples,
   inletAddress: inletAddress,
   streamInfoAddress: streamInfoAddress,
   wakeInterval: wakeInterval,
+  backlogWarnAt: backlogWarnAt,
+  maxBacklog: maxBacklog,
+  onBacklog: onBacklog,
+  onStarted: onStarted,
+  onEnded: onEnded,
   debugFailAfter: debugFailAfter,
+  samplesIn: (_) => 1,
   decode: (message) => switch (message) {
     [final double timestamp, final double clock, final List<Object?> data] =>
       LSLTimedSample<T>(IList<T>(data.cast<T>()), timestamp, clock),
@@ -145,6 +242,11 @@ Stream<LSLTimedChunk> listenToInletChunks({
   required double wakeInterval,
   required int maxSamples,
   required double coalesce,
+  required int backlogWarnAt,
+  int? maxBacklog,
+  void Function(LSLBacklog backlog)? onBacklog,
+  void Function(LSLListenerStop stop)? onStarted,
+  void Function(LSLListenerStop stop)? onEnded,
   int? debugFailAfter,
 }) {
   if (maxSamples < 1) throw ArgumentError.value(maxSamples, 'maxSamples');
@@ -155,22 +257,42 @@ Stream<LSLTimedChunk> listenToInletChunks({
     wakeInterval: wakeInterval,
     maxSamples: maxSamples,
     coalesce: coalesce,
+    backlogWarnAt: backlogWarnAt,
+    maxBacklog: maxBacklog,
+    onBacklog: onBacklog,
+    onStarted: onStarted,
+    onEnded: onEnded,
     debugFailAfter: debugFailAfter,
+    samplesIn: (chunk) => chunk.sampleCount,
     decode: (message) => switch (message) {
       [
         final Float64List timestamps,
         final double clock,
         final int channels,
+        final int ready,
         final TypedData data,
       ] =>
-        LSLTimedChunk(timestamps, channels, clock, data: data),
+        LSLTimedChunk(
+          timestamps,
+          channels,
+          clock,
+          data: data,
+          readyCount: ready,
+        ),
       [
         final Float64List timestamps,
         final double clock,
         final int channels,
+        final int ready,
         final List<Object?> strings,
       ] =>
-        LSLTimedChunk(timestamps, channels, clock, strings: strings.cast()),
+        LSLTimedChunk(
+          timestamps,
+          channels,
+          clock,
+          strings: strings.cast(),
+          readyCount: ready,
+        ),
       _ => null,
     },
   );
@@ -180,22 +302,61 @@ Stream<LSLTimedChunk> listenToInletChunks({
 /// that it never ends quietly unless it was cancelled.
 ///
 /// [decode] turns a message from the isolate into an event, or returns null
-/// for one that is not data.
+/// for one that is not data; [samplesIn] says how many samples an event is.
+///
+/// The two isolates count those samples into shared memory, one as it sends
+/// and the other as the event reaches the stream. The difference is what is
+/// queued in between, which is reported past [backlogWarnAt] ([onBacklog],
+/// or the log) and, with [maxBacklog], holds the isolate back.
 Stream<R> _listenTo<R>(
   void Function(_ListenerArgs) entry, {
   required int inletAddress,
   required int streamInfoAddress,
   required double wakeInterval,
   required R? Function(Object? message) decode,
+  required int Function(R event) samplesIn,
+  required int backlogWarnAt,
+  int? maxBacklog,
+  void Function(LSLBacklog backlog)? onBacklog,
+  void Function(LSLListenerStop stop)? onStarted,
+  void Function(LSLListenerStop stop)? onEnded,
   int maxSamples = 1,
   double coalesce = 0,
   int? debugFailAfter,
 }) {
+  if (maxBacklog != null && maxBacklog < 1) {
+    throw ArgumentError.value(maxBacklog, 'maxBacklog');
+  }
+  if (backlogWarnAt < 1) {
+    throw ArgumentError.value(backlogWarnAt, 'backlogWarnAt');
+  }
   late final StreamController<R> controller;
-  Pointer<Uint8>? stopFlag;
+  Pointer<Uint32>? control;
   ReceivePort? port;
   final stopped = Completer<void>();
   var failed = false;
+
+  final report = onBacklog ?? _logBacklog;
+  final sinceReport = Stopwatch();
+  var behind = false;
+  var peak = 0;
+
+  // Only reached while [queued] is over the threshold or has been.
+  void noteBacklog(int queued) {
+    if (queued >= backlogWarnAt) {
+      if (queued > peak) peak = queued;
+      if (behind && sinceReport.elapsedMilliseconds < 1000) return;
+      behind = true;
+      sinceReport
+        ..reset()
+        ..start();
+      report(LSLBacklog(queued: queued, peak: peak));
+    } else if (queued <= backlogWarnAt ~/ 2) {
+      behind = false;
+      report(LSLBacklog(queued: queued, peak: peak, cleared: true));
+      peak = 0;
+    }
+  }
 
   void fail(String message, {int? code, String? stack}) {
     failed = true;
@@ -206,16 +367,30 @@ Stream<R> _listenTo<R>(
     );
   }
 
+  // The inlet's way of stopping this listener when it is itself going.
+  Future<void> stop(String reason) {
+    fail(reason);
+    control?[_stop] = 1;
+    return stopped.future;
+  }
+
   void finish() {
     port?.close();
-    stopFlag?.free();
-    stopFlag = null;
-    if (!stopped.isCompleted) stopped.complete();
+    control?.free();
+    control = null;
+    if (!stopped.isCompleted) {
+      stopped.complete();
+      onEnded?.call(stop);
+    }
   }
 
   controller = StreamController<R>(
     onListen: () {
-      final flag = stopFlag = allocate<Uint8>()..value = 0;
+      final flag = control = allocate<Uint32>(_controlWords);
+      for (var i = 0; i < _controlWords; i++) {
+        flag[i] = 0;
+      }
+      onStarted?.call(stop);
       final receive = port = ReceivePort();
       receive.listen((message) {
         switch (message) {
@@ -228,7 +403,7 @@ Stream<R> _listenTo<R>(
           case null:
             // The isolate is gone. If nobody asked it to stop and it gave no
             // reason, that is still a failure, not an end of stream.
-            if (flag.value == 0 && !failed) {
+            if (flag[_stop] == 0 && !failed) {
               fail('Sample listener isolate exited unexpectedly');
             }
             finish();
@@ -241,10 +416,17 @@ Stream<R> _listenTo<R>(
               // The isolate is still pulling; say so rather than throw into
               // the listener's zone, where nobody is looking.
               fail('Sample could not be delivered: $e', stack: '$st');
-              flag.value = 1;
+              flag[_stop] = 1;
               return;
             }
-            if (event != null) controller.add(event);
+            if (event == null) return;
+            // The isolate counts a sample before it sends it, so this is
+            // never ahead of it.
+            final received = (flag[_received] + samplesIn(event)) & _mask;
+            flag[_received] = received;
+            final queued = (flag[_sent] - received) & _mask;
+            if (behind || queued >= backlogWarnAt) noteBacklog(queued);
+            controller.add(event);
         }
       });
       Isolate.spawn(
@@ -252,10 +434,11 @@ Stream<R> _listenTo<R>(
         _ListenerArgs(
           inletAddress: inletAddress,
           streamInfoAddress: streamInfoAddress,
-          stopFlagAddress: flag.address,
+          controlAddress: flag.address,
           wakeInterval: wakeInterval,
           maxSamples: maxSamples,
           coalesce: coalesce,
+          maxBacklog: maxBacklog ?? 0,
           debugFailAfter: debugFailAfter,
           port: receive.sendPort,
         ),
@@ -276,14 +459,39 @@ Stream<R> _listenTo<R>(
         },
       );
     },
+    // Only with a limit: without one a paused subscription buffers, as any
+    // stream's does, and the isolate goes on reading the receive clock as
+    // samples arrive. (`await for` pauses around every event.)
+    onPause: maxBacklog == null ? null : () => control?[_paused] = 1,
+    onResume: maxBacklog == null ? null : () => control?[_paused] = 0,
     onCancel: () {
-      final flag = stopFlag;
+      final flag = control;
       if (flag == null) return null;
-      flag.value = 1;
+      flag[_stop] = 1;
       return stopped.future;
     },
   );
   return controller.stream;
+}
+
+/// Whether the isolate is to pull again; false when it is to leave.
+///
+/// With a limit ([max] above zero) it first waits here while the listening
+/// side is that many samples behind or has paused, so what arrives meanwhile
+/// stays in the inlet's buffer, which liblsl bounds. It spins for a moment,
+/// since most such waits are over in microseconds, and then sleeps a
+/// millisecond at a time.
+@pragma('vm:prefer-inline')
+bool _mayPull(Pointer<Uint32> control, int max) {
+  if (control[_stop] != 0) return false;
+  if (max == 0) return true;
+  var spins = 0;
+  while (control[_paused] != 0 ||
+      ((control[_sent] - control[_received]) & _mask) >= max) {
+    if (control[_stop] != 0) return false;
+    if (++spins > 20000) sleep(const Duration(milliseconds: 1));
+  }
+  return true;
 }
 
 /// Whether [code] ends a listener: anything liblsl reports but a timeout.
@@ -294,16 +502,19 @@ void _listenForSamples(_ListenerArgs args) {
   try {
     final inlet = lsl_inlet.fromAddress(args.inletAddress);
     final streamInfo = LSLStreamInfo.fromStreamInfoAddr(args.streamInfoAddress);
-    final stop = Pointer<Uint8>.fromAddress(args.stopFlagAddress);
+    final control = Pointer<Uint32>.fromAddress(args.controlAddress);
     final pull = LSLMapper().streamPull(streamInfo);
     final channels = streamInfo.channelCount;
+    final maxBacklog = args.maxBacklog;
     var delivered = 0;
 
-    while (stop.value == 0) {
+    while (_mayPull(control, maxBacklog)) {
       final sample = pull(inlet, channels, args.wakeInterval);
       if (sample.isNotEmpty) {
         // Read before anything else: this is the receive time.
         final clock = lsl_local_clock();
+        // Counted before it is sent, so the other side never counts ahead.
+        control[_sent] = control[_sent] + 1;
         args.port.send([
           sample.timestamp,
           clock,
@@ -333,7 +544,8 @@ void _listenForChunks(_ListenerArgs args) {
   try {
     final inlet = lsl_inlet.fromAddress(args.inletAddress);
     final streamInfo = LSLStreamInfo.fromStreamInfoAddr(args.streamInfoAddress);
-    final stop = Pointer<Uint8>.fromAddress(args.stopFlagAddress);
+    final control = Pointer<Uint32>.fromAddress(args.controlAddress);
+    final maxBacklog = args.maxBacklog;
     final pull = LSLMapper().streamPullChunk(streamInfo);
     final channels = streamInfo.channelCount;
     final strings = streamInfo.channelFormat == LSLChannelFormat.string;
@@ -349,17 +561,16 @@ void _listenForChunks(_ListenerArgs args) {
       LSLChannelFormat.double64 || LSLChannelFormat.int64 => 8,
       _ => sizeOf<Pointer<Char>>(),
     };
-    // Where the samples after the first go.
-    final restData = Pointer<NativeType>.fromAddress(
-      data.address + channels * elementSize,
+    // Where the samples after the first [count] go.
+    Pointer<NativeType> dataAfter(int count) => Pointer<NativeType>.fromAddress(
+      data.address + count * channels * elementSize,
     );
-    final restTimes = Pointer<Double>.fromAddress(
-      times.address + sizeOf<Double>(),
-    );
+    Pointer<Double> timesAfter(int count) =>
+        Pointer<Double>.fromAddress(times.address + count * sizeOf<Double>());
     var delivered = 0;
 
     try {
-      while (stop.value == 0) {
+      while (_mayPull(control, maxBacklog)) {
         // One sample, so the call returns the moment there is one rather
         // than waiting to fill a chunk.
         ec.value = 0;
@@ -384,24 +595,49 @@ void _listenForChunks(_ListenerArgs args) {
         // Read before anything else: this is the receive time.
         final clock = lsl_local_clock();
         var failure = 0;
-        if (max > 1) {
+        var samples = elements ~/ channels;
+        if (samples < max) {
+          // What came with it: these were in the inlet as the clock was
+          // read.
           ec.value = 0;
-          elements += pull.pullInto(
-            inlet,
-            restData,
-            restTimes,
-            max - 1,
-            channels,
-            args.coalesce,
-            ec,
-          );
+          samples +=
+              pull.pullInto(
+                inlet,
+                dataAfter(samples),
+                timesAfter(samples),
+                max - samples,
+                channels,
+                0,
+                ec,
+              ) ~/
+              channels;
           if (_fatal(ec.value)) failure = ec.value;
         }
-        final samples = elements ~/ channels;
+        final ready = samples;
+        if (failure == 0 && args.coalesce > 0 && samples < max) {
+          // And what arrives in the time allowed for more.
+          ec.value = 0;
+          samples +=
+              pull.pullInto(
+                inlet,
+                dataAfter(samples),
+                timesAfter(samples),
+                max - samples,
+                channels,
+                args.coalesce,
+                ec,
+              ) ~/
+              channels;
+          if (_fatal(ec.value)) failure = ec.value;
+        }
+        elements = samples * channels;
+        // Counted before it is sent, so the other side never counts ahead.
+        control[_sent] = control[_sent] + samples;
         args.port.send([
           Float64List.fromList(times.asTypedList(samples)),
           clock,
           channels,
+          ready,
           if (strings)
             pull
                 .bufferToLists(data, samples, channels)

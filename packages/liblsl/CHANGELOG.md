@@ -3,8 +3,9 @@
 ## New features
 
 - `LSLInlet.sampleStream()` provides a way to have event-driven
-   samples with a wake interval. Subscription must be cancelled before
-  inlet destruction.
+   samples with a wake interval. This removes polling overhead entirely,
+   but adds an isolate per inlet. There may be cases where this is
+   inappropriate, especially if a consumer can not keep up with the stream.
 - A `sampleStream()` closes without an error only when it was cancelled. If
   its isolate ends for any other reason, the stream raises an
   `LSLSampleListenerException` with the liblsl `errorCode` and
@@ -13,6 +14,18 @@
 - `LSLInlet.chunkStream()` chunked version of `sampleStream()`.
 - Both streams also work on an inlet created with `useIsolates: true`.
   That isolate keeps serving time correction and stream info meanwhile.
+- A listener that does not keep up with `sampleStream()` / `chunkStream()`
+  is notified and has confugration for warning thresholds.
+- `LSLTimedChunk.readyCount`: how many of a chunk's samples had already
+  arrived when `receivedClock` was read.
+- `LSLInlet.destroy()` stops a `sampleStream()` / `chunkStream()` that is
+  still listened to.
+
+## Benchmark
+
+- New `eventStream` scenarios for `sampleStream()` and `chunkStream()`.
+- The push time is sent relative to the start of the run to avoid `Float32` rounding.
+- The chunked consumers pull one pushed chunk at a time for more accurate measurement.
 
 # 1.0.0
 

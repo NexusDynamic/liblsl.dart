@@ -331,7 +331,8 @@ class _Inlet implements LslInlet, LslArrivals {
   }
 
   /// A chunk whose sample at [at] became available at [received], and
-  /// which is being handed on at [handed].
+  /// which is being handed on at [handed]. [arrived] is how long after
+  /// [received] its samples arrived, on average (negative if before).
   LslChunk _chunk(
     Float64List times, {
     List<double>? values,
@@ -339,6 +340,7 @@ class _Inlet implements LslInlet, LslArrivals {
     required double received,
     required double at,
     required double handed,
+    required double arrived,
     bool measure = true,
   }) {
     if (!measure) {
@@ -354,12 +356,9 @@ class _Inlet implements LslInlet, LslArrivals {
     } else if (_model.ready) {
       _latency.add(received - at - _model.offsetAt(at));
     }
-    // How long its samples waited here, on average: each arrived about as
-    // long after the one at [at] as its time stamp is after that one's, and
-    // all of them leave now. Collected on a timer, that is half the chunk's
-    // span, which the latency above (of the sample that waited least) does
-    // not show.
-    _held.add(handed - received - ((times.first + times.last) / 2 - at));
+    // How long its samples waited here, on average: all of them leave now.
+    // The latency above, of the sample that waited least, does not show it.
+    _held.add(handed - received - arrived);
     return LslChunk(
       times,
       values: values,
@@ -367,6 +366,15 @@ class _Inlet implements LslInlet, LslArrivals {
       received: received,
     );
   }
+
+  /// For a chunk collected on a timer: when its samples arrived, on
+  /// average, relative to the last. Nothing says when they did, so each is
+  /// taken to have arrived as long before the last as its time stamp is
+  /// before the last's, which makes the wait half the chunk's span. A
+  /// sender that pushes chunks delivers them together instead, and its
+  /// chunking then counts as waiting here.
+  static double _arrivedBeforeLast(Float64List times) =>
+      (times.first - times.last) / 2;
 
   /// Numeric values as the viewer wants them: floats as they are, integers
   /// as doubles (exact up to 2^53).
@@ -401,6 +409,7 @@ class _Inlet implements LslInlet, LslArrivals {
         received: now,
         at: times.last,
         handed: now,
+        arrived: _arrivedBeforeLast(times),
       );
     }
     final c = await _inlet.pullChunkTyped(maxSamples: maxSamples);
@@ -412,6 +421,7 @@ class _Inlet implements LslInlet, LslArrivals {
       received: now,
       at: c.timestamps.last,
       handed: now,
+      arrived: _arrivedBeforeLast(c.timestamps),
     );
   }
 
@@ -433,16 +443,28 @@ class _Inlet implements LslInlet, LslArrivals {
         .map((c) {
           final measure = !backlog;
           backlog = false;
-          // The clock was read as the first sample arrived, so that pair is
-          // a latency with no waiting to be collected in it.
+          // The clock was read as the first sample arrived, and the ready
+          // ones were there with it. The last of those waited least: a
+          // sender that pushes chunks sends them together, with the time
+          // stamps of the earlier ones older by its own chunking, which is
+          // not time on the way here.
+          final ready = c.readyCount;
+          final times = c.timestamps;
+          // The rest came while more were waited for, each taken to be as
+          // long after the last ready one as its time stamp is.
+          var later = 0.0;
+          for (var i = ready; i < times.length; i++) {
+            later += times[i] - times[ready - 1];
+          }
           return _chunk(
-            c.timestamps,
+            times,
             values: c.data == null
                 ? null
                 : _values(c.data!, c.sampleCount * c.channelCount),
             strings: c.strings,
             received: c.receivedClock,
-            at: c.timestamps.first,
+            at: times[ready - 1],
+            arrived: later / times.length,
             // Here, not where it was collected: getting here is part of it.
             handed: LSL.localClock(),
             measure: measure,
