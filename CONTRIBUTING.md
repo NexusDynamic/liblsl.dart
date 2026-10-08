@@ -60,9 +60,9 @@ The [release workflow](.github/workflows/release.yml) checks that the tag matche
 
 ### Published packages
 
-On pub.dev: `liblsl`, `signal_core`, `xdf`, `peer_coordinator`, `webrtc_coordinator`, `webrtc_coordinator_flutter` and `liblsl_coordinator`. Everything else, including `lsl_viewer`, has `publish_to: none`.
+On pub.dev: everything in `packages/`. The apps in `apps/`, including `lsl_viewer`, have `publish_to: none`.
 
-Packages depend on each other with normal version constraints (e.g. `peer_coordinator: ^0.3.1`); inside the workspace these resolve to the local packages. When a release needs a new version of another package, release that one first. A new package goes up by hand in dependency order before its tag is pushed:
+Packages depend on each other with normal version constraints (e.g. `peer_coordinator: ^0.4.0`); inside the workspace these resolve to the local packages. When a release needs a new version of another package, release that one first. A new package goes up by hand in dependency order before its tag is pushed:
 
 1. `signal_core`, then `xdf`
 2. `peer_coordinator`, then `webrtc_coordinator`, then `webrtc_coordinator_flutter`
