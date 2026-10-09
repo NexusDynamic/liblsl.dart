@@ -882,23 +882,29 @@ final class StreamInletIsolate extends StreamIsolate {
     );
   }
 
-  /// Remove an inlet from the running isolate
-  Future<void> removeInlet(int address) async {
+  /// Remove an inlet from the running isolate.
+  ///
+  /// Returns whether the worker answered. Until it has, it may still be
+  /// using the stream info at [address], which must then not be freed.
+  Future<bool> removeInlet(int address) async {
     _inletAddresses.remove(address);
     final requestRecord = _generateRequestID();
     await sendMessage(RemoveInletMessage(address, requestID: requestRecord.$1));
-    await requestRecord.$2.future.timeout(
-      inletRequestTimeout,
-      onTimeout: () {
-        // Logged rather than thrown: removal is cleanup, and the address is
-        // already out of `_inletAddresses`, so callers have nothing useful to
-        // do with the failure beyond knowing the worker is unhealthy.
-        logger.warning(
-          'Timed out after $inletRequestTimeout waiting for the inlet worker '
-          'on stream $streamId to remove inlet $address',
+    return requestRecord.$2.future
+        .then((_) => true)
+        .timeout(
+          inletRequestTimeout,
+          onTimeout: () {
+            // Logged rather than thrown: removal is cleanup, and the address is
+            // already out of `_inletAddresses`, so callers have nothing useful to
+            // do with the failure beyond knowing the worker is unhealthy.
+            logger.warning(
+              'Timed out after $inletRequestTimeout waiting for the inlet worker '
+              'on stream $streamId to remove inlet $address',
+            );
+            return false;
+          },
         );
-      },
-    );
   }
 
   @override
@@ -1518,6 +1524,11 @@ final class InletWorker extends IsolateWorker {
   @protected
   bool running = false;
 
+  /// Whether a stop has been handled. Not the same as `!running`: a worker
+  /// that was never started has inlets to destroy too, and an inlet that
+  /// finishes opening after the stop must not be added.
+  bool _stopped = false;
+
   /// Whether the worker is currently paused (running but not polling)
   @protected
   bool paused = false;
@@ -1762,12 +1773,13 @@ final class InletWorker extends IsolateWorker {
   }
 
   Future<void> _handleStop() async {
-    if (!running) {
+    if (_stopped) {
       logger.fine(
-        'Inlet worker for stream ${config.streamId} is not running, ignoring stop request',
+        'Inlet worker for stream ${config.streamId} is already stopped, ignoring stop request',
       );
       return;
     }
+    _stopped = true;
     logger.info('Stopping inlet worker for stream ${config.streamId}');
     running = false;
     resumeCompleter?.complete();
@@ -1838,9 +1850,10 @@ final class InletWorker extends IsolateWorker {
           '${config.streamId}: $e';
     }
     _openingInlets.remove(message.address);
-    if (_cancelledOpens.remove(message.address)) {
-      // The removal was answered while the helper was working, and the main
-      // isolate has freed the stream info since. Only the inlet is touched.
+    if (_cancelledOpens.remove(message.address) || _stopped) {
+      // The removal or stop was answered while the helper was working, and
+      // the main isolate may have freed the stream info since. Only the inlet
+      // is touched.
       IsolateStreamManager._discardNativeInlet(opened);
       return 'Inlet for address ${message.address} in stream '
           '${config.streamId} was removed while it was being opened';
@@ -1855,11 +1868,21 @@ final class InletWorker extends IsolateWorker {
         opened,
         config.dataType,
       );
-      await inletAddRemoveLock.synchronized(() {
+      final added = await inletAddRemoveLock.synchronized(() async {
+        // A stop that got the lock first has destroyed the inlets it knew.
+        if (_stopped) {
+          await newInlet.destroy();
+          return false;
+        }
         inlets.add(newInlet);
         // Null, not 0.0: this inlet has no clock-offset estimate yet.
         timeCorrections.add(null);
+        return true;
       });
+      if (!added) {
+        return 'Inlet for address ${message.address} in stream '
+            '${config.streamId} was opened after the stream stopped';
+      }
     } catch (e, st) {
       logger.severe(
         '[${config.debugName}] Failed to adopt the inlet opened for address '
@@ -2445,7 +2468,7 @@ final class InletWorker extends IsolateWorker {
   }
 
   /// Stops the listener on [only], or on every inlet, and waits until its
-  /// isolate has left liblsl, so the inlet can be flushed or destroyed. A
+  /// thread has left liblsl, so the inlet can be flushed or destroyed. A
   /// listener that had died and was waiting to be restarted is no longer
   /// restarted.
   Future<void> _stopListening([LSLInlet? only]) async {

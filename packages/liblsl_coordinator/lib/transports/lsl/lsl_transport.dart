@@ -23,23 +23,24 @@ class LSLTransportConfig implements ITransportConfig {
   /// By default an inlet is polled, at the sample period for a data stream
   /// (within 0.1 to 10 ms), so a sample is seen up to one poll interval
   /// after it arrives and that wait is part of every transit time. With
-  /// this set, each inlet instead has an isolate waiting inside
-  /// `lsl_pull_sample`, which liblsl wakes when a sample is queued: the
-  /// receive clock is read as the sample arrives and the sample is forwarded
-  /// at once. It applies to the coordination stream and to data streams.
+  /// this set, each inlet instead has a native thread waiting inside
+  /// liblsl's pull (`LSLInlet.sampleStream`), which liblsl wakes when a
+  /// sample is queued: the receive clock is read as the sample arrives and
+  /// the sample is forwarded at once. It applies to the coordination stream
+  /// and to data streams.
   ///
-  /// The cost is one isolate (one thread) per inlet rather than one per
-  /// stream, so prefer polling for streams with many producers on small
-  /// devices. Local to this node: peers need not agree on it.
+  /// The cost is one native thread per inlet, idle while its stream is
+  /// quiet; it is not an isolate, so it does not hold up other isolates.
+  /// Local to this node: peers need not agree on it.
   ///
-  /// An inlet is then read only by its isolate; see
+  /// An inlet is then read only by its listener; see
   /// [restartFailedListeners] for what happens when that ends by itself.
   final bool eventDrivenInlets;
 
-  /// With [eventDrivenInlets]: restart an inlet's listening isolate if it
-  /// ends by itself. On by default.
+  /// With [eventDrivenInlets]: restart an inlet's listener if it ends by
+  /// itself. On by default.
   ///
-  /// Such an isolate can end without being stopped: a pull that fails with
+  /// Such a listener can end without being stopped: a pull that fails with
   /// anything but a timeout, or an error of its own. From then on nothing
   /// reads that inlet, while the inlet stays open and its peer registered.
   /// Either way this is logged as severe and reported on the stream's

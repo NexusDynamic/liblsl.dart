@@ -490,14 +490,45 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
 
     try {
       await _addInletToIsolate(streamInfo);
-    } catch (_) {
+    } catch (e) {
       // Without this the entry stays behind, hasInletForSource stays true, and
       // every later addInlet for this peer returns early: a peer that failed
       // to connect once could never be subscribed to again.
       _inletStreamInfos.remove(streamInfo);
-      streamInfo.destroy();
+      if (e is TimeoutException && _inletIsolate != null) {
+        // The worker never answered, so it may still open and adopt an inlet
+        // from this stream info. Have it drop the inlet, and free the stream
+        // info only once it says it has.
+        final address = streamInfo.streamInfo.address;
+        unawaited(
+          _inletIsolate!
+              .removeInlet(address)
+              .catchError((Object _) => false)
+              .then((done) => _releaseStreamInfo(streamInfo, workerDone: done)),
+        );
+      } else {
+        streamInfo.destroy();
+      }
       rethrow;
     }
+  }
+
+  /// Frees [streamInfo], an inlet's, if the inlet worker is done with it.
+  ///
+  /// Otherwise it is left allocated: a worker that missed its deadline may
+  /// still read it, and a leak is better than a use after free.
+  void _releaseStreamInfo(
+    LSLStreamInfo streamInfo, {
+    required bool workerDone,
+  }) {
+    if (workerDone) {
+      streamInfo.destroy();
+      return;
+    }
+    logger.warning(
+      'Not freeing the stream info of ${streamInfo.sourceId} on stream $id: '
+      'the inlet worker did not confirm it has stopped using it',
+    );
   }
 
   Future<void> _addInletToIsolate(LSLStreamInfo streamInfo) async {
@@ -588,13 +619,18 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
       // it was built from, or the poll loop reads freed memory. The isolate
       // destroys the *inlet*; the streaminfo stays the main thread's, exactly
       // as dispose() assumes.
+      // No worker: nothing can be using it.
+      var workerDone = true;
       try {
-        await _inletIsolate?.removeInlet(streamInfo.streamInfo.address);
+        workerDone =
+            await _inletIsolate?.removeInlet(streamInfo.streamInfo.address) ??
+            true;
       } catch (e) {
+        workerDone = false;
         logger.warning('Error removing inlet for node $nodeUId: $e');
       }
       _inletStreamInfos.remove(streamInfo);
-      streamInfo.destroy();
+      _releaseStreamInfo(streamInfo, workerDone: workerDone);
     }
 
     // The isolate is deliberately left running with no inlets. It costs an idle

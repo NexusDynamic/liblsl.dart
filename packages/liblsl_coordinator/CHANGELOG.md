@@ -1,3 +1,11 @@
+## 0.5.3
+
+- An inlet worker that missed the 5 s deadline of an inlet add or removal
+  could go on using a stream info the main isolate had already freed. The
+  stream info is now kept until the worker confirms it is done with it.
+- Inlets added to a stream that was never started, or opened while it was
+  stopping, were never destroyed.
+
 ## 0.5.2
 
 - Minor change - an outlet with no consumers only logs info unless
