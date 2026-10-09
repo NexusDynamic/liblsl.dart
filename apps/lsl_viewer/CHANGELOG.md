@@ -1,3 +1,7 @@
+## 0.2.1
+
+- Requires `signal_viewer_lsl` ^0.2.1.
+
 ## 0.2.0
 
 - Event-driven LSL sample delivery

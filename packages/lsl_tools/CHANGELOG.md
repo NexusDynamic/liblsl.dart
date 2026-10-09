@@ -1,3 +1,7 @@
+## 0.2.1
+
+- Requires `liblsl` ^1.1.2.
+
 ## 0.2.0
 
 - Fixed: `LslRecorder` clock offset did not match standard `XDF`

@@ -1,7 +1,7 @@
 name: lsl_viewer
 description: "Lab Streaming Layer stream and XDF recording viewer"
 publish_to: 'none'
-version: 0.2.0+0
+version: 0.2.1+0
 
 resolution: workspace
 
@@ -14,7 +14,7 @@ dependencies:
   nexus_branding: ^0.1.0
   serial_transport: ^0.1.0
   signal_viewer: ^0.1.0
-  signal_viewer_lsl: ^0.2.0
+  signal_viewer_lsl: ^0.2.1
   signal_viewer_serial: ^0.1.0
   signal_viewer_xdf: ^0.1.0
   # USB serial devices on Android (a patched copy, see the workspace's

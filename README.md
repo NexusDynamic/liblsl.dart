@@ -45,7 +45,7 @@ networks that multicast does not reach. OpenBCI Cyton boards and other serial
 devices are supported, including through WebSerial in the browser.
 
 **[Web app](https://nexusdynamic.org/liblsl.dart/lsl_viewer/)** ·
-**[Download 0.2.0](https://github.com/NexusDynamic/liblsl.dart/releases/tag/lsl_viewer-v0.2.0)**
+**[Download 0.2.1](https://github.com/NexusDynamic/liblsl.dart/releases/tag/lsl_viewer-v0.2.1)**
 (Windows, macOS, Linux, Android) ·
 [Website](https://nexusdynamic.org/liblsl.dart/) ·
 [Bridge and relay guide](./packages/lsl_tools/doc/relay.md) ·
@@ -59,7 +59,7 @@ devices are supported, including through WebSerial in the browser.
 
 | Name | Type | Description | Get it |
 | --- | --- | --- | --- |
-| [lsl_viewer](./apps/lsl_viewer) | application | Viewer for XDF recordings and live LSL streams | [web app](https://nexusdynamic.org/liblsl.dart/lsl_viewer/) · [0.2.0](https://github.com/NexusDynamic/liblsl.dart/releases/tag/lsl_viewer-v0.2.0) |
+| [lsl_viewer](./apps/lsl_viewer) | application | Viewer for XDF recordings and live LSL streams | [web app](https://nexusdynamic.org/liblsl.dart/lsl_viewer/) · [0.2.1](https://github.com/NexusDynamic/liblsl.dart/releases/tag/lsl_viewer-v0.2.1) |
 | [signal_viewer](./packages/signal_viewer) | library | Flutter viewer for multichannel signals, with pluggable source providers | [![Pub Version](https://img.shields.io/pub/v/signal_viewer)](https://pub.dev/packages/signal_viewer) |
 | [signal_viewer_lsl](./packages/signal_viewer_lsl) | library | Source provider for LSL streams | [![Pub Version](https://img.shields.io/pub/v/signal_viewer_lsl)](https://pub.dev/packages/signal_viewer_lsl) |
 | [signal_viewer_xdf](./packages/signal_viewer_xdf) | library | Source provider for XDF recordings | [![Pub Version](https://img.shields.io/pub/v/signal_viewer_xdf)](https://pub.dev/packages/signal_viewer_xdf) |
@@ -96,7 +96,7 @@ notes and usage examples are in the
 
 | Name | Type | Description | Get it |
 | --- | --- | --- | --- |
-| [transport_timing](./apps/transport_timing) | application | Measures one-way latency, jitter, loss and clock drift between devices over LSL, WebSocket and WebRTC | [2.0.0](https://github.com/NexusDynamic/liblsl.dart/releases/tag/transport_timing-v2.0.0) |
+| [transport_timing](./apps/transport_timing) | application | Measures one-way latency, jitter, loss and clock drift between devices over LSL, WebSocket and WebRTC | [2.0.1](https://github.com/NexusDynamic/liblsl.dart/releases/tag/transport_timing-v2.0.1) |
 | [transport_timing_analysis](./apps/transport_timing_analysis) | application | Collates and visualises the run logs written by `transport_timing` | [web app](https://nexusdynamic.org/liblsl.dart/transport_timing_analysis/) · [2.0.0](https://github.com/NexusDynamic/liblsl.dart/releases/tag/transport_timing_analysis-v2.0.0) |
 | [timing_core](./packages/timing_core) | library | Record format and analysis for transport timing runs | [![Pub Version](https://img.shields.io/pub/v/timing_core)](https://pub.dev/packages/timing_core) |
 | [liblsl_test](./apps/liblsl_test) | application | Test application for `liblsl` with Flutter on each platform | [1.1.1](https://github.com/NexusDynamic/liblsl.dart/releases/tag/liblsl_test-v1.1.1) |

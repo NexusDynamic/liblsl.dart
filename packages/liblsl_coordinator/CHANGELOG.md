@@ -5,6 +5,7 @@
   stream info is now kept until the worker confirms it is done with it.
 - Inlets added to a stream that was never started, or opened while it was
   stopping, were never destroyed.
+- Requires `liblsl` ^1.1.2.
 
 ## 0.5.2
 

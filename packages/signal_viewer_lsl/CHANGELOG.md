@@ -1,3 +1,7 @@
+## 0.2.1
+
+- Requires `lsl_tools` ^0.2.1.
+
 ## 0.2.0
 
 - Streams now use event-driven mode by default

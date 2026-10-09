@@ -14,7 +14,7 @@ environment:
 dependencies:
   meta: ^1.15.0
   peer_coordinator: ^0.4.0
-  liblsl: ^1.1.0
+  liblsl: ^1.1.2
   # Direct, not transitive: the inlet worker allocates an out-parameter for
   # lsl_open_stream when it opens inlets on a helper isolate.
   ffi: ^2.2.0

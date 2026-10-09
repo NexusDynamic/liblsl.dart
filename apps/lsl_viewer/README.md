@@ -6,7 +6,7 @@ Linux, Android and the web.
 
 The [web app](https://nexusdynamic.org/liblsl.dart/lsl_viewer/) reads XDF
 files locally in the browser. Version
-[0.2.0](https://github.com/NexusDynamic/liblsl.dart/releases/tag/lsl_viewer-v0.2.0)
+[0.2.1](https://github.com/NexusDynamic/liblsl.dart/releases/tag/lsl_viewer-v0.2.1)
 is available for Windows, macOS, Linux and Android
 ([all releases](https://github.com/NexusDynamic/liblsl.dart/releases?q=lsl_viewer&expanded=true)).
 The Linux and Windows archives include the `lsl` command line tool under
