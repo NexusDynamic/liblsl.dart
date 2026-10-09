@@ -97,7 +97,7 @@ notes and usage examples are in the
 | Name | Type | Description | Get it |
 | --- | --- | --- | --- |
 | [transport_timing](./apps/transport_timing) | application | Measures one-way latency, jitter, loss and clock drift between devices over LSL, WebSocket and WebRTC | [2.0.1](https://github.com/NexusDynamic/liblsl.dart/releases/tag/transport_timing-v2.0.1) |
-| [transport_timing_analysis](./apps/transport_timing_analysis) | application | Collates and visualises the run logs written by `transport_timing` | [web app](https://nexusdynamic.org/liblsl.dart/transport_timing_analysis/) · [2.0.0](https://github.com/NexusDynamic/liblsl.dart/releases/tag/transport_timing_analysis-v2.0.0) |
+| [transport_timing_analysis](./apps/transport_timing_analysis) | application | Collates and visualises the run logs written by `transport_timing` | [web app](https://nexusdynamic.org/liblsl.dart/transport_timing_analysis/) · [2.0.1](https://github.com/NexusDynamic/liblsl.dart/releases/tag/transport_timing_analysis-v2.0.1) |
 | [timing_core](./packages/timing_core) | library | Record format and analysis for transport timing runs | [![Pub Version](https://img.shields.io/pub/v/timing_core)](https://pub.dev/packages/timing_core) |
 | [liblsl_test](./apps/liblsl_test) | application | Test application for `liblsl` with Flutter on each platform | [1.1.1](https://github.com/NexusDynamic/liblsl.dart/releases/tag/liblsl_test-v1.1.1) |
 

@@ -14,7 +14,7 @@ viewer, and the analysis is that of
 
 The [web app](https://nexusdynamic.org/liblsl.dart/transport_timing_analysis/)
 reads logs locally in the browser. Version
-[2.0.0](https://github.com/NexusDynamic/liblsl.dart/releases/tag/transport_timing_analysis-v2.0.0)
+[2.0.1](https://github.com/NexusDynamic/liblsl.dart/releases/tag/transport_timing_analysis-v2.0.1)
 is available for Windows, macOS, Linux and Android
 ([all releases](https://github.com/NexusDynamic/liblsl.dart/releases?q=transport_timing_analysis&expanded=true));
 the macOS build is unsigned and is opened the first time through the context

@@ -1,4 +1,4 @@
-## Unreleased
+## 0.1.1
 
 - A theme button in the toolbar switches between the system, light and dark
   themes. The setting is the one in Preferences.
