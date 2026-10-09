@@ -132,6 +132,7 @@ void main(List<String> args) async {
         '$libLSLPath/src/lsl_xml_element_c.cpp',
         '$libLSLPath/src/netinterfaces.cpp',
         '$libLSLPath/src/resolver_impl.cpp',
+        '$libLSLPath/src/resolve_attempt_tcp.cpp',
         '$libLSLPath/src/resolve_attempt_udp.cpp',
         '$libLSLPath/src/sample.cpp',
         '$libLSLPath/src/send_buffer.cpp',
@@ -164,6 +165,8 @@ void main(List<String> args) async {
         sources: sources,
         language: Language.cpp,
         includes: [
+          // lsl_version.h, which CMake would generate.
+          'src/include',
           '$libLSLPath/lslboost',
           '$libLSLPath/include',
           '$libLSLPath/thirdparty/asio',

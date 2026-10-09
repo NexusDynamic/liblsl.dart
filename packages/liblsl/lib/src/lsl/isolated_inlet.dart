@@ -16,8 +16,13 @@ import 'package:liblsl/src/lsl/isolate_manager.dart';
 import 'package:liblsl/src/meta/todo.dart';
 
 /// Implementation of inlet functionality for the isolate
-class LSLInletIsolate extends LSLIsolateWorkerBase {
+class LSLInletIsolate extends LSLIsolateWorkerBase implements Finalizable {
   lsl_inlet? _inlet;
+
+  /// This isolate's hold on [_inlet], shared with any listener in the main
+  /// isolate; whichever lets go last destroys the inlet. A finalizer lets go
+  /// if this isolate exits, or is killed, without destroying it.
+  Pointer<LslDartInlet>? _ref;
   LSLStreamInfo? _streamInfo;
   late final LSLPullSample _pullFn;
   late final bool _isStreamInfoOwner;
@@ -195,11 +200,20 @@ class LSLInletIsolate extends LSLIsolateWorkerBase {
     ec.free();
 
     if (result != 0) {
-      throw lslError('Error opening stream', result);
+      final error = lslError('Error opening stream', result);
+      lsl_destroy_inlet(_inlet!);
+      _inlet = null;
+      throw error;
     }
 
+    final ref = lslDartInletNew(_inlet!, 1);
+    if (ref == nullptr) throw LSLException('Out of memory for the inlet');
+    _ref = ref;
+    lslDartInletFinalizer.attach(this, ref.cast(), detach: this);
+
     return {
-      'inletAddress': _inlet!.address,
+      // What a sample listener needs: the counted inlet.
+      'inletAddress': ref.address,
       'streamInfoAddress': _streamInfo!.streamInfo.address,
     };
   }
@@ -307,11 +321,13 @@ class LSLInletIsolate extends LSLIsolateWorkerBase {
 
   /// Cleans up the inlet and stream info.
   Future<void> _destroy(Map<String, dynamic>? data) async {
-    if (_inlet != null) {
-      lsl_close_stream(_inlet!);
-      lsl_destroy_inlet(_inlet!);
-      _inlet = null;
+    if (_ref case final ref?) {
+      // Closes and destroys the inlet, unless a listener still holds it.
+      _ref = null;
+      lslDartInletFinalizer.detach(this);
+      lslDartInletRelease(ref);
     }
+    _inlet = null;
 
     if (_streamInfo != null) {
       if (_isStreamInfoOwner) {

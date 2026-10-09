@@ -35,7 +35,9 @@ import 'package:liblsl/src/util/chunk_buffer.dart';
 /// final inlet = await LSL.createInlet<double>(streamInfo: info, useIsolates: false);
 /// final sample = inlet.pullSampleSync(); // Zero async overhead
 /// ```
-class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
+class LSLInlet<T> extends LSLObj
+    with LSLIOMixin, LSLExecutionMixin
+    implements Finalizable {
   /// The [LSLStreamInfo] stream information for this inlet.
   /// The stream info for this inlet
   LSLStreamInfo _streamInfo;
@@ -123,6 +125,19 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// Whether this inlet is managed (i.e. not created from an existing pointer).
   late final bool _managed;
 
+  /// Direct mode: this object's hold on [_inlet], shared with any running
+  /// listener; whichever lets go last destroys the inlet (if [_managed]). A
+  /// finalizer lets go if this object is collected, or its isolate exits,
+  /// without [destroy].
+  Pointer<LslDartInlet>? _ref;
+
+  void _hold(lsl_inlet inlet) {
+    final ref = lslDartInletNew(inlet, _managed ? 1 : 0);
+    if (ref == nullptr) throw LSLException('Out of memory for the inlet');
+    _ref = ref;
+    lslDartInletFinalizer.attach(this, ref.cast(), detach: this);
+  }
+
   // Force-unwrap getters (avoiding ! everywhere)
   // These throw LSLException if the resource hasn't been initialized
 
@@ -131,6 +146,10 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
       _inlet ?? (throw LSLException('Inlet not initialized'));
 
   /// Gets the full stream info with metadata from this inlet.
+  ///
+  /// Fetched once and kept: later calls return the same object. It belongs to
+  /// the inlet and is freed by [destroy]; its native data is not usable after
+  /// that, so copy out what is needed first.
   /// **Parameters:**
   /// - [timeout]: Maximum wait time in seconds
   /// **Execution:**
@@ -142,9 +161,14 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// **See also:** [getFullInfoSync] for zero-overhead direct calls
   Future<LSLStreamInfoWithMetadata> getFullInfo({
     required double timeout,
-  }) async => _useIsolates
-      ? await _getFullInfoIsolated(timeout)
-      : _getFullInfoDirect(timeout);
+  }) async =>
+      _fullInfo ??
+      (_useIsolates
+          ? await _getFullInfoIsolated(timeout)
+          : _getFullInfoDirect(timeout));
+
+  /// What [getFullInfo] fetched, which this inlet owns and [destroy] frees.
+  LSLStreamInfoWithMetadata? _fullInfo;
 
   /// Synchronously gets the full stream info with metadata from this inlet.
   /// **Direct mode only** - throws [LSLException] if `useIsolates: true`.
@@ -156,7 +180,7 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// inlet.getFullInfoSync(timeout: 2.0);
   /// ```
   LSLStreamInfoWithMetadata getFullInfoSync({required double timeout}) =>
-      requireDirect(() => _getFullInfoDirect(timeout));
+      requireDirect(() => _fullInfo ?? _getFullInfoDirect(timeout));
 
   // Isolate resources (when using isolates)
 
@@ -238,17 +262,12 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
         LSLMessage(LSLMessageType.destroy, {}),
       );
       _isolateManagerBang.dispose();
-    } else if (_inlet != null && _managed) {
-      try {
-        lsl_close_stream(_inletBang);
-      } catch (e) {
-        // Ignore errors during close, as the inlet may already be closed
-      }
-      try {
-        lsl_destroy_inlet(_inletBang);
-      } catch (e) {
-        // Ignore errors during destroy, as the inlet may already be destroyed
-      }
+    } else if (_ref case final ref?) {
+      // Closes and destroys the inlet if it is [_managed]. The listeners
+      // have let go of it above, so that happens here and now.
+      _ref = null;
+      lslDartInletFinalizer.detach(this);
+      lslDartInletRelease(ref);
     }
     _inlet = null;
     _isolateManager = null;
@@ -258,6 +277,10 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
     _tcScratch = null;
     _chunkBuffer?.free();
     _chunkBuffer = null;
+    // Ours: lsl_get_fullinfo hands over a copy. The Dart fields of
+    // [streamInfo] stay readable.
+    _fullInfo?.destroy();
+    _fullInfo = null;
   }
 
   /// Pulls a sample from the inlet.
@@ -310,12 +333,11 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// from or flushing this inlet anywhere else throws an [LSLException]: an
   /// inlet's samples have one reader. Time correction calls are unaffected.
   ///
-  /// If the listening isolate exits or is killed without cancelling, a
-  /// finalizer stops the thread, but the inlet is a native object and is not
-  /// destroyed with its isolate. With [recover] it then keeps looking for
-  /// its stream once the outlet has gone. Destroy it from an isolate that is
-  /// still running, by address, with [createFromPointer] and
-  /// `takeOwnership: true`, after at least one [wakeInterval].
+  /// If the listening isolate exits or is killed without cancelling, or
+  /// without destroying the inlet, finalizers stop the thread and then
+  /// destroy the inlet, which is never destroyed while the thread is still
+  /// in a pull. Nothing else should destroy it then: in particular not
+  /// another isolate, by address.
   ///
   /// **A listener that does not keep up.** The thread hands samples over
   /// as fast as they arrive, whatever the listener does with them, so by
@@ -361,8 +383,9 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
     void Function(LSLBacklog backlog)? onBacklog,
     int? debugFailAfter,
   }) => listenToInlet<T>(
-    inletAddress: _listenAddress,
-    streamInfoAddress: streamInfo.streamInfo.address,
+    inletAddress: () => _listenAddress,
+    format: streamInfo.channelFormat,
+    channels: streamInfo.channelCount,
     wakeInterval: wakeInterval,
     maxBacklog: maxBacklog,
     backlogWarnAt: backlogWarnAt ?? _defaultBacklogWarnAt,
@@ -407,8 +430,9 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
     void Function(LSLBacklog backlog)? onBacklog,
     int? debugFailAfter,
   }) => listenToInletChunks(
-    inletAddress: _listenAddress,
-    streamInfoAddress: streamInfo.streamInfo.address,
+    inletAddress: () => _listenAddress,
+    format: streamInfo.channelFormat,
+    channels: streamInfo.channelCount,
     wakeInterval: wakeInterval,
     maxSamples: maxSamples,
     coalesce: coalesce,
@@ -446,8 +470,14 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// The native inlet for [sampleStream] and [chunkStream]. In isolate mode
   /// it lives in the inlet's own isolate, which reported where; the handle
   /// itself is good in any isolate of the process.
+  ///
+  /// Read when a stream is listened to. Throws once [destroy] has begun: the
+  /// listeners [destroy] waits for are the ones running when it started.
   int get _listenAddress {
-    if (!_useIsolates) return _inletBang.address;
+    if (destroyed) throw LSLException('The inlet has been destroyed');
+    if (!_useIsolates) {
+      return (_ref ?? (throw LSLException('Inlet not initialized'))).address;
+    }
     return _isolatedInletAddress ??
         (throw LSLException('Inlet not initialized'));
   }
@@ -869,6 +899,7 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
     super.create();
     _inlet = pointer;
     setupPullBuffer();
+    _hold(pointer);
     return this;
   }
 
@@ -925,6 +956,7 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
       throw error;
     }
 
+    _hold(_inletBang);
     return this;
   }
 
@@ -950,6 +982,9 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
         'timeout': createTimeout,
         'transportFlags': transportOptions.nativeFlags,
       }),
+      // However long opening may take: giving up sooner leaves the worker
+      // opening an inlet that nobody will destroy.
+      timeoutSeconds: createTimeout + 30,
     );
 
     if (!response.success) {
@@ -981,6 +1016,9 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
         'ecPointerAddr': _bufferBang.ec.address,
         'channelCount': streamInfo.channelCount,
       }),
+      // The worker writes into this side's buffer until the pull returns,
+      // so it is waited for that long, as the other pulls are.
+      timeoutSeconds: timeout + 30,
     );
 
     if (!response.success) {
@@ -1318,6 +1356,7 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
         'timeout': timeout,
         'ecPointerAddr': _bufferBang.ec.address,
       }),
+      timeoutSeconds: timeout + 30,
     );
 
     if (!response.success) {
@@ -1372,6 +1411,7 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   Future<LSLStreamInfoWithMetadata> _getFullInfoIsolated(double timeout) async {
     final response = await _isolateManagerBang.sendMessage(
       LSLMessage(LSLMessageType.getFullInfo, {'timeout': timeout}),
+      timeoutSeconds: timeout + 30,
     );
 
     if (!response.success) {
@@ -1381,7 +1421,7 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
     final fullStreamInfoAddr = response.result as int;
     final fullStreamInfo = lsl_streaminfo.fromAddress(fullStreamInfoAddr);
     final streamInfo = LSLStreamInfoWithMetadata.fromStreamInfo(fullStreamInfo);
-    _streamInfo = streamInfo;
+    _streamInfo = _fullInfo = streamInfo;
     return streamInfo;
   }
 
@@ -1404,7 +1444,7 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
       final streamInfo = LSLStreamInfoWithMetadata.fromStreamInfo(
         fullStreamInfo,
       );
-      _streamInfo = streamInfo;
+      _streamInfo = _fullInfo = streamInfo;
       return streamInfo;
     }
     throw LSLException('Error getting full info: $errorCode');

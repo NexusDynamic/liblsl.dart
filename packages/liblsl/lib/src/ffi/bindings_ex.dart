@@ -133,12 +133,48 @@ const int lslDartBlockFailed = 2;
 
 final class LslDartListener extends ffi.Opaque {}
 
+/// An inlet as the listener reaches it: counted, so that the last of the
+/// `LSLInlet` and its listeners to let go destroys it.
+final class LslDartInlet extends ffi.Opaque {}
+
+/// Holds [inlet] for an `LSLInlet`; if [owned], the last release closes and
+/// destroys it.
+@ffi.Native<ffi.Pointer<LslDartInlet> Function(lsl_inlet, ffi.Int32)>(
+  symbol: 'lsl_dart_inlet_new',
+  assetId: 'package:liblsl/native_liblsl.dart',
+  isLeaf: true,
+)
+external ffi.Pointer<LslDartInlet> lslDartInletNew(lsl_inlet inlet, int owned);
+
+// Not a leaf call: it may destroy the inlet.
+@ffi.Native<ffi.Void Function(ffi.Pointer<LslDartInlet>)>(
+  symbol: 'lsl_dart_inlet_release',
+  assetId: 'package:liblsl/native_liblsl.dart',
+)
+external void lslDartInletRelease(ffi.Pointer<LslDartInlet> inlet);
+
+/// [lslDartInletRelease] for a [ffi.NativeFinalizer], which destroys the
+/// inlet on a thread of its own.
+@ffi.Native<ffi.Void Function(ffi.Pointer<ffi.Void>)>(
+  symbol: 'lsl_dart_inlet_finalize',
+  assetId: 'package:liblsl/native_liblsl.dart',
+)
+external void lslDartInletFinalize(ffi.Pointer<ffi.Void> inlet);
+
+/// Releases an `LSLInlet`'s [LslDartInlet] if the inlet's isolate exits, or
+/// the inlet is garbage collected, without having been destroyed.
+final lslDartInletFinalizer = ffi.NativeFinalizer(
+  ffi.Native.addressOf<
+    ffi.NativeFunction<ffi.Void Function(ffi.Pointer<ffi.Void>)>
+  >(lslDartInletFinalize),
+);
+
 typedef LslDartBlockCallback =
     ffi.Void Function(ffi.Pointer<LslDartBlock> block);
 
 @ffi.Native<
   ffi.Pointer<LslDartListener> Function(
-    lsl_inlet,
+    ffi.Pointer<LslDartInlet>,
     ffi.Int32,
     ffi.Int32,
     ffi.Int32,
@@ -153,7 +189,7 @@ typedef LslDartBlockCallback =
   assetId: 'package:liblsl/native_liblsl.dart',
 )
 external ffi.Pointer<LslDartListener> lslDartListenerStart(
-  lsl_inlet inlet,
+  ffi.Pointer<LslDartInlet> inlet,
   int format,
   int channels,
   int maxSamples,

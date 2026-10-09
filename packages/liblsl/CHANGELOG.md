@@ -4,12 +4,34 @@
   inlet. The Dart VM bounds how many isolates of a group are entered at once.
   Number of functional inlets is now a lot higher (tested with 200 that kept their rate).
 - A listener whose isolate exits or is killed without cancelling is stopped
-  by a finalizer. The inlet is not destroyed with it: destroy it from another
-  isolate by address (`createFromPointer(..., takeOwnership: true)`).
+  by a finalizer.
 - `sampleStream()` and `chunkStream()` throw an `ArgumentError` for a
   `wakeInterval` that is not above zero, which would have kept a thread busy.
 - New `example/send.dart` and `example/receive.dart`: a stream between two
   devices.
+- liblsl updated to upstream `dev` (42118f80). Destroying an inlet took
+  500 ms (liblsl slept in its receive thread before the inlet could be
+  joined) and now takes about a millisecond. String pulls that returned
+  fewer samples than asked for, including every pull that timed out, leaked
+  one allocation per unfilled string; a string `chunkStream` leaked hundreds
+  of thousands a second.
+- A `sampleStream`/`chunkStream` listened to after its inlet was destroyed,
+  or while it was being destroyed, read the freed inlet. It now ends with an
+  `LSLSampleListenerException`.
+- A listener thread that could not allocate its last message never ended,
+  and `destroy()` of its inlet waited for it forever.
+- `chunkStream()` throws an `ArgumentError` for a negative `coalesce`.
+- An inlet whose isolate exited or was killed without `destroy()`, or that
+  was garbage collected, was never destroyed. It kept its connection, and with
+  `recover` on went on resolving its stream every few seconds once the outlet
+  was gone. A finalizer now destroys it, after any listener on it has stopped,
+  so it must not also be destroyed by address from another isolate.
+- `getFullInfo()` leaked the stream info it fetched. The inlet now fetches it
+  once, returns the same object on later calls, and frees it in `destroy()`.
+- In isolate mode, `pullSample`, time correction, `getFullInfo`, inlet
+  creation and `waitForConsumer` gave up after 30 s however long their own
+  timeout was, leaving the worker writing into memory the caller could free.
+  They now wait for their timeout plus 30 s, as the other pulls did.
 
 # 1.1.0
 

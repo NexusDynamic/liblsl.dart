@@ -18,14 +18,24 @@
 // - A block belongs to Dart once the callback has it: lsl_dart_block_free().
 // - The thread's last call is always a block of kind kEnded or kFailed, and
 //   it calls nothing after it. Dart then joins it with lsl_dart_listener_destroy().
+//   That block is allocated up front, so the thread can always send it: Dart
+//   waits for it before it frees the inlet.
 // - If the listening isolate dies first, a NativeFinalizer calls
 //   lsl_dart_listener_abandon(): calling its callback after that would crash.
 // - The four control words are shared with Dart and each has one writer.
+//
+// The inlet is reached through an lsl_dart_inlet, a count of who still needs
+// it: the LSLInlet that made it, and each listener until its thread has been
+// joined. The last to let go destroys the inlet. An isolate that dies without
+// destroying its inlets therefore no longer leaves them open, recovering
+// their streams forever, and none is destroyed under a listener still in a
+// pull.
 //
 // See lib/src/lsl/sample_listener.dart for the other half.
 
 #include <lsl_c.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -34,6 +44,7 @@
 #include <cstring>
 #include <exception>
 #include <mutex>
+#include <new>
 #include <string>
 #include <thread>
 #include <vector>
@@ -68,7 +79,32 @@ typedef void (*lsl_dart_block_callback)(lsl_dart_block *block);
 
 typedef struct lsl_dart_listener lsl_dart_listener;
 
+typedef struct lsl_dart_inlet lsl_dart_inlet;
+
 } // extern "C"
+
+struct lsl_dart_inlet {
+	lsl_inlet inlet;
+	// Destroy the inlet with the last reference; false for one that something
+	// else owns.
+	bool owned;
+	std::atomic<int32_t> refs{1};
+
+	void retain() { refs.fetch_add(1); }
+
+	// Whether that was the last reference, after which only end() is left.
+	bool release() { return refs.fetch_sub(1) == 1; }
+
+	void end() {
+		if (owned) {
+			// Closed first: liblsl then knows the stream is going away and does
+			// not try to recover it as the connection drops.
+			lsl_close_stream(inlet);
+			lsl_destroy_inlet(inlet);
+		}
+		delete this;
+	}
+};
 
 namespace {
 
@@ -97,6 +133,21 @@ size_t element_size(int32_t format) {
 	}
 }
 
+// Room for the last block's message; a longer one is cut short. liblsl's own
+// messages are shorter (LAST_ERROR_SIZE).
+constexpr size_t kMessageBytes = 512;
+
+// Calls `fn`, one of liblsl's lsl_pull_chunk_* functions, with `data` as the
+// buffer type it takes. Deduced rather than spelled out because liblsl 1.17
+// takes char* for int8 streams where later versions take int8_t*.
+template <class T>
+unsigned long pull_chunk(unsigned long (*fn)(lsl_inlet, T *, double *, unsigned long,
+							 unsigned long, double, int32_t *),
+	lsl_inlet inlet, void *data, double *times, unsigned long elements, unsigned long stamps,
+	double timeout, int32_t *ec) {
+	return fn(inlet, static_cast<T *>(data), times, elements, stamps, timeout, ec);
+}
+
 // Blocks are one allocation: header, timestamps, data, then the message.
 lsl_dart_block *new_block(int32_t kind, int32_t samples, size_t data_bytes, size_t message_bytes) {
 	const size_t times_bytes = sizeof(double) * static_cast<size_t>(samples);
@@ -121,6 +172,7 @@ lsl_dart_block *new_block(int32_t kind, int32_t samples, size_t data_bytes, size
 } // namespace
 
 struct lsl_dart_listener {
+	lsl_dart_inlet *ref = nullptr;
 	lsl_inlet inlet;
 	int32_t format;
 	int32_t channels;
@@ -138,6 +190,14 @@ struct lsl_dart_listener {
 	std::mutex handoff;
 	// The isolate that was listening is gone, and the callback with it.
 	bool abandoned = false;
+	// The last block, kept from the start; null once sent.
+	lsl_dart_block *last = nullptr;
+
+	~lsl_dart_listener() {
+		std::free(last);
+		// Only once the thread is out of liblsl: this is deleted after a join.
+		if (ref && ref->release()) ref->end();
+	}
 
 	// Hands `block` to Dart, or frees it if nobody is there to take it.
 	void deliver(lsl_dart_block *block) {
@@ -155,13 +215,18 @@ struct lsl_dart_listener {
 		if (control[kStop].load(std::memory_order_relaxed)) return false;
 		if (max_backlog == 0) return true;
 		int spins = 0;
+		int sleep_ms = 1;
 		while (control[kPaused].load(std::memory_order_relaxed) ||
 			   static_cast<uint32_t>(control[kSent].load(std::memory_order_relaxed) -
 									 control[kReceived].load(std::memory_order_relaxed)) >=
 				   max_backlog) {
 			if (control[kStop].load(std::memory_order_relaxed)) return false;
-			// Most such waits are over in microseconds.
-			if (++spins > 20000) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+			// Most such waits are over in microseconds; a paused subscription's
+			// can last any time, and should not cost a wake-up a millisecond.
+			if (++spins > 20000) {
+				std::this_thread::sleep_for(std::chrono::milliseconds(sleep_ms));
+				if (sleep_ms < 10) sleep_ms++;
+			}
 		}
 		return true;
 	}
@@ -171,33 +236,39 @@ struct lsl_dart_listener {
 		const auto stamps = static_cast<unsigned long>(samples);
 		switch (format) {
 		case cft_float32:
-			return lsl_pull_chunk_f(inlet, static_cast<float *>(data), times, elements, stamps, timeout, ec);
+			return pull_chunk(lsl_pull_chunk_f, inlet, data, times, elements, stamps, timeout, ec);
 		case cft_double64:
-			return lsl_pull_chunk_d(inlet, static_cast<double *>(data), times, elements, stamps, timeout, ec);
+			return pull_chunk(lsl_pull_chunk_d, inlet, data, times, elements, stamps, timeout, ec);
 		case cft_int64:
-			return lsl_pull_chunk_l(inlet, static_cast<int64_t *>(data), times, elements, stamps, timeout, ec);
+			return pull_chunk(lsl_pull_chunk_l, inlet, data, times, elements, stamps, timeout, ec);
 		case cft_int32:
-			return lsl_pull_chunk_i(inlet, static_cast<int32_t *>(data), times, elements, stamps, timeout, ec);
+			return pull_chunk(lsl_pull_chunk_i, inlet, data, times, elements, stamps, timeout, ec);
 		case cft_int16:
-			return lsl_pull_chunk_s(inlet, static_cast<int16_t *>(data), times, elements, stamps, timeout, ec);
+			return pull_chunk(lsl_pull_chunk_s, inlet, data, times, elements, stamps, timeout, ec);
 		case cft_int8:
-			return lsl_pull_chunk_c(inlet, static_cast<char *>(data), times, elements, stamps, timeout, ec);
+			return pull_chunk(lsl_pull_chunk_c, inlet, data, times, elements, stamps, timeout, ec);
 		case cft_string:
-			return lsl_pull_chunk_str(inlet, static_cast<char **>(data), times, elements, stamps, timeout, ec);
+			return pull_chunk(lsl_pull_chunk_str, inlet, data, times, elements, stamps, timeout, ec);
 		default:
 			*ec = lsl_argument_error;
 			return 0;
 		}
 	}
 
-	// The last thing this thread tells Dart.
+	// The last thing this thread tells Dart, in the block kept for it.
 	void end(int32_t error, const std::string &message, int32_t kind = kEnded) {
-		auto *block = new_block(kind, 0, 0, message.empty() ? 0 : message.size() + 1);
-		// Without memory there is nothing to say it with; Dart is left with a
-		// listener that never ends, which it can still stop and destroy.
+		auto *block = last;
 		if (!block) return;
+		last = nullptr;
+		block->kind = kind;
 		block->error = error;
-		if (block->message) std::memcpy(block->message, message.c_str(), message.size() + 1);
+		if (message.empty())
+			block->message = nullptr;
+		else {
+			const size_t length = std::min(message.size(), kMessageBytes - 1);
+			std::memcpy(block->message, message.data(), length);
+			block->message[length] = 0;
+		}
 		deliver(block);
 	}
 
@@ -313,10 +384,10 @@ extern "C" {
 /// thread fails after that many blocks.
 ///
 /// Returns null if the arguments are unusable or no thread could be started.
-LIBLSL_C_API lsl_dart_listener *lsl_dart_listener_start(lsl_inlet inlet, int32_t format,
+LIBLSL_C_API lsl_dart_listener *lsl_dart_listener_start(lsl_dart_inlet *inlet, int32_t format,
 	int32_t channels, int32_t max_samples, double coalesce, double wake_interval,
 	uint32_t max_backlog, int32_t fail_after, lsl_dart_block_callback callback) {
-	if (!inlet || !callback || channels < 1 || max_samples < 1) return nullptr;
+	if (!inlet || !inlet->inlet || !callback || channels < 1 || max_samples < 1) return nullptr;
 	// liblsl does not wait on a timeout of zero or less: the thread would spin.
 	if (!std::isfinite(wake_interval) || wake_interval <= 0) return nullptr;
 	switch (format) {
@@ -332,7 +403,11 @@ LIBLSL_C_API lsl_dart_listener *lsl_dart_listener_start(lsl_inlet inlet, int32_t
 	lsl_dart_listener *listener = nullptr;
 	try {
 		listener = new lsl_dart_listener();
-		listener->inlet = inlet;
+		listener->last = new_block(kEnded, 0, 0, kMessageBytes);
+		if (!listener->last) throw std::bad_alloc();
+		inlet->retain();
+		listener->ref = inlet;
+		listener->inlet = inlet->inlet;
 		listener->format = format;
 		listener->channels = channels;
 		listener->max_samples = max_samples;
@@ -377,9 +452,9 @@ LIBLSL_C_API void lsl_dart_listener_destroy(lsl_dart_listener *listener) {
 /// the thread and makes sure the callback is not called again. Does not wait
 /// for the thread, which frees the listener as it leaves.
 ///
-/// The inlet is not touched: it is not the listener's, and may have been
-/// handed to another isolate. Whoever is left destroys it, once the thread
-/// has had a wake interval to leave its pull.
+/// The listener's hold on its inlet is let go once the thread has left: if
+/// nothing else holds the inlet any longer (its LSLInlet's finalizer has run,
+/// say), that destroys it.
 ///
 /// The signature is a Dart NativeFinalizer's.
 LIBLSL_C_API void lsl_dart_listener_abandon(void *token) {
@@ -398,6 +473,39 @@ LIBLSL_C_API void lsl_dart_listener_abandon(void *token) {
 		if (pulling.joinable()) pulling.join();
 		delete listener;
 	}).detach();
+}
+
+/// Holds `inlet` for Dart: one reference, released with
+/// lsl_dart_inlet_release() or lsl_dart_inlet_finalize(). If `owned`, the
+/// last release closes and destroys the inlet. Null if out of memory.
+LIBLSL_C_API lsl_dart_inlet *lsl_dart_inlet_new(lsl_inlet inlet, int32_t owned) {
+	if (!inlet) return nullptr;
+	auto *ref = new (std::nothrow) lsl_dart_inlet();
+	if (!ref) return nullptr;
+	ref->inlet = inlet;
+	ref->owned = owned != 0;
+	return ref;
+}
+
+/// Lets go of Dart's reference. If it was the last, the inlet is destroyed
+/// before this returns; if a listener still holds it, by the listener once
+/// its thread has left liblsl.
+LIBLSL_C_API void lsl_dart_inlet_release(lsl_dart_inlet *inlet) {
+	if (inlet && inlet->release()) inlet->end();
+}
+
+/// As lsl_dart_inlet_release(), for a NativeFinalizer: the inlet is destroyed
+/// on a thread of its own, so that neither the garbage collector nor an
+/// isolate's shutdown waits for liblsl.
+LIBLSL_C_API void lsl_dart_inlet_finalize(void *token) {
+	auto *inlet = static_cast<lsl_dart_inlet *>(token);
+	if (!inlet || !inlet->release()) return;
+	try {
+		std::thread([inlet] { inlet->end(); }).detach();
+	} catch (...) {
+		// No thread to be had: here, then, rather than not at all.
+		inlet->end();
+	}
 }
 
 /// Frees a block the callback was given.

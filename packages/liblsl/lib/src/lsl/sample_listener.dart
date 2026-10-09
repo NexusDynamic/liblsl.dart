@@ -6,10 +6,8 @@ import 'dart:typed_data';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:logging/logging.dart';
 import 'package:ffi/ffi.dart' show Utf8, Utf8Pointer;
-import 'package:liblsl/native_liblsl.dart';
 import 'package:liblsl/src/ffi/bindings_ex.dart';
 import 'package:liblsl/src/lsl/exception.dart';
-import 'package:liblsl/src/lsl/stream_info.dart';
 import 'package:liblsl/src/lsl/structs.dart';
 
 /// A sample and the local clock at the moment it was pulled.
@@ -147,8 +145,12 @@ const _sent = 2;
 const _received = 3;
 const _mask = 0xFFFFFFFF;
 
-/// Samples of the inlet at [inletAddress] as they arrive, pulled on a native
-/// thread of their own.
+/// Samples of an inlet as they arrive, pulled on a native thread of their
+/// own. [inletAddress] is asked for the inlet (the address of its
+/// `LslDartInlet`, which the listener holds while it runs) when the stream is
+/// listened to,
+/// and throws if there is no longer one to listen to; [format] and
+/// [channels] are the stream's.
 ///
 /// The thread sits inside `lsl_pull_chunk` with a timeout. liblsl wakes that
 /// call when a sample is queued, so there is no polling interval between a
@@ -174,8 +176,9 @@ const _mask = 0xFFFFFFFF;
 /// [debugFailAfter] is for tests: the listener fails after that many
 /// samples.
 Stream<LSLTimedSample<T>> listenToInlet<T>({
-  required int inletAddress,
-  required int streamInfoAddress,
+  required int Function() inletAddress,
+  required LSLChannelFormat format,
+  required int channels,
   required double wakeInterval,
   required int backlogWarnAt,
   int? maxBacklog,
@@ -185,7 +188,8 @@ Stream<LSLTimedSample<T>> listenToInlet<T>({
   int? debugFailAfter,
 }) => _listenTo<LSLTimedSample<T>>(
   inletAddress: inletAddress,
-  streamInfoAddress: streamInfoAddress,
+  format: format,
+  channels: channels,
   wakeInterval: wakeInterval,
   backlogWarnAt: backlogWarnAt,
   maxBacklog: maxBacklog,
@@ -213,8 +217,9 @@ Stream<LSLTimedSample<T>> listenToInlet<T>({
 /// [debugFailAfter] is for tests: the listener fails after that many
 /// chunks.
 Stream<LSLTimedChunk> listenToInletChunks({
-  required int inletAddress,
-  required int streamInfoAddress,
+  required int Function() inletAddress,
+  required LSLChannelFormat format,
+  required int channels,
   required double wakeInterval,
   required int maxSamples,
   required double coalesce,
@@ -226,9 +231,11 @@ Stream<LSLTimedChunk> listenToInletChunks({
   int? debugFailAfter,
 }) {
   if (maxSamples < 1) throw ArgumentError.value(maxSamples, 'maxSamples');
+  if (!(coalesce >= 0)) throw ArgumentError.value(coalesce, 'coalesce');
   return _listenTo<LSLTimedChunk>(
     inletAddress: inletAddress,
-    streamInfoAddress: streamInfoAddress,
+    format: format,
+    channels: channels,
     wakeInterval: wakeInterval,
     maxSamples: maxSamples,
     coalesce: coalesce,
@@ -349,8 +356,9 @@ final _abandon = NativeFinalizer(
 /// queued in between, which is reported past [backlogWarnAt] ([onBacklog],
 /// or the log) and, with [maxBacklog], holds the thread back.
 Stream<R> _listenTo<R>({
-  required int inletAddress,
-  required int streamInfoAddress,
+  required int Function() inletAddress,
+  required LSLChannelFormat format,
+  required int channels,
   required double wakeInterval,
   required R Function(LslDartBlock block, LSLChannelFormat format, int channels)
   decode,
@@ -441,9 +449,17 @@ Stream<R> _listenTo<R>({
 
   controller = StreamController<R>(
     onListen: () {
-      final streamInfo = LSLStreamInfo.fromStreamInfoAddr(streamInfoAddress);
-      final format = streamInfo.channelFormat;
-      final channels = streamInfo.channelCount;
+      // Asked now, not when the stream was made: the inlet may have been
+      // destroyed in between.
+      final int inlet;
+      try {
+        inlet = inletAddress();
+      } catch (e) {
+        fail('Sample listener could not start: $e');
+        finish();
+        controller.close();
+        return;
+      }
       onStarted?.call(stop);
 
       void onBlock(Pointer<LslDartBlock> pointer) {
@@ -505,7 +521,7 @@ Stream<R> _listenTo<R>({
         onBlock,
       );
       final handle = lslDartListenerStart(
-        lsl_inlet.fromAddress(inletAddress),
+        Pointer<LslDartInlet>.fromAddress(inlet),
         format.lslFormat.value,
         channels,
         maxSamples,

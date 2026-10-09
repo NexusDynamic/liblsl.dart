@@ -602,6 +602,7 @@ class LSLOutlet extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   Future<bool> _waitForConsumerIsolated(double timeout) async {
     final response = await _isolateManagerBang.sendMessage(
       LSLMessage(LSLMessageType.waitForConsumer, {'timeout': timeout}),
+      timeoutSeconds: timeout + 30,
     );
 
     if (!response.success) {
