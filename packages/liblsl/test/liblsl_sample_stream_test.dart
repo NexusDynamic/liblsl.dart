@@ -192,6 +192,29 @@ void main() {
     }
   }, tags: 'lsl');
 
+  test('a wake interval that is not above zero is refused', () async {
+    // liblsl does not wait on a zero timeout: the thread would spin.
+    final (outlet, inlet, infos) = await createPair<int>(
+      LSLChannelFormat.int32,
+    );
+    for (final interval in [0.0, -1.0, double.infinity, double.nan]) {
+      expect(
+        () => inlet.sampleStream(wakeInterval: interval),
+        throwsArgumentError,
+      );
+      expect(
+        () => inlet.chunkStream(wakeInterval: interval),
+        throwsArgumentError,
+      );
+    }
+
+    await inlet.destroy();
+    await outlet.destroy();
+    for (final info in infos) {
+      info.destroy();
+    }
+  }, tags: 'lsl');
+
   test('works on an isolate-mode inlet, which keeps answering', () async {
     final (outlet, inlet, infos) = await createPair<double>(
       LSLChannelFormat.float32,

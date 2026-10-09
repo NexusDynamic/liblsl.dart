@@ -364,6 +364,11 @@ Stream<R> _listenTo<R>({
   double coalesce = 0,
   int? debugFailAfter,
 }) {
+  // liblsl does not wait at all on a timeout of zero or less, so the thread
+  // would spin instead of parking while the stream is quiet.
+  if (!wakeInterval.isFinite || wakeInterval <= 0) {
+    throw ArgumentError.value(wakeInterval, 'wakeInterval', 'must be above 0');
+  }
   if (maxBacklog != null && maxBacklog < 1) {
     throw ArgumentError.value(maxBacklog, 'maxBacklog');
   }

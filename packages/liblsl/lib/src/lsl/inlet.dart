@@ -300,10 +300,22 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   ///
   /// The thread starts when the stream is listened to and stops when the
   /// subscription is cancelled. [wakeInterval] is how long, in seconds, that
-  /// can take. Destroying the inlet stops it too, and the stream then ends
-  /// with an [LSLSampleListenerException]. While listening, pulling from or
-  /// flushing this inlet anywhere else throws an [LSLException]: an inlet's
-  /// samples have one reader. Time correction calls are unaffected.
+  /// can take, and so how long cancelling or [destroy] can take. It is not a
+  /// polling interval: a sample wakes the thread at once whatever its value,
+  /// and it only bounds how long the thread waits on a quiet stream before it
+  /// looks for a request to stop. It has to be above zero (an
+  /// [ArgumentError] otherwise), since liblsl does not wait at all on a zero
+  /// timeout. Destroying the inlet stops the thread too, and the stream then
+  /// ends with an [LSLSampleListenerException]. While listening, pulling
+  /// from or flushing this inlet anywhere else throws an [LSLException]: an
+  /// inlet's samples have one reader. Time correction calls are unaffected.
+  ///
+  /// If the listening isolate exits or is killed without cancelling, a
+  /// finalizer stops the thread, but the inlet is a native object and is not
+  /// destroyed with its isolate. With [recover] it then keeps looking for
+  /// its stream once the outlet has gone. Destroy it from an isolate that is
+  /// still running, by address, with [createFromPointer] and
+  /// `takeOwnership: true`, after at least one [wakeInterval].
   ///
   /// **A listener that does not keep up.** The thread hands samples over
   /// as fast as they arrive, whatever the listener does with them, so by

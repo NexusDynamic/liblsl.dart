@@ -28,6 +28,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -306,7 +307,7 @@ extern "C" {
 /// `format` and `channels` are the stream's. A block holds up to
 /// `max_samples` samples: the one the thread was woken by and whatever else
 /// was waiting, plus what arrives within `coalesce` seconds if that is above
-/// zero. `wake_interval` (seconds) bounds how long stopping takes.
+/// zero. `wake_interval` (seconds, above zero) bounds how long stopping takes.
 /// `max_backlog` above zero holds the thread back while Dart is that many
 /// samples behind or has paused. `fail_after` above zero is for tests: the
 /// thread fails after that many blocks.
@@ -316,6 +317,8 @@ LIBLSL_C_API lsl_dart_listener *lsl_dart_listener_start(lsl_inlet inlet, int32_t
 	int32_t channels, int32_t max_samples, double coalesce, double wake_interval,
 	uint32_t max_backlog, int32_t fail_after, lsl_dart_block_callback callback) {
 	if (!inlet || !callback || channels < 1 || max_samples < 1) return nullptr;
+	// liblsl does not wait on a timeout of zero or less: the thread would spin.
+	if (!std::isfinite(wake_interval) || wake_interval <= 0) return nullptr;
 	switch (format) {
 	case cft_float32:
 	case cft_double64:
@@ -373,6 +376,10 @@ LIBLSL_C_API void lsl_dart_listener_destroy(lsl_dart_listener *listener) {
 /// For a listener whose isolate is gone without having destroyed it: stops
 /// the thread and makes sure the callback is not called again. Does not wait
 /// for the thread, which frees the listener as it leaves.
+///
+/// The inlet is not touched: it is not the listener's, and may have been
+/// handed to another isolate. Whoever is left destroys it, once the thread
+/// has had a wake interval to leave its pull.
 ///
 /// The signature is a Dart NativeFinalizer's.
 LIBLSL_C_API void lsl_dart_listener_abandon(void *token) {

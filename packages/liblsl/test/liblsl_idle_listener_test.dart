@@ -2,7 +2,12 @@ import 'dart:async';
 import 'dart:isolate';
 
 import 'package:liblsl/lsl.dart';
+import 'package:liblsl/native_liblsl.dart' show lsl_inlet;
 import 'package:test/test.dart';
+
+/// Seconds the killed isolate's listener thread waits inside a pull before it
+/// looks at its stop flag: how long it can outlive the isolate.
+const _killedWakeInterval = 0.1;
 
 /// Idle [LSLInlet.sampleStream] listeners must not starve the isolate that
 /// started them.
@@ -73,9 +78,8 @@ void main() {
     timer.cancel();
     final rate = ticks / (watch.elapsedMicroseconds / 1e6);
 
-    for (final s in subscriptions) {
-      await s.cancel();
-    }
+    // Together: each cancel waits for its thread to come out of its pull.
+    await Future.wait([for (final s in subscriptions) s.cancel()]);
     for (final inlet in inlets) {
       await inlet.destroy();
     }
@@ -91,7 +95,9 @@ void main() {
     'a 120 Hz timer keeps its rate beside idle listeners',
     () async {
       final baseline = await timerRateWith(0);
-      for (final n in [16, 64, 200]) {
+      // Sixteen was where 1.1.0 began to starve. No more than this: an inlet
+      // takes about half a second to destroy, which is most of the test.
+      for (final n in [16, 64]) {
         final rate = await timerRateWith(n);
         expect(rate, greaterThan(baseline * 0.9), reason: '$n idle listeners');
       }
@@ -105,6 +111,12 @@ void main() {
     () async {
       // Its listener thread goes on handing over blocks that nobody is there
       // to take. That must be harmless to the rest of the process.
+      //
+      // The finalizer stops that thread and nothing more: the inlet is a
+      // native object and outlives the isolate that opened it. It is
+      // destroyed here, by address. Left alone it would notice its outlet
+      // going and send resolve queries to find it again until the process
+      // ended, into whichever test file runs next.
       const name = 'IdleListenerTest_killed';
       final info = await LSL.createStreamInfo(
         streamName: name,
@@ -122,7 +134,9 @@ void main() {
         name,
         listening.sendPort,
       ));
-      await listening.first.timeout(const Duration(seconds: 10));
+      final (inletAddress, resolvedAddress) =
+          await listening.first.timeout(const Duration(seconds: 10))
+              as (int, int);
       isolate.kill(priority: Isolate.immediate);
 
       for (var i = 0; i < 200; i++) {
@@ -131,6 +145,22 @@ void main() {
       }
       // Still here, and still able to use liblsl.
       expect(LSL.localClock(), greaterThan(0));
+
+      // The finalizer does not wait for the thread, which may be inside a
+      // pull for one more wake interval. Destroying the inlet under it would
+      // be a use after free, so give it several, and a slow runner some more.
+      await Future<void>.delayed(
+        Duration(milliseconds: (_killedWakeInterval * 3000).round() + 500),
+      );
+      final resolved = LSLStreamInfo.fromStreamInfoAddr(resolvedAddress);
+      final orphan = LSLInlet<double>(resolved, useIsolates: false);
+      await orphan.createFromPointer(
+        lsl_inlet.fromAddress(inletAddress),
+        takeOwnership: true,
+      );
+      await orphan.destroy();
+      resolved.destroy();
+
       await outlet.destroy();
       info.destroy();
     },
@@ -138,8 +168,8 @@ void main() {
   );
 }
 
-/// Listens to the stream called `name`, says so on the port, and waits to be
-/// killed.
+/// Listens to the stream called `name`, sends the addresses of its inlet and
+/// of the stream info it resolved on the port, and waits to be killed.
 Future<void> _listenUntilKilled((String, SendPort) args) async {
   final (name, port) = args;
   final resolved = await LSL.resolveStreamsByProperty(
@@ -152,8 +182,8 @@ Future<void> _listenUntilKilled((String, SendPort) args) async {
     streamInfo: resolved.first,
     useIsolates: false,
   );
-  inlet.sampleStream().listen((_) {});
+  inlet.sampleStream(wakeInterval: _killedWakeInterval).listen((_) {});
   await Future<void>.delayed(const Duration(milliseconds: 500));
-  port.send(true);
+  port.send((inlet.inlet.address, resolved.first.streamInfo.address));
   await Completer<void>().future;
 }
