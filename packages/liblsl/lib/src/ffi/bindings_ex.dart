@@ -76,3 +76,121 @@ external int lslSamplesAvailableFast(lsl_inlet in$);
   isLeaf: true,
 )
 external int lslInletFlushFast(lsl_inlet in$);
+
+// The listener thread behind `LSLInlet.sampleStream()` and `chunkStream()`:
+// `src/dart/sample_listener.cpp`. Not part of liblsl, so not in the generated
+// bindings.
+
+/// What the listener thread hands to its callback. One allocation, freed
+/// with [lslDartBlockFree]; the pointers in it point into the same block.
+final class LslDartBlock extends ffi.Struct {
+  /// [lslDartBlockData], [lslDartBlockEnded] or [lslDartBlockFailed].
+  @ffi.Int32()
+  external int kind;
+
+  /// [lslDartBlockEnded]: the liblsl error code that ended the listener, or 0.
+  @ffi.Int32()
+  external int error;
+
+  @ffi.Int32()
+  external int samples;
+
+  /// How many samples, from the first, were in the inlet when [clock] was
+  /// read.
+  @ffi.Int32()
+  external int ready;
+
+  /// `lsl_local_clock()` as the pull that returned the first sample came
+  /// back.
+  @ffi.Double()
+  external double clock;
+
+  external ffi.Pointer<ffi.Double> timestamps;
+
+  /// `samples * channels` values of the stream's format. For a string
+  /// stream, that many strings one after another, each ending in a zero
+  /// byte.
+  external ffi.Pointer<ffi.Void> data;
+
+  @ffi.Uint64()
+  external int dataBytes;
+
+  /// [lslDartBlockEnded] with an error: liblsl's message for it, or null.
+  /// [lslDartBlockFailed]: why.
+  external ffi.Pointer<ffi.Char> message;
+}
+
+/// [LslDartBlock.kind]: samples.
+const int lslDartBlockData = 0;
+
+/// [LslDartBlock.kind]: the thread's last block, after a stop or a failed
+/// pull. It calls nothing after it.
+const int lslDartBlockEnded = 1;
+
+/// [LslDartBlock.kind]: the thread's last block, when it is leaving for a
+/// reason of its own, which is in [LslDartBlock.message].
+const int lslDartBlockFailed = 2;
+
+final class LslDartListener extends ffi.Opaque {}
+
+typedef LslDartBlockCallback =
+    ffi.Void Function(ffi.Pointer<LslDartBlock> block);
+
+@ffi.Native<
+  ffi.Pointer<LslDartListener> Function(
+    lsl_inlet,
+    ffi.Int32,
+    ffi.Int32,
+    ffi.Int32,
+    ffi.Double,
+    ffi.Double,
+    ffi.Uint32,
+    ffi.Int32,
+    ffi.Pointer<ffi.NativeFunction<LslDartBlockCallback>>,
+  )
+>(
+  symbol: 'lsl_dart_listener_start',
+  assetId: 'package:liblsl/native_liblsl.dart',
+)
+external ffi.Pointer<LslDartListener> lslDartListenerStart(
+  lsl_inlet inlet,
+  int format,
+  int channels,
+  int maxSamples,
+  double coalesce,
+  double wakeInterval,
+  int maxBacklog,
+  int failAfter,
+  ffi.Pointer<ffi.NativeFunction<LslDartBlockCallback>> callback,
+);
+
+@ffi.Native<ffi.Pointer<ffi.Uint32> Function(ffi.Pointer<LslDartListener>)>(
+  symbol: 'lsl_dart_listener_control',
+  assetId: 'package:liblsl/native_liblsl.dart',
+  isLeaf: true,
+)
+external ffi.Pointer<ffi.Uint32> lslDartListenerControl(
+  ffi.Pointer<LslDartListener> listener,
+);
+
+// Not a leaf call: it waits for the thread.
+@ffi.Native<ffi.Void Function(ffi.Pointer<LslDartListener>)>(
+  symbol: 'lsl_dart_listener_destroy',
+  assetId: 'package:liblsl/native_liblsl.dart',
+)
+external void lslDartListenerDestroy(ffi.Pointer<LslDartListener> listener);
+
+@ffi.Native<ffi.Void Function(ffi.Pointer<LslDartBlock>)>(
+  symbol: 'lsl_dart_block_free',
+  assetId: 'package:liblsl/native_liblsl.dart',
+  isLeaf: true,
+)
+external void lslDartBlockFree(ffi.Pointer<LslDartBlock> block);
+
+/// Stops a listener whose isolate is going away without having destroyed
+/// it. A [ffi.NativeFinalizer] callback; see `sample_listener.dart`.
+@ffi.Native<ffi.Void Function(ffi.Pointer<ffi.Void>)>(
+  symbol: 'lsl_dart_listener_abandon',
+  assetId: 'package:liblsl/native_liblsl.dart',
+)
+external void lslDartListenerAbandon(ffi.Pointer<ffi.Void> listener);

@@ -33,10 +33,10 @@ class LSLTimeout extends LSLException {
 /// quietly.
 class LSLSampleListenerException extends LSLException {
   /// The liblsl error code of the failed pull (-2 lost, -3 argument,
-  /// -4 internal), or null when the listening isolate itself failed.
+  /// -4 internal), or null when the listener failed for another reason.
   final int? errorCode;
 
-  /// The stack trace from the listening isolate, when it threw.
+  /// A stack trace, when the listener failed for a reason other than a pull.
   final String? stackTrace;
 
   LSLSampleListenerException(super.message, {this.errorCode, this.stackTrace});
@@ -56,6 +56,17 @@ class LSLSampleListenerException extends LSLException {
 /// message in a thread-local buffer, so calling this from a different isolate
 /// than the one that failed yields the code alone.
 LSLException lslError(String what, int code) {
+  final detailPtr = lsl_last_error();
+  return lslErrorWithDetail(
+    what,
+    code,
+    detailPtr.isNullPointer ? '' : detailPtr.cast<Utf8>().toDartString(),
+  );
+}
+
+/// As [lslError], with liblsl's message already in hand: for a call that
+/// failed on another thread, which read the message there.
+LSLException lslErrorWithDetail(String what, int code, String detail) {
   final name = switch (code) {
     -1 => 'timeout',
     -2 => 'lost',
@@ -63,10 +74,6 @@ LSLException lslError(String what, int code) {
     -4 => 'internal',
     _ => 'unknown',
   };
-  final detailPtr = lsl_last_error();
-  final detail = detailPtr.isNullPointer
-      ? ''
-      : detailPtr.cast<Utf8>().toDartString();
   final suffix = detail.isEmpty ? '' : ': $detail';
   return code == -1
       ? LSLTimeout('$what: $name error ($code)$suffix')

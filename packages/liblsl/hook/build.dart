@@ -149,6 +149,8 @@ void main(List<String> args) async {
         '$pugixmlPath/src/pugixml.cpp',
         '$libLSLPath/thirdparty/loguru/loguru.cpp',
       ];
+      // The thread behind sampleStream() and chunkStream().
+      sources.add('src/dart/sample_listener.cpp');
       // Raises the soft open-file limit on load (see the file for details).
       if (targetOs == OS.macOS || targetOs == OS.linux) {
         sources.add('src/dart/fd_limit.cpp');

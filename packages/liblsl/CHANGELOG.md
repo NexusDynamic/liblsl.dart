@@ -1,5 +1,10 @@
-# 1.1.1-dev.0
+# 1.1.1-dev.1
 
+- `LSLInlet.sampleStream()` and `chunkStream()` no longer use an isolate per
+  inlet. The Dart VM bounds how many isolates of a group are entered at once.
+  Number of functional inlets is now a lot higher (tested with 200 that kept their rate).
+- A listener whose isolate exits or is killed without cancelling is stopped
+  by a finalizer.
 - New `example/send.dart` and `example/receive.dart`: a stream between two
   devices.
 

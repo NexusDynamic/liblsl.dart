@@ -225,7 +225,7 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
       return; // Already destroyed
     }
     super.destroy();
-    // A listener's isolate is inside a pull on this inlet. It has to be out
+    // A listener's thread is inside a pull on this inlet. It has to be out
     // before the inlet is freed, whether or not its subscription was
     // cancelled first.
     await Future.wait([
@@ -286,21 +286,26 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   ///
   /// Pulling is how an inlet learns of new samples, so a loop that pulls
   /// with a zero timeout sees each one up to a poll interval late, and that
-  /// delay is in any latency it measures. This instead gives the inlet an
-  /// isolate that waits inside `lsl_pull_sample`; liblsl wakes it when a
+  /// delay is in any latency it measures. This instead gives the inlet a
+  /// native thread that waits inside liblsl's pull; liblsl wakes it when a
   /// sample is queued, and it reads `lsl_local_clock()` as the call returns
   /// ([LSLTimedSample.receivedClock]) before handing the sample over. How
   /// soon a listener then runs is up to its own isolate's event loop, but
   /// the receive time is already taken.
   ///
-  /// The isolate starts when the stream is listened to and stops when the
+  /// The thread is not an isolate and costs the Dart VM nothing while its
+  /// stream is quiet, so hundreds of inlets can be listened to at once.
+  /// (In 1.1.0 it was an isolate, and sixteen of them were enough to starve
+  /// every other isolate of the process.)
+  ///
+  /// The thread starts when the stream is listened to and stops when the
   /// subscription is cancelled. [wakeInterval] is how long, in seconds, that
   /// can take. Destroying the inlet stops it too, and the stream then ends
   /// with an [LSLSampleListenerException]. While listening, pulling from or
   /// flushing this inlet anywhere else throws an [LSLException]: an inlet's
   /// samples have one reader. Time correction calls are unaffected.
   ///
-  /// **A listener that does not keep up.** The isolate hands samples over
+  /// **A listener that does not keep up.** The thread hands samples over
   /// as fast as they arrive, whatever the listener does with them, so by
   /// default nothing is ever held back or lost and
   /// [LSLTimedSample.receivedClock] is always the arrival; a listener that
@@ -313,7 +318,7 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// their way to the stream; what a paused subscription buffers, or a
   /// listener's own unfinished futures, is not in it.
   ///
-  /// With [maxBacklog] the isolate stops pulling while that many samples
+  /// With [maxBacklog] the thread stops pulling while that many samples
   /// are queued, and while the subscription is paused. What arrives then
   /// waits in the inlet's buffer, which is bounded (`maxBuffer`, where
   /// liblsl drops the oldest when it is full), so memory is too. The price
@@ -322,11 +327,11 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
   /// when measuring latency.
   ///
   /// The stream closes without an error only when it was cancelled. If the
-  /// isolate ends for any other reason, the stream delivers an
+  /// thread ends for any other reason, the stream delivers an
   /// [LSLSampleListenerException] and then closes, so listen with `onError`
   /// (and `onDone`): after that the inlet is no longer being read. Listening
-  /// again starts a new isolate. [debugFailAfter] is for tests: the isolate
-  /// throws after that many samples.
+  /// again starts a new thread. [debugFailAfter] is for tests: the thread
+  /// fails after that many samples.
   ///
   /// ```dart
   /// final inlet = await LSL.createInlet<double>(streamInfo: info, useIsolates: false);
@@ -357,14 +362,14 @@ class LSLInlet<T> extends LSLObj with LSLIOMixin, LSLExecutionMixin {
 
   /// Samples as they arrive, in chunks, without polling.
   ///
-  /// As [sampleStream], with the same isolate, rules and way of ending, but
-  /// every time the isolate is woken it hands over all that is waiting as
+  /// As [sampleStream], with the same thread, rules and way of ending, but
+  /// every time the thread is woken it hands over all that is waiting as
   /// one [LSLTimedChunk] of at most [maxSamples] samples, as flat typed data
   /// (or strings). One message per wake rather than one per sample is what
   /// makes this usable for fast, wide streams.
   ///
-  /// A sender that does not chunk wakes the isolate once per sample. With
-  /// [coalesce] (seconds) above zero the isolate goes on collecting for that
+  /// A sender that does not chunk wakes the thread once per sample. With
+  /// [coalesce] (seconds) above zero the thread goes on collecting for that
   /// long after the first sample, which bounds how often it delivers at the
   /// cost of that much latency. [LSLTimedChunk.receivedClock] is the arrival
   /// of the first sample either way, and [LSLTimedChunk.readyCount] says how
