@@ -2680,6 +2680,10 @@ final class OutletWorker extends IsolateWorker {
   /// would be noise rather than signal.
   bool? _lastConsumerPresence;
 
+  /// Whether this outlet has had a consumer at any point. Until it has,
+  /// having none is not a loss.
+  bool _hadConsumers = false;
+
   void _handleData(DataMessage message) {
     try {
       if (running && !paused) {
@@ -2748,13 +2752,24 @@ final class OutletWorker extends IsolateWorker {
     }
     if (present == _lastConsumerPresence) return;
     _lastConsumerPresence = present;
-    if (!present) {
+    if (present) {
+      logger.info(
+        _hadConsumers
+            ? 'Outlet for stream ${config.streamId} has consumers again'
+            : 'Outlet for stream ${config.streamId} has its first consumer',
+      );
+      _hadConsumers = true;
+    } else if (!_hadConsumers) {
+      // The state every outlet starts in. Whether nobody ever arriving is a
+      // fault is for the listener to decide; it is still told.
+      logger.info(
+        'Outlet for stream ${config.streamId} has no consumers yet',
+      );
+    } else {
       logger.severe(
         'Outlet for stream ${config.streamId} has NO consumers; samples '
         'pushed now are silently discarded by liblsl',
       );
-    } else {
-      logger.info('Outlet for stream ${config.streamId} has consumers again');
     }
     config.mainSendPort.send(ConsumerPresenceMessage(present));
   }

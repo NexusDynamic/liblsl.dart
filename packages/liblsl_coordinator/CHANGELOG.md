@@ -1,3 +1,9 @@
+## 0.5.2
+
+- Minor change - an outlet with no consumers only logs info unless
+  it had already been connected to, in which case it logs severe.
+  as this results in dropped samples.
+
 ## 0.5.1
 
 - `startStream(startAt:)` allows scheduling a synchronised start
