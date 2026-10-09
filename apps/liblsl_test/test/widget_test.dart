@@ -8,6 +8,6 @@ void main() {
 
     await tester.pumpAndSettle(Duration(seconds: 1));
 
-    expect(find.text('LSL Version 117'), findsOneWidget);
+    expect(find.text('LSL Version 118'), findsOneWidget);
   });
 }

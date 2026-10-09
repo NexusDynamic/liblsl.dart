@@ -11,7 +11,7 @@ void main() {
       await tester.pumpWidget(const LSLTestApp());
       // _setupLSL is synchronous; one pump is enough, but give a little margin.
       await tester.pump(const Duration(seconds: 1));
-      expect(find.text('LSL Version 117'), findsOneWidget);
+      expect(find.text('LSL Version 118'), findsOneWidget);
     });
 
     testWidgets('Start LSL stream and sample via app UI', (
@@ -19,7 +19,7 @@ void main() {
     ) async {
       await tester.pumpWidget(const LSLTestApp());
       await tester.pump(const Duration(seconds: 1));
-      expect(find.text('LSL Version 117'), findsOneWidget);
+      expect(find.text('LSL Version 118'), findsOneWidget);
 
       // ── Producer ──────────────────────────────────────────────────────────
       // Default settings: 5 Hz, 5 seconds, 2 channels.
