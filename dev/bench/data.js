@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791470000990,
+  "lastUpdate": 1791541308063,
   "repoUrl": "https://github.com/NexusDynamic/liblsl.dart",
   "entries": {
     "liblsl.dart benchmarks": [
@@ -3021,6 +3021,206 @@ window.BENCHMARK_DATA = {
           {
             "name": "eventStream/pushChunkTyped32/64ch@1000Hz latency_p99",
             "value": 211.94680795133536,
+            "unit": "us"
+          },
+          {
+            "name": "eventStream/pushChunkTyped32/64ch@1000Hz time_per_sample",
+            "value": 1008.0645161290323,
+            "unit": "us/sample",
+            "extra": "992 samples/s, loss 0.0%"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dev@zeyus.com",
+            "name": "zeyus",
+            "username": "zeyus"
+          },
+          "committer": {
+            "email": "dev@zeyus.com",
+            "name": "zeyus",
+            "username": "zeyus"
+          },
+          "distinct": true,
+          "id": "22d6a49c88af267ad8f213c4506325b7680e8a2b",
+          "message": "match site to global theme",
+          "timestamp": "2026-10-09T12:17:28+02:00",
+          "tree_id": "4f8d0928200cd9bbc8881da73ddd65255403f3bc",
+          "url": "https://github.com/NexusDynamic/liblsl.dart/commit/22d6a49c88af267ad8f213c4506325b7680e8a2b"
+        },
+        "date": 1791541305246,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "directSync/pushSample/8ch@500Hz latency_p50",
+            "value": 104.76929747937902,
+            "unit": "us",
+            "extra": "n=4497"
+          },
+          {
+            "name": "directSync/pushSample/8ch@500Hz latency_p95",
+            "value": 124.03465899524235,
+            "unit": "us"
+          },
+          {
+            "name": "directSync/pushSample/8ch@500Hz latency_p99",
+            "value": 201.55642897634607,
+            "unit": "us"
+          },
+          {
+            "name": "directSync/pushSample/8ch@500Hz time_per_sample",
+            "value": 2001.33422281521,
+            "unit": "us/sample",
+            "extra": "500 samples/s, loss 0.0%"
+          },
+          {
+            "name": "directSync/pushChunkTyped32/64ch@1000Hz latency_p50",
+            "value": 141.5779271383144,
+            "unit": "us",
+            "extra": "n=8928"
+          },
+          {
+            "name": "directSync/pushChunkTyped32/64ch@1000Hz latency_p95",
+            "value": 173.4637614845269,
+            "unit": "us"
+          },
+          {
+            "name": "directSync/pushChunkTyped32/64ch@1000Hz latency_p99",
+            "value": 218.896860019413,
+            "unit": "us"
+          },
+          {
+            "name": "directSync/pushChunkTyped32/64ch@1000Hz time_per_sample",
+            "value": 1008.0645161290323,
+            "unit": "us/sample",
+            "extra": "992 samples/s, loss 0.0%"
+          },
+          {
+            "name": "directSyncBlocking/pushSample/8ch@500Hz latency_p50",
+            "value": 67.92219261342325,
+            "unit": "us",
+            "extra": "n=4497"
+          },
+          {
+            "name": "directSyncBlocking/pushSample/8ch@500Hz latency_p95",
+            "value": 85.08595715284173,
+            "unit": "us"
+          },
+          {
+            "name": "directSyncBlocking/pushSample/8ch@500Hz latency_p99",
+            "value": 107.22153126607736,
+            "unit": "us"
+          },
+          {
+            "name": "directSyncBlocking/pushSample/8ch@500Hz time_per_sample",
+            "value": 2001.33422281521,
+            "unit": "us/sample",
+            "extra": "500 samples/s, loss 0.0%"
+          },
+          {
+            "name": "directSyncBlocking/pushChunkTyped32/64ch@1000Hz latency_p50",
+            "value": 134.4125541891117,
+            "unit": "us",
+            "extra": "n=8928"
+          },
+          {
+            "name": "directSyncBlocking/pushChunkTyped32/64ch@1000Hz latency_p95",
+            "value": 157.9262890913924,
+            "unit": "us"
+          },
+          {
+            "name": "directSyncBlocking/pushChunkTyped32/64ch@1000Hz latency_p99",
+            "value": 176.3785830348752,
+            "unit": "us"
+          },
+          {
+            "name": "directSyncBlocking/pushChunkTyped32/64ch@1000Hz time_per_sample",
+            "value": 1008.0645161290323,
+            "unit": "us/sample",
+            "extra": "992 samples/s, loss 0.0%"
+          },
+          {
+            "name": "isolateAsync/pushSample/8ch@500Hz latency_p50",
+            "value": 177.95569323197924,
+            "unit": "us",
+            "extra": "n=4497"
+          },
+          {
+            "name": "isolateAsync/pushSample/8ch@500Hz latency_p95",
+            "value": 265.2103052582788,
+            "unit": "us"
+          },
+          {
+            "name": "isolateAsync/pushSample/8ch@500Hz latency_p99",
+            "value": 356.03383435045544,
+            "unit": "us"
+          },
+          {
+            "name": "isolateAsync/pushSample/8ch@500Hz time_per_sample",
+            "value": 2001.33422281521,
+            "unit": "us/sample",
+            "extra": "500 samples/s, loss 0.0%"
+          },
+          {
+            "name": "isolateAsync/pushChunkTyped32/64ch@1000Hz latency_p50",
+            "value": 248.46605339234884,
+            "unit": "us",
+            "extra": "n=8928"
+          },
+          {
+            "name": "isolateAsync/pushChunkTyped32/64ch@1000Hz latency_p95",
+            "value": 282.6652100793581,
+            "unit": "us"
+          },
+          {
+            "name": "isolateAsync/pushChunkTyped32/64ch@1000Hz latency_p99",
+            "value": 314.66187766682197,
+            "unit": "us"
+          },
+          {
+            "name": "isolateAsync/pushChunkTyped32/64ch@1000Hz time_per_sample",
+            "value": 1008.0645161290323,
+            "unit": "us/sample",
+            "extra": "992 samples/s, loss 0.0%"
+          },
+          {
+            "name": "eventStream/pushSample/8ch@500Hz latency_p50",
+            "value": 89.7171976816935,
+            "unit": "us",
+            "extra": "n=4497"
+          },
+          {
+            "name": "eventStream/pushSample/8ch@500Hz latency_p95",
+            "value": 101.99710504821269,
+            "unit": "us"
+          },
+          {
+            "name": "eventStream/pushSample/8ch@500Hz latency_p99",
+            "value": 113.45999473633128,
+            "unit": "us"
+          },
+          {
+            "name": "eventStream/pushSample/8ch@500Hz time_per_sample",
+            "value": 2001.33422281521,
+            "unit": "us/sample",
+            "extra": "500 samples/s, loss 0.0%"
+          },
+          {
+            "name": "eventStream/pushChunkTyped32/64ch@1000Hz latency_p50",
+            "value": 131.18856816163316,
+            "unit": "us",
+            "extra": "n=8928"
+          },
+          {
+            "name": "eventStream/pushChunkTyped32/64ch@1000Hz latency_p95",
+            "value": 155.1130585539795,
+            "unit": "us"
+          },
+          {
+            "name": "eventStream/pushChunkTyped32/64ch@1000Hz latency_p99",
+            "value": 171.5458604962805,
             "unit": "us"
           },
           {
