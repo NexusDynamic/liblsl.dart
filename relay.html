@@ -11,14 +11,20 @@
   <meta property="og:description" content="How to share Lab Streaming Layer (LSL) streams across networks and with web browsers: lsl share, lsl bridge, lsl publish and lsl relay, tokens, TLS (wss://) with Caddy or nginx, and LSL Viewer.">
   <meta property="og:url" content="https://nexusdynamic.org/liblsl.dart/relay.html">
   <meta property="og:image" content="https://nexusdynamic.org/liblsl.dart/icon.png">
-  <link rel="icon" type="image/png" href="icon.png">
+  <link rel="icon" type="image/svg+xml" href="nexusdynamic.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#3c0366">
   <link rel="stylesheet" href="style.css">
+  <script src="theme.js"></script>
 </head>
 <body>
   <nav class="top"><div class="wrap">
-    <a href="./">LSL Viewer</a>
-    <a href="lsl_viewer/">Open the web app</a>
+    <a class="home" href="./"><img src="nexusdynamic.svg" alt="" width="28" height="28">liblsl.dart</a>
+    <a href="guides.html">Guides</a>
+    <a href="lsl_viewer/">LSL Viewer</a>
     <a href="https://github.com/NexusDynamic/liblsl.dart">GitHub</a>
+    <button class="theme-toggle" type="button" hidden>Theme: system</button>
   </div></nav>
   <main class="wrap">
 <h1 id="sharing-lsl-streams-over-the-network-bridge-and-relay">Sharing LSL streams over the network: bridge and relay</h1>
@@ -88,15 +94,14 @@ or with the <strong><code>lsl</code> command line tool</strong>.</p>
 </tr>
 </tbody>
 </table>
-<pre><code class="language-text">Setup 1   [LSL network A] ──lsl share──▶ ws ──▶ lsl bridge ──▶ [LSL network B]
+<pre class="highlight"><code class="language-text">Setup 1   [LSL network A] ──lsl share──▶ ws ──▶ lsl bridge ──▶ [LSL network B]
                                           └───▶ browser (LSL Viewer on the web)
 
 Setup 2   browser ──publish──▶ ws ──▶ lsl share --accept ──▶ [LSL on that computer]
                                                         └──▶ other clients
 
 Setup 3   browser A ──publish──▶ ws ──▶ lsl relay ──▶ ws ──▶ browser B, C, lsl bridge…
-          [LSL lab] ──lsl publish──▶ ┘
-</code></pre>
+          [LSL lab] ──lsl publish──▶ ┘</code></pre>
 <p>Streams that clients publish are always shared with every other client. On
 a <em>share</em> or <em>share + accept</em> server they also become ordinary LSL streams
 on that computer. A <em>relay</em> only passes them between clients, so it doesn't
@@ -119,9 +124,8 @@ need LSL.</p>
 <p>In the examples below, <code>lsl</code> means whichever of these you use.</p>
 <h2 id="quick-start-view-lab-streams-in-a-browser">Quick start: view lab streams in a browser</h2>
 <p>On a computer on the lab network (where the LSL streams are):</p>
-<pre><code class="language-sh">lsl share --token choose-a-secret
-# Sharing EEG, Markers on port 8765 (address 0.0.0.0)
-</code></pre>
+<pre class="highlight"><code class="language-sh">lsl share --token choose-a-secret
+# Sharing EEG, Markers on port 8765 (address 0.0.0.0)</code></pre>
 <p>Or in LSL Viewer: <em>LSL &gt; Share or relay streams…</em>, choose <strong>Share</strong>, set a
 token, then click <strong>Share</strong>. The panel lists the addresses to connect to.</p>
 <p>Then, in a browser, open LSL Viewer:</p>
@@ -139,8 +143,7 @@ token, then click <strong>Share</strong>. The panel lists the addresses to conne
 <p>Click <strong>View</strong> next to a stream to open it in a tab.</p>
 <h2 id="setup-1-streams-from-one-lsl-network-to-another">Setup 1: streams from one LSL network to another</h2>
 <p>On network A (where the streams are):</p>
-<pre><code class="language-sh">lsl share -s EEG -s Markers --token s3cret
-</code></pre>
+<pre class="highlight"><code class="language-sh">lsl share -s EEG -s Markers --token s3cret</code></pre>
 <ul>
 <li><strong><code>-s</code></strong> picks streams by name or type, and <code>*</code> is a wildcard. Without
   <code>-s</code> every stream is shared.</li>
@@ -148,8 +151,7 @@ token, then click <strong>Share</strong>. The panel lists the addresses to conne
 <li><strong>In the viewer:</strong> tick <em>Share every LSL stream, also new ones</em>.</li>
 </ul>
 <p>On network B:</p>
-<pre><code class="language-sh">lsl bridge ws://lab-pc.example.org:8765 --token s3cret --suffix &quot; (lab)&quot;
-</code></pre>
+<pre class="highlight"><code class="language-sh">lsl bridge ws://lab-pc.example.org:8765 --token s3cret --suffix " (lab)"</code></pre>
 <ul>
 <li><strong>What <code>bridge</code> does:</strong> it publishes each shared stream as an LSL stream
   on network B, named with the suffix. LabRecorder, your analysis scripts or
@@ -163,8 +165,7 @@ token, then click <strong>Share</strong>. The panel lists the addresses to conne
 open it in the firewall, forward it on the router, or use a VPN.</p>
 <h2 id="setup-2-a-browser-publishes-into-lsl">Setup 2: a browser publishes into LSL</h2>
 <p>On the computer that should receive the streams:</p>
-<pre><code class="language-sh">lsl share --accept --token s3cret
-</code></pre>
+<pre class="highlight"><code class="language-sh">lsl share --accept --token s3cret</code></pre>
 <p>In the browser, <em>Connect to an LSL bridge…</em> that computer, then:</p>
 <ul>
 <li><strong>Live device:</strong> open it (e.g. a Cyton over WebSerial) and use
@@ -178,8 +179,7 @@ open it in the firewall, forward it on the router, or use a VPN.</p>
 <p>The streams appear as LSL streams on the <code>--accept</code> computer (look for them
 with <code>lsl list</code>). Other clients of the bridge see them too.</p>
 <h2 id="setup-3-a-relay-between-browsers">Setup 3: a relay between browsers</h2>
-<pre><code class="language-sh">lsl relay --token s3cret
-</code></pre>
+<pre class="highlight"><code class="language-sh">lsl relay --token s3cret</code></pre>
 <p>Every client connects to the relay:</p>
 <ul>
 <li>One publishes, with <em>Forward…</em> or <em>Replay…</em> as in Setup 2.</li>
@@ -212,17 +212,15 @@ meant to be exposed to the open internet unattended.</p>
 The bridge speaks plain <code>ws://</code>. Put a reverse proxy with a certificate in
 front of it.</p>
 <p>On the server:</p>
-<pre><code class="language-sh">lsl relay --host 127.0.0.1 --port 8765 --token &quot;$(openssl rand -hex 16)&quot; \
-  --allow-origin https://nexusdynamic.org
-</code></pre>
+<pre class="highlight"><code class="language-sh">lsl relay --host 127.0.0.1 --port 8765 --token "$(openssl rand -hex 16)" \
+  --allow-origin https://nexusdynamic.org</code></pre>
 <p><strong><a href="https://caddyserver.com">Caddy</a></strong> gets and renews the certificate itself.
 In the <code>Caddyfile</code>:</p>
-<pre><code class="language-caddy">relay.example.org {
+<pre class="highlight"><code class="language-caddy">relay.example.org {
     reverse_proxy 127.0.0.1:8765
-}
-</code></pre>
+}</code></pre>
 <p><strong>nginx</strong> (with a certificate from e.g. certbot):</p>
-<pre><code class="language-nginx">server {
+<pre class="highlight"><code class="language-nginx">server {
     listen 443 ssl;
     server_name relay.example.org;
     # ssl_certificate / ssl_certificate_key ...
@@ -231,22 +229,19 @@ In the <code>Caddyfile</code>:</p>
         proxy_pass http://127.0.0.1:8765;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection &quot;upgrade&quot;;
+        proxy_set_header Connection "upgrade";
         proxy_read_timeout 1h;
         access_log off;   # the token is in the URL
     }
-}
-</code></pre>
+}</code></pre>
 <p>Clients then connect to <code>wss://relay.example.org</code> with the token.</p>
 <p>To keep the relay running, use a systemd unit such as:</p>
-<pre><code class="language-ini">[Service]
+<pre class="highlight"><code class="language-ini">[Service]
 ExecStart=/opt/lsl-cli/bin/lsl relay --host 127.0.0.1 --token &lt;token&gt;
-Restart=always
-</code></pre>
+Restart=always</code></pre>
 <p>To send a lab's LSL streams to the relay, run this on a lab computer. It
 connects out, so the lab needs no open ports:</p>
-<pre><code class="language-sh">lsl publish wss://relay.example.org --token &lt;token&gt; -s EEG -s Markers --rescan 5
-</code></pre>
+<pre class="highlight"><code class="language-sh">lsl publish wss://relay.example.org --token &lt;token&gt; -s EEG -s Markers --rescan 5</code></pre>
 <p>Everyone connected to the relay then sees them. <code>lsl bridge
 wss://relay.example.org</code> elsewhere turns them back into LSL streams.</p>
 <h2 id="timing-clock-offsets-drift-and-latency">Timing: clock offsets, drift and latency</h2>
@@ -431,7 +426,7 @@ protocol (JSON control messages and binary sample frames) is documented in
 </ul>
   </main>
   <footer><div class="wrap">
-    Part of <a href="https://github.com/NexusDynamic/liblsl.dart">liblsl.dart</a>.
+    Part of <a href="https://github.com/NexusDynamic/liblsl.dart">liblsl.dart</a>, a <a href="https://nexusdynamic.org/">NexusDynamic</a> project.
     MIT licensed. Source of this page:
     <a href="https://github.com/NexusDynamic/liblsl.dart/blob/main/packages/lsl_tools/doc/relay.md">packages/lsl_tools/doc/relay.md</a>.
   </div></footer>

@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Guides for liblsl.dart: LSL, multi-device experiments and timing</title>
+  <meta name="description" content="Step-by-step guides for Lab Streaming Layer (LSL) in Dart and Flutter: streaming between devices, coordinating a multi-device experiment, validating timing, and sharing streams over the network.">
+  <link rel="canonical" href="https://nexusdynamic.org/liblsl.dart/guides.html">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="Guides for liblsl.dart: LSL, multi-device experiments and timing">
+  <meta property="og:description" content="Step-by-step guides for Lab Streaming Layer (LSL) in Dart and Flutter: streaming between devices, coordinating a multi-device experiment, validating timing, and sharing streams over the network.">
+  <meta property="og:url" content="https://nexusdynamic.org/liblsl.dart/guides.html">
+  <meta property="og:image" content="https://nexusdynamic.org/liblsl.dart/icon.png">
+  <link rel="icon" type="image/svg+xml" href="nexusdynamic.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#3c0366">
+  <link rel="stylesheet" href="style.css">
+  <script src="theme.js"></script>
+</head>
+<body>
+  <nav class="top"><div class="wrap">
+    <a class="home" href="./"><img src="nexusdynamic.svg" alt="" width="28" height="28">liblsl.dart</a>
+    <a href="guides.html">Guides</a>
+    <a href="lsl_viewer/">LSL Viewer</a>
+    <a href="https://github.com/NexusDynamic/liblsl.dart">GitHub</a>
+    <button class="theme-toggle" type="button" hidden>Theme: system</button>
+  </div></nav>
+  <main class="wrap">
+<h1 id="guides">Guides</h1>
+<p>These guides describe how to carry out common tasks with the libraries and
+applications in this repository. Each one states what is needed, gives the
+procedure, and shows how to confirm the result. The code in each guide is
+taken from an example in the repository that can be run as it is.</p>
+<table>
+<thead>
+<tr>
+<th>Guide</th>
+<th>Result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="streaming-between-devices.html">Streaming data between two devices</a></td>
+<td>A stream of timestamped samples sent from one device and received on another with <code>liblsl</code></td>
+</tr>
+<tr>
+<td><a href="coordinated-experiment.html">A coordinated experiment</a></td>
+<td>Several devices running one program, in which a coordinator starts a data stream on all of them and announces trials</td>
+</tr>
+<tr>
+<td><a href="validating-timing.html">Validating timing in a lab</a></td>
+<td>Measured latency, jitter, loss and clock drift between the devices of a lab, in a form that can be reported</td>
+</tr>
+<tr>
+<td><a href="relay.html">Sharing LSL streams over the network</a></td>
+<td>LSL streams available in web browsers and across networks, through a WebSocket bridge or relay</td>
+</tr>
+</tbody>
+</table>
+<p>Reference documentation for each library is in its README, linked from the
+<a href="https://github.com/NexusDynamic/liblsl.dart/blob/main/README.md">repository README</a>, and in its API documentation on pub.dev.</p>
+  </main>
+  <footer><div class="wrap">
+    Part of <a href="https://github.com/NexusDynamic/liblsl.dart">liblsl.dart</a>, a <a href="https://nexusdynamic.org/">NexusDynamic</a> project.
+    MIT licensed. Source of this page:
+    <a href="https://github.com/NexusDynamic/liblsl.dart/blob/main/docs/README.md">docs/README.md</a>.
+  </div></footer>
+</body>
+</html>

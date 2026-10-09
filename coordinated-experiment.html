@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>A coordinated multi-device experiment with peer_coordinator</title>
+  <meta name="description" content="How to run one program on several devices so that they form a session, exchange data and follow a common sequence of trials, over LSL, WebSocket or WebRTC.">
+  <link rel="canonical" href="https://nexusdynamic.org/liblsl.dart/coordinated-experiment.html">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="A coordinated multi-device experiment with peer_coordinator">
+  <meta property="og:description" content="How to run one program on several devices so that they form a session, exchange data and follow a common sequence of trials, over LSL, WebSocket or WebRTC.">
+  <meta property="og:url" content="https://nexusdynamic.org/liblsl.dart/coordinated-experiment.html">
+  <meta property="og:image" content="https://nexusdynamic.org/liblsl.dart/icon.png">
+  <link rel="icon" type="image/svg+xml" href="nexusdynamic.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#3c0366">
+  <link rel="stylesheet" href="style.css">
+  <script src="theme.js"></script>
+</head>
+<body>
+  <nav class="top"><div class="wrap">
+    <a class="home" href="./"><img src="nexusdynamic.svg" alt="" width="28" height="28">liblsl.dart</a>
+    <a href="guides.html">Guides</a>
+    <a href="lsl_viewer/">LSL Viewer</a>
+    <a href="https://github.com/NexusDynamic/liblsl.dart">GitHub</a>
+    <button class="theme-toggle" type="button" hidden>Theme: system</button>
+  </div></nav>
+  <main class="wrap">
+<h1 id="a-coordinated-experiment">A coordinated experiment</h1>
+<p>This guide runs one program on several devices so that they form a session,
+exchange data, and follow a common sequence of trials. It uses
+<a href="https://github.com/NexusDynamic/liblsl.dart/tree/main/packages/peer_coordinator"><code>peer_coordinator</code></a>, which provides the
+coordination, and <a href="https://github.com/NexusDynamic/liblsl.dart/tree/main/packages/liblsl_coordinator"><code>liblsl_coordinator</code></a>,
+which carries it over Lab Streaming Layer (LSL). At the end, each device
+reports its role, the trials announced by the coordinator, and the samples
+received from the other devices with their transit times.</p>
+<h2 id="concepts">Concepts</h2>
+<p>A session is a group of devices (nodes) that have found each other under a
+shared experiment name and session name. One node is the coordinator and the
+others are participants. No device is assigned the role in advance: each
+node looks for an existing coordinator when it joins and takes the role if
+it finds none.</p>
+<p>The coordinator admits nodes up to a maximum, monitors them by heartbeat,
+and controls the data streams of the session. When it creates or starts a
+stream, every node creates or starts its own end of that stream. The
+coordinator can also broadcast messages with a type and a payload, which an
+experiment uses to announce events such as the start of a trial.</p>
+<h2 id="requirements">Requirements</h2>
+<p>The requirements are those of
+<a href="streaming-between-devices.html">Streaming data between two devices</a>: the
+Dart SDK (3.12 or later for <code>liblsl_coordinator</code>), a C++ compiler, and
+devices on one local network that permits multicast.</p>
+<h2 id="procedure">Procedure</h2>
+<p>The program is
+<a href="https://github.com/NexusDynamic/liblsl.dart/blob/main/packages/liblsl_coordinator/example/experiment.dart"><code>experiment.dart</code></a>.
+It takes the name of the device and the number of devices in the session.</p>
+<ol>
+<li>On the first device, start the program and wait until it reports its
+   role.</li>
+</ol>
+<pre class="highlight"><code class="language-bash">cd packages/liblsl_coordinator
+dart run example/experiment.dart laptop 2</code></pre>
+<ol start="2">
+<li>On the second device, start the program with a different name.</li>
+</ol>
+<pre class="highlight"><code class="language-bash">dart run example/experiment.dart tablet 2</code></pre>
+<p>The devices are started one after another. With the default election, two
+devices started at the same moment can each take the role of coordinator;
+<a href="#choosing-the-coordinator">Choosing the coordinator</a> describes the
+alternatives.</p>
+<p>The following output is from a run with both instances on one machine. The
+first device printed:</p>
+<pre class="highlight"><code class="language-text">laptop joined as coordinator
+laptop: Trial 1
+laptop received 0.0 from tablet after 9.46 ms
+laptop received 1.0 from tablet after 0.85 ms
+laptop received 2.0 from tablet after 0.87 ms
+laptop: Trial 2</code></pre>
+<p>The second device printed:</p>
+<pre class="highlight"><code class="language-text">tablet joined as participant
+tablet: Trial 1
+tablet received 0.0 from laptop after 5.88 ms
+tablet received 1.0 from laptop after 6.75 ms
+tablet received 2.0 from laptop after 6.76 ms
+tablet: Trial 2</code></pre>
+<h2 id="how-the-program-works">How the program works</h2>
+<h3 id="configuration">Configuration</h3>
+<p>Every device creates a session from the same configuration. Devices find
+each other by the experiment name and the session name. <code>maxNodes</code> is the
+number of devices the session accepts, including the coordinator.</p>
+<pre class="highlight"><code class="language-dart">final session = PeerSession.create(
+  CoordinationConfig(
+    name: 'guide_experiment',
+    sessionConfig: CoordinationSessionConfig(
+      name: 'session_1',
+      maxNodes: devices,
+    ),
+    transportConfig: LSLTransportConfig(),
+  ),
+  thisNodeConfig: NodeConfigFactory().defaultConfig().copyWith(name: name),
+);</code></pre>
+<h3 id="joining">Joining</h3>
+<p><code>join</code> returns when the device is either the coordinator or a participant
+that the coordinator has admitted.</p>
+<pre class="highlight"><code class="language-dart">await session.initialize();
+await session.join();</code></pre>
+<h3 id="the-coordinator">The coordinator</h3>
+<p>The coordinator waits until all devices are present and then closes the
+session to further devices. It creates a data stream, which every
+participant then creates as well, and starts it at a scheduled time, two
+seconds ahead. The participation mode <code>allNodes</code> makes every device both a
+sender and a receiver.</p>
+<pre class="highlight"><code class="language-dart">await session.waitForMinNodes(devices);
+await session.pauseAcceptingNodes();
+
+final stream = await session.createDataStream(
+  DataStreamConfig(
+    name: 'Samples',
+    channels: 1,
+    sampleRate: 2.0,
+    dataType: StreamDataType.double64,
+    participationMode: StreamParticipationMode.allNodes,
+  ),
+);
+await session.startStream(
+  'Samples',
+  startAt: DateTime.now().add(const Duration(seconds: 2)),
+);</code></pre>
+<p>It then announces three trials, stops the stream on all devices, and
+announces the end.</p>
+<pre class="highlight"><code class="language-dart">for (var trial = 1; trial &lt;= 3; trial++) {
+  await session.sendUserMessage('trial', 'Trial $trial', {'trial': trial});
+  await Future&lt;void&gt;.delayed(const Duration(seconds: 2));
+}
+
+await session.stopStream('Samples');
+await session.sendUserMessage('end', 'End of experiment');</code></pre>
+<h3 id="the-participants">The participants</h3>
+<p>A participant acts on events. When the coordinator starts the stream, the
+participant obtains its own end of it. When a message of type <code>end</code>
+arrives, the participant leaves the session.</p>
+<pre class="highlight"><code class="language-dart">session.events.streamStart.listen((event) async {
+  if (!session.isCoordinator) {
+    exchange(await session.getDataStream(event.streamName));
+  }
+});
+session.events.userCoordinationMessages.listen((event) {
+  print('$name: ${event.description}');
+  if (event.messageType == 'end' &amp;&amp; !finished.isCompleted) {
+    finished.complete();
+  }
+});</code></pre>
+<h3 id="exchanging-data">Exchanging data</h3>
+<p>On every device, <code>sendData</code> publishes a sample and <code>inbox</code> delivers the
+samples of the stream. With the mode <code>allNodes</code> a device also receives its
+own samples, which the example skips.</p>
+<pre class="highlight"><code class="language-dart">stream.inbox.listen((message) {
+  final from = senderOf(message, session);
+  if (from == name) return;
+  final transit = message.timing?.transitSeconds;
+  final ms = transit == null ? '?' : (transit * 1000).toStringAsFixed(2);
+  print('$name received ${message.data.first} from $from after $ms ms');
+});</code></pre>
+<h2 id="choosing-the-coordinator">Choosing the coordinator</h2>
+<p>The election is configured by the promotion strategy of the topology. The
+default, <code>PromotionStrategyFirst</code>, gives the role to the device that started
+first. A device takes the role when it finds no coordinator and no earlier
+device, so two devices that start at the same moment, before either is
+visible to the other, can both take it. In a test with two instances started
+together on one machine, each became coordinator and the session did not
+form.</p>
+<p><code>PromotionStrategyRandom</code> decides by a random number that each device draws,
+and in three such simultaneous starts it produced one coordinator each time:</p>
+<pre class="highlight"><code class="language-dart">topologyConfig: HierarchicalTopologyConfig(
+  promotionStrategy: PromotionStrategyRandom(),
+  maxNodes: devices,
+),</code></pre>
+<p>The roles can also be fixed. A device whose capabilities contain only
+<code>NodeCapability.coordinator</code> takes the role without an election, and a
+device with only <code>NodeCapability.participant</code> waits for a coordinator. This
+arrangement formed a session in either starting order.</p>
+<pre class="highlight"><code class="language-dart">thisNodeConfig: NodeConfigFactory().defaultConfig().copyWith(
+  name: name,
+  capabilities: {NodeCapability.coordinator},
+),</code></pre>
+<h2 id="timing">Timing</h2>
+<p>Commands from the coordinator travel as messages, and by default each device
+acts on a command when the message arrives. The devices then act within the
+network latency of one another, and the interval differs from device to
+device.</p>
+<p>A stream can instead be started at a scheduled time, as in the example.
+<code>startAt</code> is a time on the coordinator's clock. It is sent as a reading of
+the clock that timestamps the coordinator's messages, and each participant
+maps it onto its own clock with the offset measured between the two. The
+devices therefore start together whether or not their system clocks agree,
+to within the uncertainty of the offset and the resolution of their timers.
+With two instances on one machine, which share a clock, the two starts were
+between 6 and 44 microseconds apart in three runs. Between devices the
+uncertainty of the clock offset is added, which
+<a href="validating-timing.html">Validating timing in a lab</a> measures. User messages
+are not scheduled; an experiment that requires a common trial onset sends
+the onset time in the payload of the message.</p>
+<p>For analysis, events on different devices are aligned by their timestamps.
+Every received message carries a <code>timing</code> object with the following values,
+all in seconds:</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>sourceClock</code></td>
+<td>The sender's clock when the sample was sent</td>
+</tr>
+<tr>
+<td><code>clockOffset</code></td>
+<td>The estimated offset that maps the sender's clock onto the receiver's clock</td>
+</tr>
+<tr>
+<td><code>sourceClockLocal</code></td>
+<td><code>sourceClock + clockOffset</code>: the time of sending on the receiver's clock</td>
+</tr>
+<tr>
+<td><code>receivedClock</code></td>
+<td>The receiver's clock when the sample was received</td>
+</tr>
+<tr>
+<td><code>uncertainty</code></td>
+<td>The round-trip time of the measurement behind the offset; the offset is correct to within half of it</td>
+</tr>
+<tr>
+<td><code>transitSeconds</code></td>
+<td><code>receivedClock − sourceClockLocal</code></td>
+</tr>
+</tbody>
+</table>
+<p>An experiment should therefore record these values with its data, so that
+the order and spacing of events across devices can be established
+afterwards to within the stated uncertainty.</p>
+<p>Transit times depend on how a device receives samples. A receiver that
+polls sees a sample at its next poll, which adds a wait of up to one polling
+interval. <code>LSLTransportConfig(eventDrivenInlets: true)</code> receives each sample
+as it arrives, at the cost of one thread per inlet.
+<a href="validating-timing.html">Validating timing in a lab</a> describes how to
+measure these quantities on the devices of a lab.</p>
+<h2 id="other-transports">Other transports</h2>
+<p>The transport is selected by <code>transportConfig</code>, and the rest of the program
+does not depend on it. <code>peer_coordinator</code> includes a WebSocket transport,
+which relays through a hub and also runs in web browsers:</p>
+<pre class="highlight"><code class="language-dart">import 'package:peer_coordinator/websocket.dart';
+
+WebSocketTransportConfig(
+  hubUri: Uri.parse('ws://localhost:8080'),
+  credentials: HubCredentials(session: 'MyGame', secret: '...'),
+)</code></pre>
+<p>The hub is started with
+<code>dart run peer_coordinator:hub --session MyGame --secret-file ./secret</code>.
+<a href="https://github.com/NexusDynamic/liblsl.dart/tree/main/packages/webrtc_coordinator"><code>webrtc_coordinator</code></a> provides a
+peer-to-peer WebRTC transport that uses the hub for discovery only. The
+<a href="https://github.com/NexusDynamic/liblsl.dart/blob/main/packages/peer_coordinator/README.md"><code>peer_coordinator</code> README</a>
+describes the transports and what happens when the coordinator leaves a
+session. The example in this guide has been run with the LSL transport
+only.</p>
+<h2 id="use-in-a-project">Use in a project</h2>
+<p>The packages are added with <code>dart pub add liblsl_coordinator</code>, which
+includes <code>peer_coordinator</code>. A Flutter application uses the same session
+code; the
+<a href="https://github.com/NexusDynamic/liblsl.dart/tree/main/packages/peer_coordinator/example">chat example</a> shows a session
+connected to a user interface.</p>
+<h2 id="further-reading">Further reading</h2>
+<p><a href="validating-timing.html">Validating timing in a lab</a> measures latency and
+clock drift between devices with the same transports.</p>
+  </main>
+  <footer><div class="wrap">
+    Part of <a href="https://github.com/NexusDynamic/liblsl.dart">liblsl.dart</a>, a <a href="https://nexusdynamic.org/">NexusDynamic</a> project.
+    MIT licensed. Source of this page:
+    <a href="https://github.com/NexusDynamic/liblsl.dart/blob/main/docs/coordinated-experiment.md">docs/coordinated-experiment.md</a>.
+  </div></footer>
+</body>
+</html>

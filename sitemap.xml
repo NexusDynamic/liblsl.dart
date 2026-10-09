@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url><loc>https://nexusdynamic.org/liblsl.dart/</loc></url>
+  <url><loc>https://nexusdynamic.org/liblsl.dart/guides.html</loc></url>
+  <url><loc>https://nexusdynamic.org/liblsl.dart/streaming-between-devices.html</loc></url>
+  <url><loc>https://nexusdynamic.org/liblsl.dart/coordinated-experiment.html</loc></url>
+  <url><loc>https://nexusdynamic.org/liblsl.dart/validating-timing.html</loc></url>
   <url><loc>https://nexusdynamic.org/liblsl.dart/relay.html</loc></url>
   <url><loc>https://nexusdynamic.org/liblsl.dart/lsl_viewer/</loc></url>
+  <url><loc>https://nexusdynamic.org/liblsl.dart/transport_timing_analysis/</loc></url>
 </urlset>
