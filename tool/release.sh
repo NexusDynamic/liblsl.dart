@@ -1,104 +1,11 @@
 #!/usr/bin/env bash
 # Prepare a package release: set the pubspec version (and, for liblsl, the
-# citation metadata; for an app, the download links in the READMEs), then
-# print the tag to push.
+# citation metadata; for an app, the download links in the READMEs).
 #
-#   tool/release.sh <package> <version>
-#   tool/release.sh liblsl 1.0.0
+#   tool/release.sh <package> <version> [--cascade]
 #
-# Pushing the printed `<package>-v<version>` tag starts .github/workflows/release.yml,
-# which runs the tests and then publishes. Tags without a package prefix are rejected.
+# The work is done by tool/release.dart, which can also show what is pending
+# and push the tags; see "Releases (maintainers)" in CONTRIBUTING.md.
 set -euo pipefail
-
-if [ $# -ne 2 ]; then
-  echo "usage: $0 <package> <version>" >&2
-  exit 64
-fi
-
-PACKAGE="$1"
-VERSION="$2"
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-
-if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.+-]+)?$ ]]; then
-  echo "error: '$VERSION' is not a semantic version" >&2
-  exit 65
-fi
-
-if [ -f "$ROOT/packages/$PACKAGE/pubspec.yaml" ]; then
-  PKG_DIR="$ROOT/packages/$PACKAGE"
-  IS_APP=false
-elif [ -f "$ROOT/apps/$PACKAGE/pubspec.yaml" ]; then
-  PKG_DIR="$ROOT/apps/$PACKAGE"
-  IS_APP=true
-else
-  echo "error: no package or app named '$PACKAGE'" >&2
-  exit 66
-fi
-
-# The tag carries the version without build metadata; pubspec may keep it.
-TAG_VERSION="${VERSION%%+*}"
-
-sed -i.bak -E "s/^version: .*/version: $VERSION/" "$PKG_DIR/pubspec.yaml"
-rm -f "$PKG_DIR/pubspec.yaml.bak"
-echo "Set $PACKAGE pubspec version to $VERSION"
-
-# Links to an app's latest release, `[<text> <version>](…/releases/tag/<app>-v<version>)`,
-# in the root README and the app's own. Prereleases are not linked.
-if [ "$IS_APP" = true ] && [[ "$TAG_VERSION" != *-* ]]; then
-  for readme in "$ROOT/README.md" "$PKG_DIR/README.md"; do
-    [ -f "$readme" ] || continue
-    sed -i.bak -E \
-      "s#\[([^]0-9]*)[^]]*\]\((https://github.com/[^/]+/[^/]+/releases/tag/$PACKAGE-v)[^)]*\)#[\1$TAG_VERSION](\2$TAG_VERSION)#g" \
-      "$readme"
-    rm -f "$readme.bak"
-  done
-  echo "Set $PACKAGE download links to $TAG_VERSION"
-fi
-
-if [ "$PACKAGE" = "liblsl" ]; then
-  TODAY="$(date -u +%Y-%m-%d)"
-  VERSION="$TAG_VERSION" TODAY="$TODAY" ROOT="$ROOT" python3 - <<'PYEOF'
-import json, os, re
-
-root, version, today = os.environ["ROOT"], os.environ["VERSION"], os.environ["TODAY"]
-
-path = os.path.join(root, "CITATION.cff")
-with open(path) as f:
-    text = f.read()
-text = re.sub(r'(?m)^version: .*$', f'version: "{version}"', text)
-text = re.sub(r'(?m)^date-released: .*$', f'date-released: "{today}"', text)
-with open(path, "w") as f:
-    f.write(text)
-
-for name, keys in [
-    ("codemeta.json", {
-        "version": version,
-        "dateModified": today,
-        "downloadUrl": f"https://pub.dev/api/archives/liblsl-{version}.tar.gz",
-    }),
-    (".zenodo.json", {"version": version}),
-]:
-    path = os.path.join(root, name)
-    with open(path) as f:
-        data = json.load(f)
-    data.update(keys)
-    with open(path, "w") as f:
-        json.dump(data, f, indent=2)
-        f.write("\n")
-
-print(f"Set CITATION.cff, codemeta.json and .zenodo.json to {version} ({today})")
-PYEOF
-fi
-
-if ! grep -qE "^#+ *\[?$VERSION\]?" "$PKG_DIR/CHANGELOG.md" 2>/dev/null; then
-  echo "warning: no '# $VERSION' heading in $PKG_DIR/CHANGELOG.md; the release notes will be empty" >&2
-fi
-
-cat <<MSG
-
-Next:
-  git commit -am "chore: release $PACKAGE $VERSION"
-  git push
-  git tag $PACKAGE-v$TAG_VERSION
-  git push origin $PACKAGE-v$TAG_VERSION
-MSG
+cd "$(dirname "$0")/.."
+exec dart run tool/release.dart bump "$@"

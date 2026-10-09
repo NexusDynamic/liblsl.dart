@@ -29,6 +29,9 @@ workspace:
   - apps/transport_timing_analysis
 dev_dependencies:
   melos: ^8.2.2
+  # tool/release.dart
+  pub_semver: ^2.1.4
+  yaml: ^3.1.2
 
 # for now, this is required
 # native_toolchain_c requires a higher

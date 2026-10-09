@@ -47,9 +47,14 @@ In addition to testing, please make sure to run `fvm exec melos format` and `fvm
 
 Every package and app is versioned on its own, and released by pushing a tag of the form `<package>-v<version>`, e.g. `liblsl-v1.0.0`, `xdf-v0.2.0` or `lsl_viewer-v0.1.0`. Unscoped tags (`v1.0.0`) are not released.
 
-1. Add a `# <version>` section to the package's `CHANGELOG.md`; it becomes the release notes.
-2. Run `tool/release.sh <package> <version>`. It sets the pubspec version (and, for `liblsl`, the version in `CITATION.cff`, `codemeta.json` and `.zenodo.json`), then prints the commands to commit and tag.
-3. Push the commit to `main`, then push the tag.
+Releases are prepared with `tool/release.dart`, which knows how the packages of the workspace depend on each other.
+
+1. Run `dart run tool/release.dart`. It lists every package with its version, its last tag, whether that version is on pub.dev and whether anything shipped has changed since the tag, followed by whatever stands in the way of a release: a constraint the workspace no longer satisfies, a missing `CHANGELOG.md` section, citation metadata at another version than `liblsl`, or a liblsl submodule commit that was never pushed.
+2. Give each changed package its version with `dart run tool/release.dart bump <package> <version>` (or `patch`, `minor`, `major`). This sets the pubspec version, adds the `CHANGELOG.md` heading if there is none and, for `liblsl`, updates `CITATION.cff`, `codemeta.json` and `.zenodo.json`; for an app it updates the download links in the READMEs. With `--cascade`, every package that depends on the bumped one, directly or through others, has its constraint raised to the new version, receives a patch version of its own and a line in its `CHANGELOG.md`. Use it when dependents should require the new version, as after an important fix. `tool/release.sh <package> <version>` does the same.
+3. Write the `CHANGELOG.md` sections, which become the release notes, commit, push to `main` and wait for the Test workflow to pass.
+4. Run `dart run tool/release.dart tag` to see the tags that would be pushed, and again with `--push` to push them. Every package whose version is ahead of its last tag is tagged, dependencies first.
+
+The tags are pushed one at a time because GitHub starts no workflow for a push that carries more than three tags. They need not be spaced out otherwise: before publishing, each release run waits until the workspace dependencies released with it are on pub.dev. The tool refuses to tag unless Test has passed on the commit, since each release run would otherwise repeat the whole suite.
 
 The [release workflow](.github/workflows/release.yml) checks that the tag matches the pubspec (and the citation metadata for `liblsl`), runs the full test suite, and only then:
 
@@ -62,7 +67,7 @@ The [release workflow](.github/workflows/release.yml) checks that the tag matche
 
 On pub.dev: everything in `packages/`. The apps in `apps/`, including `lsl_viewer`, have `publish_to: none`.
 
-Packages depend on each other with normal version constraints (e.g. `peer_coordinator: ^0.4.0`); inside the workspace these resolve to the local packages. When a release needs a new version of another package, release that one first. A new package goes up by hand in dependency order before its tag is pushed:
+Packages depend on each other with normal version constraints (e.g. `peer_coordinator: ^0.4.0`); inside the workspace these resolve to the local packages. The release tool and workflow keep released packages in dependency order. A new package is the exception: it goes up by hand, in dependency order, before its tag is pushed:
 
 1. `signal_core`, then `xdf`
 2. `peer_coordinator`, then `webrtc_coordinator`, then `webrtc_coordinator_flutter`

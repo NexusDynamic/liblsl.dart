@@ -46,6 +46,11 @@ jobs:
       - name: Check formatting
         run: melos run format-check
 
+      # Constraints between workspace packages that the workspace itself no
+      # longer satisfies would only show up when releasing.
+      - name: Check workspace dependencies
+        run: dart run tool/release.dart status --check
+
       - name: Run tests
         run: melos run test
 

@@ -1,7 +1,7 @@
 name: Release
 
 # One pipeline for every package, started by pushing a `<package>-v<version>`
-# tag (prepare it with `tool/release.sh <package> <version>`):
+# tag (prepare and push them with `tool/release.dart`):
 #
 #   parse → test ─┬→ pub.dev (packages without `publish_to: none`)
 #                 │     └→ GitHub release ─┬→ Zenodo draft (liblsl only)
@@ -156,6 +156,14 @@ jobs:
       - name: Get dependencies
         if: steps.pubdev.outputs.published != 'true'
         run: flutter pub get
+
+      # Tags of a release train are all pushed at once. A package whose
+      # dependency is released with it waits here until that one is up.
+      - name: Wait for workspace dependencies on pub.dev
+        if: steps.pubdev.outputs.published != 'true'
+        env:
+          PACKAGE: ${{ needs.parse.outputs.package }}
+        run: dart run tool/release.dart wait-deps "$PACKAGE"
 
       # Same as dart-lang/setup-dart does for its publish workflow, which can't
       # be used here: it doesn't check out submodules, and the workspace needs
