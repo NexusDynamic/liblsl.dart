@@ -477,6 +477,7 @@ SOFTWARE.
 android_libcpp_shared
 liblsl_coordinator
 lsl_tools
+nexus_branding
 openbci_cyton
 peer_coordinator
 signal_core
