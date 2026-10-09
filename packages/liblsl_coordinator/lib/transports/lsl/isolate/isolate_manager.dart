@@ -2762,9 +2762,7 @@ final class OutletWorker extends IsolateWorker {
     } else if (!_hadConsumers) {
       // The state every outlet starts in. Whether nobody ever arriving is a
       // fault is for the listener to decide; it is still told.
-      logger.info(
-        'Outlet for stream ${config.streamId} has no consumers yet',
-      );
+      logger.info('Outlet for stream ${config.streamId} has no consumers yet');
     } else {
       logger.severe(
         'Outlet for stream ${config.streamId} has NO consumers; samples '
