@@ -53,6 +53,12 @@ class InMemoryBus {
   /// (the default) reports nothing, like a relay that cannot tell.
   final Duration? consumerPresenceInterval;
 
+  /// How long a stream takes to close an inlet. Zero by default; on a network
+  /// transport it is not, and code that removes an inlet and adds it back
+  /// without waiting behaves differently there. Settable so one test can ask
+  /// for it without a bus of its own.
+  Duration inletCloseDelay = Duration.zero;
+
   final Random _random;
 
   final PeerRegistry registry = PeerRegistry();

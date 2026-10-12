@@ -513,6 +513,81 @@ void main() {
     });
   });
 
+  group('a participant process that is killed and started again', () {
+    // Long enough that the coordinator never evicts the dead process inside
+    // the test: the case is the one where it still counts the node as there.
+    CoordinationConfig patientConfig() {
+      final base = configFor(CoordinatorLossPolicy.rejoin);
+      return base.copyWith(
+        sessionConfig: base.sessionConfig.copyWith(
+          nodeTimeout: const Duration(seconds: 30),
+        ),
+      );
+    }
+
+    Future<PeerSession> start(String name, double roll) async {
+      final session = PeerSession.create(
+        patientConfig(),
+        thisNodeConfig: NodeConfig(
+          name: name,
+          id: name,
+          uId: '$name-uid',
+          capabilities: {
+            NodeCapability.coordinator,
+            NodeCapability.participant,
+          },
+          metadata: {PeerMetadataKeys.randomRoll: roll.toString()},
+        ),
+      );
+      sessions.add(session);
+      await session.initialize();
+      return session;
+    }
+
+    test('is accepted again under the same uId', () async {
+      // Regression, 2026-10-11: the restarted process sent its one join
+      // request before the coordinator was listening to it. Its heartbeats
+      // then kept the dead process's entry alive, so the coordinator neither
+      // evicted it nor offered it a join, and it waited in `established` for
+      // good.
+      final coordinator = await start('coord', 0.1);
+      await coordinator.join(const Duration(milliseconds: 500));
+      final first = await start('p1', 0.9);
+      await first.join(const Duration(milliseconds: 500));
+      await coordinator.waitForMinNodes(2, timeout: const Duration(seconds: 2));
+
+      killWithoutNotice(first);
+      sessions.remove(first);
+      // Nothing it says on the way out is heard: the bus has dropped it.
+      try {
+        await first.dispose().timeout(const Duration(seconds: 2));
+      } catch (_) {}
+
+      final second = await start('p1', 0.9);
+      // The join request that matters is lost, as it was in the field.
+      bus.routing.unsubscribe(
+        streamName: streamName,
+        producerEndpointId: '$sessionName/p1-uid/$streamName',
+        subscriberEndpointId: '$sessionName/coord-uid/$streamName',
+      );
+      unawaited(second.join(const Duration(seconds: 10)).catchError((_) {}));
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      expect(second.currentPhase, isNot(CoordinationPhase.ready));
+      bus.routing.subscribe(
+        streamName: streamName,
+        producerEndpointId: '$sessionName/p1-uid/$streamName',
+        subscriberEndpointId: '$sessionName/coord-uid/$streamName',
+      );
+
+      final deadline = DateTime.now().add(const Duration(seconds: 6));
+      while (second.currentPhase != CoordinationPhase.ready &&
+          DateTime.now().isBefore(deadline)) {
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      }
+      expect(second.currentPhase, CoordinationPhase.ready);
+    });
+  });
+
   group('rejoin policy', () {
     test('an evicted node re-attaches once it can be heard again', () async {
       // The behaviour the whole policy exists for. Under endSession this same
@@ -567,6 +642,52 @@ void main() {
         reason: 'rejoin re-attaches as a participant, it never promotes',
       );
       await coordinator.waitForMinNodes(2, timeout: const Duration(seconds: 3));
+    });
+
+    test('a node evicted while it was only suspended is back as soon as it '
+        'resumes', () async {
+      // Regression, 2026-10-11: a participant process stopped for 15 s was
+      // evicted, and re-admitted 21 s after it resumed. A suspended process
+      // is still advertised, so the coordinator offered it a join in the same
+      // pass that evicted it, while the old inlet was still closing. The
+      // close then completed, and nothing listened to the node until the
+      // pending join expired two node timeouts later.
+      bus.inletCloseDelay = const Duration(milliseconds: 60);
+      final coordinator = await joined('coord', randomRoll: 0.1);
+      final participant = await joined(
+        'p1',
+        randomRoll: 0.9,
+        policy: CoordinatorLossPolicy.rejoin,
+      );
+      await coordinator.waitForMinNodes(2, timeout: const Duration(seconds: 2));
+
+      final ended = nextEnd(participant);
+      final left = coordinator.events.nodeLeft.first;
+
+      // Suspended: it says nothing, and it is still there to be discovered.
+      bus.routing.unsubscribe(
+        streamName: streamName,
+        producerEndpointId:
+            '$sessionName/${participant.thisNode.uId}/$streamName',
+        subscriberEndpointId:
+            '$sessionName/${coordinator.thisNode.uId}/$streamName',
+      );
+      await left.timeout(const Duration(seconds: 3));
+      final evictedAt = DateTime.now();
+      expect((await ended).reason, SessionEndReason.evicted);
+
+      // Nothing puts the route back by hand here: listening to the node again
+      // is the coordinator's job, and it is the part that went wrong.
+      await coordinator.waitForMinNodes(2, timeout: const Duration(seconds: 6));
+      final away = DateTime.now().difference(evictedAt);
+      printOnFailure('back after ${away.inMilliseconds} ms');
+      // The pending join lasts two node timeouts, and waiting it out is what
+      // this must not be. (The node's own way back takes about one.)
+      expect(
+        away,
+        lessThan(nodeTimeout * 1.5),
+        reason: 'the node was heard again only once the pending join expired',
+      );
     });
 
     test(

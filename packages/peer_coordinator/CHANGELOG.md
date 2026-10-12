@@ -1,3 +1,7 @@
+## 0.4.2
+
+- Disconnected nodes rejoin faster
+
 ## 0.4.1
 
 - `PeerSession.startStream(startAt:)` now schedules the start. Every node

@@ -82,6 +82,18 @@ class CoordinationController {
   /// Built in [initialize], once the session config's node timeout is known.
   late final PendingJoins _pendingJoins;
 
+  /// Nodes whose coordination inlet is being closed after they left, by uId.
+  ///
+  /// A node that is evicted while its process is merely suspended is still
+  /// advertised, so the discovery pass that follows the eviction finds it at
+  /// once. Offering it a join then is a trap: `addInlet` sees the inlet that
+  /// is still closing and does nothing, the close completes, and the
+  /// coordinator is left with a join "in progress" and nothing listening to
+  /// the node. Its join requests go unheard until the pending join expires,
+  /// two node timeouts later. It cost a resumed participant 21 s on
+  /// 2026-10-11. Discovery re-emits every cycle, so waiting one out is free.
+  final Map<String, Future<void>> _closingCoordinationInlets = {};
+
   CoordinatorMessageHandler? _coordinatorHandler;
   ParticipantMessageHandler? _participantHandler;
 
@@ -166,13 +178,24 @@ class CoordinationController {
         // transport, but a peer-to-peer one holds a live connection behind it,
         // and there is no other point where it learns the peer is gone.
         if (_coordinationStreamReady) {
+          final nodeUId = event.node.uId;
+          // Closing an inlet takes time on a real transport, and until it has
+          // finished the stream still reports the inlet as there. Discovery
+          // must not offer this node a join in that window: see
+          // [_closingCoordinationInlets].
+          final closing = _coordinationStream.removeInlet(nodeUId).catchError((
+            Object e,
+          ) {
+            logger.warning(
+              'Failed to remove coordination inlet for $nodeUId: $e',
+            );
+          });
+          _closingCoordinationInlets[nodeUId] = closing;
           unawaited(
-            _coordinationStream.removeInlet(event.node.uId).catchError((
-              Object e,
-            ) {
-              logger.warning(
-                'Failed to remove coordination inlet for ${event.node.uId}: $e',
-              );
+            closing.whenComplete(() {
+              if (identical(_closingCoordinationInlets[nodeUId], closing)) {
+                _closingCoordinationInlets.remove(nodeUId);
+              }
             }),
           );
         }
@@ -552,6 +575,7 @@ class CoordinationController {
     // Send join request
     logger.info('Sending join request to coordinator');
     await _participantHandler!.sendJoinRequest();
+    _repeatJoinRequestUntilAccepted();
 
     // Start heartbeat
     _startHeartbeat();
@@ -566,6 +590,43 @@ class CoordinationController {
 
   StreamSubscription<bool>? _outletConsumerSubscription;
   Timer? _noConsumerTimer;
+
+  Timer? _joinRetryTimer;
+
+  /// Repeats the first join request until the coordinator accepts it.
+  ///
+  /// It is sent the moment this node has an inlet on the coordinator, which
+  /// can be before the coordinator has one on this node, and a message sent
+  /// then goes nowhere. A node the coordinator has never seen is rescued by
+  /// its heartbeats: they are taken as a stranger's and it is offered a join.
+  /// A node the coordinator still counts as connected is not. That is a
+  /// process that was killed and started again inside the node timeout, under
+  /// the same uId: its heartbeats only keep the old entry alive, so it was
+  /// never evicted, never offered a join, and waited for good.
+  ///
+  /// The coordinator re-accepts a node it already has, so a repeat costs one
+  /// message.
+  void _repeatJoinRequestUntilAccepted() {
+    _joinRetryTimer?.cancel();
+    _joinRetryTimer = Timer.periodic(_joinRequestRetryInterval, (timer) {
+      if (_stopping ||
+          _state.isCoordinator ||
+          _state.phase != CoordinationPhase.established) {
+        timer.cancel();
+        if (identical(_joinRetryTimer, timer)) _joinRetryTimer = null;
+        return;
+      }
+      logger.fine(
+        '[CONTROLLER-${thisNode.uId}] No join acceptance yet; repeating the '
+        'join request',
+      );
+      unawaited(
+        _participantHandler?.sendJoinRequest().catchError((Object e) {
+          logger.finer('Repeated join request failed: $e');
+        }),
+      );
+    });
+  }
 
   /// Participant side: treat a coordination outlet nobody reads as having
   /// been dropped by the coordinator.
@@ -980,6 +1041,13 @@ class CoordinationController {
               // Already connected
               continue;
             }
+            if (_closingCoordinationInlets.containsKey(nodeUId)) {
+              logger.finer(
+                'Inlet for departed node $nodeId ($nodeUId) is still closing; '
+                'offering a join on the next discovery cycle',
+              );
+              continue;
+            }
             if (_pendingJoins.isInProgress(nodeUId)) {
               // Inlet creation / join offer already in progress for this node.
               // Bounded: the entry expires so a handshake that is never going
@@ -1257,6 +1325,8 @@ class CoordinationController {
     // way dispose does.
     _stopping = true;
     _heartbeatTimer?.cancel();
+    _joinRetryTimer?.cancel();
+    _joinRetryTimer = null;
     _heartbeatTimer = null;
     _nodeTimeoutTimer?.cancel();
     _nodeTimeoutTimer = null;
@@ -1276,6 +1346,8 @@ class CoordinationController {
   /// established over the same connection.
   Future<void> _teardownRole() async {
     _heartbeatTimer?.cancel();
+    _joinRetryTimer?.cancel();
+    _joinRetryTimer = null;
     _heartbeatTimer = null;
     _nodeTimeoutTimer?.cancel();
     _nodeTimeoutTimer = null;
@@ -1675,6 +1747,8 @@ class CoordinationController {
     _stopping = true;
     logger.info('Disposing coordination controller');
     _heartbeatTimer?.cancel();
+    _joinRetryTimer?.cancel();
+    _joinRetryTimer = null;
     _nodeTimeoutTimer?.cancel();
     _stopWatchingOutletConsumers();
     // Cancels every in-flight probe and aggregation timer; a burst leaves up to

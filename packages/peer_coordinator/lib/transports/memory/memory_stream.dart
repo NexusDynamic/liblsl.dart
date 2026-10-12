@@ -167,6 +167,11 @@ mixin InMemoryStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
 
   @override
   Future<void> removeInlet(String nodeUId) async {
+    // As on a network transport: the inlet is still there, as far as
+    // [addInlet] can tell, until the close has finished.
+    if (bus.inletCloseDelay > Duration.zero) {
+      await Future<void>.delayed(bus.inletCloseDelay);
+    }
     final producer = _producerByNodeUId.remove(nodeUId);
     if (producer == null) return;
     _subscribedProducers.remove(producer);
