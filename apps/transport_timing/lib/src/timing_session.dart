@@ -10,6 +10,7 @@ import 'package:timing_core/timing_core.dart';
 import 'package:webrtc_coordinator_flutter/webrtc_coordinator_flutter.dart';
 
 import 'log_store.dart';
+import 'pointer_clock.dart';
 import 'raw_lsl_run.dart';
 import 'settings.dart';
 import 'stream_run.dart';
@@ -272,8 +273,7 @@ class TimingSession {
       await session.stopStream(name);
       await session.destroyStream(name);
     } catch (e) {
-      debugPrint('run ${config.runId} failed: $e');
-      run.value = null;
+      _failed(config, e);
     } finally {
       _busy = false;
     }
@@ -309,8 +309,7 @@ class TimingSession {
       final stream = await session.getDataStream(event.streamName);
       await _recordStreamRun(stream, config, queued: 0);
     } catch (e) {
-      debugPrint('run ${config.runId} failed: $e');
-      run.value = null;
+      _failed(config, e);
     } finally {
       _busy = false;
     }
@@ -335,6 +334,13 @@ class TimingSession {
     _streamRun = streamRun;
     _interruptions = 0;
     log.event(_clock(), 'started');
+    if (config.test == TestKind.interactive) {
+      // Measured here, off the path of any touch.
+      final pointerClock = _pointerClock = PointerClock.measure(_clock);
+      if (pointerClock != null) {
+        log.event(_clock(), 'pointer_clock', pointerClock.toJson());
+      }
+    }
     streamRun.start();
 
     for (var left = config.durationSeconds; left > 0; left--) {
@@ -379,22 +385,55 @@ class TimingSession {
       );
       await _save(config, log, sink);
     } catch (e) {
-      debugPrint('run ${config.runId} failed: $e');
-      run.value = null;
+      _failed(config, e);
     } finally {
       _busy = false;
     }
   }
 
+  /// A run that ended without a log has to be seen to have: among the
+  /// results, where its report would be.
+  void _failed(RunConfig config, Object error) {
+    debugPrint('run ${config.runId} failed: $error');
+    results.value = [
+      ...results.value,
+      RunResult(
+        config,
+        'Not saved',
+        'This run failed on this device and has no log:\n$error',
+      ),
+    ];
+    run.value = null;
+  }
+
+  /// Now, on the clock runs are logged on.
+  double now() => _clock();
+
+  /// How touch time stamps map onto [now], in an interactive run.
+  PointerClock? _pointerClock;
+
   /// Interactive runs: the screen was touched. Sends a sample and logs the
   /// touch against it.
-  void touch() {
+  ///
+  /// [heard] is [now] when the application first knew of the touch, read by
+  /// the caller before anything else; [timeStamp] the system's own time for
+  /// the touch (`PointerData.timeStamp`), which is earlier still.
+  void touch({double? heard, Duration? timeStamp}) {
     final streamRun = _streamRun;
     if (streamRun == null || streamRun.config.test != TestKind.interactive) {
       return;
     }
-    final touched = _clock();
-    _log?.marker('touch', streamRun.send(), touched);
+    final touched = heard ?? _clock();
+    final seq = streamRun.send();
+    final log = _log;
+    log?.marker('touch', seq, touched);
+    final pointerClock = _pointerClock;
+    if (timeStamp == null || pointerClock == null) return;
+    final reported = pointerClock.map(timeStamp);
+    // A stamp from another clock than the one assumed lands hours away, or
+    // after the touch was heard; neither is a time to log.
+    final waited = touched - reported;
+    if (waited >= 0 && waited < 1) log?.marker('touch_os', seq, reported);
   }
 
   /// Interactive runs: a sample arrived. Flashes the screen and logs when
@@ -450,7 +489,8 @@ class TimingSession {
         'platform': Platform.operatingSystem,
         'platformVersion': Platform.operatingSystemVersion,
         'durationSeconds': config.durationSeconds,
-        if (raw) 'pushthrough': config.pushthrough,
+        'repetition': ?config.repetition,
+        'sweepOrder': ?config.sweepOrder,
       },
     );
   }

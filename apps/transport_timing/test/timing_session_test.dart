@@ -5,6 +5,7 @@ library;
 
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:peer_coordinator/in_memory.dart';
@@ -81,10 +82,37 @@ void main() {
       receiveMode: ReceiveMode.polled,
       pollIntervalMicros: 2000,
       sendMode: SendMode.syncBlocking,
-      pushthrough: false,
+      repetition: 2,
+      sweepOrder: 11,
     );
     expect(RunConfig.fromMap(config.toMap()).toMap(), config.toMap());
-    expect(RunConfig.rawLslSweep(config), hasLength(9));
+    // A run on its own says nothing of a sweep, and is still read.
+    expect(
+      const RunConfig(runId: 'r').toMap().keys,
+      isNot(contains('repetition')),
+    );
+    expect(
+      RunConfig.fromMap(const RunConfig(runId: 'r').toMap()).sweepOrder,
+      isNull,
+    );
+
+    final sweep = RunConfig.rawLslSweep(config, random: Random(1));
+    expect(sweep, hasLength(27));
+    expect(sweep.map((c) => c.sweepOrder), [for (var i = 1; i <= 27; i++) i]);
+    Set<(ReceiveMode, SendMode)> conditions(int repetition) => {
+      for (final c in sweep.where((c) => c.repetition == repetition))
+        (c.receiveMode, c.sendMode),
+    };
+    // Every condition in every repetition, in an order of its own.
+    for (final repetition in [1, 2, 3]) {
+      expect(conditions(repetition), hasLength(9));
+    }
+    List<(ReceiveMode, SendMode)> order(int repetition) => [
+      for (final c in sweep.where((c) => c.repetition == repetition))
+        (c.receiveMode, c.sendMode),
+    ];
+    expect(order(1), isNot(order(2)));
+    expect(RunConfig.rawLslSweep(config, repetitions: 1), hasLength(9));
   });
 
   test('every device logs a run the analysis can read', () async {

@@ -103,7 +103,7 @@ class StreamRun {
     // The in-memory transport hands over the sender's own object, with no
     // timing and so no sender.
     final source = timing?.sourceId;
-    final from = source == null ? 'unknown' : nodeUIdOf(source);
+    final from = source == null ? unknownSource : nodeUIdOf(source);
     final seq = (message.data[0] as num).toInt();
     received++;
     log.received(

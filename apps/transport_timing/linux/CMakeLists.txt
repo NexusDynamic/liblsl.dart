@@ -39,9 +39,16 @@ endif()
 # Be cautious about adding new options here, as plugins use this function by
 # default. In most cases, you should add new options to specific targets instead
 # of modifying this function.
+include(CheckCXXCompilerFlag)
+check_cxx_compiler_flag(-Wunused-but-set-global TT_HAS_UNUSED_BUT_SET_GLOBAL)
 function(APPLY_STANDARD_SETTINGS TARGET)
   target_compile_features(${TARGET} PUBLIC cxx_std_14)
   target_compile_options(${TARGET} PRIVATE -Wall -Werror)
+  # Newer clang warns about a global that is written and never read, which
+  # flutter_webrtc has; plugins are built with these settings too.
+  if(TT_HAS_UNUSED_BUT_SET_GLOBAL)
+    target_compile_options(${TARGET} PRIVATE -Wno-error=unused-but-set-global)
+  endif()
   target_compile_options(${TARGET} PRIVATE "$<$<NOT:$<CONFIG:Debug>>:-O3>")
   target_compile_definitions(${TARGET} PRIVATE "$<$<NOT:$<CONFIG:Debug>>:NDEBUG>")
 endfunction()

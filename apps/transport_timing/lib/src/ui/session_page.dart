@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:nexus_branding/nexus_branding.dart';
@@ -6,6 +7,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../settings.dart';
 import '../timing_session.dart';
+import 'raw_touch.dart';
 
 /// The session once joined: who is in it, the run in progress, and the
 /// results so far. The coordinator also sets up and starts runs here.
@@ -20,12 +22,16 @@ class SessionPage extends StatefulWidget {
 
 class _SessionPageState extends State<SessionPage> {
   RunConfig _config = const RunConfig(runId: '');
+  late final bool _canShare;
 
   TimingSession get _session => widget.session;
 
   @override
   void initState() {
     super.initState();
+    // SharePlus does not support Linux
+    // The output directory is shown in the UI
+    _canShare = !Platform.isLinux;
     _session.status.addListener(_onStatus);
   }
 
@@ -82,7 +88,7 @@ class _SessionPageState extends State<SessionPage> {
             ),
             actions: [
               const ThemeModeToggle(),
-              if (results.isNotEmpty)
+              if (_canShare && results.isNotEmpty)
                 Builder(
                   builder: (context) => IconButton(
                     icon: const Icon(Icons.ios_share),
@@ -131,8 +137,9 @@ class _SessionPageState extends State<SessionPage> {
                   onStart: () => _session.startRuns([
                     _config.copyWith(runId: RunConfig.newRunId()),
                   ]),
-                  onSweep: () =>
-                      _session.startRuns(RunConfig.rawLslSweep(_config)),
+                  onSweep: (repetitions) => _session.startRuns(
+                    RunConfig.rawLslSweep(_config, repetitions: repetitions),
+                  ),
                 )
               else
                 const Card(
@@ -181,7 +188,9 @@ class _RunForm extends StatelessWidget {
   final RunConfig config;
   final ValueChanged<RunConfig> onChanged;
   final VoidCallback onStart;
-  final VoidCallback onSweep;
+
+  /// Called with how many times to run every condition.
+  final ValueChanged<int> onSweep;
 
   Widget _choice<T>(
     String label,
@@ -263,25 +272,21 @@ class _RunForm extends StatelessWidget {
               _choice('Send', config.sendMode, {
                 for (final mode in SendMode.values) mode: mode.label,
               }, (v) => config.copyWith(sendMode: v)),
-              if (config.sendMode != SendMode.syncBlocking)
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('Push through'),
-                  subtitle: const Text('Send each sample at once'),
-                  value: config.pushthrough,
-                  onChanged: (v) => onChanged(config.copyWith(pushthrough: v)),
-                ),
             ],
             const SizedBox(height: 16),
             FilledButton(onPressed: onStart, child: const Text('Start run')),
             if (latency)
-              TextButton(
-                onPressed: onSweep,
-                child: Text(
-                  'Sweep raw LSL modes '
-                  '(${ReceiveMode.values.length * SendMode.values.length} runs)',
+              // Repeated, and in a new order each time: one run of a mode
+              // cannot be told from a good or bad moment on the network.
+              for (final repetitions in const [3, 1])
+                TextButton(
+                  onPressed: () => onSweep(repetitions),
+                  child: Text(
+                    'Sweep raw LSL modes, shuffled'
+                    '${repetitions == 1 ? ', once' : ' x $repetitions'} '
+                    '(${ReceiveMode.values.length * SendMode.values.length * repetitions} runs)',
+                  ),
                 ),
-              ),
           ],
         ),
       ),
@@ -293,6 +298,8 @@ class _RunForm extends StatelessWidget {
 /// received, this device's own included, flashes the square. A photodiode
 /// on the square and a force sensor on the screen time the whole path from
 /// outside.
+///
+/// Touches come through [RawTouchListener], ahead of the framework.
 class _InteractiveView extends StatefulWidget {
   const _InteractiveView({required this.session, required this.run});
 
@@ -331,10 +338,10 @@ class _InteractiveViewState extends State<_InteractiveView> {
   @override
   Widget build(BuildContext context) => Scaffold(
     backgroundColor: Colors.white,
-    // Pointer down, not a tap: a tap is only recognised on release.
-    body: Listener(
-      behavior: HitTestBehavior.opaque,
-      onPointerDown: (_) => widget.session.touch(),
+    body: RawTouchListener(
+      clock: widget.session.now,
+      onTouch: (heard, timeStamp) =>
+          widget.session.touch(heard: heard, timeStamp: timeStamp),
       child: Stack(
         children: [
           Center(

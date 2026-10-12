@@ -131,9 +131,10 @@ class RunConfig {
   final int pollIntervalMicros;
   final SendMode sendMode;
 
-  /// [SendMode.sync] and [SendMode.async]: send each sample at once rather
-  /// than when liblsl's chunk fills.
-  final bool pushthrough;
+  /// In a sweep: which repetition of the conditions this run belongs to and
+  /// where it came in the sweep, both from 1. Null for a run on its own.
+  final int? repetition;
+  final int? sweepOrder;
 
   const RunConfig({
     required this.runId,
@@ -146,7 +147,8 @@ class RunConfig {
     this.receiveMode = ReceiveMode.event,
     this.pollIntervalMicros = 1000,
     this.sendMode = SendMode.sync,
-    this.pushthrough = true,
+    this.repetition,
+    this.sweepOrder,
   });
 
   static String newRunId() {
@@ -166,7 +168,8 @@ class RunConfig {
               '${receiveMode == ReceiveMode.polled ? ' ${pollIntervalMicros}us' : ''}'
               ', ${sendMode.key}';
     return '${sampleRate.toStringAsFixed(0)} Hz x $channels ch, '
-        '${durationSeconds}s, $how';
+        '${durationSeconds}s, $how'
+        '${repetition == null ? '' : ', repetition $repetition'}';
   }
 
   RunConfig copyWith({
@@ -180,7 +183,8 @@ class RunConfig {
     ReceiveMode? receiveMode,
     int? pollIntervalMicros,
     SendMode? sendMode,
-    bool? pushthrough,
+    int? repetition,
+    int? sweepOrder,
   }) => RunConfig(
     runId: runId ?? this.runId,
     test: test ?? this.test,
@@ -192,7 +196,8 @@ class RunConfig {
     receiveMode: receiveMode ?? this.receiveMode,
     pollIntervalMicros: pollIntervalMicros ?? this.pollIntervalMicros,
     sendMode: sendMode ?? this.sendMode,
-    pushthrough: pushthrough ?? this.pushthrough,
+    repetition: repetition ?? this.repetition,
+    sweepOrder: sweepOrder ?? this.sweepOrder,
   );
 
   Map<String, dynamic> toMap() => {
@@ -206,7 +211,12 @@ class RunConfig {
     'receiveMode': receiveMode.name,
     'pollIntervalMicros': pollIntervalMicros,
     'sendMode': sendMode.name,
-    'pushthrough': pushthrough,
+    // Raw runs send every sample at once: outlet and inlet both have a
+    // chunk size of one, which leaves liblsl's pushthrough flag nothing to
+    // decide. Still sent for devices on a version that reads it.
+    'pushthrough': true,
+    'repetition': ?repetition,
+    'sweepOrder': ?sweepOrder,
   };
 
   factory RunConfig.fromMap(Map<String, dynamic> map) => RunConfig(
@@ -220,19 +230,43 @@ class RunConfig {
     receiveMode: ReceiveMode.values.byName(map['receiveMode'] as String),
     pollIntervalMicros: map['pollIntervalMicros'] as int,
     sendMode: SendMode.values.byName(map['sendMode'] as String),
-    pushthrough: map['pushthrough'] as bool,
+    repetition: map['repetition'] as int?,
+    sweepOrder: map['sweepOrder'] as int?,
   );
 
-  /// Every receive and send mode of raw LSL in turn, otherwise like [base].
-  static List<RunConfig> rawLslSweep(RunConfig base) => [
-    for (final receive in ReceiveMode.values)
-      for (final send in SendMode.values)
-        base.copyWith(
-          runId: newRunId(),
-          test: TestKind.latency,
-          path: DataPath.rawLsl,
-          receiveMode: receive,
-          sendMode: send,
-        ),
-  ];
+  /// Every receive and send mode of raw LSL, otherwise like [base],
+  /// [repetitions] times over.
+  ///
+  /// One run of a condition says little about it: the same condition run
+  /// twice can differ by more than two conditions do. And conditions run in
+  /// a fixed order are compared at different times, as the devices warm up
+  /// and the network changes. So each repetition runs every condition once,
+  /// in an order of its own.
+  static List<RunConfig> rawLslSweep(
+    RunConfig base, {
+    int repetitions = 3,
+    Random? random,
+  }) {
+    final conditions = [
+      for (final receive in ReceiveMode.values)
+        for (final send in SendMode.values) (receive, send),
+    ];
+    final runs = <RunConfig>[];
+    for (var repetition = 1; repetition <= repetitions; repetition++) {
+      for (final (receive, send) in [...conditions]..shuffle(random)) {
+        runs.add(
+          base.copyWith(
+            runId: newRunId(),
+            test: TestKind.latency,
+            path: DataPath.rawLsl,
+            receiveMode: receive,
+            sendMode: send,
+            repetition: repetition,
+            sweepOrder: runs.length + 1,
+          ),
+        );
+      }
+    }
+    return runs;
+  }
 }

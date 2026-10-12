@@ -53,7 +53,6 @@ Future<void> runRawLsl({
       sampleRate: config.sampleRate,
       channels: config.channels,
       sendMode: config.sendMode,
-      pushthrough: config.pushthrough,
       startClock: start,
       endClock: end,
     );
@@ -70,7 +69,19 @@ Future<void> runRawLsl({
       maxStreams: 64,
     );
 
-    onStatus?.call('Running (${resolved.length} stream(s))');
+    // A device whose stream was not found is one this device will have
+    // nothing from: the log says so, or the report could only leave it out.
+    log.event(LSL.localClock(), 'resolved', {
+      'expected': expectedNodes,
+      'found': [
+        for (final stream in resolved) stream.sourceId.substring(prefix.length),
+      ],
+    });
+    onStatus?.call(
+      resolved.length < expectedNodes
+          ? 'Running: found only ${resolved.length} of $expectedNodes streams'
+          : 'Running (${resolved.length} streams)',
+    );
     final received = [
       for (final stream in resolved)
         () {
@@ -79,6 +90,8 @@ Future<void> runRawLsl({
             receiveMode: config.receiveMode,
             pollIntervalMicros: config.pollIntervalMicros,
             endClock: end + _drain,
+            expectedSamples: (config.sampleRate * config.durationSeconds)
+                .ceil(),
           );
           return Isolate.run(() => _inletMain(inletArgs));
         }(),
@@ -131,7 +144,6 @@ final class _OutletArgs {
   final double sampleRate;
   final int channels;
   final SendMode sendMode;
-  final bool pushthrough;
   final double startClock;
   final double endClock;
 
@@ -140,7 +152,6 @@ final class _OutletArgs {
     required this.sampleRate,
     required this.channels,
     required this.sendMode,
-    required this.pushthrough,
     required this.startClock,
     required this.endClock,
   });
@@ -164,8 +175,12 @@ Future<_Sent> _outletMain(_OutletArgs args) async {
   );
   await outlet.create();
 
-  final seqs = <int>[];
-  final clocks = <double>[];
+  // Room for the whole run from the start: a list that grows as it fills
+  // copies itself now and then, in the middle of what is being timed.
+  final expected =
+      ((args.endClock - args.startClock) * args.sampleRate).ceil() + 1;
+  final seqs = _Ints(expected);
+  final clocks = _Doubles(expected);
   final sample = List<double>.filled(args.channels, 0);
   final interval = Duration(microseconds: (1e6 / args.sampleRate).round());
   // Sleep through most of a long interval; spin through a short one, where
@@ -179,15 +194,17 @@ Future<_Sent> _outletMain(_OutletArgs args) async {
   final wait = args.startClock - LSL.localClock();
   if (wait > 0) sleep(Duration(microseconds: (wait * 1e6).round()));
 
-  // The clock is read just before the push; liblsl stamps the sample inside
-  // it, so the two agree to within the call.
+  // The clock read before the push is the sample's time stamp. Left to
+  // itself liblsl stamps a sample when it gets it, which for an async push
+  // is after the hop to the outlet's isolate: that hop would then be
+  // missing from this mode's latency and in every other mode's.
   if (args.sendMode == SendMode.async) {
     await runPreciseIntervalAsync<void>(
       interval,
       (_) async {
         sample[0] = (++seq).toDouble();
         final clock = LSL.localClock();
-        await outlet.pushSample(sample, pushthrough: args.pushthrough);
+        await outlet.pushSample(sample, timestamp: clock);
         seqs.add(seq);
         clocks.add(clock);
         if (clock >= args.endClock) done.complete();
@@ -202,7 +219,7 @@ Future<_Sent> _outletMain(_OutletArgs args) async {
       (_) {
         sample[0] = (++seq).toDouble();
         final clock = LSL.localClock();
-        outlet.pushSampleSync(sample, pushthrough: args.pushthrough);
+        outlet.pushSampleSync(sample, timestamp: clock);
         seqs.add(seq);
         clocks.add(clock);
         if (clock >= args.endClock) done.complete();
@@ -217,20 +234,59 @@ Future<_Sent> _outletMain(_OutletArgs args) async {
   // break off and try to recover it.
   sleep(Duration(milliseconds: ((_drain + 0.5) * 1000).round()));
   await outlet.destroy();
-  return _Sent(Int32List.fromList(seqs), Float64List.fromList(clocks));
+  return _Sent(seqs.take(), clocks.take());
 }
+
+/// A column of a run's measurements, with room for [expected] of them from
+/// the start and growing only if there turn out to be more.
+final class _Doubles {
+  _Doubles(int expected) : _values = Float64List(expected + _margin);
+
+  Float64List _values;
+  int length = 0;
+
+  void add(double value) {
+    if (length == _values.length) {
+      _values = Float64List(length * 2)..setRange(0, length, _values);
+    }
+    _values[length++] = value;
+  }
+
+  Float64List take() => Float64List.sublistView(_values, 0, length);
+}
+
+final class _Ints {
+  _Ints(int expected) : _values = Int32List(expected + _margin);
+
+  Int32List _values;
+  int length = 0;
+
+  void add(int value) {
+    if (length == _values.length) {
+      _values = Int32List(length * 2)..setRange(0, length, _values);
+    }
+    _values[length++] = value;
+  }
+
+  Int32List take() => Int32List.sublistView(_values, 0, length);
+}
+
+/// Room beyond the samples a run is expected to have.
+const int _margin = 1024;
 
 final class _InletArgs {
   final int infoAddress;
   final ReceiveMode receiveMode;
   final int pollIntervalMicros;
   final double endClock;
+  final int expectedSamples;
 
   const _InletArgs({
     required this.infoAddress,
     required this.receiveMode,
     required this.pollIntervalMicros,
     required this.endClock,
+    required this.expectedSamples,
   });
 }
 
@@ -279,11 +335,11 @@ Future<_Received> _inletMain(_InletArgs args) async {
   );
   await inlet.create();
 
-  final seqs = <int>[];
-  final sourceClocks = <double>[];
-  final receivedClocks = <double>[];
-  final offsets = <double>[];
-  final uncertainties = <double>[];
+  final seqs = _Ints(args.expectedSamples);
+  final sourceClocks = _Doubles(args.expectedSamples);
+  final receivedClocks = _Doubles(args.expectedSamples);
+  final offsets = _Doubles(args.expectedSamples);
+  final uncertainties = _Doubles(args.expectedSamples);
   final syncClocks = <double>[];
   final syncOffsets = <double>[];
   final syncRemoteTimes = <double>[];
@@ -354,11 +410,11 @@ Future<_Received> _inletMain(_InletArgs args) async {
 
   await inlet.destroy();
   return _Received(
-    seq: Int32List.fromList(seqs),
-    sourceClock: Float64List.fromList(sourceClocks),
-    receivedClock: Float64List.fromList(receivedClocks),
-    clockOffset: Float64List.fromList(offsets),
-    uncertainty: Float64List.fromList(uncertainties),
+    seq: seqs.take(),
+    sourceClock: sourceClocks.take(),
+    receivedClock: receivedClocks.take(),
+    clockOffset: offsets.take(),
+    uncertainty: uncertainties.take(),
     syncClock: Float64List.fromList(syncClocks),
     syncOffset: Float64List.fromList(syncOffsets),
     syncRemoteTime: Float64List.fromList(syncRemoteTimes),

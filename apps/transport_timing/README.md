@@ -99,17 +99,42 @@ each deadline, with three ways of pushing:
 | Sync push, blocking socket writes | An outlet created with `LSLTransportOptions.syncBlocking`; the push writes to the socket of every consumer and returns when the operating system has the data |
 | Async push | `pushSample` through the isolate of the outlet |
 
-"Sweep raw LSL modes" runs every receive and send combination back to back
-with the other settings unchanged.
+Every sample is stamped with the clock read just before the push, so the
+three modes are timed from the same instant and an async push includes the
+hop to the isolate of the outlet. Outlet and inlet have a chunk size of
+one: each sample is sent at once.
+
+"Sweep raw LSL modes" runs every receive and send combination with the
+other settings unchanged, three times over and in a new order each time.
+One run of a mode cannot be told from a good or a bad moment on the
+network, and modes that always run in the same order are compared at
+different times. The logs record the repetition and the position of each
+run in the sweep. A run that fails on a device is listed among its results
+as failed, and a device that does not find every stream it expects says so
+while it runs and in its log.
 
 ### Interactive test
 
 Touching the screen sends a sample, and every sample received, including
 the device's own, flashes a square. The log contains the touch, the send,
 the receive and the frame that showed the flash, so that the delays inside
-the application can be separated from the transfer. With a force sensor on
-the screen and a photodiode on the square, an external recorder times the
-whole path.
+the application can be separated from the transfer.
+
+A touch is taken from `PlatformDispatcher.onPointerDataPacket`, the first
+Dart code that runs for it, before the framework converts, hit-tests and
+dispatches the event. Two times are logged for it: when the application
+heard of it, and the time stamp the operating system gave it, mapped onto
+the clock of the run. The mapping is measured at the start of the run and
+logged with the clock it assumes (`pointer_clock` in the log's events); a
+stamp that does not land shortly before the touch was heard is not logged.
+
+None of these times is the touch itself or the light of the display. The
+system's stamp is taken after the touch controller has scanned, reported
+and been read by the kernel, and on Android it has a resolution of one
+millisecond. The frame is logged when it has been drawn, which is before
+the display shows it. Those outer steps are what a force sensor on the
+screen and a photodiode on the square measure, with an external recorder
+timing the whole path; the log then divides that path into its parts.
 
 ## Platform notes
 
