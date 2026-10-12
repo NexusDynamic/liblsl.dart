@@ -1,3 +1,10 @@
+# 1.1.3
+
+- liblsl updated (3d1adcff). Fix support for locales with a comma decimal
+  separator.
+- Related to the above, sync should not be allowed if the protocol version
+  is below 110.
+
 # 1.1.2
 
 - `LSLInlet.sampleStream()` and `chunkStream()` no longer use an isolate per

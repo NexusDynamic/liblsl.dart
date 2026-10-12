@@ -1,5 +1,8 @@
 import 'dart:async';
+import 'dart:ffi';
+import 'dart:io';
 
+import 'package:ffi/ffi.dart' show StringUtf8Pointer, malloc;
 import 'package:liblsl/lsl.dart';
 import 'package:test/test.dart';
 
@@ -239,5 +242,101 @@ void main() {
         },
       );
     }
+  });
+
+  group('numeric locale', () {
+    // glibc and bionic use 1 for LC_NUMERIC, the BSDs (macOS, iOS) use 4.
+    final lcNumeric = Platform.isLinux || Platform.isAndroid ? 1 : 4;
+    Pointer<Char> Function(int, Pointer<Char>)? setlocale;
+    double Function(Pointer<Char>, Pointer<Pointer<Char>>)? strtod;
+
+    /// Switches LC_NUMERIC to a locale with a decimal comma, as a GUI toolkit
+    /// calling `setlocale(LC_ALL, "")` does on such a system. False when none
+    /// is installed.
+    bool useCommaLocale() {
+      if (Platform.isWindows) return false;
+      final libc = DynamicLibrary.process();
+      setlocale = libc
+          .lookupFunction<
+            Pointer<Char> Function(Int, Pointer<Char>),
+            Pointer<Char> Function(int, Pointer<Char>)
+          >('setlocale');
+      strtod = libc
+          .lookupFunction<
+            Double Function(Pointer<Char>, Pointer<Pointer<Char>>),
+            double Function(Pointer<Char>, Pointer<Pointer<Char>>)
+          >('strtod');
+      final probe = '1.5'.toNativeUtf8().cast<Char>();
+      try {
+        for (final name in ['de_DE.UTF-8', 'da_DK.UTF-8', 'fr_FR.UTF-8']) {
+          final locale = name.toNativeUtf8().cast<Char>();
+          final set = setlocale!(lcNumeric, locale);
+          malloc.free(locale);
+          if (set != nullptr && strtod!(probe, nullptr) == 1.0) return true;
+        }
+        return false;
+      } finally {
+        malloc.free(probe);
+      }
+    }
+
+    tearDown(() {
+      final reset = setlocale;
+      if (reset == null) return;
+      final c = 'C'.toNativeUtf8().cast<Char>();
+      reset(lcNumeric, c);
+      malloc.free(c);
+    });
+
+    test('syncBlocking round-trip under a decimal-comma locale', () async {
+      if (!useCommaLocale()) {
+        markTestSkipped('no decimal-comma locale installed');
+        return;
+      }
+      // liblsl read "1.1" as protocol 1 under such a locale, so the inlet
+      // asked for the legacy feed, which a syncBlocking outlet cannot serve.
+      const name = 'TransportSyncLocale';
+      final info = await LSL.createStreamInfo(
+        streamName: name,
+        channelCount: 2,
+        sampleRate: 0.5,
+        channelFormat: LSLChannelFormat.double64,
+      );
+      final outlet = await LSL.createOutlet(
+        streamInfo: info,
+        transportOptions: {LSLTransportOptions.syncBlocking},
+        useIsolates: false,
+      );
+      await Future.delayed(Duration(milliseconds: 100));
+
+      final resolved = await resolveByName(name);
+      expect(resolved.protocolVersion, info.protocolVersion);
+      expect(resolved.sampleRate, 0.5);
+
+      final inlet = await LSL.createInlet<double>(
+        streamInfo: resolved,
+        useIsolates: false,
+      );
+      expect(await outlet.waitForConsumer(timeout: 5.0), isTrue);
+
+      for (int i = 0; i < 10; i++) {
+        outlet.pushSampleSync([i.toDouble(), i + 0.5]);
+      }
+      int received = 0;
+      final deadline = DateTime.now().add(Duration(seconds: 5));
+      while (received < 10 && DateTime.now().isBefore(deadline)) {
+        final sample = inlet.pullSampleSync(timeout: 0.5);
+        if (sample.isNotEmpty) {
+          expect(sample[1], sample[0] + 0.5);
+          received++;
+        }
+      }
+      expect(received, 10);
+
+      await inlet.destroy();
+      await outlet.destroy();
+      resolved.destroy();
+      info.destroy();
+    });
   });
 }
