@@ -1,3 +1,7 @@
+## 0.2.2
+
+- Cascaded performance improvements for the UI from `signal_viewer` ^0.1.2.
+
 ## 0.2.1
 
 - Requires `signal_viewer_lsl` ^0.2.1.
