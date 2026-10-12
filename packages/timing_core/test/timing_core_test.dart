@@ -456,6 +456,7 @@ void main() {
     final log = await recorded(
       header('a', sourceId: 'A'),
       (w) => w
+        ..marker('touch_os', 1, 9.982)
         ..marker('touch', 1, 9.99)
         ..sent(1, 10)
         ..received(
@@ -472,6 +473,11 @@ void main() {
     expect(run.pairs.single.latency!.mean, closeTo(0.001, 1e-9));
     final interactive = run.interactive.single;
     expect(interactive.touchToSend!.mean, closeTo(0.01, 1e-9));
+    expect(interactive.reportedToHeard!.mean, closeTo(0.008, 1e-9));
+    expect(
+      formatReport(Report([run])),
+      contains('touch stamped -> heard  n=1 mean 8.000'),
+    );
     expect(interactive.receiveToShown['a']!.mean, closeTo(0.016, 1e-9));
   });
 
@@ -490,6 +496,224 @@ void main() {
     final other = pairs.firstWhere((p) => !p.loopback);
     expect(other.untimed, 1);
     expect(other.latency, isNull);
+  });
+
+  test('a summary sorts as the library does, whatever the values', () {
+    final random = Random(7);
+    final cases = <List<double>>[
+      [for (var i = 0; i < 5000; i++) random.nextDouble()],
+      [for (var i = 0; i < 5000; i++) i.toDouble()],
+      [for (var i = 5000; i > 0; i--) i.toDouble()],
+      // Few distinct values, as a clock bound has.
+      [for (var i = 0; i < 5000; i++) random.nextInt(4) * 0.001],
+      List.filled(5000, 2.5),
+      [for (var i = 0; i < 17; i++) -i * 1.5],
+      [3, 1],
+      [1],
+    ];
+    for (final values in cases) {
+      final sorted = [...values]..sort();
+      double quantile(List<double> of, double q) {
+        final position = q * (of.length - 1);
+        final lower = position.floor(), upper = position.ceil();
+        return of[lower] + (of[upper] - of[lower]) * (position - lower);
+      }
+
+      final s = Summary.of(values)!;
+      expect(s.min, sorted.first);
+      expect(s.max, sorted.last);
+      for (final (q, value) in [
+        (0.5, s.p50),
+        (0.95, s.p95),
+        (0.99, s.p99),
+        (0.999, s.p999),
+      ]) {
+        expect(value, quantile(sorted, q), reason: '$q of ${values.length}');
+      }
+      final deviations = [for (final v in sorted) (v - s.p50).abs()]..sort();
+      expect(s.mad, quantile(deviations, 0.5), reason: '${values.length}');
+    }
+  });
+
+  test('robust spread and percentiles that need more values', () {
+    final values = [for (var i = 1; i <= 99; i++) i.toDouble(), 10000.0];
+    final s = Summary.of(values)!;
+    expect(s.mad, closeTo(25, 1e-9));
+    expect(s.iqr, closeTo(49.5, 1e-9));
+    expect(s.sd, greaterThan(900), reason: 'one value decides it');
+    expect(s.reliable(0.5), isTrue);
+    expect(s.reliable(0.95), isTrue);
+    expect(s.reliable(0.99), isFalse);
+    expect(formatReport(analyse([])), isEmpty);
+  });
+
+  test('a fit counts estimates from quick probes for more', () {
+    // On the line y = x, but for one estimate from a slow probe.
+    final x = <double>[0, 1, 2, 3, 4];
+    final y = <double>[0, 1, 2, 3, 14];
+    final plain = LinearFit.of(x, y)!;
+    final weighted = LinearFit.of(
+      x,
+      y,
+      sigma: [0.001, 0.001, 0.001, 0.001, 1],
+    )!;
+    expect(plain.slope, closeTo(3, 1e-9));
+    expect(weighted.slope, closeTo(1, 0.01));
+    // Unusable error scales leave every estimate counting the same.
+    expect(LinearFit.of(x, y, sigma: [0, 1, 1, 1, 1])!.slope, plain.slope);
+    expect(
+      LinearFit.of(x, y, sigma: [double.nan, 1, 1, 1, 1])!.slope,
+      plain.slope,
+    );
+  });
+
+  test('a device that received nothing from a sender is reported', () async {
+    final a = await recorded(
+      header('a', sourceId: 'A'),
+      (w) => w
+        ..sent(1, 0)
+        ..received('A', 1, receivedClock: 0.001, sourceClock: 0)
+        ..event(0, 'resolved', {
+          'expected': 2,
+          'found': ['A'],
+        })
+        ..event(1, 'receive_error', {'from': 'B', 'code': -3})
+        ..event(2, 'receive_health', {'from': 'B', 'healthy': false})
+        ..event(3, 'receive_health', {'from': 'B', 'healthy': true}),
+    );
+    final b = await recorded(header('b', sourceId: 'B'), (w) {
+      for (var seq = 1; seq <= 50; seq++) {
+        w.sent(seq, seq * 0.01);
+      }
+      w.received('A', 1, receivedClock: 5, sourceClock: 0, clockOffset: 5);
+    });
+    final run = analyse([a, b]).runs.single;
+    final silent = run.pairs.firstWhere((p) => p.from == 'b' && p.to == 'a');
+    expect(silent.received, 0);
+    expect(silent.sent, 50);
+    expect(silent.lost, 50);
+    expect(silent.lostInterior, 0);
+    expect(silent.lostEdges, 50);
+    expect(silent.lossRate, 1);
+    expect(silent.latency, isNull);
+    // b did not get its own samples back, which not every transport does.
+    expect(run.pairs.where((p) => p.from == 'b' && p.to == 'b'), isEmpty);
+    expect(run.warnings, [
+      'a received nothing from b, which sent 50.',
+      'a found 1 of the 2 streams it expected; it received nothing from the '
+          'rest.',
+      'a stopped receiving from b during the run (error -3).',
+      'a was interrupted 1 time(s) receiving from b: samples were late or '
+          'missing for that, not for the network.',
+    ]);
+    final text = formatReport(Report([run]));
+    expect(text, contains('! a received nothing from b'));
+    expect(text, contains('received 0 of 50, lost 50 (100.000%)'));
+  });
+
+  test('loss at the ends of a run is told from loss within it', () async {
+    final sender = await recorded(header('b', sourceId: 'B'), (w) {
+      for (var seq = 1; seq <= 100; seq++) {
+        w.sent(seq, seq * 0.01);
+      }
+    });
+    final receiver = await recorded(header('a', sourceId: 'A'), (w) {
+      // Listening from 11 to 95, and 50 never arrived.
+      for (var seq = 11; seq <= 95; seq++) {
+        if (seq == 50) continue;
+        w.received(
+          'B',
+          seq,
+          receivedClock: seq * 0.01 + 0.001,
+          sourceClock: seq * 0.01,
+          clockOffset: 0,
+        );
+      }
+    });
+    final pair = analyse([receiver, sender]).runs.single.pairs.single;
+    expect(pair.lost, 16);
+    expect(pair.lostInterior, 1);
+    expect(pair.lostEdges, 15);
+    expect(pair.interiorLossRate, closeTo(1 / 85, 1e-12));
+    expect(
+      formatReport(analyse([receiver, sender])),
+      contains(': 1 while receiving, 15 before the first or after the last'),
+    );
+  });
+
+  test(
+    'an offset estimated for a device\'s own samples is not applied',
+    () async {
+      final log = await recorded(header('a', sourceId: 'A'), (w) {
+        for (var k = 0; k < 5; k++) {
+          w.clockSync(
+            'A',
+            receivedClock: 10.0 + k,
+            offset: -0.0001 + k * 0.00002,
+            remoteTime: 10.0 + k,
+            uncertainty: 0.0001,
+          );
+        }
+        for (var seq = 0; seq < 40; seq++) {
+          w.received(
+            'A',
+            seq,
+            receivedClock: 10 + seq * 0.1 + 0.0003,
+            sourceClock: 10 + seq * 0.1,
+            clockOffset: -0.0001,
+            uncertainty: 0.0001,
+          );
+        }
+      });
+      final pair = analyse([log]).runs.single.pairs.single;
+      expect(pair.loopback, isTrue);
+      expect(pair.latency!.mean, closeTo(0.0003, 1e-9));
+      expect(pair.latencyFitted!.mean, closeTo(0.0003, 1e-9));
+      expect(pair.clock, isNull);
+      expect(pair.uncertainty, isNull);
+      expect(pair.series.clockOffset, everyElement(0));
+      expect(formatReport(analyse([log])), isNot(contains('drift')));
+    },
+  );
+
+  test('the two directions together do not depend on the offsets', () async {
+    // b's clock is 1000 s ahead of a's. a -> b takes 3 ms and b -> a 1 ms,
+    // but each device's estimate of the other's offset is out: a's by
+    // +0.4 ms, b's by +0.2 ms.
+    const errorAtA = 0.0004, errorAtB = 0.0002;
+    Future<RunLog> device(
+      String name,
+      String other, {
+      required double offset,
+      required double latency,
+    }) => recorded(header(name, sourceId: name.toUpperCase()), (w) {
+      for (var seq = 0; seq < 200; seq++) {
+        final t = seq * 0.01;
+        w.sent(seq, t);
+        // The other's clock when it sent, and this one's on arrival.
+        w.received(
+          other,
+          seq,
+          sourceClock: t,
+          receivedClock: t + offset + latency,
+          clockOffset: offset + (name == 'a' ? errorAtA : errorAtB),
+          uncertainty: 0.002,
+        );
+      }
+    });
+    final a = await device('a', 'B', offset: -1000, latency: 0.001);
+    final b = await device('b', 'A', offset: 1000, latency: 0.003);
+    final run = analyse([a, b]).runs.single;
+    final bToA = run.pairs.firstWhere((p) => p.to == 'a');
+    final aToB = run.pairs.firstWhere((p) => p.to == 'b');
+    expect(bToA.latency!.mean, closeTo(0.001 - errorAtA, 1e-9));
+    expect(aToB.latency!.mean, closeTo(0.003 - errorAtB, 1e-9));
+    final both = run.symmetry.single;
+    expect((both.a, both.b), ('a', 'b'));
+    expect(both.offsetInconsistency, closeTo(errorAtA + errorAtB, 1e-9));
+    expect(both.latencyMean, closeTo(0.002, 1e-9));
+    expect(both.latencyP50, closeTo(0.002, 1e-9));
+    expect(formatReport(Report([run])), contains('a <-> b: 2.000 ms p50'));
   });
 
   test('runs are kept apart', () async {

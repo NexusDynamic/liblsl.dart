@@ -26,12 +26,22 @@ final class RunReport {
   final List<PairReport> pairs;
   final List<InteractiveReport> interactive;
 
+  /// One per two devices that received from each other.
+  final List<SymmetryReport> symmetry;
+
+  /// What the logs say went wrong during the run, for a reader to weigh the
+  /// numbers by: a device that received nothing from another, receiving
+  /// that stopped or was interrupted, streams that were not found.
+  final List<String> warnings;
+
   const RunReport({
     required this.runId,
     required this.devices,
     required this.senders,
     required this.pairs,
     required this.interactive,
+    this.symmetry = const [],
+    this.warnings = const [],
   });
 
   Map<String, dynamic> toJson() => {
@@ -40,6 +50,49 @@ final class RunReport {
     'senders': [for (final s in senders) s.toJson()],
     'pairs': [for (final p in pairs) p.toJson()],
     'interactive': [for (final i in interactive) i.toJson()],
+    'symmetry': [for (final s in symmetry) s.toJson()],
+    'warnings': warnings,
+  };
+}
+
+/// The latency between two devices averaged over both directions.
+///
+/// A one-way latency is only as good as the clock offset it was computed
+/// with, and an error in the offset adds to one direction what it takes
+/// from the other. The sum of the two directions has no offset in it at
+/// all, so half of it is known far better than either half; what it cannot
+/// say is how the total divides between the directions.
+final class SymmetryReport {
+  /// Device names.
+  final String a;
+  final String b;
+
+  /// Mean of the two directions' latency, in seconds.
+  final double latencyMean;
+
+  /// The same for the medians. Exact for the mean; for the median, as good
+  /// as the offset error is constant over the run.
+  final double latencyP50;
+
+  /// The sum of the two directions' offset estimates, in seconds. The true
+  /// offsets are equal and opposite, so this is the error of the two
+  /// estimates together: the one-way figures are out by about this in total.
+  final double offsetInconsistency;
+
+  const SymmetryReport({
+    required this.a,
+    required this.b,
+    required this.latencyMean,
+    required this.latencyP50,
+    required this.offsetInconsistency,
+  });
+
+  Map<String, dynamic> toJson() => {
+    'a': a,
+    'b': b,
+    'latencyMean': latencyMean,
+    'latencyP50': latencyP50,
+    'offsetInconsistency': offsetInconsistency,
   };
 }
 
@@ -103,6 +156,16 @@ final class PairReport {
   /// Samples sent and never received. Without the sender's log, the gaps in
   /// the received sequence numbers (which misses losses at either end).
   final int lost;
+
+  /// Those of [lost] between the first and the last sample received: lost
+  /// while the two were exchanging samples.
+  final int lostInterior;
+
+  /// Those of [lost] sent before the first sample received or after the
+  /// last. The receiver may not have been listening yet, or any more, so
+  /// these say more about how the run started and stopped than about the
+  /// transport. Null without the sender's log.
+  final int? lostEdges;
   final int duplicates;
 
   /// Samples that arrived after one with a higher sequence number.
@@ -113,7 +176,12 @@ final class PairReport {
 
   /// One-way latency: received − (sent + clock offset), using the offset
   /// estimate current when each sample arrived. Can be slightly negative:
-  /// the offset is itself an estimate, within ±[uncertainty]/2.
+  /// the offset is itself an estimate, within ±[uncertainty]/2. That error
+  /// moves every value together, so the mean, the extremes and the
+  /// percentiles are each only known to within it. The spread is affected
+  /// only by how the estimates differ from one another, which
+  /// [latencyFitted] removes. For a device's own samples the offset is
+  /// zero.
   final Summary? latency;
 
   /// [latency], but with the offset read from a line fitted through all of
@@ -125,7 +193,8 @@ final class PairReport {
   /// and receiver share a clock; otherwise it is mostly the clock offset.
   final Summary? latencyRaw;
 
-  /// Round trip of the probes behind the clock offsets.
+  /// Round trip of the probes behind the clock offsets; null for a device's
+  /// own samples, which need none.
   final Summary? uncertainty;
 
   /// Seconds between consecutive samples at the sender, by its timestamps.
@@ -149,6 +218,8 @@ final class PairReport {
     required this.received,
     required this.sent,
     required this.lost,
+    required this.lostInterior,
+    required this.lostEdges,
     required this.duplicates,
     required this.reordered,
     required this.untimed,
@@ -168,6 +239,13 @@ final class PairReport {
     return expected == 0 ? 0 : lost / expected;
   }
 
+  /// [lostInterior] as a fraction of the samples sent between the first and
+  /// the last received.
+  double get interiorLossRate {
+    final expected = received - duplicates + lostInterior;
+    return expected == 0 ? 0 : lostInterior / expected;
+  }
+
   Map<String, dynamic> toJson() => {
     'from': from,
     'sourceId': sourceId,
@@ -179,6 +257,9 @@ final class PairReport {
     'sent': sent,
     'lost': lost,
     'lossRate': lossRate,
+    'lostInterior': lostInterior,
+    'interiorLossRate': interiorLossRate,
+    'lostEdges': lostEdges,
     'duplicates': duplicates,
     'reordered': reordered,
     'untimed': untimed,
@@ -259,21 +340,32 @@ final class ClockReport {
 final class InteractiveReport {
   final String device;
 
-  /// From a `touch` marker to sending the sample it triggered.
+  /// From a `touch` marker to sending the sample it triggered. The marker
+  /// is taken when the application hears of the touch, so the time the
+  /// touch screen and the system took to report it is not in this.
   final Summary? touchToSend;
 
-  /// From receiving a sample to its `shown` marker, by sender.
+  /// From the time the system stamped a touch with (a `touch_os` marker) to
+  /// the application hearing of it; null if the device logged no such
+  /// times. The stamp is the system's, often to the millisecond only, and
+  /// is itself some time after the finger met the screen.
+  final Summary? reportedToHeard;
+
+  /// From receiving a sample to its `shown` marker, by sender. The marker
+  /// is taken when the frame has been drawn, not when the display shows it.
   final Map<String, Summary> receiveToShown;
 
   const InteractiveReport({
     required this.device,
     required this.touchToSend,
     required this.receiveToShown,
+    this.reportedToHeard,
   });
 
   Map<String, dynamic> toJson() => {
     'device': device,
     'touchToSend': touchToSend?.toJson(),
+    'reportedToHeard': reportedToHeard?.toJson(),
     'receiveToShown': {
       for (final e in receiveToShown.entries) e.key: e.value.toJson(),
     },

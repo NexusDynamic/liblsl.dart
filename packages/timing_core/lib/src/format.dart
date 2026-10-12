@@ -8,10 +8,16 @@ String formatReport(Report report) {
   final out = StringBuffer();
   for (final run in report.runs) {
     final first = run.devices.first;
+    final duration = first.extra['durationSeconds'];
     out.writeln(
       'Run ${run.runId}: ${first.test} over ${first.backend}, '
-      '${first.sampleRate} Hz, ${run.devices.length} device(s)',
+      '${first.sampleRate} Hz x ${first.channels} ch'
+      '${duration == null ? '' : ', $duration s'}, '
+      '${run.devices.length} device(s)',
     );
+    for (final warning in run.warnings) {
+      out.writeln('  ! $warning');
+    }
 
     if (run.senders.isNotEmpty) {
       out.writeln('\n  Senders (interval ms)');
@@ -33,7 +39,8 @@ String formatReport(Report report) {
       out.writeln(
         '    received ${p.received}'
         '${p.sent == null ? '' : ' of ${p.sent}'}, '
-        'lost ${p.lost} (${(p.lossRate * 100).toStringAsFixed(3)}%), '
+        'lost ${p.lost} (${(p.lossRate * 100).toStringAsFixed(3)}%)'
+        '${_edges(p)}, '
         'duplicates ${p.duplicates}, reordered ${p.reordered}'
         '${p.untimed == 0 ? '' : ', untimed ${p.untimed}'}',
       );
@@ -46,7 +53,9 @@ String formatReport(Report report) {
       }
       if (p.uncertainty case final u?) {
         out.writeln(
-          '    clock offset known to ±${_n(u.p50 * 500)} ms (median)',
+          '    clock offset known to ±${_n(u.p50 * 500)} ms (median): every '
+          'latency above may be out by that, together; the spread of the '
+          'fitted latency is not affected',
         );
       }
       if (p.pollInterval case final poll?) {
@@ -64,19 +73,33 @@ String formatReport(Report report) {
           '${drift == null ? '' : ', drift ${drift.toStringAsFixed(2)}'
                     '${c.driftStdErrPpm == null ? '' : ' ±${c.driftStdErrPpm!.toStringAsFixed(2)}'}'
                     ' ppm'}'
+          '${c.residualSd == null ? '' : ', estimates scatter '
+                    '${_n(c.residualSd! * 1e3)} ms around the line'}'
           '${c.resets == 0 ? '' : ', ${c.resets} reset(s)'}',
         );
       }
     }
 
+    for (final s in run.symmetry) {
+      out.writeln(
+        '\n  ${s.a} <-> ${s.b}: ${_n(s.latencyP50 * 1e3)} ms p50, '
+        '${_n(s.latencyMean * 1e3)} ms mean, averaged over the two '
+        'directions (no clock offset in it); the two offset estimates '
+        'disagree by ${_n(s.offsetInconsistency * 1e3)} ms',
+      );
+    }
+
     for (final i in run.interactive) {
-      out.writeln('\n  ${i.device} (interactive, ms)');
+      out.writeln('\n  ${i.device} (interactive, ms; within the app)');
+      if (i.reportedToHeard != null) {
+        out.writeln('    touch stamped -> heard  ${_ms(i.reportedToHeard)}');
+      }
       if (i.touchToSend != null) {
-        out.writeln('    touch -> send     ${_ms(i.touchToSend)}');
+        out.writeln('    touch heard -> send     ${_ms(i.touchToSend)}');
       }
       for (final entry in i.receiveToShown.entries) {
         out.writeln(
-          '    receive -> shown  ${_ms(entry.value)} from ${entry.key}',
+          '    receive -> frame drawn  ${_ms(entry.value)} from ${entry.key}',
         );
       }
     }
@@ -85,11 +108,24 @@ String formatReport(Report report) {
   return out.toString();
 }
 
+/// How many of a pair's lost samples were at the ends of the run, when
+/// there are any to tell apart.
+String _edges(PairReport p) {
+  final edges = p.lostEdges;
+  if (edges == null || edges == 0) return '';
+  return ': ${p.lostInterior} while receiving, $edges before the first or '
+      'after the last received';
+}
+
+/// A percentile needs enough values beyond it to mean anything; without
+/// them it is left out rather than printed as if it did.
 String _ms(Summary? s) => s == null
     ? 'n/a'
     : 'n=${s.count} mean ${_n(s.mean * 1e3)} sd ${_n(s.sd * 1e3)} '
           'min ${_n(s.min * 1e3)} p50 ${_n(s.p50 * 1e3)} '
-          'p95 ${_n(s.p95 * 1e3)} p99 ${_n(s.p99 * 1e3)} '
+          'mad ${_n(s.mad * 1e3)} '
+          'p95 ${s.reliable(0.95) ? _n(s.p95 * 1e3) : '-'} '
+          'p99 ${s.reliable(0.99) ? _n(s.p99 * 1e3) : '-'} '
           'max ${_n(s.max * 1e3)}';
 
 String _n(double value) => value.toStringAsFixed(3);

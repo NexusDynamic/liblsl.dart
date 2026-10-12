@@ -69,7 +69,7 @@ file header's `transport_timing` element, as JSON.
 | `tt.sent` | `seq` | this device's clock at the send |
 | `tt.received`, one per sender (its `source_id`) | `seq`, `source_clock`, `received_clock`, `clock_offset`, `uncertainty` | the sender's clock at the send |
 | `tt.clock`, one per sender | `offset`, `remote_time`, `uncertainty`, `reset` | this device's clock at the estimate |
-| `tt.markers` | text: `kind id [source]` | this device's clock |
+| `tt.markers` | text: `kind id [source]`; kinds `touch` (the application heard of a touch), `touch_os` (the system's own time for it), `shown` (the frame showing a sample was drawn) | this device's clock |
 | `tt.events` | text: `name [json]` | this device's clock |
 
 Clocks are in seconds; NaN is a value that was not known. Every clock-offset

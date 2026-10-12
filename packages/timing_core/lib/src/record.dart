@@ -113,6 +113,11 @@ final class RunHeader {
   }
 }
 
+/// The source id to log samples under when the transport does not say who
+/// sent them. Every sender's samples are then one series, and the analysis
+/// cannot tell which of them a device did not hear.
+const String unknownSource = 'unknown';
+
 /// The element of the XDF file header that holds the [RunHeader] as JSON.
 const String _headerElement = 'transport_timing';
 
