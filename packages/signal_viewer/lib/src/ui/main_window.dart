@@ -878,6 +878,16 @@ class _MainWindowState extends State<MainWindow> {
   Widget _statusBar() {
     final theme = Theme.of(context);
     final progress = app.currentTab?.session.progress;
+    // Files opening or work in the background, whatever is on screen: as a
+    // count when there are several files, otherwise just that it goes on.
+    final opening = app.openingTotal > 0;
+    final busy = opening || app.working.isNotEmpty;
+    final busyText = [
+      if (app.openingTotal > 1)
+        'Opening ${app.openingDone + 1 > app.openingTotal ? app.openingTotal : app.openingDone + 1} '
+            'of ${app.openingTotal}',
+      ...app.working,
+    ].join(' · ');
     return Container(
       height: 26,
       padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -893,7 +903,21 @@ class _MainWindowState extends State<MainWindow> {
               style: theme.textTheme.bodySmall,
             ),
           ),
-          if (progress != null) ...[
+          if (busy) ...[
+            if (busyText.isNotEmpty) ...[
+              Text(busyText, style: theme.textTheme.bodySmall),
+              const SizedBox(width: 8),
+            ],
+            SizedBox(
+              width: 120,
+              child: LinearProgressIndicator(
+                value: app.working.isEmpty && app.openingTotal > 1
+                    ? app.openingDone / app.openingTotal
+                    : null,
+              ),
+            ),
+            const SizedBox(width: 8),
+          ] else if (progress != null) ...[
             SizedBox(
               width: 120,
               child: LinearProgressIndicator(value: progress),

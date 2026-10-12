@@ -53,6 +53,11 @@ abstract class SourceSession extends ChangeNotifier {
   /// triggers (not for streams whose values are text).
   bool decodable(StreamInfo info) => true;
 
+  /// Whether it stays open with no tabs: one that shows its streams only
+  /// when asked for (see [streams]), and is closed some other way than by
+  /// closing its last tab.
+  bool get keepsWithoutTabs => false;
+
   bool get closed;
 
   Future<void> close();
@@ -126,6 +131,15 @@ abstract class SourceProvider extends ChangeNotifier {
   /// Open a file with one of [fileExtensions].
   Future<SourceSession> openFile(PickedFile file) =>
       throw UnsupportedError('No files');
+
+  /// How many of its files may be opening at once. More than one is for
+  /// a provider that does its reading and decoding off the main isolate,
+  /// where opening several at a time is quicker.
+  int get concurrentOpens => 1;
+
+  /// Called when files picked together have been opened, with those of
+  /// them that are this provider's: where it can tell one file from many.
+  void filesOpened(List<SourceSession> sessions) {}
 
   /// Why files cannot be opened now (e.g. a device is streaming), or null.
   String? get blocksFiles => null;

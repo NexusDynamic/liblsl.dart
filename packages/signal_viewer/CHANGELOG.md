@@ -1,3 +1,10 @@
+## 0.1.2
+
+- The status bar shows progress of all loading files.
+- `AppState.busy(label, work)` shows a label and a progress bar in the
+  status bar while a provider works in the background.
+- Other tab and open file management improvements.
+
 ## 0.1.1
 
 - A theme button in the toolbar switches between the system, light and dark

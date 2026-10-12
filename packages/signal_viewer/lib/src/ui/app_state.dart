@@ -53,8 +53,31 @@ class AppState extends ChangeNotifier {
   String status = '';
   String? error;
 
-  /// Files being opened (name → null while starting).
+  /// Names of the files being opened.
   final Set<String> opening = {};
+
+  /// Of the files picked and not yet all open, how many there are and how
+  /// many are done (opened or failed); both zero when none is opening.
+  int openingTotal = 0;
+  int openingDone = 0;
+
+  /// What is being worked on in the background, as [busy] was told.
+  final List<String> working = [];
+
+  /// Shows [label] with a progress bar in the status bar while [work] runs.
+  ///
+  /// The bar only moves if the main isolate is free, so [work] has to do
+  /// its computing elsewhere (`Isolate.run`).
+  Future<T> busy<T>(String label, Future<T> Function() work) async {
+    working.add(label);
+    notifyListeners();
+    try {
+      return await work();
+    } finally {
+      working.remove(label);
+      notifyListeners();
+    }
+  }
 
   final Map<String, _Remembered> _remembered = {};
   final Map<SourceSession, Set<String>> _streamKeys = {};
@@ -162,31 +185,75 @@ class AppState extends ChangeNotifier {
     return null;
   }
 
+  /// Opens [picked], as many at a time as their providers allow, and adds
+  /// them in the order they were picked.
   Future<void> openFiles(List<PickedFile> picked) async {
+    final n = picked.length;
+    final opened = List<SourceSession?>.filled(n, null);
+    final done = List<bool>.filled(n, false);
+    final byProvider = <SourceProvider, List<SourceSession>>{};
+    final providerOf = <SourceSession, SourceProvider>{};
+    var next = 0, added = 0, limit = 1;
     for (final f in picked) {
-      final provider = providers.where((p) => p.opens(f)).firstOrNull;
-      if (provider == null) {
-        final types = [for (final e in fileExtensions) '.$e'].join(', ');
-        setStatus('Not a recording ($types): ${f.name}');
-        continue;
-      }
-      opening.add(f.name);
-      setStatus('Opening ${f.name}…');
-      try {
-        final session = await provider.openFile(f);
-        if (f.path != null) {
-          prefs.addRecent(f.path!);
-          final sep = f.path!.contains('\\') ? '\\' : '/';
-          prefs.lastDir = f.path!.substring(0, f.path!.lastIndexOf(sep) + 1);
-        }
+      final p = providers.where((p) => p.opens(f)).firstOrNull;
+      if (p != null && p.concurrentOpens > limit) limit = p.concurrentOpens;
+    }
+    openingTotal += n;
+    notifyListeners();
+
+    // In order: a file that opens sooner than one picked before it waits.
+    void add() {
+      while (added < n && done[added]) {
+        final session = opened[added++];
+        if (session == null) continue;
         addSession(session);
-      } catch (e) {
-        setError('Could not open ${f.name}: $e');
-      } finally {
-        opening.remove(f.name);
+        (byProvider[providerOf[session]!] ??= []).add(session);
+      }
+    }
+
+    Future<void> worker() async {
+      while (next < n) {
+        final i = next++;
+        final f = picked[i];
+        final provider = providers.where((p) => p.opens(f)).firstOrNull;
+        if (provider == null) {
+          final types = [for (final e in fileExtensions) '.$e'].join(', ');
+          setStatus('Not a recording ($types): ${f.name}');
+        } else {
+          opening.add(f.name);
+          setStatus('Opening ${f.name}…');
+          try {
+            final session = await provider.openFile(f);
+            if (f.path != null) {
+              prefs.addRecent(f.path!);
+              final sep = f.path!.contains('\\') ? '\\' : '/';
+              prefs.lastDir = f.path!.substring(
+                0,
+                f.path!.lastIndexOf(sep) + 1,
+              );
+            }
+            opened[i] = session;
+            providerOf[session] = provider;
+          } catch (e) {
+            setError('Could not open ${f.name}: $e');
+          } finally {
+            opening.remove(f.name);
+          }
+        }
+        done[i] = true;
+        openingDone++;
+        add();
         notifyListeners();
       }
     }
+
+    await Future.wait([for (var k = 0; k < limit && k < n; k++) worker()]);
+    // Unless more were picked meanwhile and are still opening.
+    if (openingDone >= openingTotal) openingDone = openingTotal = 0;
+    for (final entry in byProvider.entries) {
+      entry.key.filesOpened(entry.value);
+    }
+    notifyListeners();
   }
 
   // -- sessions -------------------------------------------------------------
@@ -329,8 +396,11 @@ class AppState extends ChangeNotifier {
     _remember(t);
     _forget([t]);
     t.controller.dispose();
-    // Close a session with no tabs left.
-    if (!tabs.any((x) => x.session == t.session)) await _release(t.session);
+    // Close a session with no tabs left, unless it is kept without.
+    if (!t.session.keepsWithoutTabs &&
+        !tabs.any((x) => x.session == t.session)) {
+      await _release(t.session);
+    }
     if (_current >= tabs.length) _current = tabs.length - 1;
     if (_current < 0) _current = 0;
     _syncActive();
