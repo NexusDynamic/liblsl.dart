@@ -1,3 +1,8 @@
+## 0.5.4
+
+- Bump `peer_coordinator` to ^0.4.2
+- Bump `liblsl` to ^1.1.3
+
 ## 0.5.3
 
 - An inlet worker that missed the 5 s deadline of an inlet add or removal
