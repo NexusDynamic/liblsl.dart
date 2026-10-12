@@ -4,7 +4,6 @@
 - Updated to `timing_core` ^0.2.0.
 - Disable share icon on Linux (shareplus doesn't support linux), the path
   of the recorded file is visible in the UI for each session entry.
-- Fix an issue with the data type
 - The raw LSL sweep runs every condition three times, and randomises the order.
 - A run that fails on a device is listed among its results.
 - Interactive test: touches are recorded from

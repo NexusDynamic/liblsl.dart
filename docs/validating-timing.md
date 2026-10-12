@@ -73,7 +73,10 @@ The report has one row for each sender and receiver:
 | --- | --- |
 | Latency | Percentiles of the latency, computed with the offset current at arrival and with an offset fitted over the whole run |
 | Clock bound | Half the round-trip time of the measurements behind the offset. The offset, and therefore the latency, is known to within this value |
-| Loss, duplicates, reordering | Derived from the sequence numbers of the samples |
+| Loss, duplicates, reordering | Derived from the sequence numbers of the samples. Loss between the first and the last sample received is counted apart from samples sent before or after, which a receiver may simply not have been listening for |
+| Spread | The standard deviation, and the median absolute deviation (MAD), which a few very late samples do not move |
+| Both directions | For two devices that received from each other, the latency averaged over the two directions, and how far the two offset estimates disagree |
+| Warnings | A device that received nothing from another, receiving that stopped or was interrupted, streams that were not found |
 | Send and receive intervals | The regularity of sending and receiving |
 | Clock | The offset at the start and end of the run, and the drift in parts per million |
 | Polling | The interval at which the receiver polls, where it does |
@@ -85,6 +88,14 @@ than the bound cannot be distinguished from zero, and slightly negative
 latencies occur for the same reason. They are part of the measurement and
 are kept in the report.
 
+An error in the offset moves every latency of a pair by the same amount.
+The median, the mean and the unidirectional percentiles are therefore
+each known only to within the clock bound. On a wireless network the bound is
+often larger than the latency. The bi-directional offsets should sum to zero,
+if they don't it is noted, but it still cannot be certain if one direction is
+slower than the other. The raw LSL sweep in `transport_timing` runs every
+condition three times in shuffled order.
+
 The receive mode determines much of the latency on a good network. A
 receiver that polls sees a sample at its next poll, so each latency
 includes a wait of between zero and one polling interval, which adds half
@@ -92,13 +103,14 @@ the interval to the mean. The report states the receive mode and the
 polling interval of each log. Runs are comparable when their receive modes
 match.
 
-The timestamp of a sample is taken when the application sends it. The
-latency therefore covers the sending path, the network and the receiving
-path. It excludes delays before sending, such as those of an input device,
-and delays after receiving, such as rendering on a display. The interactive
-test in `transport_timing`, together with external sensors, measures that
-complete path; see the
-[`transport_timing` README](../apps/transport_timing/README.md#interactive-test).
+The timestamp of a sample is taken when the application sends it and its arrival
+when the receiving call returns it. Overall latency includes the sending path,
+the network and the receiving path. It excludes delays before sending,
+such as those of an input device, and delays after receiving, such as
+rendering on a display. The interactive test in `transport_timing`,
+together with external sensors, can be used to measure the complete end-to-end
+latency (see the
+[`transport_timing` README](../apps/transport_timing/README.md#interactive-test)).
 
 Drift is the rate at which two clocks move apart, typically tens of parts
 per million, which is tens of microseconds per second. It matters for long
@@ -109,10 +121,10 @@ recordings in which timestamps from different devices are compared.
 A description of the timing of a multi-device experiment can state the
 transport and receive mode, the devices and network, the sampling rate and
 duration of the test, the median and upper percentiles of latency for each
-pair of devices, the clock bound, the proportion of lost samples, and the
-drift. The report can be copied from the analysis application as text or
-JSON, and the logs are ordinary XDF files that can be archived with the
-data of the experiment.
+pair of devices with the clock bounds. Summary statistics are also provided
+for multiple runs with a specific configuration. The report can be copied
+from the analysis application as text or JSON, and the logs are ordinary XDF
+files that can be used to report timing information.
 
 ## Further reading
 

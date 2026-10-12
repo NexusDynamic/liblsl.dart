@@ -24,10 +24,19 @@ menu (right-click, *Open*). To run from source:
 flutter run --release            # then open or drop the logs of a run
 ```
 
+## Example logs
+
+You can use the logs of a run that was recorded with `transport_timing` on a Linux desktop (i7-7700, wired network) and an Android Pixel-7a (WiFi-ac).
+These logs can be found in the [`example_timing_logs`](../shared_resources/example_timing_logs) folder of this repository.
+
 ## Display
 
-Each log opens with one tab per sender. A tab has four traces over the run,
-in milliseconds:
+The logs of one run (up to two files) open with one tab per sender. More
+logs than that, such as those of a sweep, open without tabs: they are
+looked at in the report, and the report opens the tab of any sender and
+receiver asked for. Logs are read and analysed in the background, and the
+status bar shows the progress. A tab has four traces over the run, in
+milliseconds:
 
 | Trace | Meaning |
 | --- | --- |
@@ -40,11 +49,34 @@ Samples are placed by sequence number at the rate of the run, so a lost
 sample appears as a gap in the trace.
 
 The report, opened from the toolbar or the Timing menu, covers every open
-log. It has one row for each sender and receiver, with counts, loss,
-percentiles, the clock bound, the contribution of polling, and drift.
-Selecting a row shows its latency distribution. When all logs of a run are
-open together, the report names every sender and counts losses exactly. The
-report can be copied as text or JSON.
+log. It has one row for each sender and receiver of each run, with the
+run, its repetition, send and receive mode, counts, loss, percentiles, the
+clock bound, the spread, the contribution of polling, and drift. The rows
+can be narrowed down by direction, by send mode and by receive mode, and a
+device's own samples left out. Selecting a row shows its run and its
+latency distribution below the table; the chart button of a row opens the
+latency of that pair over the run in a tab, named for the run's condition
+where it was part of a sweep. The logs of the selected run, or all logs,
+can be closed from the report. The latency is
+computed with the fitted clock offset or with the latest estimate, as
+selected above the table. A percentile is left out where a row has too few
+samples for it. The report can be copied as text or JSON.
+
+When all logs of a run are open together, the report names every sender,
+counts losses exactly, and lists a device that received nothing from
+another instead of omitting it. Loss is given for the samples sent between
+the first and the last received, with the number sent before or after in
+brackets. For two devices that received from each other, the latency
+averaged over both directions is shown below the table: no clock offset
+enters it, so it is known better than either direction alone. Warnings
+from the logs (receiving that stopped or was interrupted, streams that were
+not found) are shown at the top of the run.
+
+When the open logs contain several runs of the same condition, a table of
+repeated runs gives the median of their medians with the lowest and the
+highest. The latency of one direction is known only to within the clock
+bound, and one run says little about a condition; see
+[Validating timing in a lab](../../docs/validating-timing.md#interpreting-the-results).
 
 ## Analysis without the application
 

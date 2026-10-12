@@ -14,13 +14,40 @@ const _labels = [
 /// sequence is shown by arrival time instead.
 const _maxRegular = 20000000;
 
-/// An open run log: a tab for each source the device received from, with
-/// its latency and clock offset over the run.
+/// A run log read, analysed on its own and laid out for the plot.
+final class LoadedLog {
+  LoadedLog._(this.log, this.pairs, this._series);
+
+  final RunLog log;
+
+  /// What this log alone says about each source.
+  final List<PairReport> pairs;
+  final List<_Series> _series;
+}
+
+/// Everything about a log that takes time, for an isolate to do: a long
+/// run takes seconds, which on the main isolate is the window not
+/// answering.
+///
+/// Throws [FormatException] if [bytes] are not a run log.
+LoadedLog loadTimingLog(Uint8List bytes) {
+  final log = RunLog.parse(bytes);
+  final pairs = analyse([log]).runs.single.pairs;
+  return LoadedLog._(log, pairs, [
+    for (final pair in pairs) _Series.of(pair, log.header),
+  ]);
+}
+
+/// An open run log: a tab for each source the device received from that
+/// has been asked for, with its latency and clock offset over the run.
+///
+/// It stays open with no tabs. Many logs are opened for their report, and
+/// two tabs for each of them would be a hundred tabs nobody asked for.
 class TimingSession extends SourceSession {
-  TimingSession(this.name, this.log, {this.path, required this.nameOf})
-    : pairs = analyse([log]).runs.single.pairs {
-    _series = [for (final pair in pairs) _Series.of(pair, log.header)];
-  }
+  TimingSession(this.name, LoadedLog loaded, {this.path, required this.nameOf})
+    : log = loaded.log,
+      pairs = loaded.pairs,
+      _series = loaded._series;
 
   final String name;
   final String? path;
@@ -32,38 +59,64 @@ class TimingSession extends SourceSession {
   /// The device name behind a source id, when its log is open too.
   final String? Function(String sourceId) nameOf;
 
-  late final List<_Series> _series;
+  final List<_Series> _series;
   bool _closed = false;
+
+  /// The pairs (indexes in [pairs]) that have a tab.
+  final Set<int> _shown = {};
 
   /// The sources may have gained names from a log opened since.
   void refreshNames() => notifyListeners();
 
+  /// Gives [pair] a tab, or every pair with null. Returns the key of the
+  /// stream behind [pair]'s tab.
+  String? show([int? pair]) {
+    final before = _shown.length;
+    _shown.addAll(
+      pair == null ? [for (var i = 0; i < pairs.length; i++) i] : [pair],
+    );
+    if (_shown.length != before) notifyListeners();
+    return pair == null ? null : _key(pairs[pair]);
+  }
+
+  String _key(PairReport pair) =>
+      'timing:${log.header.runId}:${log.header.deviceId}:${pair.sourceId}';
+
+  @override
+  bool get keepsWithoutTabs => true;
+
   @override
   List<StreamInfo> get streams => [
     for (final (index, pair) in pairs.indexed)
-      StreamInfo(
-        key:
-            'timing:${log.header.runId}:${log.header.deviceId}:'
-            '${pair.sourceId}',
-        name:
-            '${nameOf(pair.sourceId) ?? pair.from} → '
-            '${log.header.deviceName}',
-        type: 'Timing',
-        kind: Kind.other,
-        rate: _series[index].rate,
-        labels: _labels,
-        units: const ['ms', 'ms', 'ms', 'ms'],
-        channels: [
-          for (var c = 0; c < _labels.length; c++) ChannelRef(index, c),
-        ],
-      ),
+      if (_shown.contains(index))
+        StreamInfo(
+          key: _key(pair),
+          name:
+              '${nameOf(pair.sourceId) ?? pair.from} → '
+              '${log.header.deviceName}',
+          type: 'Timing',
+          kind: Kind.other,
+          rate: _series[index].rate,
+          labels: _labels,
+          units: const ['ms', 'ms', 'ms', 'ms'],
+          channels: [
+            for (var c = 0; c < _labels.length; c++) ChannelRef(index, c),
+          ],
+        ),
   ];
 
+  /// The run's condition where it was one of a sweep, whose file names say
+  /// nothing of it; the file name otherwise.
   @override
-  String get label => name;
+  String get label {
+    final h = log.header;
+    final repetition = h.extra['repetition'];
+    if (repetition == null) return name;
+    return [?h.receiveMode, ?h.sendMode, 'rep $repetition'].join(' · ');
+  }
 
   @override
-  String get tooltip => path ?? name;
+  String get tooltip => '${path ?? name}\n${describe()}';
 
   @override
   bool get groupable => false;

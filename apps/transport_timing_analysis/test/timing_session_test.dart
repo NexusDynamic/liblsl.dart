@@ -3,7 +3,7 @@ import 'package:signal_viewer/signal_viewer.dart';
 import 'package:timing_core/timing_core.dart';
 import 'package:transport_timing_analysis/src/timing_session.dart';
 
-Future<RunLog> log({required double sampleRate}) async {
+Future<LoadedLog> log({required double sampleRate}) async {
   final buffer = BytesSink();
   final writer = RunLogWriter(
     buffer,
@@ -30,7 +30,7 @@ Future<RunLog> log({required double sampleRate}) async {
     );
   }
   await writer.close();
-  return RunLog.parse(buffer.takeBytes());
+  return loadTimingLog(buffer.takeBytes());
 }
 
 void main() {
@@ -40,6 +40,9 @@ void main() {
       await log(sampleRate: 100),
       nameOf: (id) => id == 'B' ? 'b' : null,
     );
+    // No tab until one is asked for.
+    expect(session.streams, isEmpty);
+    session.show();
     final info = session.streams.single;
     expect(info.name, 'b → a');
     expect(info.rate, 100);
@@ -70,6 +73,9 @@ void main() {
       await log(sampleRate: 0),
       nameOf: (_) => null,
     );
+    // No tab until one is asked for.
+    expect(session.streams, isEmpty);
+    session.show();
     final info = session.streams.single;
     expect(info.name, 'B → a');
     expect(info.irregular, isTrue);
