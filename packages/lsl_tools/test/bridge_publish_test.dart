@@ -204,4 +204,83 @@ void main() {
     await server.close();
     await source.close();
   });
+
+  test('LSL to a bridge and back to LSL keeps every format', () async {
+    final id = DateTime.now().microsecondsSinceEpoch;
+    final d = lsl.discover();
+    final sources = <String, LslOutlet>{};
+    final formats = {
+      'd': (LslFormat.double64, 2),
+      'l': (LslFormat.int64, 1),
+      's': (LslFormat.string, 3),
+    };
+    for (final MapEntry(:key, value: (format, channels)) in formats.entries) {
+      sources[key] = await lsl.createOutlet(
+        LslOutletSpec(
+          name: 'fmt_${key}_$id',
+          type: 'Test',
+          channelCount: channels,
+          rate: 0,
+          format: format,
+          sourceId: 'fmt_${key}_$id',
+        ),
+        const LslOutletOptions(),
+      );
+    }
+    final server = await LslBridgeServer.start(
+      [for (final k in formats.keys) await _find(d, 'fmt_${k}_$id')],
+      port: 0,
+      host: '127.0.0.1',
+    );
+    final client = await LslBridgeClient.connect(
+      Uri.parse('ws://127.0.0.1:${server.port}'),
+      name: 'far',
+    );
+    final republisher = await LslBridgeRepublisher.start(
+      client,
+      suffix: '_far',
+    );
+    const options = LslInletOptions(dejitter: false);
+    final inlets = {
+      for (final k in formats.keys)
+        k: await lsl.openInlet(await _find(d, 'fmt_${k}_${id}_far'), options),
+    };
+    for (final MapEntry(:key, value: (format, channels)) in formats.entries) {
+      expect(inlets[key]!.stream.format, format, reason: key);
+      expect(inlets[key]!.stream.channelCount, channels, reason: key);
+    }
+
+    const doubles = [1 / 3, -1e-300];
+    const big = (1 << 60) + 1;
+    final got = <String, LslChunk>{};
+    for (var i = 0; i < 300 && got.length < 3; i++) {
+      // Until the republisher passes them on: the first may come too soon.
+      if (i % 25 == 0) {
+        final t = Float64List.fromList([lsl.clock()]);
+        await sources['d']!.push(Float64List.fromList(doubles), t);
+        await sources['l']!.push(Int64List.fromList([big]), t);
+        await sources['s']!.pushStrings(['x', 'y', 'z'], t);
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      for (final MapEntry(:key, :value) in inlets.entries) {
+        final c = await value.pull(10);
+        if (c.length > 0) got[key] = c;
+      }
+    }
+    expect(got['d']!.values!.take(2), doubles);
+    expect(got['l']!.typed, isA<Int64List>());
+    expect((got['l']!.typed! as Int64List).first, big);
+    expect(got['s']!.strings!.take(3), ['x', 'y', 'z']);
+
+    for (final i in inlets.values) {
+      await i.close();
+    }
+    d.close();
+    await republisher.close();
+    await client.close();
+    await server.close();
+    for (final s in sources.values) {
+      await s.close();
+    }
+  });
 }

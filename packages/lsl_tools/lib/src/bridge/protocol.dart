@@ -1,11 +1,11 @@
 /// The LSL bridge protocol: LSL streams over a WebSocket.
 ///
-/// Connecting: `ws://host:port/?v=2&token=<token>` (`v` is
+/// Connecting: `ws://host:port/?v=3&token=<token>` (`v` is
 /// [bridgeProtocol]; the token only when the bridge has one). A plain HTTP
 /// GET of the same URL answers `{"streams": [...], "accepts_publish": bool}`.
 ///
 /// Text frames are JSON control messages:
-/// - server → client `{"type": "streams", "protocol": 2, "streams": [...],
+/// - server → client `{"type": "streams", "protocol": 3, "streams": [...],
 ///   "accepts_publish": bool}`: the streams shared ([BridgeStream.toJson]),
 ///   sent on connecting and again whenever they change (a stream shared or
 ///   gone, a client publishing or leaving). Ids are never reused.
@@ -38,7 +38,8 @@
 /// subscribed streams, and from client to server for published ones (under
 /// the client's id). Their time stamps are the ones the stream's origin
 /// gave them and are never changed on the way; the `timing` messages say
-/// how to read them. Values travel as float32.
+/// how to read them. Values travel in the stream's own channel format
+/// (int64 is exact to 2^53 where ints are JavaScript numbers).
 library;
 
 import 'dart:convert';
@@ -47,8 +48,9 @@ import 'dart:typed_data';
 import '../lsl_types.dart';
 
 /// The protocol version spoken here. Version 1 sent time stamps on the
-/// server's clock, so the two cannot be mixed.
-const bridgeProtocol = 2;
+/// server's clock, version 2 every value as float32, so none of them can be
+/// mixed.
+const bridgeProtocol = 3;
 
 /// A shared stream, as the server describes it.
 class BridgeStream {
@@ -110,42 +112,110 @@ class BridgeStream {
   }
 }
 
-/// A binary samples frame: stream id, sample count, channel count, kind
-/// (0 numeric, 1 strings), time stamps, then float32 values or, per value,
-/// a uint32 byte length and UTF-8 bytes.
-Uint8List encodeSamples(int id, LslChunk c, int channels) {
+/// The value kind in a samples frame (its byte 12) of each format.
+const _kinds = [
+  LslFormat.float32,
+  LslFormat.string,
+  LslFormat.double64,
+  LslFormat.int8,
+  LslFormat.int16,
+  LslFormat.int32,
+  LslFormat.int64,
+];
+
+/// Where ints are JavaScript numbers (dart2js): no 64-bit [ByteData]
+/// access, and only 2^53 of them exact.
+const _jsInts = identical(0, 0.0);
+
+int _width(LslFormat f) => switch (f) {
+  LslFormat.int8 => 1,
+  LslFormat.int16 => 2,
+  LslFormat.double64 || LslFormat.int64 => 8,
+  _ => 4,
+};
+
+int _int(num v) => v is int ? v : (v.isFinite ? v.round() : 0);
+
+void _setInt64(ByteData d, int p, int v) {
+  if (!_jsInts) return d.setInt64(p, v, Endian.little);
+  final hi = (v / 4294967296).floor();
+  d.setUint32(p, v - hi * 4294967296, Endian.little);
+  d.setInt32(p + 4, hi, Endian.little);
+}
+
+int _getInt64(ByteData d, int p) => _jsInts
+    ? d.getInt32(p + 4, Endian.little) * 4294967296 +
+          d.getUint32(p, Endian.little)
+    : d.getInt64(p, Endian.little);
+
+/// A binary samples frame: stream id, sample count, channel count, value
+/// kind (0 float32, 1 string, 2 double64, 3 int8, 4 int16, 5 int32,
+/// 6 int64), time stamps, then the values, little-endian, or, per string, a
+/// uint32 byte length and UTF-8 bytes. Numeric values are written in
+/// [format] (the stream's), from [LslChunk.typed] if there is one.
+Uint8List encodeSamples(
+  int id,
+  LslChunk c,
+  int channels, [
+  LslFormat format = LslFormat.float32,
+]) {
   final n = c.length;
   final strings = c.strings;
   final encoded = strings == null
       ? null
       : [for (final s in strings) utf8.encode(s)];
+  final f = encoded == null ? format.outletFormat : LslFormat.string;
+  final count = n * channels;
   final size =
       13 +
       8 * n +
       (encoded == null
-          ? 4 * n * channels
+          ? _width(f) * count
           : encoded.fold<int>(0, (a, b) => a + 4 + b.length));
   final out = Uint8List(size);
   final d = ByteData.sublistView(out);
   d.setUint32(0, id, Endian.little);
   d.setUint32(4, n, Endian.little);
   d.setUint32(8, channels, Endian.little);
-  d.setUint8(12, encoded == null ? 0 : 1);
+  d.setUint8(12, _kinds.indexOf(f));
   var p = 13;
   for (var i = 0; i < n; i++, p += 8) {
     d.setFloat64(p, c.times[i], Endian.little);
   }
-  if (encoded == null) {
-    final v = c.values!;
-    for (var i = 0; i < n * channels; i++, p += 4) {
-      d.setFloat32(p, v[i], Endian.little);
-    }
-  } else {
+  if (encoded != null) {
     for (final b in encoded) {
       d.setUint32(p, b.length, Endian.little);
       out.setAll(p + 4, b);
       p += 4 + b.length;
     }
+    return out;
+  }
+  final v = (c.typed ?? c.values!) as List<num>;
+  switch (f) {
+    case LslFormat.double64:
+      for (var i = 0; i < count; i++, p += 8) {
+        d.setFloat64(p, v[i].toDouble(), Endian.little);
+      }
+    case LslFormat.int8:
+      for (var i = 0; i < count; i++, p++) {
+        d.setInt8(p, _int(v[i]));
+      }
+    case LslFormat.int16:
+      for (var i = 0; i < count; i++, p += 2) {
+        d.setInt16(p, _int(v[i]), Endian.little);
+      }
+    case LslFormat.int32:
+      for (var i = 0; i < count; i++, p += 4) {
+        d.setInt32(p, _int(v[i]), Endian.little);
+      }
+    case LslFormat.int64:
+      for (var i = 0; i < count; i++, p += 8) {
+        _setInt64(d, p, _int(v[i]));
+      }
+    default:
+      for (var i = 0; i < count; i++, p += 4) {
+        d.setFloat32(p, v[i].toDouble(), Endian.little);
+      }
   }
   return out;
 }
@@ -160,30 +230,81 @@ double? lastTimeOf(Uint8List bytes) {
   return d.getFloat64(p, Endian.little);
 }
 
-/// Decode [encodeSamples]; [received] is when the frame arrived.
+/// Decode [encodeSamples]; [received] is when the frame arrived. Numeric
+/// values come as [LslChunk.values] (a [Float32List] for float32, else a
+/// [Float64List]) and, in their own format, [LslChunk.typed] (but for int64
+/// where ints are JavaScript numbers).
 (int id, LslChunk chunk) decodeSamples(Uint8List bytes, {double? received}) {
   final d = ByteData.sublistView(bytes);
   final id = d.getUint32(0, Endian.little);
   final n = d.getUint32(4, Endian.little);
   final channels = d.getUint32(8, Endian.little);
   final kind = d.getUint8(12);
+  if (kind >= _kinds.length) {
+    throw FormatException('Unknown value kind $kind');
+  }
+  final f = _kinds[kind];
   var p = 13;
   final times = Float64List(n);
   for (var i = 0; i < n; i++, p += 8) {
     times[i] = d.getFloat64(p, Endian.little);
   }
-  if (kind == 0) {
-    final values = Float32List(n * channels);
-    for (var i = 0; i < n * channels; i++, p += 4) {
+  final count = n * channels;
+  if (f == LslFormat.string) {
+    final strings = <String>[];
+    for (var i = 0; i < count; i++) {
+      final len = d.getUint32(p, Endian.little);
+      strings.add(
+        utf8.decode(Uint8List.sublistView(bytes, p + 4, p + 4 + len)),
+      );
+      p += 4 + len;
+    }
+    return (id, LslChunk(times, strings: strings, received: received));
+  }
+  if (f == LslFormat.float32) {
+    final values = Float32List(count);
+    for (var i = 0; i < count; i++, p += 4) {
       values[i] = d.getFloat32(p, Endian.little);
     }
-    return (id, LslChunk(times, values: values, received: received));
+    return (
+      id,
+      LslChunk(times, values: values, typed: values, received: received),
+    );
   }
-  final strings = <String>[];
-  for (var i = 0; i < n * channels; i++) {
-    final len = d.getUint32(p, Endian.little);
-    strings.add(utf8.decode(Uint8List.sublistView(bytes, p + 4, p + 4 + len)));
-    p += 4 + len;
+  final values = Float64List(count);
+  if (f == LslFormat.double64) {
+    for (var i = 0; i < count; i++, p += 8) {
+      values[i] = d.getFloat64(p, Endian.little);
+    }
+    return (
+      id,
+      LslChunk(times, values: values, typed: values, received: received),
+    );
   }
-  return (id, LslChunk(times, strings: strings, received: received));
+  final List<int>? ints = switch (f) {
+    LslFormat.int8 => Int8List(count),
+    LslFormat.int16 => Int16List(count),
+    LslFormat.int32 => Int32List(count),
+    _ => _jsInts ? null : Int64List(count),
+  };
+  final w = _width(f);
+  for (var i = 0; i < count; i++, p += w) {
+    final v = switch (f) {
+      LslFormat.int8 => d.getInt8(p),
+      LslFormat.int16 => d.getInt16(p, Endian.little),
+      LslFormat.int32 => d.getInt32(p, Endian.little),
+      _ => _getInt64(d, p),
+    };
+    ints?[i] = v;
+    values[i] = v.toDouble();
+  }
+  return (
+    id,
+    LslChunk(
+      times,
+      values: values,
+      typed: ints as TypedData?,
+      received: received,
+    ),
+  );
 }

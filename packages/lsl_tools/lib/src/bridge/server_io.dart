@@ -307,7 +307,7 @@ class _Server implements LslBridgeServer {
               type: d.type,
               channelCount: d.channelCount,
               rate: d.rate,
-              format: d.format.isString ? LslFormat.string : LslFormat.float32,
+              format: d.format.outletFormat,
               sourceId: d.sourceId,
               hostname: client.address,
               uid: 'published:$id',
@@ -323,9 +323,9 @@ class _Server implements LslBridgeServer {
             LslOutletSpec(
               name: d.name,
               type: d.type,
-              channelCount: d.format.isString ? 1 : d.channelCount,
+              channelCount: d.channelCount,
               rate: d.rate,
-              format: d.format.isString ? LslFormat.string : LslFormat.float32,
+              format: d.format.outletFormat,
               sourceId: d.sourceId.isEmpty ? 'bridge:${d.name}' : d.sourceId,
               channels: s.channels,
               desc: {
@@ -405,13 +405,9 @@ class _Server implements LslBridgeServer {
       times[i] = chain.map(chunk.times[i]);
     }
     if (chunk.strings != null) {
-      final ch = (chunk.strings!.length / chunk.length).round();
-      outlet.pushStrings([
-        for (var i = 0; i < chunk.length; i++) chunk.strings![i * ch],
-      ], times);
+      outlet.pushStrings(chunk.strings!, times);
     } else {
-      final v = chunk.values!;
-      outlet.push(v is Float32List ? v : Float32List.fromList(v), times);
+      outlet.push(chunk.typed ?? Float64List.fromList(chunk.values!), times);
     }
   }
 
@@ -556,7 +552,12 @@ class _Server implements LslBridgeServer {
                 if (cl.subscribed.contains(s.id)) cl,
             ];
             if (targets.isNotEmpty) {
-              final frame = encodeSamples(s.id, c, inlet.stream.channelCount);
+              final frame = encodeSamples(
+                s.id,
+                c,
+                inlet.stream.channelCount,
+                inlet.stream.format,
+              );
               for (final cl in targets) {
                 cl.socket.add(frame);
               }

@@ -333,15 +333,18 @@ protocol (JSON control messages and binary sample frames) is documented in
 
 ## Limitations
 
-- **Values travel as 32-bit floats.** `double64` and `int64` streams lose
-  precision, and string streams keep only their first channel.
+- **Values travel in the stream's own format**: `double64`, the integer
+  formats and every channel of a string stream arrive exactly. The one
+  exception is the browser, whose numbers hold integers exactly only up
+  to 2^53: an `int64` stream above that is rounded in or out of the web
+  viewer. Between `lsl` and desktop viewers it is exact.
 - **Time stamps** are as good as the network is symmetric: each hop's
   offset is off by up to half the difference between its two directions'
   delays, and the bounds add up over hops. The chain reports the bound
   (see [Timing](#timing-clock-offsets-drift-and-latency)); it cannot make
   it smaller. In a browser the clock is also only as fine as the browser
   allows (5 µs to 1 ms).
-- **Every program must speak protocol 2.** An older `lsl` or viewer is
+- **Every program must speak protocol 3.** An older `lsl` or viewer is
   refused when it connects, rather than given time stamps it would misread.
 - **No automatic reconnect.** If the connection drops, connect again.
 - **Trusted groups only:** see

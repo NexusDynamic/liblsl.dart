@@ -102,10 +102,13 @@ class LslDataStreamPump {
         if (c.strings != null) {
           sample = c.strings!.getRange(i * ch, (i + 1) * ch);
         } else {
-          final values = c.values!.getRange(i * ch, (i + 1) * ch);
+          final values = ((c.typed as List<num>?) ?? c.values!).getRange(
+            i * ch,
+            (i + 1) * ch,
+          );
           sample =
               type == StreamDataType.float32 || type == StreamDataType.double64
-              ? values
+              ? values.map((v) => v.toDouble())
               : values.map((v) => v.round());
         }
         await stream.sendDataAt(c.times[i], sample);

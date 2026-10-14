@@ -114,9 +114,7 @@ class _NativeLsl implements LslBackend {
       streamType: _contentType(spec.type),
       channelCount: spec.channelCount,
       sampleRate: spec.rate > 0 ? spec.rate : LSL_IRREGULAR_RATE,
-      channelFormat: spec.format == LslFormat.string
-          ? LSLChannelFormat.string
-          : LSLChannelFormat.float32,
+      channelFormat: _channelFormat(spec.format.outletFormat),
       sourceId: spec.sourceId,
     );
     final root = info.description.value;
@@ -188,6 +186,17 @@ List<LslChannel> _channelsOf(LSLStreamInfoWithMetadata info, int n) {
     for (var i = out.length; i < n; i++) LslChannel('ch${i + 1}'),
   ];
 }
+
+LSLChannelFormat _channelFormat(LslFormat f) => switch (f) {
+  LslFormat.float32 => LSLChannelFormat.float32,
+  LslFormat.double64 => LSLChannelFormat.double64,
+  LslFormat.int8 => LSLChannelFormat.int8,
+  LslFormat.int16 => LSLChannelFormat.int16,
+  LslFormat.int32 => LSLChannelFormat.int32,
+  LslFormat.int64 => LSLChannelFormat.int64,
+  LslFormat.string => LSLChannelFormat.string,
+  LslFormat.undefined => LSLChannelFormat.undefined,
+};
 
 LslFormat _format(LSLChannelFormat f) => switch (f) {
   LSLChannelFormat.float32 => LslFormat.float32,
@@ -336,6 +345,7 @@ class _Inlet implements LslInlet, LslArrivals {
   LslChunk _chunk(
     Float64List times, {
     List<double>? values,
+    TypedData? typed,
     List<String>? strings,
     required double received,
     required double at,
@@ -347,6 +357,7 @@ class _Inlet implements LslInlet, LslArrivals {
       return LslChunk(
         times,
         values: values,
+        typed: typed,
         strings: strings,
         received: received,
       );
@@ -362,6 +373,7 @@ class _Inlet implements LslInlet, LslArrivals {
     return LslChunk(
       times,
       values: values,
+      typed: typed,
       strings: strings,
       received: received,
     );
@@ -418,6 +430,7 @@ class _Inlet implements LslInlet, LslArrivals {
     return _chunk(
       c.timestamps,
       values: _values(c.data, c.sampleCount * c.channelCount),
+      typed: c.data,
       received: now,
       at: c.timestamps.last,
       handed: now,
@@ -461,6 +474,7 @@ class _Inlet implements LslInlet, LslArrivals {
             values: c.data == null
                 ? null
                 : _values(c.data!, c.sampleCount * c.channelCount),
+            typed: c.data,
             strings: c.strings,
             received: c.receivedClock,
             at: times[ready - 1],
@@ -504,17 +518,50 @@ class _Outlet implements LslOutlet {
   }
 
   @override
-  Future<void> push(Float32List values, Float64List times) {
+  Future<void> push(TypedData values, Float64List times) {
     if (_closed || times.isEmpty) return Future.value();
-    return _then(() => _outlet.pushChunkTyped(values, timestamps: times));
+    final typed = _as(spec.format.outletFormat, values);
+    return _then(() => _outlet.pushChunkTyped(typed, timestamps: times));
+  }
+
+  /// [data] as the typed list liblsl.dart takes for format [f].
+  static TypedData _as(LslFormat f, TypedData data) {
+    final v = data as List<num>;
+    int i(num x) => x is int ? x : (x.isFinite ? x.round() : 0);
+    return switch (f) {
+      LslFormat.double64 =>
+        data is Float64List
+            ? data
+            : Float64List.fromList([for (final x in v) x.toDouble()]),
+      LslFormat.int8 =>
+        data is Int8List ? data : Int8List.fromList([for (final x in v) i(x)]),
+      LslFormat.int16 =>
+        data is Int16List
+            ? data
+            : Int16List.fromList([for (final x in v) i(x)]),
+      LslFormat.int32 =>
+        data is Int32List
+            ? data
+            : Int32List.fromList([for (final x in v) i(x)]),
+      LslFormat.int64 =>
+        data is Int64List
+            ? data
+            : Int64List.fromList([for (final x in v) i(x)]),
+      _ =>
+        data is Float32List
+            ? data
+            : Float32List.fromList([for (final x in v) x.toDouble()]),
+    };
   }
 
   @override
   Future<void> pushStrings(List<String> values, List<double> times) {
     if (_closed || values.isEmpty) return Future.value();
+    final ch = spec.channelCount;
     return _then(
       () => _outlet.pushChunk([
-        for (final v in values) [v],
+        for (var i = 0; i < times.length; i++)
+          values.sublist(i * ch, (i + 1) * ch),
       ], timestamps: times),
     );
   }

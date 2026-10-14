@@ -189,6 +189,6 @@ void main() {
     final messages = await old.toList();
     expect(messages, isEmpty);
     expect(old.closeCode, 4002);
-    expect(old.closeReason, contains('protocol 2'));
+    expect(old.closeReason, contains('protocol 3'));
   });
 }

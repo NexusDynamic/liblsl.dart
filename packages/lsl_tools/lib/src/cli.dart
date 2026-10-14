@@ -594,14 +594,13 @@ class _Publish extends _Base {
           s,
           const LslInletOptions(clockSync: false, dejitter: false),
         );
-        final strings = s.format.isString;
         final outlet = await client.publish(
           LslOutletSpec(
             name: s.name,
             type: s.type,
-            channelCount: strings ? 1 : s.channelCount,
+            channelCount: s.channelCount,
             rate: s.rate,
-            format: strings ? LslFormat.string : LslFormat.float32,
+            format: s.format.outletFormat,
             sourceId: s.sourceId,
             channels: inlet.channels,
           ),
@@ -652,15 +651,10 @@ class _Publish extends _Base {
           final c = await inlet.pull(4096);
           if (c.length == 0) continue;
           if (c.strings != null) {
-            final ch = inlet.stream.channelCount;
-            await outlet.pushStrings([
-              for (var i = 0; i < c.length; i++) c.strings![i * ch],
-            ], c.times);
+            await outlet.pushStrings(c.strings!, c.times);
           } else {
             await outlet.push(
-              c.values is Float32List
-                  ? c.values! as Float32List
-                  : Float32List.fromList(c.values!),
+              c.typed ?? Float64List.fromList(c.values!),
               c.times,
             );
           }

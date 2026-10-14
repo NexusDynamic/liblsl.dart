@@ -1,3 +1,18 @@
+## 0.3.0
+
+- Bridge protocol 3: values travel in the stream's own channel format
+  (float32, double64, int8/16/32/64, string) instead of always as float32,
+  and every channel of a string stream reaches the outlets at the far end.
+  `int64` is exact to 2^53 where ints are JavaScript numbers (web).
+  Clients and bridges of protocol 2 are refused.
+- Bridged, relayed and published streams become LSL outlets in their
+  original format and channel count.
+- `LslOutlet.push` takes any numeric `TypedData` (converted to the outlet's
+  format); `pushStrings` takes `channelCount` strings per sample.
+- `LslChunk.typed`: the values in the stream's own format, if known.
+- Outlets are created in `LslOutletSpec.format` (it was always float32 or
+  string).
+
 ## 0.2.1
 
 - Requires `liblsl` ^1.1.2.

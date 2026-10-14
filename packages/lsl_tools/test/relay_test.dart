@@ -96,6 +96,55 @@ void main() {
     await expectLater(inlet.pull(10), throwsStateError);
   });
 
+  test('values keep their stream\'s format through a relay', () async {
+    final a = await LslBridgeClient.connect(url, token: 'k');
+    final b = await LslBridgeClient.connect(url, token: 'k');
+    addTearDown(a.close);
+    addTearDown(b.close);
+    LslOutletSpec spec(String name, LslFormat format, int channels) =>
+        LslOutletSpec(
+          name: name,
+          type: 'Test',
+          channelCount: channels,
+          rate: 0,
+          format: format,
+          sourceId: 'relay_$name',
+        );
+    final doubles = await a.publish(spec('doubles', LslFormat.double64, 2));
+    final longs = await a.publish(spec('longs', LslFormat.int64, 1));
+    final words = await a.publish(spec('words', LslFormat.string, 3));
+    await _until(() => b.streams.length == 3, 'the streams');
+    BridgeStream named(String n) =>
+        b.streams.singleWhere((s) => s.description.name == n);
+    expect(named('doubles').description.format, LslFormat.double64);
+    expect(named('longs').description.format, LslFormat.int64);
+    expect(named('words').description.channelCount, 3);
+    final inlets = {
+      for (final n in ['doubles', 'longs', 'words']) n: b.open(named(n)),
+    };
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+
+    final t = Float64List.fromList([lsl.clock()]);
+    const d = [1 / 3, -1e-300];
+    const big = (1 << 60) + 1;
+    await doubles.push(Float64List.fromList(d), t);
+    await longs.push(Int64List.fromList([big]), t);
+    await words.pushStrings(['x', 'y', 'z'], t);
+
+    final got = <String, LslChunk>{};
+    await _until(() {
+      for (final MapEntry(:key, :value) in inlets.entries) {
+        value.pull(10).then((c) {
+          if (c.length > 0) got[key] = c;
+        });
+      }
+      return got.length == 3;
+    }, 'samples');
+    expect(got['doubles']!.values, d);
+    expect(got['longs']!.typed, [big]);
+    expect(got['words']!.strings, ['x', 'y', 'z']);
+  });
+
   test('a client leaving takes its streams with it', () async {
     final a = await LslBridgeClient.connect(url, token: 'k');
     final b = await LslBridgeClient.connect(url, token: 'k');

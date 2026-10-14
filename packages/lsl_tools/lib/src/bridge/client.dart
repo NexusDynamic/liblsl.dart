@@ -280,9 +280,9 @@ class LslBridgeClient {
     );
   }
 
-  void _send(int id, LslChunk chunk, int channels) {
+  void _send(int id, LslChunk chunk, int channels, LslFormat format) {
     if (_closed) return;
-    _channel.sink.add(encodeSamples(id, chunk, channels));
+    _channel.sink.add(encodeSamples(id, chunk, channels, format));
   }
 
   void _unpublish(int id) {
@@ -376,16 +376,7 @@ class _BridgeInlet implements LslInlet {
     final received = c.received;
     if (received != null) _latency.add(received - mapped.last);
     _smoother?.smoothAll(mapped);
-    _buffer.add(
-      options.clockSync
-          ? LslChunk(
-              mapped,
-              values: c.values,
-              strings: c.strings,
-              received: received,
-            )
-          : c,
-    );
+    _buffer.add(options.clockSync ? c.retimed(mapped) : c);
     _buffered += c.length;
     while (_buffered > _max && _buffer.length > 1) {
       _buffered -= _buffer.removeAt(0).length;
@@ -477,9 +468,14 @@ class BridgeOutlet implements LslOutlet {
   }
 
   @override
-  Future<void> push(Float32List values, Float64List times) async {
+  Future<void> push(TypedData values, Float64List times) async {
     if (_closed || times.isEmpty) return;
-    _client._send(_id, LslChunk(times, values: values), spec.channelCount);
+    _client._send(
+      _id,
+      LslChunk(times, typed: values),
+      spec.channelCount,
+      spec.format,
+    );
   }
 
   @override
@@ -488,7 +484,8 @@ class BridgeOutlet implements LslOutlet {
     _client._send(
       _id,
       LslChunk(Float64List.fromList(times), strings: values),
-      1,
+      spec.channelCount,
+      LslFormat.string,
     );
   }
 

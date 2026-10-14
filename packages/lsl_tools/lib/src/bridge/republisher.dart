@@ -169,9 +169,9 @@ class LslBridgeRepublisher {
           LslOutletSpec(
             name: '${d.name}$suffix',
             type: d.type,
-            channelCount: d.format.isString ? 1 : d.channelCount,
+            channelCount: d.channelCount,
             rate: d.rate,
-            format: d.format.isString ? LslFormat.string : LslFormat.float32,
+            format: d.format.outletFormat,
             sourceId: 'bridge:${d.sourceId.isEmpty ? d.name : d.sourceId}',
             channels: s.channels,
             desc: {
@@ -204,15 +204,10 @@ class LslBridgeRepublisher {
         if (c.length == 0) continue;
         sent += c.length;
         if (c.strings != null) {
-          final ch = inlet.stream.channelCount;
-          await outlet.pushStrings([
-            for (var i = 0; i < c.length; i++) c.strings![i * ch],
-          ], c.times);
+          await outlet.pushStrings(c.strings!, c.times);
         } else {
           await outlet.push(
-            c.values is Float32List
-                ? c.values! as Float32List
-                : Float32List.fromList(c.values!),
+            c.typed ?? Float64List.fromList(c.values!),
             c.times,
           );
         }

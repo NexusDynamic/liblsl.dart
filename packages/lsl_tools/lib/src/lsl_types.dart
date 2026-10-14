@@ -16,6 +16,10 @@ enum LslFormat {
   undefined;
 
   bool get isString => this == string;
+
+  /// The format an outlet of this format is made with: [undefined] has no
+  /// outlet of its own, so it is float32.
+  LslFormat get outletFormat => this == undefined ? float32 : this;
 }
 
 /// A stream found on the network.
@@ -84,15 +88,34 @@ class LslChunk {
   /// (so double and integer values keep their precision).
   final List<double>? values;
 
+  /// The same values in the stream's own format, if known (an [Int64List]
+  /// for an int64 stream...), so that passing them on loses nothing.
+  final TypedData? typed;
+
   /// `times.length * channelCount` strings (string streams).
   final List<String>? strings;
 
   /// This computer's LSL clock when the samples arrived here, if known.
   final double? received;
 
-  const LslChunk(this.times, {this.values, this.strings, this.received});
+  const LslChunk(
+    this.times, {
+    this.values,
+    this.typed,
+    this.strings,
+    this.received,
+  });
 
   int get length => times.length;
+
+  /// The same samples with time stamps [times].
+  LslChunk retimed(Float64List times) => LslChunk(
+    times,
+    values: values,
+    typed: typed,
+    strings: strings,
+    received: received,
+  );
 
   static final empty = LslChunk(Float64List(0));
 }
@@ -180,7 +203,8 @@ class LslOutletSpec {
   /// Hz, or 0 for irregular.
   final double rate;
 
-  /// [LslFormat.float32] or [LslFormat.string].
+  /// The channel format. Numeric values pushed in another format are
+  /// converted to it.
   final LslFormat format;
   final String sourceId;
   final List<LslChannel> channels;
@@ -205,11 +229,14 @@ abstract class LslOutlet {
   LslOutletSpec get spec;
 
   /// Push `times.length` samples from [values] (sample-major), stamped with
-  /// [times] on the LSL clock.
-  Future<void> push(Float32List values, Float64List times);
+  /// [times] on the LSL clock. [values] is any numeric typed list
+  /// ([Float32List], [Float64List], [Int32List]...); values in another
+  /// format than [LslOutletSpec.format] are converted to it.
+  Future<void> push(TypedData values, Float64List times);
 
-  /// Push samples of a single-channel string stream: [values][i] stamped
-  /// with [times][i] on the LSL clock.
+  /// Push `times.length` samples of a string stream from [values]
+  /// (sample-major, `channelCount` per sample), stamped with [times] on the
+  /// LSL clock.
   Future<void> pushStrings(List<String> values, List<double> times);
 
   Future<bool> hasConsumers();
