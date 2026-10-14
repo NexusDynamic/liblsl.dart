@@ -313,7 +313,7 @@ class _TimingStreamSource implements StreamSource {
     if (window == null) return null;
     final (columns, start) = window;
     return SignalWindow(start, info.rate, [
-      for (final c in columns) Float32List.fromList(c),
+      for (final c in columns) Float64List.fromList(c),
     ]);
   }
 
@@ -322,7 +322,7 @@ class _TimingStreamSource implements StreamSource {
     final times = _series.times;
     if (times == null) return EventSamples.empty;
     return EventSamples(times, [
-      for (final c in _columns) Float32List.fromList(c),
+      for (final c in _columns) Float64List.fromList(c),
     ]);
   }
 }

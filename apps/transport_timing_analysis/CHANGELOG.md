@@ -1,3 +1,7 @@
+## Unreleased
+
+- Minor, display 64 bit values in plotted traces (data is unaffected)
+
 ## 2.0.3
 
 - Values are kept as recorded instead of as 32-bit floats.
