@@ -1,3 +1,8 @@
+## 0.3.0
+
+- Requires `lsl_tools` ^0.3.0 (bridge protocol 3: values keep their
+  format; `LslOutlet.push` takes any numeric `TypedData`).
+
 ## 0.2.1
 
 - Requires `lsl_tools` ^0.2.1.

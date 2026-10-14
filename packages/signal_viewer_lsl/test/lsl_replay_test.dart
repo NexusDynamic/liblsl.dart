@@ -18,8 +18,8 @@ class _Outlet implements LslOutlet {
   _Outlet(this.spec);
 
   @override
-  Future<void> push(Float32List values, Float64List times) async {
-    this.values.addAll(values);
+  Future<void> push(TypedData values, Float64List times) async {
+    this.values.addAll((values as List<num>).map((v) => v.toDouble()));
     this.times.addAll(times);
   }
 
