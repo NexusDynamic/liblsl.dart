@@ -1,3 +1,14 @@
+# 1.2.0
+
+- The types that do not require FFI (`LSLChannelFormat`, `LSLContentType`,
+  `LSLChunk`, `LSLChunkTyped`, `LSLSample`, `LSLTimedSample`,
+  `LSLTimedChunk`, `LSLBacklog`, `LSLTimeCorrection`, `LSLStreamProperty`,
+  the exceptions, `LSLApiConfig` and `runPreciseInterval*`) moved to the new
+  `lsl_core` package for reuse in web projects.
+  `package:liblsl/lsl.dart` api stays the same. The FFI side
+  (`LSLChannelFormat.lslFormat`, `ffiType`, `dartType`,
+  `LSLContentType.charPtr`) are now exported extensions.
+
 # 1.1.3
 
 - liblsl updated (3d1adcff). Fix support for locales with a comma decimal

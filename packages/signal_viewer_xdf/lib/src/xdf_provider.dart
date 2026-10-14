@@ -13,5 +13,6 @@ class XdfProvider extends SourceProvider {
     file.spec,
     path: file.path,
     cacheBytes: app.prefs.cacheMb << 20,
+    precision: app.prefs.samplePrecision,
   );
 }

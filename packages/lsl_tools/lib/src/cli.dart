@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:args/command_runner.dart';
@@ -753,13 +752,14 @@ class _Replay extends _Base {
           LslOutletSpec(
             name: i.name,
             type: i.type,
-            channelCount: i.format.isString ? 1 : i.channelCount,
+            // As recorded: the same format, every channel.
+            channelCount: i.channelCount,
             rate: s.regular ? i.nominalRate : 0,
-            format: i.format.isString ? LslFormat.string : LslFormat.float32,
+            format: i.format.outletFormat,
             sourceId: 'replay:${i.sourceId.isEmpty ? i.name : i.sourceId}',
             channels: [
-              for (var c = 0; c < (i.format.isString ? 1 : i.channelCount); c++)
-                LslChannel(i.label(c), unit: i.unit(c)),
+              for (var c = 0; c < i.channelCount; c++)
+                LSLChannel(i.label(c), unit: i.unit(c)),
             ],
           ),
           const LslOutletOptions(),
@@ -784,16 +784,19 @@ class _Replay extends _Base {
     return 0;
   }
 
-  /// Send the whole file once, in real time.
+  /// Send the whole file once, in real time, exactly as recorded.
   Future<void> _play(
     XdfFile file,
     List<LslOutlet> outlets,
     bool Function() stopped,
   ) async {
     final start = lsl.clock();
-    final pushed = [for (final _ in file.streams) 0.0];
-    final nextEvent = [for (final _ in file.streams) 0];
-    const block = 0.05;
+    const block = 0.05, ahead = 1.0;
+    // Per stream: samples read ahead, the next of them to send, and up to
+    // when they were read.
+    final read = [for (final _ in file.streams) LslChunk.empty];
+    final next = [for (final _ in file.streams) 0];
+    final readTo = [for (final _ in file.streams) 0.0];
     for (var t = 0.0; t < file.duration + block && !stopped(); t += block) {
       final wait = start + t - lsl.clock();
       if (wait > 0) {
@@ -802,66 +805,31 @@ class _Replay extends _Base {
         );
       }
       for (final s in file.streams) {
-        final o = outlets[s.slot];
-        if (s.regular) {
-          final from = math.max(pushed[s.slot], s.t0);
-          final to = math.min(t + block, s.t1);
-          if (to <= from) continue;
-          final w = await file.read(
-            ReadRequest(
-              channels: [
-                for (var c = 0; c < s.channelCount; c++) ChannelRef(s.slot, c),
-              ],
-              t0: from,
-              t1: to,
-            ),
-          );
-          pushed[s.slot] = to;
-          final n = w.length;
-          if (n == 0) continue;
-          final ch = s.channelCount;
-          final values = Float32List(n * ch);
-          final times = Float64List(n);
-          var k = 0;
-          for (var i = 0; i < n; i++) {
-            if (w.channels[0][i].isNaN) continue;
-            for (var c = 0; c < ch; c++) {
-              values[k * ch + c] = w.channels[c][i];
-            }
-            times[k++] = start + w.start + i / w.samplingRate;
-          }
-          if (k > 0) {
-            await o.push(
-              Float32List.sublistView(values, 0, k * ch),
-              Float64List.sublistView(times, 0, k),
-            );
-          }
+        final k = s.slot;
+        if (next[k] >= read[k].length && readTo[k] < t + block) {
+          read[k] = await file.exactSamples(k, readTo[k], readTo[k] + ahead);
+          next[k] = 0;
+          readTo[k] += ahead;
+        }
+        final c = read[k];
+        final a = next[k];
+        var z = a;
+        while (z < c.length && c.times[z] < t + block) {
+          z++;
+        }
+        if (z == a) continue;
+        next[k] = z;
+        final times = Float64List(z - a);
+        for (var i = a; i < z; i++) {
+          times[i - a] = start + c.times[i];
+        }
+        final ch = s.channelCount;
+        final o = outlets[k];
+        if (c.strings != null) {
+          await o.pushStrings(c.strings!.sublist(a * ch, z * ch), times);
         } else {
-          final e = file.events(s.slot);
-          final times = <double>[];
-          final strings = <String>[];
-          final values = <double>[];
-          while (nextEvent[s.slot] < e.length &&
-              e.times[nextEvent[s.slot]] < t + block) {
-            final i = nextEvent[s.slot]++;
-            times.add(start + e.times[i]);
-            if (e.strings != null) {
-              strings.add(e.strings![0][i]);
-            } else {
-              for (final c in e.channels) {
-                values.add(c[i]);
-              }
-            }
-          }
-          if (times.isEmpty) continue;
-          if (e.strings != null) {
-            await o.pushStrings(strings, times);
-          } else {
-            await o.push(
-              Float32List.fromList(values),
-              Float64List.fromList(times),
-            );
-          }
+          final data = c.typed ?? Float64List.fromList(c.values!);
+          await o.push(sliceTyped(data, a * ch, z * ch), times);
         }
       }
     }
@@ -940,7 +908,7 @@ class _Cyton extends _Base {
         channelCount: n,
         rate: board.rate,
         sourceId: source,
-        channels: [for (final l in labels) LslChannel(l, unit: 'microvolts')],
+        channels: [for (final l in labels) LSLChannel(l, unit: 'microvolts')],
         desc: {
           'acquisition': {
             'manufacturer': 'OpenBCI',
@@ -958,9 +926,9 @@ class _Cyton extends _Base {
         rate: board.rate,
         sourceId: '$source:accel',
         channels: const [
-          LslChannel('x', unit: 'g'),
-          LslChannel('y', unit: 'g'),
-          LslChannel('z', unit: 'g'),
+          LSLChannel('x', unit: 'g'),
+          LSLChannel('y', unit: 'g'),
+          LSLChannel('z', unit: 'g'),
         ],
       ),
       const LslOutletOptions(),

@@ -24,12 +24,16 @@ void main() {
         name: 'Big',
         channelCount: 2,
         nominalRate: 1000,
-        format: XdfFormat.int64,
+        format: LSLChannelFormat.int64,
       ),
     );
     w.addStream(
       2,
-      XdfStreamInfo(name: 'M', channelCount: 1, format: XdfFormat.string),
+      XdfStreamInfo(
+        name: 'M',
+        channelCount: 1,
+        format: LSLChannelFormat.string,
+      ),
     );
     // Values beyond 32 bits, and negative ones.
     const big = 5000000000.0;

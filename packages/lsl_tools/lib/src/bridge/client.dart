@@ -280,7 +280,7 @@ class LslBridgeClient {
     );
   }
 
-  void _send(int id, LslChunk chunk, int channels, LslFormat format) {
+  void _send(int id, LslChunk chunk, int channels, LSLChannelFormat format) {
     if (_closed) return;
     _channel.sink.add(encodeSamples(id, chunk, channels, format));
   }
@@ -394,7 +394,7 @@ class _BridgeInlet implements LslInlet {
   LslStreamDescription get stream => bridged.description;
 
   @override
-  List<LslChannel> get channels => bridged.channels;
+  List<LSLChannel> get channels => bridged.channels;
 
   @override
   String get fullXml => bridged.xml;
@@ -405,12 +405,12 @@ class _BridgeInlet implements LslInlet {
   /// Zero with clock sync (time stamps arrive on this computer's clock
   /// already), else the whole way's offset at the latest sample.
   @override
-  Future<LslTimeCorrection> timeCorrectionEx() async {
-    if (options.clockSync) return LslTimeCorrection.zero;
+  Future<LSLTimeCorrection> timeCorrectionEx() async {
+    if (options.clockSync) return LSLTimeCorrection.zero;
     final at = _lastTime;
     if (!_mappable || at == null) throw StateError('No clock offset yet');
     final chain = await this.chain();
-    return LslTimeCorrection(
+    return LSLTimeCorrection(
       offset: chain.offsetAt(at),
       uncertainty: chain.uncertainty,
       remoteTime: at,
@@ -485,7 +485,7 @@ class BridgeOutlet implements LslOutlet {
       _id,
       LslChunk(Float64List.fromList(times), strings: values),
       spec.channelCount,
-      LslFormat.string,
+      LSLChannelFormat.string,
     );
   }
 

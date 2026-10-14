@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
 
 import 'package:xdf/xdf.dart';
 
@@ -169,18 +168,23 @@ class LslRecorder {
     for (final s in streams) {
       if (s.error != null) continue;
       try {
-        while (true) {
-          final max = math.max(256, (s.stream.rate * 2).ceil());
-          final c = await s.inlet.pull(max);
-          if (c.length == 0) break;
+        final max = pullCapacity(
+          s.stream.rate,
+          const Duration(seconds: 2),
+          min: 256,
+        );
+        s.samples += await drainInlet(s.inlet, max, (c) {
           if (c.strings != null) {
             _writer.writeStrings(s.id, c.times, c.strings!);
           } else {
-            _writer.writeSamples(s.id, c.times, c.values!);
+            // In the stream's own format where known, so nothing is lost.
+            _writer.writeSamples(
+              s.id,
+              c.times,
+              (c.typed as List<num>?) ?? c.values!,
+            );
           }
-          s.samples += c.length;
-          if (c.length < max) break;
-        }
+        });
       } catch (e) {
         s.error = '$e';
       }

@@ -200,8 +200,10 @@ class SignalWindow {
   final double start;
   final double samplingRate;
 
-  /// Per output channel, like [Envelope.min].
-  final List<Float32List> channels;
+  /// Per output channel, like [Envelope.min]: the samples as the source
+  /// has them (64-bit), or 32-bit for a source opened with
+  /// [SamplePrecision.compact].
+  final List<List<double>> channels;
 
   const SignalWindow(this.start, this.samplingRate, this.channels);
 

@@ -9,6 +9,7 @@
 /// Pure Dart; works on all platforms, including the web.
 library;
 
+export 'package:lsl_core/lsl_core.dart' show LSLChannelFormat, LSLChannel;
 export 'src/chunks.dart';
 export 'src/format.dart';
 export 'src/load.dart';

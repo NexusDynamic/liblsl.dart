@@ -6,21 +6,9 @@ import 'package:liblsl/src/lsl/base.dart';
 import 'package:liblsl/src/lsl/exception.dart';
 import 'package:liblsl/src/lsl/stream_info.dart';
 import 'package:liblsl/src/ffi/mem.dart';
+import 'package:lsl_core/lsl_core.dart' show LSLStreamProperty;
 
-/// Represents a property of an LSL stream that can be used for filtering.
-/// This enum is used in [LSLStreamResolver] to filter streams by their
-/// properties.
-enum LSLStreamProperty {
-  name(lslName: 'name'),
-  type(lslName: 'type'),
-  channelCount(lslName: 'channel_count'),
-  channelFormat(lslName: 'channel_format'),
-  sourceId(lslName: 'source_id'),
-  sampleRate(lslName: 'nominal_srate');
-
-  const LSLStreamProperty({required this.lslName});
-  final String lslName;
-}
+export 'package:lsl_core/lsl_core.dart' show LSLStreamProperty;
 
 /// The standard resolver for LSL streams.
 class LSLStreamResolver extends LSLObj {

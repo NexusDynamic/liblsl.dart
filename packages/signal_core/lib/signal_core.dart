@@ -11,6 +11,7 @@ export 'src/dsp/sos.dart';
 export 'src/engine/chunked_engine.dart';
 export 'src/engine/chunked_index.dart';
 export 'src/io/byte_source.dart';
+export 'src/precision.dart';
 export 'src/pyramid.dart';
 export 'src/requests.dart';
 export 'src/util/list_prefix.dart';

@@ -628,6 +628,20 @@ class _MainWindowState extends State<MainWindow> {
                           fontSize: 13,
                         ),
                       ),
+                      if (t.session.precisionWarning(t.group.info)
+                          case final warning?)
+                        Padding(
+                          padding: const EdgeInsets.only(left: 6),
+                          child: Tooltip(
+                            message: warning,
+                            child: Icon(
+                              Icons.warning_amber,
+                              size: 14,
+                              color: theme.colorScheme.error,
+                              semanticLabel: warning,
+                            ),
+                          ),
+                        ),
                       IconButton(
                         iconSize: touchPlatform ? 18 : 14,
                         visualDensity: touchPlatform
@@ -921,6 +935,18 @@ class _MainWindowState extends State<MainWindow> {
             SizedBox(
               width: 120,
               child: LinearProgressIndicator(value: progress),
+            ),
+            const SizedBox(width: 8),
+          ],
+          if (prefs.compactSamples) ...[
+            Tooltip(
+              message:
+                  'Recordings opened now keep about 7 significant digits '
+                  '(Preferences > Memory).',
+              child: Text(
+                'Samples stored as 32-bit floats',
+                style: theme.textTheme.bodySmall,
+              ),
             ),
             const SizedBox(width: 8),
           ],

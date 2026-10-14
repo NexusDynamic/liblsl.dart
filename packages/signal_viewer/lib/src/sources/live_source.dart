@@ -102,7 +102,7 @@ class LiveStreamSource implements StreamSource {
     if (w == null) return null;
     final (cols, start) = w;
     return SignalWindow(start, info.rate, [
-      for (final c in cols) Float32List.fromList(c),
+      for (final c in cols) Float64List.fromList(c),
     ]);
   }
 

@@ -1,3 +1,7 @@
+## 1.2.1
+
+- Requires `liblsl` ^1.2.0.
+
 ## 1.2.0
 
 - Updated to liblsl (upstream) 118

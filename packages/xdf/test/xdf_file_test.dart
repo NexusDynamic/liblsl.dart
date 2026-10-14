@@ -58,7 +58,7 @@ Future<Uint8List> _recording() async {
       nominalRate: 500,
       channels: [
         for (final l in ['Fz', 'Cz', 'Pz', 'Oz'])
-          XdfChannel(label: l, unit: 'microvolts'),
+          LSLChannel(l, unit: 'microvolts'),
       ],
     ),
   );
@@ -69,7 +69,7 @@ Future<Uint8List> _recording() async {
       type: 'Accelerometer',
       channelCount: 3,
       nominalRate: 100,
-      format: XdfFormat.double64,
+      format: LSLChannelFormat.double64,
     ),
   );
   w.addStream(
@@ -78,7 +78,7 @@ Future<Uint8List> _recording() async {
       name: 'Markers',
       type: 'Markers',
       channelCount: 1,
-      format: XdfFormat.string,
+      format: LSLChannelFormat.string,
     ),
   );
   final rng = math.Random(3);

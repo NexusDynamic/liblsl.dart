@@ -175,6 +175,13 @@ class LslSession extends SourceSession implements LiveData {
   bool decodable(StreamInfo info) => !inlet.stream.format.isString;
 
   @override
+  String? precisionWarning(StreamInfo info) =>
+      inlet.stream.format == LSLChannelFormat.int64 && !exactInt64
+      ? 'This stream sends 64-bit integers: a browser shows them exactly '
+            'only up to ±2^53. Use the desktop app for exact values.'
+      : null;
+
+  @override
   StreamSource sourceFor(StreamInfo info) => LiveStreamSource(this, info);
 
   /// No data for a while (the sender stopped or is gone).

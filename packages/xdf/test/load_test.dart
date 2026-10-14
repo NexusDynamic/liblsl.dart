@@ -106,11 +106,11 @@ void main() {
     expect(eeg.info.type, 'EEG');
     expect(eeg.info.channelCount, 3);
     expect(eeg.info.nominalRate, 10);
-    expect(eeg.info.format, XdfFormat.int16);
+    expect(eeg.info.format, LSLChannelFormat.int16);
     expect(eeg.footer!.sampleCount, 9);
     expect(eeg.footer!.clockOffsets, hasLength(2));
     expect(eeg.info.label(0), 'ch1');
     final markers = rec.stream('SendDataString')!;
-    expect(markers.info.format, XdfFormat.string);
+    expect(markers.info.format, LSLChannelFormat.string);
   });
 }

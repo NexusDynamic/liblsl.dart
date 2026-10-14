@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'package:lsl_core/lsl_core.dart' show LslChunk, asDoubles, typedListFor;
 import 'package:signal_core/signal_core.dart';
 import 'package:xml/xml.dart';
 
@@ -40,6 +41,11 @@ class XdfFileOptions {
   /// Clock synchronisation and dejittering (pyxdf's defaults).
   final XdfSyncOptions sync;
 
+  /// How sample values are kept: as the file has them (the default), or as
+  /// 32-bit floats to save memory. [XdfFile.exactSamples] is exact either
+  /// way.
+  final SamplePrecision precision;
+
   const XdfFileOptions({
     this.readBytes = _isWeb ? 1 << 20 : 4 << 20,
     this.cacheBytes = _isWeb ? 256 << 20 : 512 << 20,
@@ -49,6 +55,7 @@ class XdfFileOptions {
         ? const Duration(milliseconds: 12)
         : const Duration(milliseconds: 50),
     this.sync = const XdfSyncOptions(),
+    this.precision = SamplePrecision.exact,
   });
 }
 
@@ -161,8 +168,16 @@ class XdfStreamIndex implements StreamTiming, XdfStreamView {
   // -- irregular streams ------------------------------------------------------
 
   Float64List _times = Float64List(0);
-  List<Float32List> _values = const [];
+
+  /// Numeric values, sample after sample, in the stream's own format.
+  TypedData? _raw;
   List<List<String>>? _strings;
+
+  /// Whether some int64 value could not be held exactly as a double (beyond
+  /// ±2^53): views of the stream show it rounded. [XdfFile.exactSamples]
+  /// has it exactly where ints are 64-bit (not on the web).
+  @override
+  bool roundedValues = false;
 
   /// Samples read so far.
   @override
@@ -187,8 +202,9 @@ class XdfStreamIndex implements StreamTiming, XdfStreamView {
       _times = Float64List(64);
       if (info.format.isString) {
         _strings = [for (var c = 0; c < info.channelCount; c++) <String>[]];
+      } else {
+        _raw = typedListFor(info.format, 64 * info.channelCount);
       }
-      _values = [for (var c = 0; c < info.channelCount; c++) Float32List(64)];
     }
   }
 
@@ -311,25 +327,33 @@ class XdfStreamIndex implements StreamTiming, XdfStreamView {
 
   void _addIrregular(
     double t,
-    List<double>? values,
+    TypedData? values,
     int offset, [
     List<String>? text,
   ]) {
     final n = sampleCount;
+    final ch = info.channelCount;
     if (n == _times.length) {
       _times = Float64List(n * 2)..setRange(0, n, _times);
-      _values = [
-        for (final v in _values) Float32List(n * 2)..setRange(0, n, v),
-      ];
+      final raw = _raw;
+      if (raw != null) {
+        final grown = typedListFor(info.format, n * 2 * ch);
+        (grown as List<num>).setRange(0, n * ch, raw as List<num>);
+        _raw = grown;
+      }
     }
     _times[n] = t;
-    for (var c = 0; c < _values.length; c++) {
-      if (text != null) {
+    if (text != null) {
+      for (var c = 0; c < ch; c++) {
         _strings![c].add(text[offset + c]);
-        _values[c][n] = double.tryParse(text[offset + c]) ?? double.nan;
-      } else {
-        _values[c][n] = values![offset + c];
       }
+    } else {
+      (_raw! as List<num>).setRange(
+        n * ch,
+        (n + 1) * ch,
+        values! as List<num>,
+        offset,
+      );
     }
     sampleCount = n + 1;
   }
@@ -668,7 +692,15 @@ class XdfIndexer implements ChunkedSignalIndex {
 
   void _samples(XdfStreamIndex s, int offset, Uint8List content) {
     final info = s.info;
-    final samples = readSamples(content, info.format, info.channelCount);
+    // Irregular streams are kept in their own format; regular ones are
+    // summarised (as doubles) and decoded again when viewed.
+    final samples = readSamples(
+      content,
+      info.format,
+      info.channelCount,
+      exact: !s.regular,
+      onInexact: () => s.roundedValues = true,
+    );
     final ts = samples.timestamps;
     final previous = s.regular
         ? s._lastRaw
@@ -677,7 +709,7 @@ class XdfIndexer implements ChunkedSignalIndex {
     final ch = info.channelCount;
     if (!s.regular) {
       for (var i = 0; i < samples.length; i++) {
-        s._addIrregular(ts[i], samples.values, i * ch, samples.strings);
+        s._addIrregular(ts[i], samples.typed, i * ch, samples.strings);
       }
       return;
     }
@@ -721,7 +753,7 @@ class XdfIndexer implements ChunkedSignalIndex {
     final samples = readSamples(bytes, s.info.format, ch);
     final n = chunk.ordinals;
     final cols = [
-      for (var c = 0; c < ch; c++) Float32List(n)..fillRange(0, n, double.nan),
+      for (var c = 0; c < ch; c++) options.precision.column(n, double.nan),
     ];
     final values = samples.values!;
     for (var i = 0; i < samples.length; i++) {
@@ -743,8 +775,9 @@ class XdfEvents {
   /// Times from the start of the recording.
   final Float64List times;
 
-  /// Values per channel; NaN for strings that are not numbers.
-  final List<Float32List> channels;
+  /// Values per channel (64-bit unless the file was opened with
+  /// [SamplePrecision.compact]); NaN for strings that are not numbers.
+  final List<List<double>> channels;
 
   /// Strings per channel, for string streams.
   final List<List<String>>? strings;
@@ -785,6 +818,7 @@ class XdfFile extends ChunkedSignalEngine implements XdfRecordingSource {
         cacheBytes: options.cacheBytes,
         derivedCacheCount: options.derivedCacheCount,
         filteredCacheBytes: options.filteredCacheBytes,
+        precision: options.precision,
       );
 
   /// Open the file [spec] describes in a background isolate where there are
@@ -876,12 +910,102 @@ class XdfFile extends ChunkedSignalEngine implements XdfRecordingSource {
     for (var i = 0; i < n; i++) {
       times[i] = synced[i] - s._origin;
     }
+    final ch = s.channelCount;
+    final raw = s._raw as List<num>?;
+    final strings = s._strings;
+    final channels = [for (var c = 0; c < ch; c++) options.precision.column(n)];
+    for (var c = 0; c < ch; c++) {
+      final col = channels[c];
+      for (var i = 0; i < n; i++) {
+        col[i] = raw != null
+            ? raw[i * ch + c].toDouble()
+            : double.tryParse(strings![c][i]) ?? double.nan;
+      }
+    }
     return XdfEvents(
       times,
-      [for (final v in s._values) Float32List.sublistView(v, 0, n)],
-      s._strings == null
+      channels,
+      strings == null
           ? null
-          : [for (final t in s._strings!) List.unmodifiable(t.sublist(0, n))],
+          : [for (final t in strings) List.unmodifiable(t.sublist(0, n))],
+    );
+  }
+
+  /// The samples of stream [slot] from [t0] to [t1] (seconds from the start
+  /// of the recording) exactly as the file has them: values in the
+  /// stream's own format ([LslChunk.typed], an [Int64List] for int64...),
+  /// every channel of a string stream, and their times. A regular stream's
+  /// times are its grid's (as [read] places them), with no samples where it
+  /// has a gap; an irregular stream's are its synchronised time stamps.
+  @override
+  Future<LslChunk> exactSamples(int slot, double t0, double t1) async {
+    final s = _indexer.streams[slot];
+    final ch = s.channelCount;
+    if (!s.regular) {
+      final synced = s._synced();
+      var a = 0, z = 0;
+      for (var i = 0; i < s.sampleCount; i++) {
+        final t = synced[i] - s._origin;
+        if (t < t0) a = i + 1;
+        if (t < t1) z = i + 1;
+      }
+      z = math.max(a, z);
+      final times = Float64List(z - a);
+      for (var i = a; i < z; i++) {
+        times[i - a] = synced[i] - s._origin;
+      }
+      final strings = s._strings;
+      if (strings != null) {
+        return LslChunk(
+          times,
+          strings: [
+            for (var i = a; i < z; i++)
+              for (var c = 0; c < ch; c++) strings[c][i],
+          ],
+        );
+      }
+      final typed = typedListFor(s.info.format, (z - a) * ch);
+      (typed as List<num>).setRange(
+        0,
+        (z - a) * ch,
+        s._raw! as List<num>,
+        a * ch,
+      );
+      return LslChunk(times, typed: typed, values: asDoubles(typed));
+    }
+    final rate = s.samplingRate.toDouble();
+    final o0 = ((t0 - s.t0) * rate - 1e-6).ceil();
+    final o1 = ((t1 - s.t0) * rate - 1e-6).ceil();
+    final times = <double>[];
+    final values = <num>[];
+    for (final k in _indexer._chunksOf[slot] ?? const <int>[]) {
+      final c = _indexer.chunks[k];
+      if (c.firstOrdinal + c.ordinals <= o0) continue;
+      if (c.firstOrdinal >= o1) break;
+      final samples = readSamples(
+        await source.read(c.offset, c.length),
+        s.info.format,
+        ch,
+        exact: true,
+      );
+      final v = samples.typed! as List<num>;
+      for (var i = 0; i < samples.length; i++) {
+        final o = s.ordinalOf(c.firstIndex + i);
+        if (o < o0 || o >= o1) continue;
+        times.add(s.t0 + o / rate);
+        values.addAll(v.getRange(i * ch, (i + 1) * ch));
+      }
+    }
+    final typed = typedListFor(s.info.format, values.length);
+    final out = typed as List<num>;
+    final doubles = out is List<double>;
+    for (var i = 0; i < values.length; i++) {
+      out[i] = doubles ? values[i].toDouble() : values[i];
+    }
+    return LslChunk(
+      Float64List.fromList(times),
+      typed: typed,
+      values: asDoubles(typed),
     );
   }
 

@@ -1,18 +1,11 @@
+import 'package:lsl_core/lsl_core.dart';
 import 'package:xml/xml.dart';
 
-import 'format.dart';
-
 /// One channel as a stream header describes it (`desc/channels/channel`).
-class XdfChannel {
-  final String label;
-  final String unit;
-  final String type;
+@Deprecated('Use LSLChannel (package:lsl_core)')
+typedef XdfChannel = LSLChannel;
 
-  const XdfChannel({this.label = '', this.unit = '', this.type = ''});
-}
-
-String _text(XmlElement? e, String name) =>
-    e?.getElement(name)?.innerText.trim() ?? '';
+String _text(XmlElement? e, String name) => xmlField(e, name);
 
 double _double(XmlElement? e, String name) =>
     double.tryParse(_text(e, name)) ?? 0;
@@ -25,7 +18,7 @@ class XdfStreamInfo {
 
   /// Samples per second, or 0 for irregular streams (e.g. markers).
   final double nominalRate;
-  final XdfFormat format;
+  final LSLChannelFormat format;
   final String sourceId;
   final String hostname;
   final String uid;
@@ -35,7 +28,7 @@ class XdfStreamInfo {
   final double createdAt;
 
   /// The channels from `desc/channels`, if described.
-  final List<XdfChannel> channels;
+  final List<LSLChannel> channels;
 
   /// The whole `info` element, e.g. for other `desc` fields.
   final XmlElement xml;
@@ -57,31 +50,19 @@ class XdfStreamInfo {
 
   /// Parse a stream header's XML.
   factory XdfStreamInfo.parse(String xmlText) {
-    final doc = XmlDocument.parse(xmlText);
-    final info = doc.getElement('info') ?? doc.rootElement;
-    final desc = info.getElement('desc');
-    final channels = [
-      for (final c
-          in desc?.getElement('channels')?.findElements('channel') ??
-              const <XmlElement>[])
-        XdfChannel(
-          label: _text(c, 'label'),
-          unit: _text(c, 'unit'),
-          type: _text(c, 'type'),
-        ),
-    ];
+    final info = infoElement(xmlText);
     return XdfStreamInfo._(
       name: _text(info, 'name'),
       type: _text(info, 'type'),
       channelCount: int.tryParse(_text(info, 'channel_count')) ?? 0,
       nominalRate: _double(info, 'nominal_srate'),
-      format: XdfFormat.parse(_text(info, 'channel_format')),
+      format: LSLChannelFormat.parse(_text(info, 'channel_format')),
       sourceId: _text(info, 'source_id'),
       hostname: _text(info, 'hostname'),
       uid: _text(info, 'uid'),
       sessionId: _text(info, 'session_id'),
       createdAt: _double(info, 'created_at'),
-      channels: channels,
+      channels: channelsOf(info),
       xml: info,
     );
   }
@@ -92,55 +73,28 @@ class XdfStreamInfo {
     String type = '',
     required int channelCount,
     double nominalRate = 0,
-    XdfFormat format = XdfFormat.float32,
+    LSLChannelFormat format = LSLChannelFormat.float32,
     String sourceId = '',
     String hostname = '',
     String uid = '',
     String sessionId = '',
     double createdAt = 0,
-    List<XdfChannel> channels = const [],
-  }) {
-    final b = XmlBuilder();
-    b.element(
-      'info',
-      nest: () {
-        void field(String n, Object v) => b.element(n, nest: '$v');
-        field('name', name);
-        field('type', type);
-        field('channel_count', channelCount);
-        field('nominal_srate', nominalRate);
-        field('channel_format', format.name);
-        field('source_id', sourceId);
-        field('version', '1.1');
-        field('created_at', createdAt);
-        field('uid', uid);
-        field('session_id', sessionId);
-        field('hostname', hostname);
-        b.element(
-          'desc',
-          nest: () {
-            if (channels.isEmpty) return;
-            b.element(
-              'channels',
-              nest: () {
-                for (final c in channels) {
-                  b.element(
-                    'channel',
-                    nest: () {
-                      field('label', c.label);
-                      if (c.unit.isNotEmpty) field('unit', c.unit);
-                      if (c.type.isNotEmpty) field('type', c.type);
-                    },
-                  );
-                }
-              },
-            );
-          },
-        );
-      },
-    );
-    return XdfStreamInfo.parse(b.buildDocument().toXmlString());
-  }
+    List<LSLChannel> channels = const [],
+  }) => XdfStreamInfo.parse(
+    buildInfoXml(
+      name: name,
+      type: type,
+      channelCount: channelCount,
+      rate: nominalRate,
+      format: format,
+      sourceId: sourceId,
+      createdAt: createdAt,
+      uid: uid,
+      sessionId: sessionId,
+      hostname: hostname,
+      channels: channels,
+    ),
+  );
 
   bool get regular => nominalRate > 0;
 

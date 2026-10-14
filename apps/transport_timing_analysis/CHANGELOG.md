@@ -1,3 +1,8 @@
+## 2.0.3
+
+- Values are kept as recorded instead of as 32-bit floats.
+- Requires `signal_viewer` ^0.2.0 and `timing_core` ^0.2.1.
+
 ## 2.0.2
 
 - Add run summary statistics.

@@ -39,7 +39,7 @@ class RegularRing {
   final int channelCount;
   final double rate;
   final int capacity;
-  final List<Float32List> _data;
+  final List<List<double>> _data;
 
   /// Ordinal of the next sample.
   int written = 0;
@@ -52,12 +52,15 @@ class RegularRing {
 
   late final Float64List _last = Float64List(channelCount);
 
-  RegularRing(this.channelCount, this.rate)
-    : capacity = (rate * liveBufferS).ceil() + 1,
-      _data = List.generate(
-        channelCount,
-        (_) => Float32List((rate * liveBufferS).ceil() + 1),
-      );
+  RegularRing(
+    this.channelCount,
+    this.rate, {
+    SamplePrecision precision = SamplePrecision.exact,
+  }) : capacity = (rate * liveBufferS).ceil() + 1,
+       _data = List.generate(
+         channelCount,
+         (_) => precision.column((rate * liveBufferS).ceil() + 1),
+       );
 
   int get first => math.max(0, written - capacity);
 
@@ -122,8 +125,11 @@ class IrregularLog {
   /// Whether values are strings (LSL markers).
   final bool strings;
 
+  /// How values are kept.
+  final SamplePrecision precision;
+
   Float64List _times = Float64List(64);
-  List<Float32List> _values;
+  List<List<double>> _values;
   List<List<String>>? _text;
   int _start = 0, _end = 0;
 
@@ -131,7 +137,8 @@ class IrregularLog {
     this.channelCount, {
     this.keepS = double.infinity,
     this.strings = false,
-  }) : _values = List.generate(channelCount, (_) => Float32List(64)),
+    this.precision = SamplePrecision.exact,
+  }) : _values = List.generate(channelCount, (_) => precision.column(64)),
        _text = strings ? List.generate(channelCount, (_) => <String>[]) : null;
 
   int get length => _end - _start;
@@ -170,7 +177,7 @@ class IrregularLog {
     final cap = math.max(64, n * 2);
     _times = Float64List(cap)..setRange(0, n, _times, from);
     _values = [
-      for (final v in _values) Float32List(cap)..setRange(0, n, v, from),
+      for (final v in _values) precision.column(cap)..setRange(0, n, v, from),
     ];
     if (_text != null) {
       _text = [for (final t in _text!) t.sublist(from - _start)];
@@ -183,7 +190,7 @@ class IrregularLog {
     if (length == 0) return EventSamples.empty;
     return EventSamples(
       Float64List.sublistView(_times, _start, _end),
-      [for (final v in _values) Float32List.sublistView(v, _start, _end)],
+      [for (final v in _values) v.sublist(_start, _end)],
       text: _text == null
           ? null
           : [for (final t in _text!) UnmodifiableListView(t)],

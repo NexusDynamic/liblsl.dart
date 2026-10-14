@@ -149,7 +149,7 @@ class DataStreamInlet implements LslInlet {
   @override
   final LslStreamDescription stream;
   @override
-  final List<LslChannel> channels;
+  final List<LSLChannel> channels;
 
   late final StreamSubscription<IMessage> _sub;
   final TimestampSmoother? _smoother;
@@ -171,14 +171,14 @@ class DataStreamInlet implements LslInlet {
          type: type,
          channelCount: source.config.channels,
          rate: source.config.sampleRate,
-         format: LslFormat.values.byName(source.config.dataType.name),
+         format: LSLChannelFormat.values.byName(source.config.dataType.name),
          sourceId: 'peer:$from:${source.config.name}',
          hostname: from,
          uid: 'peer:$from:${source.config.name}',
        ),
        channels = [
          for (var c = 0; c < source.config.channels; c++)
-           LslChannel('ch${c + 1}'),
+           LSLChannel('ch${c + 1}'),
        ],
        _smoother = options.dejitter && source.config.sampleRate > 0
            ? TimestampSmoother(
@@ -223,21 +223,9 @@ class DataStreamInlet implements LslInlet {
   }
 
   @override
-  String get fullXml {
-    String text(String s) => s
-        .replaceAll('&', '&amp;')
-        .replaceAll('<', '&lt;')
-        .replaceAll('>', '&gt;');
-    return '<?xml version="1.0"?><info>'
-        '<name>${text(stream.name)}</name>'
-        '<type>${text(stream.type)}</type>'
-        '<channel_count>${stream.channelCount}</channel_count>'
-        '<nominal_srate>${stream.rate}</nominal_srate>'
-        '<channel_format>${stream.format.name}</channel_format>'
-        '<source_id>${text(stream.sourceId)}</source_id>'
-        '<hostname>${text(stream.hostname)}</hostname>'
-        '</info>';
-  }
+  String get fullXml =>
+      '<?xml version="1.0"?>'
+      '${buildInfoXml(name: stream.name, type: stream.type, channelCount: stream.channelCount, rate: stream.rate, format: stream.format, sourceId: stream.sourceId, hostname: stream.hostname, channels: channels)}';
 
   @override
   Future<LslChunk> pull(int maxSamples) async {
@@ -265,11 +253,11 @@ class DataStreamInlet implements LslInlet {
   /// Zero with clock sync, else the whole way's offset at the latest
   /// sample.
   @override
-  Future<LslTimeCorrection> timeCorrectionEx() async {
-    if (options.clockSync) return LslTimeCorrection.zero;
+  Future<LSLTimeCorrection> timeCorrectionEx() async {
+    if (options.clockSync) return LSLTimeCorrection.zero;
     final chain = await this.chain();
     final at = _timing!.sourceClock!;
-    return LslTimeCorrection(
+    return LSLTimeCorrection(
       offset: chain.offsetAt(at),
       uncertainty: chain.uncertainty,
       remoteTime: at,

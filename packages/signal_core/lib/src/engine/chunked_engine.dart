@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import '../dsp/sos.dart';
 import '../io/byte_source.dart';
+import '../precision.dart';
 import '../pyramid.dart';
 import '../requests.dart';
 import 'chunked_index.dart';
@@ -58,11 +59,15 @@ abstract class ChunkedSignalEngine {
   /// moves a little (scrolling) is not filtered again.
   final int filteredCacheBytes;
 
+  /// How samples read and filtered tiles kept are stored.
+  final SamplePrecision precision;
+
   ChunkedSignalEngine(
     this.source, {
     required this.cacheBytes,
     required this.derivedCacheCount,
     required this.filteredCacheBytes,
+    this.precision = SamplePrecision.exact,
   });
 
   /// The chunks, streams and summary pyramids of the recording.
@@ -79,8 +84,8 @@ abstract class ChunkedSignalEngine {
 
   // Filtered tiles of [_tileSize] group ordinals, see [_filtered].
   static const int _tileSize = 1 << 14;
-  final Map<String, List<Float32List>> _tiles = {};
-  final Map<String, Future<List<Float32List>>> _tilesPending = {};
+  final Map<String, List<List<double>>> _tiles = {};
+  final Map<String, Future<List<List<double>>>> _tilesPending = {};
   int _tileBytes = 0;
 
   /// [read] and [envelope] calls running. Background work (summaries,
@@ -402,7 +407,7 @@ abstract class ChunkedSignalEngine {
 
   /// Filtered tile [t] of [g], from the cache or computed. Cached once its
   /// data (with the filters' padding) is all indexed.
-  Future<List<Float32List>> _tile(_Group g, DerivedSpec spec, int t) {
+  Future<List<List<double>>> _tile(_Group g, DerivedSpec spec, int t) {
     final key = '${g.key}|${spec.key}|$t';
     final cached = _tiles.remove(key);
     if (cached != null) {
@@ -416,17 +421,17 @@ abstract class ChunkedSignalEngine {
           final from = t * _tileSize;
           final to = math.min(g.length, from + _tileSize);
           final cols = await _referencedAndFiltered(g, from, to, spec);
-          final tile = [for (final c in cols) Float32List.fromList(c)];
+          final tile = [for (final c in cols) precision.of(c, copy: false)];
           final stable =
               chunkIndex.complete || to + spec.padSamples(g.rate) <= g.length;
           if (stable && !_closed) {
             _tiles[key] = tile;
-            _tileBytes += tile.fold(0, (s, c) => s + c.lengthInBytes);
+            _tileBytes += tile.fold(0, (s, c) => s + bytesOf(c));
             while (_tileBytes > filteredCacheBytes && _tiles.length > 1) {
               final oldest = _tiles.keys.first;
               _tileBytes -= _tiles
                   .remove(oldest)!
-                  .fold(0, (s, c) => s + c.lengthInBytes);
+                  .fold(0, (s, c) => s + bytesOf(c));
             }
           }
           return tile;
@@ -540,7 +545,7 @@ abstract class ChunkedSignalEngine {
     final to = ((r.t1 - g.t0) * g.rate - 1e-6).ceil().clamp(from, g.length);
     final cols = await _derivedWindow(g, from, to, r.derived);
     return SignalWindow(g.t0 + from / g.rate, g.rate, [
-      for (final c in cols) Float32List.fromList(c),
+      for (final c in cols) precision.of(c, copy: false),
     ]);
   }
 

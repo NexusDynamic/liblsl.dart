@@ -81,21 +81,25 @@ class LslForward implements LslForwarding {
     final info = session.info;
     final stream = session.inlet.stream;
     final strings = stream.format.isString;
-    final chosen = strings
-        ? const [0]
-        : (channels ?? [for (var c = 0; c < info.channelCount; c++) c]);
+    final all = [for (var c = 0; c < info.channelCount; c++) c];
+    final chosen = strings ? all : (channels ?? all);
+    // Passed on as they are, in the stream's own format; processed values
+    // are doubles.
+    final processed = !strings && (derived.references || derived.filters);
     final outlet = await (create ?? (s) => lsl.createOutlet(s, options))(
       LslOutletSpec(
         name: name,
         type: stream.type,
         channelCount: chosen.length,
         rate: info.irregular ? 0 : info.rate,
-        format: strings ? LslFormat.string : LslFormat.float32,
+        format: processed
+            ? LSLChannelFormat.double64
+            : stream.format.outletFormat,
         sourceId:
             'forward:${stream.sourceId.isEmpty ? stream.uid : stream.sourceId}:$name',
         channels: [
           for (final c in chosen)
-            LslChannel(info.labels[c], unit: info.unit(c)),
+            LSLChannel(info.labels[c], unit: info.unit(c)),
         ],
         desc: {
           'forwarded': {
@@ -123,16 +127,23 @@ class LslForward implements LslForwarding {
   void _onChunk(LslChunk c) {
     if (c.length == 0) return;
     if (c.strings != null) {
-      outlet.pushStrings([
-        for (var i = 0; i < c.length; i++)
-          c.strings![i * session.info.channelCount],
-      ], c.times);
+      outlet.pushStrings(c.strings!, c.times);
       sent += c.length;
       return;
     }
     final n = session.info.channelCount;
     final values = c.values!;
     final m = c.length;
+    final typed = c.typed;
+    if (typed != null &&
+        !derived.references &&
+        _filter == null &&
+        channels.length == n) {
+      // Every channel, unprocessed: exactly as received.
+      outlet.push(typed, c.times);
+      sent += m;
+      return;
+    }
     List<Float64List>? cols;
     if (derived.references || _filter != null) {
       cols = [
@@ -148,7 +159,7 @@ class LslForward implements LslForwarding {
         }
       }
     }
-    final out = Float32List(m * channels.length);
+    final out = Float64List(m * channels.length);
     for (var i = 0; i < m; i++) {
       for (var k = 0; k < channels.length; k++) {
         final ch = channels[k];
@@ -225,20 +236,20 @@ class LslSourceForward implements LslForwarding {
     // A source of its own: its processing state is not the tab's.
     final stream = session.sourceFor(info);
     final text = info.irregular && stream.events().text != null;
-    final chosen = text
-        ? const [0]
-        : (channels ?? [for (var c = 0; c < info.channelCount; c++) c]);
+    final all = [for (var c = 0; c < info.channelCount; c++) c];
+    final chosen = text ? all : (channels ?? all);
     final outlet = await (create ?? (s) => lsl.createOutlet(s, options))(
       LslOutletSpec(
         name: name,
         type: info.type.isEmpty ? info.kind.label : info.type,
         channelCount: chosen.length,
         rate: info.irregular ? 0 : info.rate,
-        format: text ? LslFormat.string : LslFormat.float32,
+        // The tab's values are doubles: sent as such, so nothing is lost.
+        format: text ? LSLChannelFormat.string : LSLChannelFormat.double64,
         sourceId: 'forward:${session.rememberKey}:${info.key}:$name',
         channels: [
           for (final c in chosen)
-            LslChannel(info.labels[c], unit: info.unit(c)),
+            LSLChannel(info.labels[c], unit: info.unit(c)),
         ],
         desc: {
           'forwarded': {
@@ -306,7 +317,7 @@ class LslSourceForward implements LslForwarding {
     final first = (w.start * rate).round();
     final n = math.min(w.length, end - first);
     final ch = channels.length;
-    final values = Float32List(n * ch);
+    final values = Float64List(n * ch);
     final times = Float64List(n);
     var k = 0;
     for (var i = math.max(0, next - first); i < n; i++) {
@@ -322,7 +333,7 @@ class LslSourceForward implements LslForwarding {
     _next = first + n;
     if (k == 0) return;
     await outlet.push(
-      Float32List.sublistView(values, 0, k * ch),
+      Float64List.sublistView(values, 0, k * ch),
       Float64List.sublistView(times, 0, k),
     );
     sent += k;
@@ -336,10 +347,11 @@ class LslSourceForward implements LslForwarding {
     final times = [for (var i = from; i < e.length; i++) e.times[i] + _offset];
     if (e.text != null) {
       await outlet.pushStrings([
-        for (var i = from; i < e.length; i++) e.text![0][i],
+        for (var i = from; i < e.length; i++)
+          for (final t in e.text!) t[i],
       ], times);
     } else {
-      final values = Float32List(times.length * channels.length);
+      final values = Float64List(times.length * channels.length);
       for (var i = from; i < e.length; i++) {
         for (var j = 0; j < channels.length; j++) {
           values[(i - from) * channels.length + j] = e.channels[channels[j]][i];

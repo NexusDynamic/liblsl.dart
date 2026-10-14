@@ -1,3 +1,9 @@
+## 0.4.3
+
+- `ClockHop`, `ClockChain`, `ClockModel`, `TimestampSmoother`,
+  `LatencyWindow` and `ClockOffsetEstimate` moved to `lsl_core` (pure Dart,
+  shared with the LSL tools), and are re-exported here unchanged.
+
 ## 0.4.2
 
 - Disconnected nodes rejoin faster

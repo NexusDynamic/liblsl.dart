@@ -407,22 +407,22 @@ class _LslSettingsDialogState extends State<_LslSettingsDialog> {
                 ),
               ),
             ),
-            DropdownMenu<LslScope>(
+            DropdownMenu<ResolveScope>(
               label: const Text('Discovery reaches'),
               initialSelection: net.scope,
               key: ValueKey('scope$_generation'),
               dropdownMenuEntries: const [
                 DropdownMenuEntry(
-                  value: LslScope.machine,
+                  value: ResolveScope.machine,
                   label: 'This computer',
                 ),
-                DropdownMenuEntry(value: LslScope.link, label: 'Subnet'),
-                DropdownMenuEntry(value: LslScope.site, label: 'Site'),
+                DropdownMenuEntry(value: ResolveScope.link, label: 'Subnet'),
+                DropdownMenuEntry(value: ResolveScope.site, label: 'Site'),
                 DropdownMenuEntry(
-                  value: LslScope.organization,
+                  value: ResolveScope.organization,
                   label: 'Organization',
                 ),
-                DropdownMenuEntry(value: LslScope.global, label: 'Global'),
+                DropdownMenuEntry(value: ResolveScope.global, label: 'Global'),
               ],
               onSelected: (v) => network(
                 LslNetworkOptions(
@@ -496,16 +496,6 @@ String _pretty(String xml) {
     return XmlDocument.parse(xml).toXmlString(pretty: true, indent: '  ');
   } catch (_) {
     return xml;
-  }
-}
-
-String _field(String xml, String name) {
-  if (xml.isEmpty) return '';
-  try {
-    final info = XmlDocument.parse(xml).rootElement;
-    return info.getElement(name)?.innerText.trim() ?? '';
-  } catch (_) {
-    return '';
   }
 }
 
@@ -608,7 +598,7 @@ class _LslStreamInfoDialogState extends State<_LslStreamInfoDialog> {
     final full = session?.inlet.fullXml ?? '';
     final xml = full.isNotEmpty ? full : s.xml;
     String num(double v, [int digits = 3]) => v.toStringAsFixed(digits);
-    final created = double.tryParse(_field(xml, 'created_at'));
+    final created = double.tryParse(infoField(xml, 'created_at'));
     final rows = <(String, String)>[
       ('Name', s.name),
       ('Type', s.type),
@@ -618,8 +608,8 @@ class _LslStreamInfoDialogState extends State<_LslStreamInfoDialog> {
       ('Source ID', s.sourceId.isEmpty ? '—' : s.sourceId),
       ('Host', s.hostname.isEmpty ? '—' : s.hostname),
       ('UID', s.uid.isEmpty ? '—' : s.uid),
-      ('Session', _field(xml, 'session_id')),
-      ('Version', _field(xml, 'version')),
+      ('Session', infoField(xml, 'session_id')),
+      ('Version', infoField(xml, 'version')),
       if (created != null && created > 0)
         ('Created', '${num(lsl.clock() - created, 1)} s ago'),
       if (session != null) ...[

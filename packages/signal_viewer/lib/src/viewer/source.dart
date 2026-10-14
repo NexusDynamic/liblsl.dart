@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:lsl_core/lsl_core.dart' show LSLChannelFormat, LslChunk;
 
 import '../model/stream_info.dart';
 import '../platform/files.dart';
@@ -48,6 +49,21 @@ abstract class SourceSession extends ChangeNotifier {
   /// Whether it is a recording that can be played back as live streams
   /// (e.g. over LSL) through [sourceFor].
   bool get replayable => false;
+
+  /// The samples of [info]'s stream from [t0] to [t1] exactly as the
+  /// recording has them (its own format, every channel of a string stream,
+  /// no gaps filled), for playing it back; null if the session does not
+  /// keep them, and [sourceFor] is read instead.
+  Future<LslChunk?> exactSamples(StreamInfo info, double t0, double t1) async =>
+      null;
+
+  /// The format of [info]'s stream's values in the recording, if it has
+  /// one.
+  LSLChannelFormat? channelFormat(StreamInfo info) => null;
+
+  /// Why [info]'s values may not be shown exactly here (e.g. 64-bit
+  /// integers in a browser), or null if they are.
+  String? precisionWarning(StreamInfo info) => null;
 
   /// Whether event channels of [info] can be decoded as Manchester
   /// triggers (not for streams whose values are text).

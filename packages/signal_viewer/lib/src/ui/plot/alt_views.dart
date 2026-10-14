@@ -424,7 +424,7 @@ class _XyViewState extends State<XyView> with _WindowSamples<XyView> {
 }
 
 class _XyPainter extends CustomPainter {
-  final Float32List? x, y;
+  final List<double>? x, y;
   final String xLabel, yLabel, unit;
   final PlotStyle style;
 

@@ -48,7 +48,7 @@ class LslSignalGenerator {
         sourceId: 'test:$name:${DateTime.now().microsecondsSinceEpoch}',
         channels: [
           for (var c = 0; c < channels; c++)
-            LslChannel('ch${c + 1}', unit: 'microvolts', type: type),
+            LSLChannel('ch${c + 1}', unit: 'microvolts', type: type),
         ],
       ),
       options,
@@ -103,7 +103,7 @@ class LslMarkerSender {
         type: 'Markers',
         channelCount: 1,
         rate: 0,
-        format: LslFormat.string,
+        format: LSLChannelFormat.string,
         sourceId: 'markers:$name:${DateTime.now().microsecondsSinceEpoch}',
       ),
       options,

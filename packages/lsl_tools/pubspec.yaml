@@ -15,13 +15,14 @@ environment:
 
 dependencies:
   args: ^2.6.0
-  liblsl: ^1.1.2
+  liblsl: ^1.2.0
+  lsl_core: ^1.0.0
   openbci_cyton: ^0.1.0
-  peer_coordinator: ^0.4.0
+  peer_coordinator: ^0.4.3
   serial_transport: ^0.1.0
-  signal_core: ^0.1.0
+  signal_core: ^0.2.0
   web_socket_channel: ^3.0.3
-  xdf: ^0.1.0
+  xdf: ^0.2.0
   xml: ^7.1.0
 
 dev_dependencies:

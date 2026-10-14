@@ -33,6 +33,7 @@ class _PreferencesDialogState extends State<_PreferencesDialog> {
   late double _lineWidth = widget.prefs.lineWidth;
   late bool _antialias = widget.prefs.antialias;
   late int _cacheMb = widget.prefs.cacheMb;
+  late bool _compact = widget.prefs.compactSamples;
   late Map<Kind, KindDefaults> _defaults = Map.of(widget.prefs.defaults);
 
   void _restore() => setState(() {
@@ -40,6 +41,7 @@ class _PreferencesDialogState extends State<_PreferencesDialog> {
     _lineWidth = 1;
     _antialias = true;
     _cacheMb = Preferences.defaultCacheMb;
+    _compact = false;
     _defaults = Map.of(KindDefaults.factory);
   });
 
@@ -49,6 +51,7 @@ class _PreferencesDialogState extends State<_PreferencesDialog> {
       ..lineWidth = _lineWidth
       ..antialias = _antialias
       ..cacheMb = _cacheMb
+      ..compactSamples = _compact
       ..defaults = _defaults;
     final navigator = Navigator.of(context);
     final messenger = ScaffoldMessenger.maybeOf(context);
@@ -149,6 +152,16 @@ class _PreferencesDialogState extends State<_PreferencesDialog> {
               onChanged: (v) => setState(() => _cacheMb = v!),
             ),
           ],
+        ),
+        CheckboxListTile(
+          contentPadding: EdgeInsets.zero,
+          value: _compact,
+          onChanged: (v) => setState(() => _compact = v!),
+          title: const Text('Store samples as 32-bit floats'),
+          subtitle: const Text(
+            'Halves the memory a recording takes, but values keep only '
+            'about 7 significant digits. Off, they are kept as recorded.',
+          ),
         ),
         Text(
           'Applies to recordings opened afterwards.',

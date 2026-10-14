@@ -20,14 +20,14 @@ dependencies:
   flutter_multicast_lock: ^1.2.1
   lsl_tools: ^0.3.0
   permission_handler: ^13.0.1
-  signal_viewer: ^0.1.0
+  signal_viewer: ^0.2.0
   xml: ^7.1.0
 
 dev_dependencies:
   flutter_lints: ^6.0.0
   flutter_test:
     sdk: flutter
-  signal_viewer_xdf: ^0.1.0
+  signal_viewer_xdf: ^0.2.0
 
 flutter:
   uses-material-design: true

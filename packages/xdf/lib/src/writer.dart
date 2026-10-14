@@ -84,7 +84,7 @@ class XdfWriter {
   /// Write samples of numeric stream [id]: [values] holds them sample after
   /// sample (`[sample * channels + channel]`). A NaN time stamp is left
   /// out (readers take the previous one plus 1 / nominal rate).
-  void writeSamples(int id, List<double> timestamps, List<double> values) {
+  void writeSamples(int id, List<double> timestamps, List<num> values) {
     final s = _stream(id);
     final ch = s.info.channelCount;
     if (s.info.format.isString) {

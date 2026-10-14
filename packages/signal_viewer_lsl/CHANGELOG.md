@@ -1,7 +1,11 @@
 ## 0.3.0
 
-- Requires `lsl_tools` ^0.3.0 (bridge protocol 3: values keep their
-  format; `LslOutlet.push` takes any numeric `TypedData`).
+- Replays keep each stream's format and channels.
+- Forwarding keeps the stream's format when its values are passed on
+  unprocessed.
+- int64 streams warn in a browser that values beyond ±2^53 are rounded.
+- Requires `lsl_tools` ^0.3.0 (bridge protocol 3) and `signal_viewer`
+  ^0.2.0.
 
 ## 0.2.1
 

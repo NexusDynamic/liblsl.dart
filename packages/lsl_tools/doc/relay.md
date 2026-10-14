@@ -337,7 +337,9 @@ protocol (JSON control messages and binary sample frames) is documented in
   formats and every channel of a string stream arrive exactly. The one
   exception is the browser, whose numbers hold integers exactly only up
   to 2^53: an `int64` stream above that is rounded in or out of the web
-  viewer. Between `lsl` and desktop viewers it is exact.
+  viewer, which then says so on the stream's tab. Between `lsl` and
+  desktop viewers it is exact. The format and its codec are in
+  [`lsl_core`](https://pub.dev/packages/lsl_core).
 - **Time stamps** are as good as the network is symmetric: each hop's
   offset is off by up to half the difference between its two directions'
   delays, and the bounds add up over hops. The chain reports the bound

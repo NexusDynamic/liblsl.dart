@@ -69,9 +69,10 @@ On pub.dev: everything in `packages/`. The apps in `apps/`, including `lsl_viewe
 
 Packages depend on each other with normal version constraints (e.g. `peer_coordinator: ^0.4.0`); inside the workspace these resolve to the local packages. The release tool and workflow keep released packages in dependency order. A new package is the exception: it goes up by hand, in dependency order, before its tag is pushed:
 
-1. `signal_core`, then `xdf`
-2. `peer_coordinator`, then `webrtc_coordinator`, then `webrtc_coordinator_flutter`
-3. `liblsl_coordinator`, once the `liblsl` version it needs is on pub.dev
+1. `lsl_core` (`liblsl`, `peer_coordinator`, `xdf` and the viewers depend on it)
+2. `signal_core`, then `xdf`
+3. `peer_coordinator`, then `webrtc_coordinator`, then `webrtc_coordinator_flutter`
+4. `liblsl_coordinator`, once the `liblsl` version it needs is on pub.dev
 
 Publish Flutter packages with `flutter pub publish`; the release workflow uses it for all packages.
 

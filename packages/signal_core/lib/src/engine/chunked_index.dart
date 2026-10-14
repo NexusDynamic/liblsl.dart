@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import '../precision.dart';
 import '../pyramid.dart';
 
 /// Timing and size of one stream of a recording.
@@ -42,10 +43,11 @@ abstract interface class SignalChunk {
   StreamChunkSpan? span(int stream);
 }
 
-/// Decoded samples of one stream within a chunk, per channel.
+/// Decoded samples of one stream within a chunk, per channel: 64-bit
+/// unless the format was asked for [SamplePrecision.compact].
 class StreamColumns {
   final int firstOrdinal;
-  final List<Float32List> channels;
+  final List<List<double>> channels;
 
   const StreamColumns(this.firstOrdinal, this.channels);
 
@@ -64,7 +66,7 @@ class ChunkData {
     for (final s in streams) {
       if (s == null) continue;
       for (final c in s.channels) {
-        n += c.lengthInBytes;
+        n += bytesOf(c);
       }
     }
     return n + 64;

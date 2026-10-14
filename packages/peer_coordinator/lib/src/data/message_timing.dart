@@ -1,4 +1,4 @@
-import 'package:peer_coordinator/src/data/clock_hop.dart';
+import 'package:lsl_core/lsl_core.dart' show ClockChain;
 
 /// Receive-side timing for a single message, as the transport observed it.
 ///

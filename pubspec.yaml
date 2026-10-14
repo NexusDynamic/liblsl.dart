@@ -6,6 +6,7 @@ environment:
   sdk: ^3.12.2
   flutter: ^3.27.1
 workspace:
+  - packages/lsl_core
   - packages/liblsl
   - packages/peer_coordinator
   - packages/peer_coordinator/example

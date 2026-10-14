@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:lsl_core/lsl_core.dart' show LslChunk, exactInt64;
 import 'package:signal_viewer/signal_viewer.dart';
 import 'package:xdf/xdf.dart';
 
@@ -41,12 +42,13 @@ class XdfSession extends SourceSession {
     ByteSourceSpec spec, {
     String? path,
     int? cacheBytes,
+    SamplePrecision precision = SamplePrecision.exact,
   }) async {
     final file = await XdfFile.openInBackground(
       spec,
       options: cacheBytes == null
-          ? const XdfFileOptions()
-          : XdfFileOptions(cacheBytes: cacheBytes),
+          ? XdfFileOptions(precision: precision)
+          : XdfFileOptions(cacheBytes: cacheBytes, precision: precision),
     );
     return XdfSession._(name, path, file);
   }
@@ -94,6 +96,36 @@ class XdfSession extends SourceSession {
 
   @override
   bool get replayable => true;
+
+  @override
+  Future<LslChunk?> exactSamples(StreamInfo info, double t0, double t1) {
+    final slot = info.channels.first.stream;
+    if (info.channels.any((c) => c.stream != slot)) return Future.value();
+    return file.exactSamples(slot, t0, t1);
+  }
+
+  @override
+  LSLChannelFormat? channelFormat(StreamInfo info) =>
+      streamOf(info).info.format;
+
+  @override
+  String? precisionWarning(StreamInfo info) {
+    final s = streamOf(info);
+    if (s.info.format != LSLChannelFormat.int64) return null;
+    if (!exactInt64) {
+      return s.roundedValues
+          ? 'Some values of this 64-bit integer stream are beyond ±2^53 '
+                'and are shown rounded: a browser cannot hold them exactly. '
+                'Use the desktop app for exact values.'
+          : 'This stream holds 64-bit integers: a browser shows them '
+                'exactly only up to ±2^53. Use the desktop app for exact '
+                'values.';
+    }
+    return s.roundedValues
+        ? 'Some values of this 64-bit integer stream are beyond ±2^53 and '
+              'are drawn rounded. Replaying it sends them exactly.'
+        : null;
+  }
 
   @override
   String get rememberKey => 'xdf:$name';

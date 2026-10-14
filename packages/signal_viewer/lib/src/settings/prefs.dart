@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:easy_shared_preferences/easy_shared_preferences.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:signal_core/signal_core.dart' show SamplePrecision;
 
 import '../display/manchester.dart';
 import '../model/groups.dart';
@@ -41,6 +42,14 @@ class Preferences extends ChangeNotifier {
 
   /// Memory for decoded chunks of open recordings, in MB.
   int cacheMb = defaultCacheMb;
+
+  /// Keep the samples of recordings as 32-bit floats, to save memory at
+  /// the cost of precision. Off: they are kept as recorded.
+  bool compactSamples = false;
+
+  /// How recordings opened now keep their samples.
+  SamplePrecision get samplePrecision =>
+      compactSamples ? SamplePrecision.compact : SamplePrecision.exact;
 
   bool panelVisible = true;
   Map<Kind, KindDefaults> defaults = Map.of(KindDefaults.factory);
@@ -102,6 +111,7 @@ class Preferences extends ChangeNotifier {
           defaultValue: defaultCacheMb,
           validator: (v) => v >= 16 && v <= 65536,
         ),
+        BoolSetting(key: 'compact_samples', defaultValue: false),
       ],
     ),
     ('view', [BoolSetting(key: 'panel', defaultValue: true)]),
@@ -172,6 +182,7 @@ class Preferences extends ChangeNotifier {
     read(() => lineWidth = s.getDouble('preferences.line_width'));
     read(() => antialias = s.getBool('preferences.antialias'));
     read(() => cacheMb = s.getInt('preferences.cache_mb'));
+    read(() => compactSamples = s.getBool('preferences.compact_samples'));
     read(() => panelVisible = s.getBool('view.panel'));
     for (final kind in Kind.values) {
       read(() {
@@ -218,6 +229,7 @@ class Preferences extends ChangeNotifier {
       'preferences.line_width': lineWidth,
       'preferences.antialias': antialias,
       'preferences.cache_mb': cacheMb,
+      'preferences.compact_samples': compactSamples,
       'view.panel': panelVisible,
       for (final e in defaults.entries)
         'defaults.${e.key.name}': jsonEncode(e.value.toJson()),
@@ -247,6 +259,7 @@ class Preferences extends ChangeNotifier {
     lineWidth = 1;
     antialias = true;
     cacheMb = defaultCacheMb;
+    compactSamples = false;
     defaults = Map.of(KindDefaults.factory);
   }
 }

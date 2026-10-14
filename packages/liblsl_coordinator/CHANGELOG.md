@@ -1,3 +1,12 @@
+## 0.6.0
+
+- `ListenerRestartSchedule` and `TimeCorrectionSchedule` moved to
+  `lsl_core` (import `package:lsl_core/lsl_core.dart` for them).
+- One `StreamDataType` to `LSLChannelFormat` mapping
+  (`stream_data_type.dart`) instead of two, and the poll interval comes
+  from `lsl_core`'s `pollIntervalFor`.
+- Requires `liblsl` ^1.2.0 and `peer_coordinator` ^0.4.3.
+
 ## 0.5.4
 
 - Bump `peer_coordinator` to ^0.4.2

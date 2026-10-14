@@ -18,11 +18,23 @@ class _Replayed {
   /// Samples read ahead: start time and columns.
   SignalWindow? ahead;
 
+  /// Samples read ahead exactly as recorded (when the session has them),
+  /// the next of them to push, the block read after them, and where the
+  /// reading has got to.
+  LslChunk? exact;
+  int exactNext = 0;
+  LslChunk? queued;
+  double exactEnd;
+
   /// Irregular: index of the next event to push.
   int nextEvent = 0;
   bool reading = false;
 
-  _Replayed(this.info, this.source, this.outlet, this.pushed);
+  /// Whether the session keeps the samples exactly; null until asked.
+  bool? exactSupported;
+
+  _Replayed(this.info, this.source, this.outlet, this.pushed)
+    : exactEnd = pushed;
 }
 
 /// Plays a recording ([SourceSession.replayable]) over LSL in real time: an
@@ -74,18 +86,22 @@ class LslReplay extends ChangeNotifier {
         final source = session.sourceFor(info);
         end = math.max(end, source.end);
         final strings = info.irregular && source.events().text != null;
+        // The recording's format, or 64-bit floats for values that have
+        // none (they are kept as doubles), so nothing is lost on the way.
+        final format =
+            session.channelFormat(info)?.outletFormat ??
+            (strings ? LSLChannelFormat.string : LSLChannelFormat.double64);
         final outlet = await create(
           LslOutletSpec(
             name: name?.call(info) ?? info.name,
             type: info.type.isEmpty ? info.kind.label : info.type,
-            // String outlets carry one channel (the first).
-            channelCount: strings ? 1 : info.channelCount,
+            channelCount: info.channelCount,
             rate: info.irregular ? 0 : info.rate,
-            format: strings ? LslFormat.string : LslFormat.float32,
+            format: format,
             sourceId: 'replay:${info.key}',
             channels: [
-              for (var c = 0; c < (strings ? 1 : info.channelCount); c++)
-                LslChannel(info.labels[c], unit: info.unit(c)),
+              for (var c = 0; c < info.channelCount; c++)
+                LSLChannel(info.labels[c], unit: info.unit(c)),
             ],
             desc: {
               'acquisition': {'replay_of': session.label},
@@ -119,7 +135,9 @@ class LslReplay extends ChangeNotifier {
     if (_closed || finished) return;
     final target = from + (lsl.clock() - _startClock);
     for (final s in _streams) {
-      if (s.info.irregular) {
+      if (s.exactSupported != false) {
+        _pushExact(s, target);
+      } else if (s.info.irregular) {
         _pushEvents(s, target);
       } else {
         _pushRegular(s, target);
@@ -131,6 +149,10 @@ class LslReplay extends ChangeNotifier {
         for (final s in _streams) {
           s.pushed = from;
           s.ahead = null;
+          s.exact = null;
+          s.queued = null;
+          s.exactEnd = from;
+          s.exactNext = 0;
           s.nextEvent = 0;
           if (s.info.irregular) {
             final e = s.source.events();
@@ -164,7 +186,7 @@ class LslReplay extends ChangeNotifier {
     final z = math.min(w.length, ((target - w.start) * rate).ceil());
     if (z <= a) return;
     final ch = s.info.channelCount;
-    final values = Float32List((z - a) * ch);
+    final values = Float64List((z - a) * ch);
     final times = Float64List(z - a);
     var n = 0;
     for (var i = a; i < z; i++) {
@@ -183,9 +205,69 @@ class LslReplay extends ChangeNotifier {
     if (n == 0) return;
     sent += n;
     s.outlet.push(
-      Float32List.sublistView(values, 0, n * ch),
+      Float64List.sublistView(values, 0, n * ch),
       Float64List.sublistView(times, 0, n),
     );
+  }
+
+  /// Send what [s]'s recording has up to [target], exactly as recorded.
+  void _pushExact(_Replayed s, double target) {
+    if (s.exactEnd < target + 0.5) _readExact(s);
+    var c = s.exact;
+    if (c != null && s.exactNext >= c.length && s.queued != null) {
+      c = s.exact = s.queued;
+      s.queued = null;
+      s.exactNext = 0;
+    }
+    if (c == null) return;
+    final a = s.exactNext;
+    var z = a;
+    while (z < c.length && c.times[z] <= target) {
+      z++;
+    }
+    if (z == a) return;
+    s.exactNext = z;
+    final times = Float64List(z - a);
+    for (var i = a; i < z; i++) {
+      times[i - a] = _startClock + (c.times[i] - from);
+    }
+    sent += z - a;
+    final ch = s.info.channelCount;
+    if (c.strings != null) {
+      s.outlet.pushStrings(c.strings!.sublist(a * ch, z * ch), times);
+    } else {
+      final data = c.typed ?? Float64List.fromList(c.values!);
+      s.outlet.push(sliceTyped(data, a * ch, z * ch), times);
+    }
+  }
+
+  /// Read the next block exactly as recorded, while the one before it is
+  /// being pushed.
+  void _readExact(_Replayed s) {
+    if (s.reading || s.queued != null) return;
+    s.reading = true;
+    final t0 = s.exactEnd;
+    final t1 = t0 + blockS;
+    session
+        .exactSamples(s.info, t0, t1)
+        .then((chunk) {
+          if (chunk == null) {
+            // Not kept exactly: read the views instead.
+            s.exactSupported = false;
+            return;
+          }
+          s.exactSupported = true;
+          s.exactEnd = t1;
+          final c = s.exact;
+          if (c == null || s.exactNext >= c.length) {
+            s.exact = chunk;
+            s.exactNext = 0;
+          } else {
+            s.queued = chunk;
+          }
+        })
+        .catchError((Object _) {})
+        .whenComplete(() => s.reading = false);
   }
 
   void _readAhead(_Replayed s) {
@@ -210,7 +292,9 @@ class LslReplay extends ChangeNotifier {
       final i = s.nextEvent++;
       times.add(_startClock + (e.times[i] - from));
       if (e.text != null) {
-        strings.add(e.text![0][i]);
+        for (final t in e.text!) {
+          strings.add(t[i]);
+        }
       } else {
         for (final c in e.channels) {
           values.add(c[i]);
@@ -222,7 +306,7 @@ class LslReplay extends ChangeNotifier {
     if (e.text != null) {
       s.outlet.pushStrings(strings, times);
     } else {
-      s.outlet.push(Float32List.fromList(values), Float64List.fromList(times));
+      s.outlet.push(Float64List.fromList(values), Float64List.fromList(times));
     }
   }
 

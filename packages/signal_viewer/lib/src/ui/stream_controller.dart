@@ -937,7 +937,9 @@ class StreamController extends ChangeNotifier {
   }
 }
 
-PowerData _bandPower((List<Float32List>, double, double, String, double) args) {
+PowerData _bandPower(
+  (List<List<double>>, double, double, String, double) args,
+) {
   final (channels, start, rate, metric, binS) = args;
   final per = Float64List.fromList([
     for (final c in channels) bandPower(Float64List.fromList(c), rate, metric),

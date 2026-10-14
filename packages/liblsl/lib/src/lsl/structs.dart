@@ -2,112 +2,21 @@ import 'dart:ffi';
 import 'package:liblsl/native_liblsl.dart';
 import 'package:ffi/ffi.dart' show StringUtf8Pointer;
 import 'package:liblsl/src/ffi/mem.dart';
+import 'package:lsl_core/lsl_core.dart'
+    show LSLChannelFormat, LSLContentType;
 
-/// LSL content types used to identify the type of data being streamed.
-class LSLContentType {
-  /// The string representation of the content type.
-  final String value;
+export 'package:lsl_core/lsl_core.dart'
+    show LSLChannelFormat, LSLContentType;
 
-  /// Indicates whether the content type is custom or not.
-  /// @note Custom content types are not defined in the LSL / XDF standard.
-  final bool isCustom;
-  static final List<LSLContentType> _values = [
-    eeg,
-    mocap,
-    nirs,
-    gaze,
-    videoRaw,
-    videoCompressed,
-    audio,
-    markers,
-  ];
-
-  // ignore: unused_element_parameter
-  const LSLContentType._(this.value, {this.isCustom = false});
-
-  /// EEG (for Electroencephalogram).
-  static const LSLContentType eeg = LSLContentType._("EEG");
-
-  /// MoCap (for Motion Capture).
-  static const LSLContentType mocap = LSLContentType._("MoCap");
-
-  /// NIRS (Near-Infrared Spectroscopy).
-  static const LSLContentType nirs = LSLContentType._("NIRS");
-
-  /// Gaze (for gaze / eye tracking parameters).
-  static const LSLContentType gaze = LSLContentType._("Gaze");
-
-  /// VideoRaw (for uncompressed video).
-  static const LSLContentType videoRaw = LSLContentType._("VideoRaw");
-
-  /// VideoCompressed (for compressed video).
-  static const LSLContentType videoCompressed = LSLContentType._(
-    "VideoCompressed",
-  );
-
-  /// Audio (for PCM-encoded audio).
-  static const LSLContentType audio = LSLContentType._("Audio");
-
-  /// Markers (for event marker streams).
-  static const LSLContentType markers = LSLContentType._("Markers");
-
-  /// Custom content type.
-  /// @param value The custom content type string.
-  /// @note This is used for custom content types that are not defined in the
-  /// LSL / XDF standard, e.g. "State" or "Stimulus".
-  factory LSLContentType.custom(String value) {
-    // throw UnsupportedError('Custom content types are not yet supported.');
-    final customType = LSLContentType._(value, isCustom: true);
-    if (_values.any((type) => type.value == value && !type.isCustom)) {
-      // If a default type with the same name exists, throw an error.
-      // This is to prevent conflicts with existing LSL content types.
-      throw ArgumentError(
-        'Custom content type "$value" conflicts with existing LSL content types.',
-      );
-    }
-    if (_values.any((type) => type.value == value && type.isCustom)) {
-      // If a custom type with the same name already exists, return it.
-      return _values.firstWhere((type) => type.value == value);
-    }
-    // If no conflicts, add the new custom type to the list.
-    _values.add(customType);
-    return customType;
-  }
-
+/// The FFI side of an [LSLContentType].
+extension LSLContentTypeNative on LSLContentType {
   /// Converts the content type to a [Pointer<Char>].
   Pointer<Char> get charPtr =>
       value.toNativeUtf8(allocator: allocate) as Pointer<Char>;
-
-  @override
-  bool operator ==(Object other) {
-    if (identical(this, other)) return true;
-    if (other is! LSLContentType) return false;
-    return value == other.value && isCustom == other.isCustom;
-  }
-
-  @override
-  int get hashCode => value.hashCode ^ isCustom.hashCode;
-
-  @override
-  String toString() {
-    return 'LSLContentType(value: $value, isCustom: $isCustom)';
-  }
-
-  /// Returns a list of all available default and custom LSL content types.
-  static List<LSLContentType> get values => _values;
 }
 
-/// The stream info channel formats.
-enum LSLChannelFormat {
-  float32,
-  double64,
-  int8,
-  int16,
-  int32,
-  int64,
-  string,
-  undefined;
-
+/// The FFI side of an [LSLChannelFormat].
+extension LSLChannelFormatNative on LSLChannelFormat {
   /// Gets the underlying lsl_channel_format_t value for the channel format.
   lsl_channel_format_t get lslFormat {
     switch (this) {

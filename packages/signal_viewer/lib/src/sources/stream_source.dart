@@ -7,7 +7,10 @@ import '../model/view_settings.dart';
 /// Samples of an irregular stream (events), all in memory.
 class EventSamples {
   final Float64List times;
-  final List<Float32List> channels;
+
+  /// Values per channel, as the source keeps them (64-bit unless it was
+  /// asked to save memory, see [SamplePrecision]).
+  final List<List<double>> channels;
 
   /// The samples of a string stream (LSL markers) per channel; [channels]
   /// then hold their numeric values, or NaN.

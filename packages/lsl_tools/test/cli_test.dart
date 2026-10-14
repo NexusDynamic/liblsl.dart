@@ -218,31 +218,61 @@ void main() {
     expect(await publishing, 0);
   });
 
-  test('replay an XDF file', () async {
+  test('replay an XDF file as recorded', () async {
     final path = '${dir.path}/replay.xdf';
+    const big = (1 << 60) + 1;
     final w = XdfWriter(File(path).openWrite());
     w.addStream(
       1,
       XdfStreamInfo(
         name: 'cli_replay_$id',
         type: 'EEG',
-        channelCount: 1,
+        channelCount: 2,
         nominalRate: 100,
+        format: LSLChannelFormat.int64,
+      ),
+    );
+    w.addStream(
+      2,
+      XdfStreamInfo(
+        name: 'cli_replay_words_$id',
+        type: 'Markers',
+        channelCount: 3,
+        format: LSLChannelFormat.string,
       ),
     );
     w.writeSamples(
       1,
       [for (var i = 0; i < 500; i++) 10 + i / 100],
-      [for (var i = 0; i < 500; i++) i.toDouble()],
+      [
+        for (var i = 0; i < 500; i++) ...[big + i, -i],
+      ],
+    );
+    w.writeStrings(
+      2,
+      [for (var i = 0; i < 40; i++) 10 + i / 8],
+      [
+        for (var i = 0; i < 40; i++) ...['a$i', 'b$i', 'c$i'],
+      ],
     );
     await w.close();
     final replaying = runLslCli(['replay', path], out: StringBuffer());
     final d = lsl.discover();
+    const options = LslInletOptions(dejitter: false);
     final inlet = await lsl.openInlet(
       await _find(d, 'cli_replay_$id'),
-      const LslInletOptions(dejitter: false),
+      options,
     );
-    final values = <double>[];
+    final words = await lsl.openInlet(
+      await _find(d, 'cli_replay_words_$id'),
+      options,
+    );
+    // The source's format and channels, not float32 and one string.
+    expect(inlet.stream.format, LSLChannelFormat.int64);
+    expect(inlet.stream.channelCount, 2);
+    expect(words.stream.channelCount, 3);
+    final values = <int>[];
+    final strings = <String>[];
     var done = false;
     unawaited(
       replaying.then((code) {
@@ -253,12 +283,15 @@ void main() {
     while (!done) {
       await Future<void>.delayed(const Duration(milliseconds: 50));
       final c = await inlet.pull(1000);
-      values.addAll(c.values ?? const []);
+      values.addAll((c.typed as Int64List?) ?? const <int>[]);
+      strings.addAll((await words.pull(100)).strings ?? const []);
     }
     // The inlet joined after the first samples went out.
-    expect(values.length, greaterThan(100));
-    expect(values.last, 499);
+    expect(values.length, greaterThan(200));
+    expect(values.sublist(values.length - 2), [big + 499, -499]);
+    expect(strings.sublist(strings.length - 3), ['a39', 'b39', 'c39']);
     await inlet.close();
+    await words.close();
     d.close();
   });
 

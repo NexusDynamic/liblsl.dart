@@ -12,9 +12,10 @@ import 'package:liblsl/native_liblsl.dart' as native;
 import 'package:liblsl_coordinator/framework.dart';
 import 'package:meta/meta.dart';
 import 'package:synchronized/synchronized.dart';
-import 'listener_restart_schedule.dart';
+import 'package:lsl_core/lsl_core.dart'
+    show ListenerRestartSchedule, TimeCorrectionSchedule;
+import '../stream_data_type.dart';
 import 'outlet_buffer_pool.dart';
-import 'time_correction_schedule.dart';
 
 /// Enum defining all possible isolate message types
 enum IsolateMessageType {
@@ -991,31 +992,12 @@ final class StreamOutletIsolate extends StreamIsolate {
   }) : super(
          isolateDebugName: isolateDebugName ?? 'StreamOutletIsolate-$streamId',
        ) {
-    _pushFn = LSLMapper().pushSampleMap[_dataTypeToChannelFormat(dataType)]!;
+    _pushFn = LSLMapper().pushSampleMap[dataType.toLSLChannelFormat()]!;
     _buffers = List.generate(
       bufferPoolSize,
       (_) => _pushFn.createReusableBuffer(_channelCount),
       growable: false,
     );
-  }
-
-  static LSLChannelFormat _dataTypeToChannelFormat(StreamDataType dataType) {
-    switch (dataType) {
-      case StreamDataType.float32:
-        return LSLChannelFormat.float32;
-      case StreamDataType.double64:
-        return LSLChannelFormat.double64;
-      case StreamDataType.int8:
-        return LSLChannelFormat.int8;
-      case StreamDataType.int16:
-        return LSLChannelFormat.int16;
-      case StreamDataType.int32:
-        return LSLChannelFormat.int32;
-      case StreamDataType.int64:
-        return LSLChannelFormat.int64;
-      case StreamDataType.string:
-        return LSLChannelFormat.string;
-    }
   }
 
   /// How long a send waits for a pooled buffer before giving up.

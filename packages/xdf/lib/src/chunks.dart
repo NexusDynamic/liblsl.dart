@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 
+import 'package:lsl_core/lsl_core.dart' show LSLChannelFormat, typedListFor;
+
 import 'format.dart';
 
 /// One chunk of an XDF file: its [tag] and [content] (after the tag), which
@@ -75,31 +77,52 @@ class XdfSamples {
   final Float64List timestamps;
 
   /// Numeric values, sample after sample (`[sample * channels + channel]`),
-  /// or null for string streams.
+  /// as doubles (integers exact up to 2^53); null for string streams, or
+  /// when read [typed].
   final Float64List? values;
 
   /// String values, sample after sample, or null for numeric streams.
   final List<String>? strings;
 
-  const XdfSamples(this.streamId, this.timestamps, this.values, this.strings);
+  /// Numeric values in the stream's own format ([typedListFor]), when
+  /// asked for with `exact`.
+  final TypedData? typed;
+
+  const XdfSamples(
+    this.streamId,
+    this.timestamps,
+    this.values,
+    this.strings, {
+    this.typed,
+  });
 
   int get length => timestamps.length;
 }
 
 /// Decode a samples chunk's [content] for a stream of [format] with
 /// [channels] channels. With [values] false, numeric values are skipped
-/// (time stamps only).
+/// (time stamps only). With [exact], they come in the stream's own format
+/// ([XdfSamples.typed]) instead of as doubles. [onInexact] is called if an
+/// int64 value could not be held exactly (beyond 2^53 on the web, or as a
+/// double).
 XdfSamples readSamples(
   Uint8List content,
-  XdfFormat format,
+  LSLChannelFormat format,
   int channels, {
   bool values = true,
+  bool exact = false,
+  void Function()? onInexact,
 }) {
   final r = XdfReader(content);
   final id = r.uint32();
   final n = r.varLen();
   final ts = Float64List(n);
-  final numeric = !format.isString && values ? Float64List(n * channels) : null;
+  final numeric = !format.isString && values && !exact
+      ? Float64List(n * channels)
+      : null;
+  final typed = !format.isString && values && exact
+      ? typedListFor(format, n * channels)
+      : null;
   final strings = format.isString && values ? <String>[] : null;
   for (var i = 0; i < n; i++) {
     final tsBytes = r.uint8();
@@ -116,13 +139,19 @@ XdfSamples readSamples(
           strings.add(r.utf8String(r.varLen()));
         }
       }
-    } else if (numeric != null) {
-      r.values(format, channels, numeric, i * channels);
+    } else if (numeric != null || typed != null) {
+      r.values(
+        format,
+        channels,
+        (numeric ?? typed) as List<num>,
+        i * channels,
+        onInexact: onInexact,
+      );
     } else {
       r.skipValues(format, channels);
     }
   }
-  return XdfSamples(id, ts, numeric, strings);
+  return XdfSamples(id, ts, numeric, strings, typed: typed);
 }
 
 /// Fill the time stamps that [samples] leave out (NaN): the previous one

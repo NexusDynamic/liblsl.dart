@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import '../precision.dart';
 import '../requests.dart';
 import 'sos.dart';
 
@@ -18,22 +19,27 @@ class LiveProcessor {
   final int capacity;
 
   final SosStreamFilter _filter;
-  final List<Float32List> _out;
+  final List<List<double>> _out;
 
   /// Tick of the first sample kept, and one past the last processed.
   int _begin = 0;
   int _end = 0;
   bool _started = false;
 
-  LiveProcessor(this.spec, this.channelCount, double rate, this.capacity)
-    : _filter = SosStreamFilter(
-        Sos.display(rate, highpass: spec.highpass, notch: spec.notch),
-        channelCount,
-      ),
-      _out = List.generate(
-        channelCount + (spec.meanOf != null ? 1 : 0),
-        (_) => Float32List(capacity),
-      );
+  LiveProcessor(
+    this.spec,
+    this.channelCount,
+    double rate,
+    this.capacity, {
+    SamplePrecision precision = SamplePrecision.exact,
+  }) : _filter = SosStreamFilter(
+         Sos.display(rate, highpass: spec.highpass, notch: spec.notch),
+         channelCount,
+       ),
+       _out = List.generate(
+         channelCount + (spec.meanOf != null ? 1 : 0),
+         (_) => precision.column(capacity),
+       );
 
   /// Number of output channels: one per input, plus the mean trace if
   /// [DerivedSpec.meanOf] is set.

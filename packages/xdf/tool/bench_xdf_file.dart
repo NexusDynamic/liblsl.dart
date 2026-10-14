@@ -25,7 +25,11 @@ Future<void> main(List<String> args) async {
     );
     w.addStream(
       2,
-      XdfStreamInfo(name: 'Markers', channelCount: 1, format: XdfFormat.string),
+      XdfStreamInfo(
+        name: 'Markers',
+        channelCount: 1,
+        format: LSLChannelFormat.string,
+      ),
     );
     for (var i = 0; i < rate * seconds; i += block) {
       final ts = [for (var k = 0; k < block; k++) 100 + (i + k) / rate];

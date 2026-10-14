@@ -1,3 +1,9 @@
+## 2.0.3
+
+- Requires `liblsl` ^1.2.0, `liblsl_coordinator` ^0.6.0,
+  `peer_coordinator` ^0.4.3, `webrtc_coordinator` ^0.2.2,
+  `webrtc_coordinator_flutter` ^0.2.3 and `timing_core` ^0.2.1.
+
 ## 2.0.2
 
 - Updated to `liblsl` ^1.1.3.

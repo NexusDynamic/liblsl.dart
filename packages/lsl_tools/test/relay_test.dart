@@ -50,8 +50,8 @@ void main() {
         rate: 100,
         sourceId: 'relay_test',
         channels: [
-          LslChannel('C3', unit: 'microvolts'),
-          LslChannel('C4'),
+          LSLChannel('C3', unit: 'microvolts'),
+          LSLChannel('C4'),
         ],
       ),
     );
@@ -101,7 +101,7 @@ void main() {
     final b = await LslBridgeClient.connect(url, token: 'k');
     addTearDown(a.close);
     addTearDown(b.close);
-    LslOutletSpec spec(String name, LslFormat format, int channels) =>
+    LslOutletSpec spec(String name, LSLChannelFormat format, int channels) =>
         LslOutletSpec(
           name: name,
           type: 'Test',
@@ -110,14 +110,16 @@ void main() {
           format: format,
           sourceId: 'relay_$name',
         );
-    final doubles = await a.publish(spec('doubles', LslFormat.double64, 2));
-    final longs = await a.publish(spec('longs', LslFormat.int64, 1));
-    final words = await a.publish(spec('words', LslFormat.string, 3));
+    final doubles = await a.publish(
+      spec('doubles', LSLChannelFormat.double64, 2),
+    );
+    final longs = await a.publish(spec('longs', LSLChannelFormat.int64, 1));
+    final words = await a.publish(spec('words', LSLChannelFormat.string, 3));
     await _until(() => b.streams.length == 3, 'the streams');
     BridgeStream named(String n) =>
         b.streams.singleWhere((s) => s.description.name == n);
-    expect(named('doubles').description.format, LslFormat.double64);
-    expect(named('longs').description.format, LslFormat.int64);
+    expect(named('doubles').description.format, LSLChannelFormat.double64);
+    expect(named('longs').description.format, LSLChannelFormat.int64);
     expect(named('words').description.channelCount, 3);
     final inlets = {
       for (final n in ['doubles', 'longs', 'words']) n: b.open(named(n)),
@@ -158,7 +160,7 @@ void main() {
         type: 'Markers',
         channelCount: 1,
         rate: 0,
-        format: LslFormat.string,
+        format: LSLChannelFormat.string,
         sourceId: 'relay_markers',
       ),
     );

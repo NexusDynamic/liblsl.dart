@@ -2,10 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:liblsl/lsl.dart';
-import 'package:peer_coordinator/coordination.dart'
-    show ClockModel, ClockOffsetEstimate, LatencyWindow;
-
-import 'lsl_types.dart';
+import 'package:lsl_core/lsl_core.dart';
 
 LslBackend createBackend() => _NativeLsl();
 
@@ -28,7 +25,7 @@ class _NativeLsl implements LslBackend {
       LSLApiConfig(
         knownPeers: o.knownPeers,
         sessionId: o.sessionId,
-        resolveScope: ResolveScope.values.byName(o.scope.name),
+        resolveScope: o.scope,
         ipv6: o.ipv6 ? IPv6Mode.allow : IPv6Mode.disable,
       ),
     );
@@ -114,7 +111,7 @@ class _NativeLsl implements LslBackend {
       streamType: _contentType(spec.type),
       channelCount: spec.channelCount,
       sampleRate: spec.rate > 0 ? spec.rate : LSL_IRREGULAR_RATE,
-      channelFormat: _channelFormat(spec.format.outletFormat),
+      channelFormat: spec.format.outletFormat,
       sourceId: spec.sourceId,
     );
     final root = info.description.value;
@@ -140,7 +137,7 @@ class _NativeLsl implements LslBackend {
         maxBuffer: options.bufferS,
         transportOptions: {
           // liblsl has no blocking transport for strings.
-          if (options.syncBlocking && spec.format != LslFormat.string)
+          if (options.syncBlocking && spec.format != LSLChannelFormat.string)
             LSLTransportOptions.syncBlocking,
         },
       );
@@ -157,14 +154,14 @@ LSLContentType _contentType(String type) =>
     LSLContentType.values.where((t) => t.value == type).firstOrNull ??
     LSLContentType.custom(type);
 
-List<LslChannel> _defaultChannels(int n) => [
-  for (var i = 0; i < n; i++) LslChannel('ch${i + 1}'),
+List<LSLChannel> _defaultChannels(int n) => [
+  for (var i = 0; i < n; i++) LSLChannel('ch${i + 1}'),
 ];
 
 /// Labels, units and types from `<desc><channels><channel>`, as the Python
 /// viewer reads them.
-List<LslChannel> _channelsOf(LSLStreamInfoWithMetadata info, int n) {
-  final out = <LslChannel>[];
+List<LSLChannel> _channelsOf(LSLStreamInfoWithMetadata info, int n) {
+  final out = <LSLChannel>[];
   final channels = info.description.value.childNamed('channels');
   var ch = channels?.childNamed('channel');
   String value(LSLXmlNode node, String name) =>
@@ -173,7 +170,7 @@ List<LslChannel> _channelsOf(LSLStreamInfoWithMetadata info, int n) {
   while (ch != null && !ch.isEmpty() && out.length < n) {
     final label = value(ch, 'label');
     out.add(
-      LslChannel(
+      LSLChannel(
         label.isEmpty ? 'ch${out.length + 1}' : label,
         unit: value(ch, 'unit'),
         type: value(ch, 'type'),
@@ -183,31 +180,9 @@ List<LslChannel> _channelsOf(LSLStreamInfoWithMetadata info, int n) {
   }
   return [
     ...out,
-    for (var i = out.length; i < n; i++) LslChannel('ch${i + 1}'),
+    for (var i = out.length; i < n; i++) LSLChannel('ch${i + 1}'),
   ];
 }
-
-LSLChannelFormat _channelFormat(LslFormat f) => switch (f) {
-  LslFormat.float32 => LSLChannelFormat.float32,
-  LslFormat.double64 => LSLChannelFormat.double64,
-  LslFormat.int8 => LSLChannelFormat.int8,
-  LslFormat.int16 => LSLChannelFormat.int16,
-  LslFormat.int32 => LSLChannelFormat.int32,
-  LslFormat.int64 => LSLChannelFormat.int64,
-  LslFormat.string => LSLChannelFormat.string,
-  LslFormat.undefined => LSLChannelFormat.undefined,
-};
-
-LslFormat _format(LSLChannelFormat f) => switch (f) {
-  LSLChannelFormat.float32 => LslFormat.float32,
-  LSLChannelFormat.double64 => LslFormat.double64,
-  LSLChannelFormat.int8 => LslFormat.int8,
-  LSLChannelFormat.int16 => LslFormat.int16,
-  LSLChannelFormat.int32 => LslFormat.int32,
-  LSLChannelFormat.int64 => LslFormat.int64,
-  LSLChannelFormat.string => LslFormat.string,
-  LSLChannelFormat.undefined => LslFormat.undefined,
-};
 
 String _xmlOf(LSLStreamInfo s) {
   try {
@@ -222,7 +197,7 @@ LslStreamDescription _describe(LSLStreamInfo s) => LslStreamDescription(
   type: s.streamType.value,
   channelCount: s.channelCount,
   rate: s.sampleRate == LSL_IRREGULAR_RATE ? 0 : s.sampleRate,
-  format: _format(s.channelFormat),
+  format: s.channelFormat,
   sourceId: s.sourceId,
   hostname: s.hostname ?? '',
   uid: s.uid ?? '',
@@ -276,7 +251,7 @@ class _Inlet implements LslInlet, LslArrivals {
   @override
   final LslStreamDescription stream;
   @override
-  final List<LslChannel> channels;
+  final List<LSLChannel> channels;
   final LSLInlet<dynamic> _inlet;
   final List<LSLStreamInfo> _infos;
   bool _closed = false;
@@ -304,7 +279,7 @@ class _Inlet implements LslInlet, LslArrivals {
   Future<double> timeCorrection() async => (await timeCorrectionEx()).offset;
 
   @override
-  Future<LslTimeCorrection> timeCorrectionEx() async {
+  Future<LSLTimeCorrection> timeCorrectionEx() async {
     final c = await _inlet.getTimeCorrectionEx(timeout: 2);
     // liblsl measures every few seconds; the same answer in between.
     if (c.remoteTime != _measuredAt) {
@@ -318,11 +293,7 @@ class _Inlet implements LslInlet, LslArrivals {
         ),
       );
     }
-    return LslTimeCorrection(
-      offset: c.offset,
-      uncertainty: c.uncertainty,
-      remoteTime: c.remoteTime,
-    );
+    return c;
   }
 
   @override
@@ -388,20 +359,6 @@ class _Inlet implements LslInlet, LslArrivals {
   static double _arrivedBeforeLast(Float64List times) =>
       (times.first - times.last) / 2;
 
-  /// Numeric values as the viewer wants them: floats as they are, integers
-  /// as doubles (exact up to 2^53).
-  static List<double> _values(Object data, int n) {
-    if (data is Float32List || data is Float64List) {
-      return data as List<double>;
-    }
-    final f = Float64List(n);
-    final src = data as List<num>;
-    for (var i = 0; i < n; i++) {
-      f[i] = src[i].toDouble();
-    }
-    return f;
-  }
-
   @override
   Future<LslChunk> pull(int maxSamples) async {
     if (_closed) return LslChunk.empty;
@@ -429,7 +386,7 @@ class _Inlet implements LslInlet, LslArrivals {
     final now = LSL.localClock();
     return _chunk(
       c.timestamps,
-      values: _values(c.data, c.sampleCount * c.channelCount),
+      values: asDoubles(c.data),
       typed: c.data,
       received: now,
       at: c.timestamps.last,
@@ -471,9 +428,7 @@ class _Inlet implements LslInlet, LslArrivals {
           }
           return _chunk(
             times,
-            values: c.data == null
-                ? null
-                : _values(c.data!, c.sampleCount * c.channelCount),
+            values: c.data == null ? null : asDoubles(c.data!),
             typed: c.data,
             strings: c.strings,
             received: c.receivedClock,
@@ -520,38 +475,8 @@ class _Outlet implements LslOutlet {
   @override
   Future<void> push(TypedData values, Float64List times) {
     if (_closed || times.isEmpty) return Future.value();
-    final typed = _as(spec.format.outletFormat, values);
+    final typed = asFormat(spec.format, values);
     return _then(() => _outlet.pushChunkTyped(typed, timestamps: times));
-  }
-
-  /// [data] as the typed list liblsl.dart takes for format [f].
-  static TypedData _as(LslFormat f, TypedData data) {
-    final v = data as List<num>;
-    int i(num x) => x is int ? x : (x.isFinite ? x.round() : 0);
-    return switch (f) {
-      LslFormat.double64 =>
-        data is Float64List
-            ? data
-            : Float64List.fromList([for (final x in v) x.toDouble()]),
-      LslFormat.int8 =>
-        data is Int8List ? data : Int8List.fromList([for (final x in v) i(x)]),
-      LslFormat.int16 =>
-        data is Int16List
-            ? data
-            : Int16List.fromList([for (final x in v) i(x)]),
-      LslFormat.int32 =>
-        data is Int32List
-            ? data
-            : Int32List.fromList([for (final x in v) i(x)]),
-      LslFormat.int64 =>
-        data is Int64List
-            ? data
-            : Int64List.fromList([for (final x in v) i(x)]),
-      _ =>
-        data is Float32List
-            ? data
-            : Float32List.fromList([for (final x in v) x.toDouble()]),
-    };
   }
 
   @override

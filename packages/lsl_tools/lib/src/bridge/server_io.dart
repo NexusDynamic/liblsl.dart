@@ -1,10 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math' as math;
 import 'dart:typed_data';
-
-import 'package:peer_coordinator/coordination.dart' show LatencyWindow;
 
 import '../lsl.dart';
 import 'protocol.dart';
@@ -542,11 +539,13 @@ class _Server implements LslBridgeServer {
       for (final s in [..._shared.values]) {
         final inlet = s.inlet;
         if (inlet == null) continue;
-        final max = math.max(256, (inlet.stream.rate * 2).ceil());
+        final max = pullCapacity(
+          inlet.stream.rate,
+          const Duration(seconds: 2),
+          min: 256,
+        );
         try {
-          while (true) {
-            final c = await inlet.pull(max);
-            if (c.length == 0) break;
+          await drainInlet(inlet, max, (c) {
             final targets = [
               for (final cl in _clients)
                 if (cl.subscribed.contains(s.id)) cl,
@@ -563,8 +562,7 @@ class _Server implements LslBridgeServer {
               }
               sent += c.length * targets.length;
             }
-            if (c.length < max) break;
-          }
+          });
         } catch (_) {
           // The stream went away; keep serving the others.
           failed.add(s);

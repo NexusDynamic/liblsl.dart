@@ -1,6 +1,6 @@
 import 'package:peer_coordinator/data.dart' show PeerClock;
 
-import 'lsl_types.dart';
+import 'package:lsl_core/lsl_core.dart';
 
 LslBackend createBackend() => _Unsupported();
 

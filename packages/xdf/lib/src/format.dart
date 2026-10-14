@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:lsl_core/lsl_core.dart';
+
 /// The four bytes every XDF file starts with.
 const xdfMagic = [0x58, 0x44, 0x46, 0x3A]; // "XDF:"
 
@@ -24,37 +26,9 @@ enum XdfTag {
   }
 }
 
-/// How the values of a stream are stored.
-enum XdfFormat {
-  float32('float32', 4),
-  double64('double64', 8),
-  string('string', 0),
-  int32('int32', 4),
-  int16('int16', 2),
-  int8('int8', 1),
-  int64('int64', 8);
-
-  /// The name in stream headers (`channel_format`).
-  final String name;
-
-  /// Bytes per value; 0 for strings.
-  final int size;
-
-  const XdfFormat(this.name, this.size);
-
-  bool get isString => this == string;
-
-  static XdfFormat parse(String name) {
-    final n = name.trim().toLowerCase();
-    for (final f in values) {
-      if (f.name == n) return f;
-    }
-    // Some writers use "double" or "float".
-    if (n == 'double') return double64;
-    if (n == 'float') return float32;
-    throw FormatException('Unknown channel format "$name"');
-  }
-}
+/// How the values of a stream are stored: the LSL channel format.
+@Deprecated('Use LSLChannelFormat (package:lsl_core)')
+typedef XdfFormat = LSLChannelFormat;
 
 /// The boundary chunk's content: a fixed UUID that lets a reader find the
 /// next chunk in a damaged file.
@@ -135,47 +109,33 @@ class XdfReader {
 
   String utf8String(int n) => utf8.decode(take(n), allowMalformed: true);
 
-  /// Read [count] values of [format] into [out] from [offset], as doubles.
-  void values(XdfFormat format, int count, List<double> out, int offset) {
-    _need(count * format.size);
-    var p = position;
-    final d = _data;
-    switch (format) {
-      case XdfFormat.float32:
-        for (var i = 0; i < count; i++, p += 4) {
-          out[offset + i] = d.getFloat32(p, Endian.little);
-        }
-      case XdfFormat.double64:
-        for (var i = 0; i < count; i++, p += 8) {
-          out[offset + i] = d.getFloat64(p, Endian.little);
-        }
-      case XdfFormat.int32:
-        for (var i = 0; i < count; i++, p += 4) {
-          out[offset + i] = d.getInt32(p, Endian.little).toDouble();
-        }
-      case XdfFormat.int16:
-        for (var i = 0; i < count; i++, p += 2) {
-          out[offset + i] = d.getInt16(p, Endian.little).toDouble();
-        }
-      case XdfFormat.int8:
-        for (var i = 0; i < count; i++, p += 1) {
-          out[offset + i] = d.getInt8(p).toDouble();
-        }
-      case XdfFormat.int64:
-        for (var i = 0; i < count; i++, p += 8) {
-          // Two halves (no 64-bit getter on the web); exact up to 2^53.
-          final lo = d.getUint32(p, Endian.little);
-          final hi = d.getInt32(p + 4, Endian.little);
-          out[offset + i] = hi * 4294967296.0 + lo;
-        }
-      case XdfFormat.string:
-        throw ArgumentError('Strings are not numeric values');
-    }
-    position = p;
+  /// Read [count] values of [format] into [out] from [offset]: as doubles
+  /// for a `List<double>` (integers exact up to 2^53), exactly for a typed
+  /// list of the format. [onInexact] is called if an int64 value could not
+  /// be held exactly.
+  void values(
+    LSLChannelFormat format,
+    int count,
+    List<num> out,
+    int offset, {
+    void Function()? onInexact,
+  }) {
+    if (format.isString) throw ArgumentError('Strings are not numeric values');
+    _need(count * format.byteWidth);
+    readValuesInto(
+      _data,
+      position,
+      format,
+      count,
+      out,
+      outOffset: offset,
+      onInexact: onInexact,
+    );
+    position += count * format.byteWidth;
   }
 
   /// Skip [count] values of [format].
-  void skipValues(XdfFormat format, int count) {
+  void skipValues(LSLChannelFormat format, int count) {
     if (format.isString) {
       for (var i = 0; i < count; i++) {
         final n = varLen();
@@ -183,8 +143,8 @@ class XdfReader {
         position += n;
       }
     } else {
-      _need(count * format.size);
-      position += count * format.size;
+      _need(count * format.byteWidth);
+      position += count * format.byteWidth;
     }
   }
 }
@@ -240,35 +200,11 @@ class XdfBytesWriter {
     }
   }
 
-  /// [values] as [format].
-  void values(XdfFormat format, List<double> values) {
-    final n = values.length;
-    final out = ByteData(n * format.size);
-    for (var i = 0; i < n; i++) {
-      final v = values[i];
-      switch (format) {
-        case XdfFormat.float32:
-          out.setFloat32(i * 4, v, Endian.little);
-        case XdfFormat.double64:
-          out.setFloat64(i * 8, v, Endian.little);
-        case XdfFormat.int32:
-          out.setInt32(i * 4, v.round(), Endian.little);
-        case XdfFormat.int16:
-          out.setInt16(i * 2, v.round(), Endian.little);
-        case XdfFormat.int8:
-          out.setInt8(i, v.round());
-        case XdfFormat.int64:
-          final r = v.round();
-          out.setUint32(i * 8, r & 0xFFFFFFFF, Endian.little);
-          out.setInt32(
-            i * 8 + 4,
-            (r - (r & 0xFFFFFFFF)) ~/ 4294967296,
-            Endian.little,
-          );
-        case XdfFormat.string:
-          throw ArgumentError('Strings are not numeric values');
-      }
-    }
+  /// [values] as [format] (rounded for integer formats).
+  void values(LSLChannelFormat format, List<num> values) {
+    if (format.isString) throw ArgumentError('Strings are not numeric values');
+    final out = ByteData(values.length * format.byteWidth);
+    writeValues(out, 0, format, values, values.length);
     _b.add(out.buffer.asUint8List());
   }
 

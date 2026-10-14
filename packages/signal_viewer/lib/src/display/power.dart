@@ -141,7 +141,7 @@ double _std(List<double> x) {
 /// of [binS]: `(first bin start, values per channel)`. A bin with less than
 /// half its samples gives NaN.
 (double, List<Float64List>) binnedBandPower(
-  List<Float32List> channels,
+  List<List<double>> channels,
   double start,
   double rate,
   String metric,

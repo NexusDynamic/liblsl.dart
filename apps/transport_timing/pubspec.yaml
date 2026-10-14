@@ -9,7 +9,7 @@ issue_tracker: https://github.com/NexusDynamic/liblsl.dart/issues
 
 resolution: workspace
 
-version: 2.0.2+0
+version: 2.0.3+0
 
 environment:
   sdk: ^3.12.2
@@ -18,12 +18,12 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  liblsl: ^1.1.3
-  liblsl_coordinator: ^0.5.4
-  peer_coordinator: ^0.4.2
-  webrtc_coordinator: ^0.2.1
-  webrtc_coordinator_flutter: ^0.2.2
-  timing_core: ^0.2.0
+  liblsl: ^1.2.0
+  liblsl_coordinator: ^0.6.0
+  peer_coordinator: ^0.4.3
+  webrtc_coordinator: ^0.2.2
+  webrtc_coordinator_flutter: ^0.2.3
+  timing_core: ^0.2.1
   ffi: ^2.2.0
   nexus_branding: ^0.1.0
   flutter_multicast_lock: ^1.1.0

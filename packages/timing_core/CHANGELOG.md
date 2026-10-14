@@ -1,3 +1,8 @@
+## 0.2.1
+
+- Uses `LSLChannelFormat`/`LSLChannel` for its XDF streams.
+- Requires `xdf` ^0.2.0.
+
 ## 0.2.0
 
 - Add health checks (e.g. a device missing)

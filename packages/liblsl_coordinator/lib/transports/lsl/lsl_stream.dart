@@ -4,29 +4,9 @@ import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:liblsl_coordinator/framework.dart';
 import 'package:liblsl_coordinator/transports/lsl.dart';
 
-// import 'package:meta/meta.dart';
+import 'package:lsl_core/lsl_core.dart' show pollIntervalFor;
 
-extension LSLType on StreamDataType {
-  /// Converts a [StreamDataType] to the corresponding LSL channel format.
-  LSLChannelFormat toLSLChannelFormat() {
-    switch (this) {
-      case StreamDataType.int8:
-        return LSLChannelFormat.int8;
-      case StreamDataType.int16:
-        return LSLChannelFormat.int16;
-      case StreamDataType.int32:
-        return LSLChannelFormat.int32;
-      case StreamDataType.int64:
-        return LSLChannelFormat.int64;
-      case StreamDataType.float32:
-        return LSLChannelFormat.float32;
-      case StreamDataType.double64:
-        return LSLChannelFormat.double64;
-      case StreamDataType.string:
-        return LSLChannelFormat.string;
-    }
-  }
-}
+export 'stream_data_type.dart';
 
 /// Helper class with static methods for working with LSL StreamInfo
 /// Especially a unified way of working with the metadata, or standardized
@@ -423,16 +403,10 @@ mixin LSLStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
     _created = true;
   }
 
-  Duration _getPollingInterval() {
-    // Poll at the sample period, but never slower than 10ms (receive latency
-    // is bounded by the poll interval) and never faster than the mode can
-    // sustain: busy-wait handles sub-millisecond cadence, timers do not.
-    final microsecondsPerSample = (1000000 / config.sampleRate).round();
-    if (useBusyWaitInlets || useBusyWaitOutlets) {
-      return Duration(microseconds: microsecondsPerSample.clamp(100, 10000));
-    }
-    return Duration(microseconds: microsecondsPerSample.clamp(1000, 10000));
-  }
+  Duration _getPollingInterval() => pollIntervalFor(
+    config.sampleRate,
+    busyWait: useBusyWaitInlets || useBusyWaitOutlets,
+  );
 
   @override
   void updateManager(IResourceManager? newManager) {

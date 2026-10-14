@@ -1,3 +1,7 @@
+## 0.2.2
+
+- Requires `peer_coordinator` ^0.4.3.
+
 ## 0.2.1
 
 - `test` constraint relaxed to `^1.30.0`, which resolves alongside `flutter_test`

@@ -1,3 +1,4 @@
+import 'package:lsl_core/lsl_core.dart' show LslChunk;
 import 'package:signal_core/signal_core.dart';
 
 import 'stream_info.dart';
@@ -26,6 +27,10 @@ abstract interface class XdfStreamView {
   /// the recording.
   double get t0;
   double get t1;
+
+  /// Whether some int64 values are beyond what a double holds exactly
+  /// (±2^53), so views of the stream show them rounded.
+  bool get roundedValues;
 }
 
 /// An XDF recording being indexed, here ([XdfFile]) or in a background
@@ -57,6 +62,10 @@ abstract interface class XdfRecordingSource {
 
   /// The samples of irregular stream [slot] so far.
   XdfEvents events(int slot);
+
+  /// The samples of stream [slot] from [t0] to [t1] exactly as the file has
+  /// them, see [XdfFile.exactSamples].
+  Future<LslChunk> exactSamples(int slot, double t0, double t1);
 
   Future<void> close();
 }

@@ -8,7 +8,7 @@ network. Running it on two devices on the same network confirms that they
 can exchange LSL streams.
 
 The application runs on Windows, macOS, Linux, Android and iOS. Version
-[1.1.1](https://github.com/NexusDynamic/liblsl.dart/releases/tag/liblsl_test-v1.1.1)
+[1.2.1](https://github.com/NexusDynamic/liblsl.dart/releases/tag/liblsl_test-v1.2.1)
 is available for Windows, macOS, Linux and Android
 ([all releases](https://github.com/NexusDynamic/liblsl.dart/releases?q=liblsl_test&expanded=true)).
 The macOS build is unsigned and is opened the first time through the context

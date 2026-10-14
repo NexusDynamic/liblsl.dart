@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:isolate';
 import 'dart:typed_data';
 
+import 'package:lsl_core/lsl_core.dart' show LslChunk;
 import 'package:signal_core/signal_core.dart';
 
 import 'stream_info.dart';
@@ -33,6 +34,9 @@ class _StreamState implements XdfStreamView {
   /// Events of an irregular stream, when they changed.
   final XdfEvents? events;
 
+  @override
+  final bool roundedValues;
+
   XdfStreamInfo? _info;
 
   _StreamState(
@@ -46,6 +50,7 @@ class _StreamState implements XdfStreamView {
     this.t0,
     this.t1,
     this.events,
+    this.roundedValues,
   );
 
   @override
@@ -82,6 +87,7 @@ const _tIndexError = 6;
 const _tEnvelope = 10;
 const _tRead = 11;
 const _tClose = 12;
+const _tExact = 13;
 
 /// Open an [XdfFile] in a new isolate and return a proxy for it.
 Future<XdfRecordingSource> openInIsolate(
@@ -135,6 +141,7 @@ Future<void> _main((SendPort, ByteSourceSpec, XdfFileOptions) args) async {
                   return file.events(s.slot);
                 })()
               : null,
+          s.roundedValues,
         ),
     ],
     file.duration,
@@ -160,6 +167,9 @@ Future<void> _main((SendPort, ByteSourceSpec, XdfFileOptions) args) async {
         reply(file.envelope(request! as EnvelopeRequest));
       case _tRead:
         reply(file.read(request! as ReadRequest));
+      case _tExact:
+        final (slot, t0, t1) = request! as (int, double, double);
+        reply(file.exactSamples(slot, t0, t1));
       case _tClose:
         await file.close();
         inbox.close();
@@ -278,6 +288,10 @@ class _XdfProxy implements XdfRecordingSource {
   @override
   Future<SignalWindow> read(ReadRequest request) async =>
       (await _call(_tRead, request))! as SignalWindow;
+
+  @override
+  Future<LslChunk> exactSamples(int slot, double t0, double t1) async =>
+      (await _call(_tExact, (slot, t0, t1)))! as LslChunk;
 
   @override
   XdfEvents events(int slot) {

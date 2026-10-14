@@ -90,7 +90,7 @@ class LslBridgeRepublisher {
           type: 'Timing',
           channelCount: 1,
           rate: 0,
-          format: LslFormat.string,
+          format: LSLChannelFormat.string,
           sourceId: 'bridge:timing:${client.url.host}:${client.url.port}',
         ),
         options,

@@ -13,12 +13,14 @@ class _Outlet implements LslOutlet {
   final times = <double>[];
   final values = <double>[];
   final strings = <String>[];
+  final typed = <TypedData>[];
   bool closed = false;
 
   _Outlet(this.spec);
 
   @override
   Future<void> push(TypedData values, Float64List times) async {
+    typed.add(values);
     this.values.addAll((values as List<num>).map((v) => v.toDouble()));
     this.times.addAll(times);
   }
@@ -79,6 +81,9 @@ void main() {
     final o = outlets.single;
     expect(o.spec.name, 'replayed');
     expect(o.spec.channelCount, eeg.channelCount);
+    // As recorded (float32 in this file), and sent exactly as read.
+    expect(o.spec.format, LSLChannelFormat.float32);
+    expect(o.typed, everyElement(isA<Float32List>()));
     expect(o.times, isNotEmpty);
     expect(r!.sent, o.times.length);
     expect(o.values.length, o.times.length * eeg.channelCount);

@@ -38,7 +38,7 @@ void main() {
         channelCount: 2,
         rate: 100,
         sourceId: 'pub_$id',
-        channels: const [LslChannel('Fp1'), LslChannel('Fp2')],
+        channels: const [LSLChannel('Fp1'), LSLChannel('Fp2')],
       ),
     );
     final markers = await client.publish(
@@ -47,7 +47,7 @@ void main() {
         type: 'Markers',
         channelCount: 1,
         rate: 0,
-        format: LslFormat.string,
+        format: LSLChannelFormat.string,
         sourceId: 'pubm_$id',
       ),
     );
@@ -210,9 +210,9 @@ void main() {
     final d = lsl.discover();
     final sources = <String, LslOutlet>{};
     final formats = {
-      'd': (LslFormat.double64, 2),
-      'l': (LslFormat.int64, 1),
-      's': (LslFormat.string, 3),
+      'd': (LSLChannelFormat.double64, 2),
+      'l': (LSLChannelFormat.int64, 1),
+      's': (LSLChannelFormat.string, 3),
     };
     for (final MapEntry(:key, value: (format, channels)) in formats.entries) {
       sources[key] = await lsl.createOutlet(

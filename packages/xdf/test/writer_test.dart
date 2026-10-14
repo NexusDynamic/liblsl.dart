@@ -19,12 +19,12 @@ void main() {
     final out = _Bytes();
     final w = XdfWriter(out, header: {'datetime': '2026-09-24T12:00:00'});
     for (final (id, format) in [
-      (1, XdfFormat.float32),
-      (2, XdfFormat.int16),
-      (3, XdfFormat.double64),
-      (4, XdfFormat.int64),
-      (5, XdfFormat.int8),
-      (6, XdfFormat.int32),
+      (1, LSLChannelFormat.float32),
+      (2, LSLChannelFormat.int16),
+      (3, LSLChannelFormat.double64),
+      (4, LSLChannelFormat.int64),
+      (5, LSLChannelFormat.int8),
+      (6, LSLChannelFormat.int32),
     ]) {
       w.addStream(
         id,
@@ -35,8 +35,8 @@ void main() {
           nominalRate: 100,
           format: format,
           channels: const [
-            XdfChannel(label: 'Cz', unit: 'microvolts', type: 'EEG'),
-            XdfChannel(label: 'Pz'),
+            LSLChannel('Cz', unit: 'microvolts', type: 'EEG'),
+            LSLChannel('Pz'),
           ],
         ),
       );
@@ -47,7 +47,7 @@ void main() {
         name: 'Markers',
         type: 'Markers',
         channelCount: 1,
-        format: XdfFormat.string,
+        format: LSLChannelFormat.string,
       ),
     );
     for (var block = 0; block < 5; block++) {

@@ -183,7 +183,7 @@ final class RunLogWriter {
 
   _Buffer _numeric(
     String name, {
-    required List<XdfChannel> channels,
+    required List<LSLChannel> channels,
     double rate = 0,
     String sourceId = '',
   }) {
@@ -195,7 +195,7 @@ final class RunLogWriter {
         type: 'Timing',
         channelCount: channels.length,
         nominalRate: rate,
-        format: XdfFormat.double64,
+        format: LSLChannelFormat.double64,
         sourceId: sourceId,
         hostname: header.deviceName,
         channels: channels,
@@ -212,7 +212,7 @@ final class RunLogWriter {
         name: name,
         type: 'Markers',
         channelCount: 1,
-        format: XdfFormat.string,
+        format: LSLChannelFormat.string,
         hostname: header.deviceName,
       ),
     );
@@ -225,7 +225,7 @@ final class RunLogWriter {
       _sentStream,
       rate: header.sampleRate,
       sourceId: header.sourceId ?? '',
-      channels: const [XdfChannel(label: 'seq')],
+      channels: const [LSLChannel('seq')],
     );
     buffer.add(sendClock, [seq.toDouble()]);
   }
@@ -249,11 +249,11 @@ final class RunLogWriter {
       rate: header.sampleRate,
       sourceId: sourceId,
       channels: const [
-        XdfChannel(label: 'seq'),
-        XdfChannel(label: 'source_clock', unit: 'seconds'),
-        XdfChannel(label: 'received_clock', unit: 'seconds'),
-        XdfChannel(label: 'clock_offset', unit: 'seconds'),
-        XdfChannel(label: 'uncertainty', unit: 'seconds'),
+        LSLChannel('seq'),
+        LSLChannel('source_clock', unit: 'seconds'),
+        LSLChannel('received_clock', unit: 'seconds'),
+        LSLChannel('clock_offset', unit: 'seconds'),
+        LSLChannel('uncertainty', unit: 'seconds'),
       ],
     );
     // XDF has no "unknown" time stamp, so a sample whose sender's clock is
@@ -281,10 +281,10 @@ final class RunLogWriter {
       _clockStream,
       sourceId: sourceId,
       channels: const [
-        XdfChannel(label: 'offset', unit: 'seconds'),
-        XdfChannel(label: 'remote_time', unit: 'seconds'),
-        XdfChannel(label: 'uncertainty', unit: 'seconds'),
-        XdfChannel(label: 'reset'),
+        LSLChannel('offset', unit: 'seconds'),
+        LSLChannel('remote_time', unit: 'seconds'),
+        LSLChannel('uncertainty', unit: 'seconds'),
+        LSLChannel('reset'),
       ],
     );
     buffer.add(receivedClock, [
