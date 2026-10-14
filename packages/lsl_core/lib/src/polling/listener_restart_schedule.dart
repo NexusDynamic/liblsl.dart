@@ -1,5 +1,6 @@
 /// Decides how long a dead sample listener waits before it is restarted, and
-/// when restarting it is no longer enough and its inlet should be reopened.
+/// when restarting it is no longer enough and its inlet should be reopened
+/// (or, for `receiveChunks`, given up for collecting on a timer).
 ///
 /// Separated from the inlet worker for the same reason as
 /// `TimeCorrectionSchedule`: the behaviour is pure bookkeeping, and the

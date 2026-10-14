@@ -1,4 +1,6 @@
-import 'dart:io';
+import 'config_files_stub.dart'
+    if (dart.library.io) 'config_files_io.dart'
+    as files;
 
 /// LSL API Configuration class for Dart FFI wrapper of liblsl
 /// Represents the configuration options available in liblsl's configuration
@@ -377,9 +379,7 @@ class LSLApiConfig {
   /// Create a configuration from a file
   static Future<LSLApiConfig> fromFile(String filePath) async {
     try {
-      final file = File(filePath);
-      final content = await file.readAsString();
-      return LSLApiConfig.fromString(content);
+      return LSLApiConfig.fromString(await files.readText(filePath));
     } catch (e) {
       throw Exception('Failed to load LSL configuration from file: $e');
     }
@@ -388,8 +388,7 @@ class LSLApiConfig {
   /// Write the configuration to a file
   Future<void> writeToFile(String filePath) async {
     try {
-      final file = File(filePath);
-      await file.writeAsString(toIniString());
+      await files.writeText(filePath, toIniString());
     } catch (e) {
       throw Exception('Failed to write LSL configuration to file: $e');
     }

@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:math' as math;
 
-import 'lsl_types.dart';
+import '../polling/listener_restart_schedule.dart';
+import 'drain.dart';
+import 'types.dart';
 
 /// How [receiveChunks] is getting an inlet's samples, reported when it changes.
 class LslReceiveStatus {
@@ -52,6 +54,9 @@ const int receiveFallbackAfter = 3;
 /// working again.
 const Duration _stableAfter = Duration(seconds: 1);
 
+/// [ListenerRestartSchedule] key: one listener per call.
+const _listener = '';
+
 /// Everything [inlet] receives, as chunks, until the subscription is
 /// cancelled. Await the cancel before closing the inlet.
 ///
@@ -87,24 +92,17 @@ Stream<LslChunk> receiveChunks(
   Timer? timer;
   Future<void>? polling;
   var cancelled = false;
-  var failures = 0;
+  // Giving up listening is this schedule's "reopen".
+  final restarts = ListenerRestartSchedule(reopenAfter: receiveFallbackAfter);
   var faults = debugListenerFaults;
 
   Future<void> poll() async {
     final interval = Duration(milliseconds: options.pullIntervalMs);
     // Room for a few intervals, so one pull usually gets everything.
-    final max = math.max(
-      64,
-      (math.max(rate, 1) * options.pullIntervalMs / 1000 * 8).ceil(),
-    );
+    final max = pullCapacity(rate, interval * 8);
     while (!cancelled) {
       try {
-        while (!cancelled) {
-          final c = await inlet.pull(max);
-          if (c.length == 0 || cancelled) break;
-          controller.add(c);
-          if (c.length < max) break;
-        }
+        await drainInlet(inlet, max, controller.add, stop: () => cancelled);
       } catch (e, st) {
         if (cancelled) return;
         controller.addError(e, st);
@@ -146,9 +144,10 @@ Stream<LslChunk> receiveChunks(
             timer?.cancel();
             timer = null;
             if (cancelled) return;
-            failures++;
+            final delay = restarts.noteFailure(_listener);
+            final failures = restarts.failuresFor(_listener);
             final why = '${cause ?? 'it ended without an error'}';
-            if (failures >= receiveFallbackAfter) {
+            if (restarts.shouldReopenInlet(_listener)) {
               onStatus?.call(
                 LslReceiveStatus(
                   eventDriven: false,
@@ -167,16 +166,13 @@ Stream<LslChunk> receiveChunks(
                 cause: why,
               ),
             );
-            timer = Timer(
-              Duration(milliseconds: 100 << (failures - 1)),
-              listen,
-            );
+            timer = Timer(delay, listen);
           },
         );
-    if (failures > 0) {
+    if (restarts.failuresFor(_listener) > 0) {
       timer = Timer(_stableAfter, () {
         timer = null;
-        failures = 0;
+        restarts.noteHealthy(_listener);
         onStatus?.call(const LslReceiveStatus(eventDriven: true));
       });
     }

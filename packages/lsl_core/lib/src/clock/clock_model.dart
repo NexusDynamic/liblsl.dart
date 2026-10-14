@@ -1,7 +1,7 @@
 /// What sits between a stream of clock-offset estimates and the timestamps they
 /// correct: a drift fit, a timestamp smoother and an arrival-latency window.
 ///
-/// [PeerClockEstimator] reproduces liblsl's estimator and, like it, publishes
+/// `PeerClockEstimator` (peer_coordinator) reproduces liblsl's estimator and, like it, publishes
 /// an offset that *steps* once per burst. liblsl hides the steps in the inlet's
 /// post-processing; a transport that maps timestamps itself needs the same two
 /// things liblsl has there, which are [ClockModel] (where is the offset now,
@@ -11,8 +11,8 @@ library;
 import 'dart:math';
 import 'dart:typed_data';
 
-import 'package:peer_coordinator/src/coordination/clock_sync.dart';
-import 'package:peer_coordinator/src/data/clock_hop.dart';
+import 'clock_hop.dart';
+import 'clock_offset.dart';
 
 /// A straight line through the recent offset estimates for one peer.
 ///

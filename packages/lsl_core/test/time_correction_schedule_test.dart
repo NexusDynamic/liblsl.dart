@@ -1,4 +1,4 @@
-import 'package:liblsl_coordinator/transports/lsl/isolate/time_correction_schedule.dart';
+import 'package:lsl_core/src/polling/time_correction_schedule.dart';
 import 'package:test/test.dart';
 
 /// Regression cover for the 2026-09-02 session-wide eviction cascade.

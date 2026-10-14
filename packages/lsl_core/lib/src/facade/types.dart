@@ -1,26 +1,23 @@
 import 'dart:typed_data';
 
-import 'package:peer_coordinator/data.dart' show ClockChain;
+import '../api_config.dart' show ResolveScope;
+import '../clock/clock_hop.dart';
+import '../format.dart';
+import '../time_correction.dart';
+import '../timed.dart';
+import '../values.dart';
 
-export 'package:peer_coordinator/data.dart' show ClockChain, ClockHop;
+@Deprecated('Use LSLChannelFormat')
+typedef LslFormat = LSLChannelFormat;
 
-/// Sample format of an LSL stream.
-enum LslFormat {
-  float32,
-  double64,
-  int8,
-  int16,
-  int32,
-  int64,
-  string,
-  undefined;
+@Deprecated('Use LSLChannel')
+typedef LslChannel = LSLChannel;
 
-  bool get isString => this == string;
+@Deprecated('Use LSLTimeCorrection')
+typedef LslTimeCorrection = LSLTimeCorrection;
 
-  /// The format an outlet of this format is made with: [undefined] has no
-  /// outlet of its own, so it is float32.
-  LslFormat get outletFormat => this == undefined ? float32 : this;
-}
+@Deprecated('Use ResolveScope')
+typedef LslScope = ResolveScope;
 
 /// A stream found on the network.
 class LslStreamDescription {
@@ -30,7 +27,7 @@ class LslStreamDescription {
 
   /// Nominal sampling rate in Hz, 0 for irregular streams.
   final double rate;
-  final LslFormat format;
+  final LSLChannelFormat format;
   final String sourceId;
   final String hostname;
   final String uid;
@@ -69,13 +66,24 @@ class LslStreamDescription {
 String _num(double v) =>
     v == v.roundToDouble() ? v.toStringAsFixed(0) : v.toStringAsFixed(2);
 
-/// Description of one channel, from a stream's metadata.
-class LslChannel {
+/// One channel, as a stream's metadata describes it
+/// (`desc/channels/channel`).
+class LSLChannel {
   final String label;
   final String unit;
   final String type;
 
-  const LslChannel(this.label, {this.unit = '', this.type = ''});
+  const LSLChannel(this.label, {this.unit = '', this.type = ''});
+
+  @override
+  bool operator ==(Object other) =>
+      other is LSLChannel &&
+      other.label == label &&
+      other.unit == unit &&
+      other.type == type;
+
+  @override
+  int get hashCode => Object.hash(label, unit, type);
 }
 
 /// Samples pulled from an inlet, sample-major.
@@ -106,6 +114,15 @@ class LslChunk {
     this.received,
   });
 
+  /// Samples from liblsl's listener, with [data] in the stream's format.
+  factory LslChunk.fromTimed(LSLTimedChunk c) => LslChunk(
+    c.timestamps,
+    values: c.data == null ? null : asDoubles(c.data!),
+    typed: c.data,
+    strings: c.strings,
+    received: c.receivedClock,
+  );
+
   int get length => times.length;
 
   /// The same samples with time stamps [times].
@@ -126,7 +143,7 @@ abstract class LslInlet {
 
   /// Channel descriptions from the stream's metadata (labels default to
   /// `ch1`, `ch2`...).
-  List<LslChannel> get channels;
+  List<LSLChannel> get channels;
 
   /// Everything buffered, up to [maxSamples]. Does not wait.
   Future<LslChunk> pull(int maxSamples);
@@ -140,7 +157,7 @@ abstract class LslInlet {
   Future<double> timeCorrection();
 
   /// [timeCorrection] with its error bound.
-  Future<LslTimeCorrection> timeCorrectionEx();
+  Future<LSLTimeCorrection> timeCorrectionEx();
 
   /// How the sender's time stamps map onto this computer's LSL clock, hop
   /// by hop (one hop for a stream on this network, more through bridges),
@@ -169,31 +186,6 @@ abstract class LslArrivals {
   });
 }
 
-/// A clock offset and uncertainty, as measured by [LslInlet.timeCorrectionEx].
-class LslTimeCorrection {
-  /// Add it to the sender's time stamps to get this computer's LSL clock.
-  final double offset;
-
-  /// The full round trip of the measurement (summed over hops): the true
-  /// offset is within ±[uncertainty]/2.
-  final double uncertainty;
-
-  /// The sender's clock when it was measured.
-  final double remoteTime;
-
-  const LslTimeCorrection({
-    required this.offset,
-    required this.uncertainty,
-    required this.remoteTime,
-  });
-
-  static const zero = LslTimeCorrection(
-    offset: 0,
-    uncertainty: 0,
-    remoteTime: 0,
-  );
-}
-
 /// What an outlet publishes.
 class LslOutletSpec {
   final String name;
@@ -205,9 +197,9 @@ class LslOutletSpec {
 
   /// The channel format. Numeric values pushed in another format are
   /// converted to it.
-  final LslFormat format;
+  final LSLChannelFormat format;
   final String sourceId;
-  final List<LslChannel> channels;
+  final List<LSLChannel> channels;
 
   /// Extra metadata: `<desc><group><key>value</key></group></desc>`.
   final Map<String, Map<String, String>> desc;
@@ -217,7 +209,7 @@ class LslOutletSpec {
     required this.type,
     required this.channelCount,
     required this.rate,
-    this.format = LslFormat.float32,
+    this.format = LSLChannelFormat.float32,
     required this.sourceId,
     this.channels = const [],
     this.desc = const {},
@@ -434,9 +426,6 @@ class LslOutletOptions {
   }
 }
 
-/// How far discovery reaches.
-enum LslScope { machine, link, site, organization, global }
-
 /// Network setup, applied when the app starts.
 class LslNetworkOptions {
   /// Addresses or host names to look for streams on directly, for networks
@@ -445,20 +434,20 @@ class LslNetworkOptions {
 
   /// Only streams with the same session id see each other.
   final String sessionId;
-  final LslScope scope;
+  final ResolveScope scope;
   final bool ipv6;
 
   const LslNetworkOptions({
     this.knownPeers = const [],
     this.sessionId = 'default',
-    this.scope = LslScope.site,
+    this.scope = ResolveScope.site,
     this.ipv6 = true,
   });
 
   bool get isDefault =>
       knownPeers.isEmpty &&
       sessionId == 'default' &&
-      scope == LslScope.site &&
+      scope == ResolveScope.site &&
       ipv6;
 
   @override
@@ -494,7 +483,7 @@ class LslNetworkOptions {
       sessionId: session is String && session.trim().isNotEmpty
           ? session.trim()
           : d.sessionId,
-      scope: LslScope.values.asNameMap()[scope] ?? d.scope,
+      scope: ResolveScope.values.asNameMap()[scope] ?? d.scope,
       ipv6: _bool(j['ipv6'], d.ipv6),
     );
   }
