@@ -1,3 +1,9 @@
+## 0.3.0
+
+- Sharing and relaying keep each stream's format: double, integer and
+  multi-channel string streams arrive exactly (bridge protocol 3; older
+  `lsl` tools and viewers are refused, so update them together).
+
 ## 0.2.2
 
 - Cascaded performance improvements for the UI from `signal_viewer` ^0.1.2.
