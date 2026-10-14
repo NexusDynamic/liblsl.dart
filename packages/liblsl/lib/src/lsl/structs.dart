@@ -2,11 +2,9 @@ import 'dart:ffi';
 import 'package:liblsl/native_liblsl.dart';
 import 'package:ffi/ffi.dart' show StringUtf8Pointer;
 import 'package:liblsl/src/ffi/mem.dart';
-import 'package:lsl_core/lsl_core.dart'
-    show LSLChannelFormat, LSLContentType;
+import 'package:lsl_core/lsl_core.dart' show LSLChannelFormat, LSLContentType;
 
-export 'package:lsl_core/lsl_core.dart'
-    show LSLChannelFormat, LSLContentType;
+export 'package:lsl_core/lsl_core.dart' show LSLChannelFormat, LSLContentType;
 
 /// The FFI side of an [LSLContentType].
 extension LSLContentTypeNative on LSLContentType {
