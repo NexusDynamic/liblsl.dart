@@ -6552,6 +6552,7 @@ flutter_multicast_lock
 liblsl
 liblsl_metapackage
 liblsl_test
+lsl_core
 serial_transport
 transport_timing
 xdf
