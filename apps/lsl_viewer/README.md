@@ -28,7 +28,7 @@ menu (right-click, *Open*).
 | Live LSL streams | *LSL > View streams…*, on desktop platforms and Android |
 | Signal display | Each tab has filters, re-referencing, power spectra, signal quality and trigger decoding. The source setup (View menu) overrides the type and channel names of a stream |
 | Recording and replay | LSL streams are recorded to XDF. A recording is replayed as LSL streams from the position shown, and a single stream, live or recorded, can be forwarded under another name |
-| Devices | The OpenBCI Cyton (with or without Daisy), and serial devices that print lines of numbers, such as an Arduino. They are supported on desktop platforms, on Android over USB, and in Chrome and Edge with WebSerial |
+| Devices | The OpenBCI Cyton (with or without Daisy), and serial devices that print lines of numbers, such as an Arduino. The *Cyton* menu sets the channels (gain, input, reference, and use as EEG, EMG or other), applies test signals, measures electrode impedance, sends markers and records to the board's SD card, whose files *Open recording…* also opens. They are supported on desktop platforms, on Android over USB, and in Chrome and Edge with WebSerial. On Linux the user must belong to the group that owns the serial device, usually `dialout` (`uucp` on Arch Linux) |
 
 ## LSL in the browser and across networks
 

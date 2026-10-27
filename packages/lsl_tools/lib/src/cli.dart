@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:args/command_runner.dart';
 import 'package:openbci_cyton/openbci_cyton.dart';
+import 'package:openbci_cyton/xdf.dart';
 import 'package:serial_transport/serial_transport.dart';
 import 'package:signal_core/signal_core.dart';
 import 'package:xdf/xdf.dart';
@@ -47,6 +49,7 @@ Future<int> runLslCli(
     _Generate(o, stop),
     _Replay(o, stop),
     _Cyton(o, stop),
+    _CytonSd(o),
   ]) {
     runner.addCommand(c);
   }
@@ -842,6 +845,20 @@ const _ultracortex = [
   'F7', 'F8', 'F3', 'F4', 'T7', 'T8', 'P3', 'P4',
 ];
 
+/// Channels (1-[n]) given as a multi-option, e.g. `--emg 9 --emg 10` or
+/// `--emg 9,10`.
+Set<int> _channels(List<String> values, int n) {
+  final out = <int>{};
+  for (final v in values.expand((v) => v.split(','))) {
+    final c = int.tryParse(v.trim());
+    if (c == null || c < 1 || c > 16) {
+      throw UsageException('Not a channel (1-16): $v', '');
+    }
+    if (c <= n) out.add(c);
+  }
+  return out;
+}
+
 class _Cyton extends _Base {
   final Future<void>? stop;
   _Cyton(super.out, this.stop) {
@@ -853,9 +870,43 @@ class _Cyton extends _Base {
         defaultsTo: true,
         help: 'Name channels as the UltraCortex Mark IV electrodes.',
       )
+      ..addOption(
+        'gain',
+        allowed: [for (final g in cytonGains) '$g'],
+        defaultsTo: '24',
+        help: 'Gain of all channels.',
+      )
       ..addMultiOption(
         'bipolar',
-        help: 'Channels (1-16) without the SRB2 reference, e.g. for EMG.',
+        help: 'Channels (1-16) without the SRB2 reference.',
+      )
+      ..addMultiOption(
+        'emg',
+        help:
+            'Channels (1-16) used for EMG: bipolar, and published as a '
+            'stream of their own.',
+      )
+      ..addFlag(
+        'markers',
+        negatable: false,
+        help:
+            'The marker board mode (no accelerometer): markers typed on '
+            'standard input, one a line (128-239, or one of '
+            '$cytonSafeMarkerChars), go into the samples (and an SD card '
+            'recording) and are published as a markers stream.',
+      )
+      ..addOption(
+        'sd',
+        valueHelp: 'minutes',
+        help: 'Also record to the SD card, with room for this long.',
+      )
+      ..addOption(
+        'sd-rate',
+        allowed: [for (final r in CytonSampleRate.values) '${r.hz}'],
+        defaultsTo: '250',
+        help:
+            'Sampling rate of the SD card recording. Above 250 Hz the board '
+            'does not stream, and nothing is published.',
       );
   }
 
@@ -864,75 +915,132 @@ class _Cyton extends _Base {
 
   @override
   String get description =>
-      'Publish an OpenBCI Cyton (+ Daisy) as LSL streams: EEG (µV) and its '
-      'accelerometer (g). Without a port, list the serial ports.';
+      'Publish an OpenBCI Cyton (+ Daisy) as LSL streams: EEG (µV), EMG, '
+      'and the accelerometer (g) or markers; optionally record to its SD '
+      'card. Without a port, list the serial ports.';
 
   @override
   String get invocation => 'lsl cyton [<serial port>]';
 
   @override
   Future<int> run() async {
+    final args = argResults!;
     final serial = SerialPortProvider.platform();
-    final rest = argResults!.rest;
+    final rest = args.rest;
     if (rest.isEmpty) {
       for (final p in await serial.listPorts()) {
         out.writeln('${p.id}\t${p.description}');
       }
       return 0;
     }
+    final sdText = args['sd'] as String?;
+    final sdMinutes = sdText == null ? null : double.tryParse(sdText);
+    if (sdText != null && (sdMinutes == null || sdMinutes <= 0)) {
+      throw UsageException('--sd takes minutes: $sdText', usage);
+    }
+    final sdRate = CytonSampleRate.of(int.parse(args['sd-rate'] as String))!;
+    if (sdRate != CytonSampleRate.hz250 && sdMinutes == null) {
+      throw UsageException('--sd-rate is for --sd', usage);
+    }
+    final sd = sdMinutes == null
+        ? null
+        : CytonSdDuration.forMinutes(sdMinutes, sdRate);
+    final markers = args['markers'] as bool;
     final board = await CytonBoard.connect(
       await serial.open(
         SerialPortInfo(id: rest.single),
         baudRate: cytonBaudRate,
       ),
-      useDaisy: argResults!['daisy'] as bool,
+      useDaisy: args['daisy'] as bool,
+      sampleRate: sd == null ? CytonSampleRate.hz250 : sdRate,
+      boardMode: markers ? CytonBoardMode.marker : CytonBoardMode.defaults,
     );
-    for (final c in argResults!['bipolar'] as List<String>) {
-      final ch = int.parse(c);
-      if (ch <= board.channelCount) {
-        await board.configureChannel(ch, CytonChannelSettings.bipolar);
+    final n = board.channelCount;
+    final gain = int.parse(args['gain'] as String);
+    final emg = _channels(args['emg'] as List<String>, n);
+    final bipolar = {..._channels(args['bipolar'] as List<String>, n), ...emg};
+    for (var ch = 1; ch <= n; ch++) {
+      final s = CytonChannelSettings(gain: gain, srb2: !bipolar.contains(ch));
+      if (s != const CytonChannelSettings()) {
+        await board.configureChannel(ch, s);
       }
     }
-    final name = argResults!['name'] as String;
-    final n = board.channelCount;
+    final name = args['name'] as String;
     final labels = [
       for (var c = 0; c < n; c++)
-        argResults!['ultracortex'] as bool ? _ultracortex[c] : 'ch${c + 1}',
+        args['ultracortex'] as bool ? _ultracortex[c] : 'ch${c + 1}',
     ];
-    await lsl.prepare();
+    final eegChannels = [
+      for (var c = 0; c < n; c++)
+        if (!emg.contains(c + 1)) c,
+    ];
+    final emgChannels = [for (final c in emg.toList()..sort()) c - 1];
     final source = 'openbci-cyton:${rest.single}';
-    final eeg = await lsl.createOutlet(
+    final model = board.daisy ? 'Cyton + Daisy' : 'Cyton';
+
+    Future<LslOutlet> outlet(
+      String name,
+      String type,
+      List<int> channels,
+      String suffix,
+    ) => lsl.createOutlet(
       LslOutletSpec(
         name: name,
-        type: 'EEG',
-        channelCount: n,
+        type: type,
+        channelCount: channels.length,
         rate: board.rate,
-        sourceId: source,
-        channels: [for (final l in labels) LSLChannel(l, unit: 'microvolts')],
+        sourceId: '$source$suffix',
+        channels: [
+          for (final c in channels) LSLChannel(labels[c], unit: 'microvolts'),
+        ],
         desc: {
-          'acquisition': {
-            'manufacturer': 'OpenBCI',
-            'model': board.daisy ? 'Cyton + Daisy' : 'Cyton',
-          },
+          'acquisition': {'manufacturer': 'OpenBCI', 'model': model},
         },
       ),
       const LslOutletOptions(),
     );
-    final accel = await lsl.createOutlet(
-      LslOutletSpec(
-        name: '$name accelerometer',
-        type: 'Accelerometer',
-        channelCount: 3,
-        rate: board.rate,
-        sourceId: '$source:accel',
-        channels: const [
-          LSLChannel('x', unit: 'g'),
-          LSLChannel('y', unit: 'g'),
-          LSLChannel('z', unit: 'g'),
-        ],
-      ),
-      const LslOutletOptions(),
-    );
+
+    // Above 250 Hz the board only records to the card.
+    final publish = board.live;
+    LslOutlet? eeg, emgOut, accel, markersOut;
+    if (publish) {
+      await lsl.prepare();
+      if (eegChannels.isNotEmpty) {
+        eeg = await outlet(name, 'EEG', eegChannels, '');
+      }
+      if (emgChannels.isNotEmpty) {
+        emgOut = await outlet('$name EMG', 'EMG', emgChannels, ':emg');
+      }
+      if (markers) {
+        markersOut = await lsl.createOutlet(
+          LslOutletSpec(
+            name: '$name markers',
+            type: 'Markers',
+            channelCount: 1,
+            rate: 0,
+            format: LSLChannelFormat.string,
+            sourceId: '$source:markers',
+          ),
+          const LslOutletOptions(),
+        );
+      } else {
+        accel = await lsl.createOutlet(
+          LslOutletSpec(
+            name: '$name accelerometer',
+            type: 'Accelerometer',
+            channelCount: 3,
+            rate: board.rate,
+            sourceId: '$source:accel',
+            channels: const [
+              LSLChannel('x', unit: 'g'),
+              LSLChannel('y', unit: 'g'),
+              LSLChannel('z', unit: 'g'),
+            ],
+          ),
+          const LslOutletOptions(),
+        );
+      }
+    }
     // Time stamps by the sample count, from the first sample's arrival.
     double? t0;
     var count = 0;
@@ -942,35 +1050,179 @@ class _Cyton extends _Base {
       count += s.lost;
       pending.add(s);
     });
-    var sent = 0;
+    var sent = 0, marked = 0, typedCount = 0;
+    Float32List pick(List<int> channels, int m) {
+      final k = channels.length;
+      final v = Float32List(m * k);
+      for (var i = 0; i < m; i++) {
+        final eeg = pending[i].eeg;
+        for (var j = 0; j < k; j++) {
+          v[i * k + j] = eeg[channels[j]];
+        }
+      }
+      return v;
+    }
+
     final timer = Timer.periodic(const Duration(milliseconds: 20), (_) {
-      if (pending.isEmpty) return;
+      if (pending.isEmpty || !publish) return;
       final m = pending.length;
-      final e = Float32List(m * n), a = Float32List(m * 3);
       final times = Float64List(m);
+      final a = Float32List(m * 3);
       for (var i = 0; i < m; i++) {
         final s = pending[i];
-        e.setAll(i * n, s.eeg);
-        a.setAll(i * 3, s.accel);
         times[i] = t0! + count++ / board.rate;
+        a.setAll(i * 3, s.accel);
+        final marker = s.marker;
+        if (marker != null) {
+          marked++;
+          markersOut?.pushStrings([cytonMarkerLabel(marker)], [times[i]]);
+        }
       }
+      eeg?.push(pick(eegChannels, m), times);
+      emgOut?.push(pick(emgChannels, m), times);
+      accel?.push(a, times);
       pending.clear();
-      eeg.push(e, times);
-      accel.push(a, times);
       sent += m;
     });
-    await board.start();
+
+    if (sd != null) {
+      out.writeln(await board.startSdRecording(sd));
+    } else {
+      await board.start();
+    }
     out.writeln(
-      'Publishing $name: $n channels at ${board.rate.toStringAsFixed(0)} Hz'
-      '${board.daisy ? ' (with Daisy)' : ''}; Ctrl-C to stop',
+      [
+        if (publish)
+          'Publishing $name: ${eegChannels.length} EEG'
+              '${emgChannels.isEmpty ? '' : ' and ${emgChannels.length} EMG'} '
+              'channels at ${board.rate.toStringAsFixed(0)} Hz'
+              '${board.daisy ? ' (with Daisy)' : ''}'
+        else
+          'Recording to the SD card at ${sdRate.hz} Hz (the board does not '
+              'stream above 250 Hz)',
+        if (sd != null) 'SD card file ${board.sdFile}',
+        'Ctrl-C to stop',
+      ].join('; '),
     );
+    // Markers typed on standard input, once streaming.
+    StreamSubscription<String>? typed;
+    if (markers) {
+      typed = stdin
+          .transform(const SystemEncoding().decoder)
+          .transform(const LineSplitter())
+          .listen((line) {
+            final text = line.trim();
+            final value =
+                int.tryParse(text) ??
+                (text.length == 1 ? text.codeUnitAt(0) : null);
+            if (value == null || !cytonMarkerIsSafe(value)) {
+              out.writeln(
+                'Not a marker: "$text" (128-239, or one of '
+                '$cytonSafeMarkerChars)',
+              );
+            } else {
+              typedCount++;
+              board.marker(value);
+            }
+          });
+    }
+
     await _untilStopped(stop);
     timer.cancel();
+    await typed?.cancel();
     await sub.cancel();
+    if (sd != null) out.writeln(await board.stopSdRecording());
     await board.close();
-    await eeg.close();
-    await accel.close();
-    out.writeln('Sent $sent samples');
+    for (final o in [eeg, emgOut, accel, markersOut]) {
+      await o?.close();
+    }
+    if (publish) {
+      out.writeln(
+        'Sent $sent samples'
+        '${markers ? ' and $marked of $typedCount markers' : ''}',
+      );
+    }
+    return 0;
+  }
+}
+
+class _CytonSd extends _Base {
+  _CytonSd(super.out) {
+    argParser
+      ..addOption(
+        'rate',
+        allowed: [for (final r in CytonSampleRate.values) '${r.hz}'],
+        help:
+            'The sampling rate of the recording (default: estimated from the '
+            'accelerometer, or 250).',
+      )
+      ..addOption(
+        'gain',
+        allowed: [for (final g in cytonGains) '$g'],
+        defaultsTo: '24',
+        help: 'The gain of all channels during the recording.',
+      )
+      ..addFlag(
+        'ultracortex',
+        defaultsTo: true,
+        help: 'Name channels as the UltraCortex Mark IV electrodes.',
+      )
+      ..addMultiOption(
+        'emg',
+        help: 'Channels (1-16) that were used for EMG (their type).',
+      );
+  }
+
+  @override
+  String get name => 'cyton-sd';
+
+  @override
+  String get description =>
+      'Convert a recording from the SD card of an OpenBCI Cyton '
+      '(OBCI_XX.TXT) to XDF: the channels (µV), and the accelerometer (g) '
+      'or the markers.';
+
+  @override
+  String get invocation => 'lsl cyton-sd <OBCI_XX.TXT> [<output.xdf>]';
+
+  @override
+  Future<int> run() async {
+    final args = argResults!;
+    final rest = args.rest;
+    if (rest.isEmpty || rest.length > 2) {
+      throw UsageException('One recording, and optionally the output', usage);
+    }
+    final input = File(rest.first);
+    final output = File(
+      rest.length > 1
+          ? rest[1]
+          : '${input.path.replaceFirst(RegExp(r'\.[^./\\]*$'), '')}.xdf',
+    );
+    final rate = args['rate'] as String?;
+    final emg = _channels(args['emg'] as List<String>, 16);
+    final sink = output.openWrite();
+    final CytonSdSummary s;
+    try {
+      s = await convertCytonSdToXdf(
+        input.openRead(),
+        sink,
+        name: input.uri.pathSegments.last,
+        labels: args['ultracortex'] as bool ? _ultracortex : null,
+        types: [for (var c = 1; c <= 16; c++) emg.contains(c) ? 'EMG' : 'EEG'],
+        rate: rate == null ? null : double.parse(rate),
+        gains: List.filled(16, int.parse(args['gain'] as String)),
+      );
+    } finally {
+      await sink.close();
+    }
+    out.writeln(
+      '${output.path}: ${s.channelCount} channels, ${s.samples} samples '
+      '(${s.duration.toStringAsFixed(1)} s) at '
+      '${s.layout.rate.toStringAsFixed(0)} Hz'
+      '${s.layout.rateEstimated ? ' (estimated)' : ''}, '
+      '${s.layout.hasAccel ? 'accelerometer' : '${s.markers} markers'}'
+      '${s.lost > 0 ? ', ${s.lost} samples lost' : ''}',
+    );
     return 0;
   }
 }

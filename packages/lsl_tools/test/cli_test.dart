@@ -336,4 +336,116 @@ void main() {
     expect(await running, 0, reason: '$out');
     fake.stop();
   }, skip: _hasSocat ? false : 'socat not available');
+
+  group('a (simulated) Cyton, set up', () {
+    late String b;
+    late FakeCyton fake;
+    setUp(() async {
+      final a = '${dir.path}/cyton2_a';
+      b = '${dir.path}/cyton2_b';
+      for (final p in [a, b]) {
+        if (File(p).existsSync()) File(p).deleteSync();
+      }
+      final socat = await Process.start('socat', [
+        'pty,raw,echo=0,link=$a',
+        'pty,raw,echo=0,link=$b',
+      ]);
+      addTearDown(socat.kill);
+      for (var i = 0; i < 100 && !File(b).existsSync(); i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+      final far = await SerialPortProvider.platform().open(
+        SerialPortInfo(id: a),
+      );
+      fake = FakeCyton(far);
+      addTearDown(far.close);
+      addTearDown(fake.stop);
+    });
+
+    test('EMG channels as a stream of their own, gain, markers', () async {
+      final stop = Completer<void>();
+      final out = StringBuffer();
+      final name = 'cyton_emg_$id';
+      final running = runLslCli(
+        ['cyton', b, '--name', name, '--emg', '9,10', '--gain', '8'],
+        stop: stop.future,
+        out: out,
+      );
+      final d = lsl.discover();
+      final eeg = await _find(d, name);
+      final emg = await _find(d, '$name EMG');
+      expect(eeg.channelCount, 14);
+      expect(emg.channelCount, 2);
+      expect(emg.type, 'EMG');
+      expect(
+        (await d.streams()).where((s) => s.name == '$name accelerometer'),
+        isNotEmpty,
+      );
+      d.close();
+      stop.complete();
+      expect(await running, 0, reason: '$out');
+      expect(
+        fake.received,
+        containsAll(['x1040110X', 'xQ040100X', 'xW040100X']),
+      );
+    });
+
+    test('markers: a markers stream, no accelerometer', () async {
+      final stop = Completer<void>();
+      final out = StringBuffer();
+      final name = 'cyton_markers_$id';
+      final running = runLslCli(
+        ['cyton', b, '--name', name, '--markers'],
+        stop: stop.future,
+        out: out,
+      );
+      final d = lsl.discover();
+      final markers = await _find(d, '$name markers');
+      expect(markers.type, 'Markers');
+      final names = (await d.streams()).map((s) => s.name);
+      expect(names, isNot(contains('$name accelerometer')));
+      d.close();
+      stop.complete();
+      expect(await running, 0, reason: '$out');
+      expect(fake.received, contains('/4'));
+    });
+
+    test('above 250 Hz, only the SD card', () async {
+      final stop = Completer<void>();
+      final out = StringBuffer();
+      final running = runLslCli(
+        ['cyton', b, '--sd', '10', '--sd-rate', '1000'],
+        stop: stop.future,
+        out: out,
+      );
+      for (var i = 0; i < 200 && !'$out'.contains('Ctrl-C'); i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+      expect('$out', contains('OBCI_01.TXT'));
+      expect('$out', contains('does not stream'));
+      stop.complete();
+      expect(await running, 0, reason: '$out');
+      // 10 minutes at 1000 Hz: 48 MB, the 1 hour reservation.
+      expect(fake.received, containsAllInOrder(['~4', 'G', 'b', 's', 'j']));
+    });
+  }, skip: _hasSocat ? false : 'socat not available');
+
+  test('convert an SD card recording to XDF', () async {
+    final path = '${dir.path}/OBCI_23.TXT';
+    File('../openbci_cyton/test/fixtures/OBCI_23_head.TXT').copySync(path);
+    final out = StringBuffer();
+    expect(
+      await runLslCli(['cyton-sd', path, '--emg', '16'], out: out),
+      0,
+      reason: '$out',
+    );
+    expect('$out', contains('300 samples'));
+    expect('$out', contains('250 Hz (estimated)'));
+    final x = loadXdf(File('${dir.path}/OBCI_23.xdf').readAsBytesSync());
+    final eeg = x.streams.firstWhere((s) => s.info.type == 'EEG');
+    expect(eeg.info.channelCount, 16);
+    expect(eeg.info.label(0), 'Fp1');
+    expect(eeg.info.channels[15].type, 'EMG');
+    expect(x.streams.map((s) => s.info.type), contains('Accelerometer'));
+  });
 }

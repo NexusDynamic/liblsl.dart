@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:openbci_cyton/openbci_cyton.dart';
 import 'package:serial_transport/serial_transport.dart';
 import 'package:signal_viewer/signal_viewer.dart';
 
+import 'cyton_dialogs.dart';
 import 'cyton_session.dart';
 import 'serial_session.dart';
 
@@ -50,6 +52,7 @@ class SerialStreamProvider extends SourceProvider {
     SerialPortInfo port, {
     bool useDaisy = true,
     bool ultracortex = true,
+    bool markers = false,
   }) async {
     app.setStatus('Connecting to the Cyton on ${port.id}…');
     try {
@@ -58,6 +61,7 @@ class SerialStreamProvider extends SourceProvider {
         port,
         useDaisy: useDaisy,
         ultracortex: ultracortex,
+        markers: markers,
       );
       app.addSession(s);
     } catch (e) {
@@ -65,8 +69,70 @@ class SerialStreamProvider extends SourceProvider {
     }
   }
 
+  /// Run [f] on the board, reporting what fails.
+  Future<void> _board(Future<String?> Function() f) async {
+    try {
+      final message = await f();
+      if (message != null && message.isNotEmpty) {
+        app.setStatus(message.split('\n').first);
+      }
+    } catch (e) {
+      app.setError('Cyton: $e');
+    }
+  }
+
+  List<ViewerAction> _cytonActions(BuildContext context, CytonSession s) {
+    final board = s.board;
+    final sd = board.sdFile != null;
+    return [
+      ViewerAction(
+        'Cyton',
+        'Board settings…',
+        narrowLabel: 'Cyton settings…',
+        icon: Icons.tune,
+        onPressed: () => showCytonSettings(context, s),
+      ),
+      ViewerAction(
+        'Cyton',
+        board.streaming ? 'Pause streaming' : 'Resume streaming',
+        icon: board.streaming ? Icons.pause : Icons.play_arrow,
+        onPressed: sd
+            ? null
+            : () => _board(() async {
+                await (board.streaming ? s.pause() : s.resume());
+                return null;
+              }),
+      ),
+      ViewerAction(
+        'Cyton',
+        'Check impedance…',
+        icon: Icons.electrical_services,
+        onPressed: s.live ? () => showCytonImpedance(context, s) : null,
+      ),
+      if (board.boardMode == CytonBoardMode.marker)
+        ViewerAction(
+          'Cyton',
+          'Send markers…',
+          icon: Icons.bookmark_add_outlined,
+          onPressed: board.streaming
+              ? () => showCytonMarkers(context, s)
+              : null,
+        ),
+      ViewerAction(
+        'Cyton',
+        sd ? 'Stop SD card recording' : 'Record to the SD card…',
+        icon: sd ? Icons.stop : Icons.sd_card,
+        divider: true,
+        onPressed: sd
+            ? () => _board(s.stopSd)
+            : () => _board(() => showCytonSdDialog(context, s)),
+      ),
+    ];
+  }
+
   @override
   List<ViewerAction> actions(BuildContext context) => [
+    if (cytonOf(app) case final s?) ..._cytonActions(context, s),
     if (supported) ...[
       ViewerAction(
         'Serial',
@@ -130,6 +196,7 @@ class _SerialDialogState extends State<_SerialDialog> {
   late SerialDevice _device = widget.device;
   bool _daisy = true;
   bool _ultracortex = true;
+  bool _markers = false;
   int _baud = 115200;
   final _rate = TextEditingController();
   final _name = TextEditingController(text: 'Serial');
@@ -186,6 +253,7 @@ class _SerialDialogState extends State<_SerialDialog> {
         port,
         useDaisy: _daisy,
         ultracortex: _ultracortex,
+        markers: _markers,
       );
       return;
     }
@@ -284,6 +352,16 @@ class _SerialDialogState extends State<_SerialDialog> {
                 onChanged: (v) => setState(() => _ultracortex = v ?? true),
                 title: const Text('UltraCortex Mark IV channel names'),
                 subtitle: const Text('Fp1, Fp2, C3, C4, P7, P8, O1, O2, …'),
+              ),
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                value: _markers,
+                onChanged: (v) => setState(() => _markers = v ?? false),
+                title: const Text('Markers'),
+                subtitle: const Text(
+                  'Send markers to the board (Cyton menu); the '
+                  'accelerometer is off.',
+                ),
               ),
             ],
             if (_device == SerialDevice.lines) ...[

@@ -1,10 +1,14 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:openbci_cyton/openbci_cyton.dart';
 import 'package:openbci_cyton/testing.dart';
+import 'package:openbci_cyton/xdf.dart';
 import 'package:serial_transport/serial_transport.dart';
 import 'package:signal_viewer/signal_viewer.dart';
 import 'package:signal_viewer_serial/signal_viewer_serial.dart';
+import 'package:signal_viewer_xdf/signal_viewer_xdf.dart';
 
 void main() {
   group('SerialLineParser', () {
@@ -120,4 +124,137 @@ void main() {
     fake.stop();
     await session.close();
   }, skip: hasSocat ? false : 'socat not available');
+
+  group('a Cyton session', () {
+    late String a, b;
+    setUp(() async {
+      final dir = Directory.systemTemp.createTempSync('cyton_session');
+      a = '${dir.path}/a';
+      b = '${dir.path}/b';
+      final socat = await Process.start('socat', [
+        'pty,raw,echo=0,link=$a',
+        'pty,raw,echo=0,link=$b',
+      ]);
+      addTearDown(socat.kill);
+      for (var i = 0; i < 100 && !File(b).existsSync(); i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+    });
+
+    Future<(FakeCyton, CytonSession)> open({bool markers = false}) async {
+      final provider = SerialPortProvider.platform();
+      final far = await provider.open(SerialPortInfo(id: a));
+      final fake = FakeCyton(far);
+      addTearDown(far.close);
+      addTearDown(fake.stop);
+      final session = await CytonSession.open(
+        provider,
+        SerialPortInfo(id: b),
+        markers: markers,
+      );
+      addTearDown(session.close);
+      return (fake, session);
+    }
+
+    Future<void> until(bool Function() done) async {
+      for (var i = 0; i < 200 && !done(); i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+    }
+
+    test('channels used for EMG get a tab of their own', () async {
+      final (fake, session) = await open();
+      await until(() => session.received > 0);
+      expect(session.streams.map((s) => s.key), ['cyton:eeg', 'cyton:accel']);
+      session.setRole(9, Kind.emg);
+      session.setRole(10, Kind.emg);
+      final emg = session.streams.firstWhere((s) => s.kind == Kind.emg);
+      expect(emg.labels, ['F7', 'F8']);
+      expect(emg.channels.map((c) => c.channel), [8, 9]);
+      final eeg = session.streams.firstWhere((s) => s.kind == Kind.eeg);
+      expect(eeg.key, 'cyton:eeg:1,2,3,4,5,6,7,8,11,12,13,14,15,16');
+      expect(eeg.channelCount, 14);
+    });
+
+    test('markers', () async {
+      final (fake, session) = await open(markers: true);
+      await until(() => session.received > 20);
+      expect(session.streams.map((s) => s.key), ['cyton:eeg', 'cyton:markers']);
+      await session.marker('f'.codeUnitAt(0));
+      await session.marker(130);
+      await until(() => session.markerCount >= 2);
+      final markers = session.streams.last;
+      final events = LiveStreamSource(session, markers).events();
+      expect(events.text!.single, ['f', '130']);
+      expect(events.markers, isTrue);
+      expect(events.times.last, lessThanOrEqualTo(session.now));
+    });
+
+    test('a pause leaves a gap', () async {
+      final (fake, session) = await open();
+      await until(() => session.received > 20);
+      await session.pause();
+      expect(session.titleSuffix, ' (paused)');
+      final before = session.now;
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+      final n = session.received;
+      await session.resume();
+      await until(() => session.received > n + 20);
+      // The time axis kept going while paused.
+      expect(session.now - before, greaterThan(0.5));
+      expect(session.lostSampleCount, 0);
+      final w = (await LiveStreamSource(
+        session,
+        session.streams.first,
+      ).read(before, before + 0.4, DerivedSpec.none))!;
+      expect(w.channels[0].where((v) => v.isNaN), isNotEmpty);
+    });
+
+    test('SD card recording', () async {
+      final (fake, session) = await open();
+      await until(() => session.received > 0);
+      final reply = await session.startSd(
+        CytonSdDuration.min5,
+        CytonSampleRate.hz1000,
+      );
+      expect(reply, contains('OBCI_01.TXT'));
+      expect(session.describe(), contains('no live data above 250 Hz'));
+      expect(session.live, isFalse);
+      await session.stopSd();
+      expect(session.board.sampleRate, CytonSampleRate.hz250);
+      expect(session.live, isTrue);
+      expect(fake.received, containsAllInOrder(['~4', 'A', 'b', 's', 'j']));
+      await until(() => fake.received.last == 'b');
+      expect(fake.received.last, 'b');
+    });
+  }, skip: hasSocat ? false : 'socat not available');
+
+  test('an SD card recording opens as XDF', () async {
+    final bytes = File(
+      '../openbci_cyton/test/fixtures/OBCI_23_head.TXT',
+    ).readAsBytesSync();
+    final out = BytesBuilder();
+    await convertCytonSdToXdf(Stream.value(bytes), _Collect(out));
+    final session = await XdfSession.open(
+      'OBCI_23.TXT',
+      ByteSourceSpec.bytes(out.takeBytes()),
+    );
+    addTearDown(session.close);
+    for (var i = 0; i < 100 && session.streams.length < 2; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    }
+    expect(session.streams.map((s) => s.channelCount), [16, 3]);
+    expect(session.streams.first.rate, 250);
+  });
+}
+
+class _Collect implements Sink<List<int>> {
+  final BytesBuilder out;
+  _Collect(this.out);
+
+  @override
+  void add(List<int> data) => out.add(data);
+
+  @override
+  void close() {}
 }

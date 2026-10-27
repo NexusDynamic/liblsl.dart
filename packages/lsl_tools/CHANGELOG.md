@@ -22,6 +22,14 @@
 - Requires `liblsl` ^1.2.0, `peer_coordinator` ^0.4.3, `signal_core` ^0.2.0
   and `xdf` ^0.2.0.
 
+## Unreleased
+
+- `lsl cyton`: `--gain`, `--emg` (bipolar channels published as an EMG
+  stream), `--markers` (the marker board mode, with markers typed on
+  standard input and published as a markers stream) and `--sd`/`--sd-rate`
+  (an SD card recording, up to 16 kHz).
+- `lsl cyton-sd` converts an SD card recording of the Cyton to XDF.
+
 ## 0.2.1
 
 - Requires `liblsl` ^1.1.2.

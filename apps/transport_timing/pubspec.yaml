@@ -33,7 +33,7 @@ dependencies:
   wakelock_plus: ^1.6.0
   share_plus: ^13.1.0
   permission_handler: ^13.0.0
-  flutter_refresh_rate_control: ^0.0.6+0
+  flutter_refresh_rate_control: ^0.1.0+0
 
 dev_dependencies:
   flutter_launcher_icons: ^0.14.4

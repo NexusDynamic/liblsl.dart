@@ -9,7 +9,11 @@ them as a live stream, one tab per device. This is the output of a typical
 Arduino sketch that prints sensor values. Values may be separated by commas,
 semicolons, tabs or spaces, and a header line or `name:value` pairs give the
 channel names. The provider also connects to an OpenBCI Cyton through
-[`openbci_cyton`](https://pub.dev/packages/openbci_cyton).
+[`openbci_cyton`](https://pub.dev/packages/openbci_cyton), and adds a
+*Cyton* menu for its channel settings, test signals, electrode impedance,
+markers and SD card recording. Channels used for EMG or other signals are
+shown in tabs of their own. `CytonSdProvider` opens the recordings that the
+Cyton writes to its SD card, converting them to XDF as they are read.
 
 [API documentation](https://pub.dev/documentation/signal_viewer_serial/latest/)
 

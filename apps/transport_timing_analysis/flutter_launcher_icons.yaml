@@ -30,4 +30,4 @@ flutter_launcher_icons:
 
   macos:
     generate: true
-    image_path: "../../packages/nexus_branding/assets/icon/icon.png"
+    image_path: "../../packages/nexus_branding/assets/icon/icon_square.png"

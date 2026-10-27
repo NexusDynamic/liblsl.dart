@@ -17,7 +17,7 @@ dependencies:
   args: ^2.6.0
   liblsl: ^1.2.0
   lsl_core: ^1.0.0
-  openbci_cyton: ^0.1.0
+  openbci_cyton: ^0.2.0
   peer_coordinator: ^0.4.3
   serial_transport: ^0.1.0
   signal_core: ^0.2.0

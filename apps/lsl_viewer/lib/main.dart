@@ -17,11 +17,12 @@ final lslViewerConfig = ViewerConfig(
   darkTheme: nexusDarkTheme(),
 );
 
-/// What the LSL Viewer opens: LSL streams, XDF recordings and serial
-/// devices that print numbers.
+/// What the LSL Viewer opens: LSL streams, XDF recordings, serial devices
+/// that print numbers, OpenBCI Cyton boards and their SD card recordings.
 List<SourceProvider> lslViewerProviders() => [
   LslProvider(),
   XdfProvider(),
+  CytonSdProvider(),
   SerialStreamProvider(serial: lslViewerSerialPorts()),
 ];
 

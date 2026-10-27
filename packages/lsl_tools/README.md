@@ -41,7 +41,9 @@ lsl info EEG                                     # full XML and clock offset
 lsl record session.xdf -s EEG -s Markers [-d 60] # Ctrl-C stops
 lsl replay session.xdf [--loop]                  # an XDF file as LSL streams
 lsl generate -c 8 -r 500 [-f 10] [--name --type] # a test stream
-lsl cyton [/dev/ttyUSB0]                         # OpenBCI Cyton (+ Daisy)
+lsl cyton [/dev/ttyUSB0] [--emg 9,10] [--markers] [--sd 60 [--sd-rate 1000]]
+                                                 # OpenBCI Cyton (+ Daisy)
+lsl cyton-sd OBCI_2A.TXT [out.xdf] [--rate 1000] # its SD card file to XDF
 
 # Across networks and to browsers (see doc/relay.md)
 lsl share [-s EEG] [--token t] [-p 8765] [--host 0.0.0.0]

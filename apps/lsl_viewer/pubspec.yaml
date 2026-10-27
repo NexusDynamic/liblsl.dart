@@ -15,7 +15,7 @@ dependencies:
   serial_transport: ^0.1.0
   signal_viewer: ^0.2.0
   signal_viewer_lsl: ^0.3.0
-  signal_viewer_serial: ^0.1.1
+  signal_viewer_serial: ^0.2.0
   signal_viewer_xdf: ^0.2.0
   # USB serial devices on Android (a patched copy, see the workspace's
   # third_party/usb_serial).

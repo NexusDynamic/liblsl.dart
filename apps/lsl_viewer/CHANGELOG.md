@@ -8,6 +8,17 @@
 - 64-bit integer streams in the web app show a warning because the
   browser rounds values beyond ±2^53.
 
+## Unreleased
+
+- OpenBCI Cyton: the *Cyton* menu for board settings, test signals,
+  electrode impedance, markers and SD card recording, and tabs for channels
+  used for EMG; SD card recordings (`OBCI_XX.TXT`) open as recordings
+  (`signal_viewer_serial` ^0.2.0).
+- The macOS app sandbox now permits serial and USB devices, so the Cyton and
+  other serial devices can be opened, and files chosen in the open and save
+  dialogs.
+- The macOS icon is opaque, so that macOS fills the icon shape with it.
+
 ## 0.2.2
 
 - Cascaded performance improvements for the UI from `signal_viewer` ^0.1.2.

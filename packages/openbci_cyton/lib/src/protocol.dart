@@ -1,6 +1,8 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'settings.dart';
+
 /// Start byte of a Cyton data packet.
 const cytonStartByte = 0xA0;
 
@@ -32,7 +34,27 @@ class CytonSample {
   /// Samples lost before this one (from gaps in the counter).
   final int lost;
 
-  const CytonSample(this.sampleNumber, this.eeg, this.accel, {this.lost = 0});
+  /// The 6 aux bytes of the packet (for 16 channels, of the second one):
+  /// the accelerometer, the pins of the analog or digital board mode, or a
+  /// marker.
+  final Uint8List aux;
+
+  /// In the marker board mode, the value (1-255) of a marker sent with
+  /// this sample (with `CytonBoard.marker`), or null.
+  final int? marker;
+
+  CytonSample(
+    this.sampleNumber,
+    this.eeg,
+    this.accel, {
+    this.lost = 0,
+    Uint8List? aux,
+    this.marker,
+  }) : aux = aux ?? Uint8List(6);
+
+  /// In the analog board mode, the readings of pins A5, A6 and A7 (D11,
+  /// D12, D13), as BrainFlow reads them.
+  List<int> get analog => [_int16(aux, 0), _int16(aux, 2), _int16(aux, 4)];
 }
 
 int _int24(Uint8List b, int o) {
@@ -52,19 +74,30 @@ int _int16(Uint8List b, int o) {
 class CytonDecoder {
   final bool daisy;
 
-  /// Gain of each channel (16), for scaling.
+  /// Gain of each channel (16), for scaling. Changing it rescales the
+  /// samples that follow.
   final List<int> gains;
+
+  /// What the aux bytes hold.
+  final CytonBoardMode mode;
 
   final _buffer = <int>[];
   final _accel = Float64List(3);
   Float64List? _upper;
+
+  /// A marker from a packet that has not given a sample yet (the first of
+  /// a Daisy pair, or one whose pair was lost): the next sample has it.
+  int? _marker;
   int _lastNumber = -1;
 
   /// Packets dropped (bad end byte, or a Daisy packet without its pair).
   int dropped = 0;
 
-  CytonDecoder({this.daisy = false, List<int>? gains})
-    : gains = gains ?? List.filled(16, 24);
+  CytonDecoder({
+    this.daisy = false,
+    List<int>? gains,
+    this.mode = CytonBoardMode.defaults,
+  }) : gains = gains ?? List.filled(16, 24);
 
   int get channelCount => daisy ? 16 : 8;
 
@@ -98,6 +131,11 @@ class CytonDecoder {
 
   CytonSample? _packet(Uint8List b) {
     final number = b[0];
+    // A marker is the first aux value of one packet: a byte, extended to
+    // 16 bits with its sign.
+    if (mode == CytonBoardMode.marker && b[31] == cytonEndAnalog) {
+      if (b[26] != 0) _marker = b[26];
+    }
     if (b[31] == cytonEndStandard) {
       final x = _int16(b, 25), y = _int16(b, 27), z = _int16(b, 29);
       // Zeros between readings: keep the last one.
@@ -132,16 +170,28 @@ class CytonDecoder {
       lost = math.max(0, d ~/ step - 1);
     }
     _lastNumber = number;
-    return CytonSample(number, eeg, Float64List.fromList(_accel), lost: lost);
+    final marker = _marker;
+    _marker = null;
+    return CytonSample(
+      number,
+      eeg,
+      Float64List.fromList(_accel),
+      lost: lost,
+      aux: Uint8List.fromList(b.sublist(25, 31)),
+      marker: marker,
+    );
   }
 }
 
 /// Encode a sample as a packet (for tests and simulated boards): [eeg] in
-/// µV for channels 1-8 (or 9-16 of a Daisy pair), [accel] in g.
+/// µV for channels 1-8 (or 9-16 of a Daisy pair), and either [accel] in g
+/// or the raw [aux] bytes, with [endByte].
 Uint8List encodeCytonPacket(
   int number,
   List<double> eeg, {
   List<double>? accel,
+  List<int>? aux,
+  int endByte = cytonEndStandard,
   int gain = 24,
 }) {
   final out = Uint8List(33);
@@ -163,6 +213,7 @@ Uint8List encodeCytonPacket(
       out[27 + 2 * i] = u & 0xFF;
     }
   }
-  out[32] = cytonEndStandard;
+  if (aux != null) out.setRange(26, 32, aux);
+  out[32] = endByte;
   return out;
 }
