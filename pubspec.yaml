@@ -35,9 +35,8 @@ dev_dependencies:
   yaml: ^3.1.2
 
 # for now, this is required
-# native_toolchain_c requires a higher
-# meta version, melos requires a higher cli_util
-# and test_api is incompatible between the two versions of test and flutter_test.
+# native_toolchain_c requires a higher meta version, and test_api is
+# incompatible between the two versions of test and flutter_test.
 dependency_overrides:
   # desktop_drop 0.8.4 prefers the portal transfer key on Linux, which
   # loses drops from e.g. Dolphin; patched copy (as in hyprview).
@@ -47,7 +46,9 @@ dependency_overrides:
   # (as in hyprview).
   usb_serial:
     path: third_party/usb_serial
-  cli_util: ^0.5.2
+  # launcher_icons needs pure_svg, which asks for xml ^6.3 though it works
+  # with xml 7 (lsl_core, xdf).
+  xml: ^7.1.0
 #   meta: ^1.19.0
 
 melos:

@@ -117,10 +117,8 @@ class _Writer {
         sourceId: 'openbci-cyton-sd',
         channels: [
           for (var c = 0; c < channels; c++)
-            XdfChannel(
-              label: labels != null && c < labels.length
-                  ? labels[c]
-                  : 'ch${c + 1}',
+            LSLChannel(
+              labels != null && c < labels.length ? labels[c] : 'ch${c + 1}',
               unit: 'microvolts',
               type: types != null && c < types.length ? types[c] : 'EEG',
             ),
@@ -137,9 +135,9 @@ class _Writer {
           nominalRate: layout.rate,
           sourceId: 'openbci-cyton-sd:accel',
           channels: const [
-            XdfChannel(label: 'x', unit: 'g'),
-            XdfChannel(label: 'y', unit: 'g'),
-            XdfChannel(label: 'z', unit: 'g'),
+            LSLChannel('x', unit: 'g'),
+            LSLChannel('y', unit: 'g'),
+            LSLChannel('z', unit: 'g'),
           ],
         ),
       );
@@ -189,7 +187,7 @@ class _Writer {
           name: '$name markers',
           type: 'Markers',
           channelCount: 1,
-          format: XdfFormat.string,
+          format: LSLChannelFormat.string,
           sourceId: 'openbci-cyton-sd:markers',
         ),
       );

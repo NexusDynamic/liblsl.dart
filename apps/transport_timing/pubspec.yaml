@@ -36,7 +36,7 @@ dependencies:
   flutter_refresh_rate_control: ^0.1.0+0
 
 dev_dependencies:
-  flutter_launcher_icons: ^0.14.4
+  launcher_icons: ^0.16.0
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0

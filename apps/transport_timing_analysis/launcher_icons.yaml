@@ -1,0 +1,34 @@
+# The launcher icons are the NexusDynamic icon, shared by the applications
+# in this repository (packages/nexus_branding/assets/icon). To regenerate
+# them after those images change:
+#   dart run launcher_icons
+# Linux has no generator: linux/runner/my_application.cc loads
+# data/icon.png from the bundle, which linux/CMakeLists.txt copies from the
+# same folder.
+launcher_icons:
+  image_path: "../../packages/nexus_branding/assets/icon/icon.png"
+
+  android:
+    generate: true
+    adaptive_icon_background: "#0A0A0A"
+    adaptive_icon_foreground: "../../packages/nexus_branding/assets/icon/foreground.png"
+
+  ios:
+    generate: true
+    image_path: "../../packages/nexus_branding/assets/icon/icon_square.png"
+    remove_alpha: true
+    background_color: "#0A0A0A"
+
+  web:
+    generate: true
+    image_path: "../../packages/nexus_branding/assets/icon/icon.png"
+    background_color: "#09090B"
+    theme_color_light: "#3C0366"
+
+  windows:
+    generate: true
+    image_path: "../../packages/nexus_branding/assets/icon/icon.png"
+
+  macos:
+    generate: true
+    image_path: "../../packages/nexus_branding/assets/icon/icon_square.png"
