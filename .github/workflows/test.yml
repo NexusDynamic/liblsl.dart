@@ -12,6 +12,10 @@ on:
     # Nightly, to catch breakage from dependency or runner updates.
     - cron: '0 3 * * *'
 
+# Checkout only; the Flutter cache uses the Actions runtime token.
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
