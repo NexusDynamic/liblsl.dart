@@ -24,7 +24,8 @@ void main() {
     await tester.pump();
     expect(find.text('LSL Viewer'), findsOneWidget);
     expect(find.text('Open recording…'), findsWidgets);
-    expect(find.textContaining('.xdf files'), findsOneWidget);
+    // XDF recordings, and the Cyton's SD card recordings.
+    expect(find.textContaining('.xdf, .txt files'), findsOneWidget);
     expect(find.text('View an LSL stream…'), findsOneWidget);
     // No device menu: that is hyprview's.
     expect(find.text('Device'), findsNothing);
