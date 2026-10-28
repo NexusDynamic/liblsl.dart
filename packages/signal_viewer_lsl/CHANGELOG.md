@@ -1,3 +1,7 @@
+## 0.3.1
+
+- Requires `lsl_tools` ^0.3.1.
+
 ## 0.3.0
 
 - Replays keep each stream's format and channels.

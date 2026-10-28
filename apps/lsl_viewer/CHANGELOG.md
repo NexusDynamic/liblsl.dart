@@ -1,3 +1,7 @@
+## 0.3.1
+
+- Requires `signal_viewer_lsl` ^0.3.1.
+
 ## 0.3.0
 
 - Values are kept and shown as recorded instead of as 32-bit floats.

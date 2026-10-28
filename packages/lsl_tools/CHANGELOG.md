@@ -1,3 +1,5 @@
+## 0.3.1
+
 ## 0.3.0
 
 - Bridge protocol 3 lets values travel in the stream's own channel format

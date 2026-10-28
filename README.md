@@ -45,7 +45,7 @@ networks that multicast does not reach. OpenBCI Cyton boards and other serial
 devices are supported, including through WebSerial in the browser.
 
 **[Web app](https://nexusdynamic.org/liblsl.dart/lsl_viewer/)** ·
-**[Download 0.2.1](https://github.com/NexusDynamic/liblsl.dart/releases/tag/lsl_viewer-v0.2.1)**
+**[Download 0.3.1](https://github.com/NexusDynamic/liblsl.dart/releases/tag/lsl_viewer-v0.3.1)**
 (Windows, macOS, Linux, Android) ·
 [Website](https://nexusdynamic.org/liblsl.dart/) ·
 [Bridge and relay guide](./packages/lsl_tools/doc/relay.md) ·
@@ -59,7 +59,7 @@ devices are supported, including through WebSerial in the browser.
 
 | Name | Type | Description | Get it |
 | --- | --- | --- | --- |
-| [lsl_viewer](./apps/lsl_viewer) | application | Viewer for XDF recordings and live LSL streams | [web app](https://nexusdynamic.org/liblsl.dart/lsl_viewer/) · [0.2.1](https://github.com/NexusDynamic/liblsl.dart/releases/tag/lsl_viewer-v0.2.1) |
+| [lsl_viewer](./apps/lsl_viewer) | application | Viewer for XDF recordings and live LSL streams | [web app](https://nexusdynamic.org/liblsl.dart/lsl_viewer/) · [0.3.1](https://github.com/NexusDynamic/liblsl.dart/releases/tag/lsl_viewer-v0.3.1) |
 | [signal_viewer](./packages/signal_viewer) | library | Flutter viewer for multichannel signals, with pluggable source providers | [![Pub Version](https://img.shields.io/pub/v/signal_viewer)](https://pub.dev/packages/signal_viewer) |
 | [signal_viewer_lsl](./packages/signal_viewer_lsl) | library | Source provider for LSL streams | [![Pub Version](https://img.shields.io/pub/v/signal_viewer_lsl)](https://pub.dev/packages/signal_viewer_lsl) |
 | [signal_viewer_xdf](./packages/signal_viewer_xdf) | library | Source provider for XDF recordings | [![Pub Version](https://img.shields.io/pub/v/signal_viewer_xdf)](https://pub.dev/packages/signal_viewer_xdf) |
