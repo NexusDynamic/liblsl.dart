@@ -9,6 +9,7 @@
   until the connection closes.
 - `RtcStream.addInlet` attaches to a channel that survived an earlier
   `removeInlet`, so reading again from that peer receives its messages.
+- Requires `peer_coordinator` ^0.4.5.
 
 ## 0.2.3
 

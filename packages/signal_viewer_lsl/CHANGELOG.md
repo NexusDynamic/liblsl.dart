@@ -1,3 +1,7 @@
+## 0.3.3
+
+- Requires `lsl_tools` ^0.3.3.
+
 ## 0.3.2
 
 - Requires `lsl_tools` ^0.3.2.

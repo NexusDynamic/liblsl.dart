@@ -1,3 +1,10 @@
+## 2.0.5
+
+- Requires `liblsl_coordinator` ^0.6.2.
+- Requires `peer_coordinator` ^0.4.5.
+- Requires `webrtc_coordinator` ^0.2.4.
+- Requires `webrtc_coordinator_flutter` ^0.2.5.
+
 ## 2.0.4
 
 - Requires `liblsl_coordinator` ^0.6.1.

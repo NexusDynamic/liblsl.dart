@@ -1,3 +1,7 @@
+## 0.3.3
+
+- Requires `peer_coordinator` ^0.4.5.
+
 ## 0.3.2
 
 - Requires `peer_coordinator` ^0.4.4.

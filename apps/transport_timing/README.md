@@ -9,7 +9,7 @@ writes one log, and the logs are analysed together with
 The guide [Validating timing in a lab](../../docs/validating-timing.md)
 describes the procedure and the interpretation of the results.
 
-Version [2.0.4](https://github.com/NexusDynamic/liblsl.dart/releases/tag/transport_timing-v2.0.4)
+Version [2.0.5](https://github.com/NexusDynamic/liblsl.dart/releases/tag/transport_timing-v2.0.5)
 is available for Windows, macOS, Linux and Android
 ([all releases](https://github.com/NexusDynamic/liblsl.dart/releases?q=transport_timing&expanded=true)).
 
