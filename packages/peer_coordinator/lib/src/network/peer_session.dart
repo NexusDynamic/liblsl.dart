@@ -494,13 +494,12 @@ class PeerSession extends CoordinationSession with InstanceUID {
 
     // Wait for coordination to be established
     try {
-      // TODO: make timeout configurable
-      await _waitForPhase(
-        {CoordinationPhase.accepting, CoordinationPhase.ready},
-        timeout:
-            timeout ??
-            Duration(seconds: config.discoveryInterval.inSeconds * 10),
-      );
+      // Duration arithmetic, not `Duration(seconds: interval.inSeconds * 10)`,
+      // which truncates a sub-second discovery interval to a zero timeout.
+      await _waitForPhase({
+        CoordinationPhase.accepting,
+        CoordinationPhase.ready,
+      }, timeout: timeout ?? config.discoveryInterval * 10);
       logger.info(
         'Joined coordination session as ${_controller.isCoordinator ? 'COORDINATOR' : 'PARTICIPANT'}',
       );
@@ -734,8 +733,17 @@ class PeerSession extends CoordinationSession with InstanceUID {
   }
 
   // Coordinator methods - only work if this node is the coordinator
-  Future<void> pauseAcceptingNodes() async {
-    await _controller.pauseAcceptingNodes();
+
+  /// Stop admitting new nodes, typically once a roster is fixed.
+  ///
+  /// Nodes that have been members of this session are still let back in, so a
+  /// participant evicted by a transient fault can rejoin under
+  /// [CoordinatorLossPolicy.rejoin], unless [admitFormerMembers] is false.
+  /// `maxNodes` still applies.
+  Future<void> pauseAcceptingNodes({bool admitFormerMembers = true}) async {
+    await _controller.pauseAcceptingNodes(
+      admitFormerMembers: admitFormerMembers,
+    );
   }
 
   Future<void> resumeAcceptingNodes() async {

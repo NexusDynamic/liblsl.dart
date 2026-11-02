@@ -430,7 +430,7 @@ void main() {
       await evictUnheard(coordinator, participant);
       // So that it is the topology that tells it, not a new offer to join
       // from the coordinator rediscovering it.
-      await coordinator.pauseAcceptingNodes();
+      await coordinator.pauseAcceptingNodes(admitFormerMembers: false);
 
       final ended = nextEnd(participant);
       final rejoined = participant.events.sessionRejoined.first.timeout(
@@ -455,7 +455,7 @@ void main() {
       await coordinator.waitForMinNodes(2, timeout: const Duration(seconds: 2));
 
       await evictUnheard(coordinator, participant);
-      await coordinator.pauseAcceptingNodes();
+      await coordinator.pauseAcceptingNodes(admitFormerMembers: false);
 
       final ended = nextEnd(participant);
       route(coordinator, participant, open: true);
@@ -724,7 +724,7 @@ void main() {
         );
         addTearDown(sub.cancel);
 
-        await coordinator.pauseAcceptingNodes();
+        await coordinator.pauseAcceptingNodes(admitFormerMembers: false);
 
         final ended = nextEnd(participant);
         bus.routing.unsubscribe(

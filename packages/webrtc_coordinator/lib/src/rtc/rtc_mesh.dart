@@ -320,20 +320,39 @@ class RtcMesh {
     entry.subscriptions.add(
       link.states.listen((state) {
         if (state != RtcLinkState.closed) return;
-        // Terminal: a peer that comes back has a fresh node uId and is a
-        // different peer, so there is nothing to reconnect to.
+        // Terminal for this link. The peer may come back under the same uId
+        // (peer_coordinator's rejoin policy keeps it), and then it needs a
+        // fresh link: see _onLinkClosed.
         _logger.info('Link to $peerNodeUId closed');
-        unawaited(_onLinkClosed(peerNodeUId));
+        unawaited(_onLinkClosed(peerNodeUId, notifyPeer: true));
       }),
     );
     return entry;
   }
 
-  Future<void> _onLinkClosed(String peerNodeUId) async {
+  /// Drops [peerNodeUId]'s link after it closed here, or after the peer said
+  /// bye.
+  ///
+  /// With [notifyPeer] (the link closed on this side: an ICE failure, a
+  /// timeout) the peer is told, best-effort, as [releasePeer] does. A link
+  /// can close on one side only — the other side's ICE consent check takes
+  /// tens of seconds to notice — and a half left open there blocks the peer
+  /// from coming back under the same uId: it keeps answering with the dead
+  /// link, so the new one never negotiates.
+  Future<void> _onLinkClosed(
+    String peerNodeUId, {
+    bool notifyPeer = false,
+  }) async {
     final entry = _peers.remove(peerNodeUId);
     if (entry == null) return;
     _forgetSubscriber(peerNodeUId);
     await entry.dispose();
+    if (notifyPeer && !_closed && connection.isConnected) {
+      _send(
+        peerNodeUId,
+        RtcSignal(kind: RtcSignalKind.bye, fromNodeUId: selfNodeUId),
+      );
+    }
     if (!_peerLost.isClosed) _peerLost.add(peerNodeUId);
   }
 

@@ -124,6 +124,19 @@ class CoordinatorMessageHandler extends CoordinationMessageHandler
   // Control flags
   bool _acceptingNewNodes = true;
 
+  /// Every node this coordinator has admitted. A paused coordinator still
+  /// lets these back in: pausing closes the session to *new* nodes, and a
+  /// member evicted by a transient fault (a device asleep past `nodeTimeout`)
+  /// is not one. Without this, [CoordinatorLossPolicy.rejoin] could never
+  /// succeed against a coordinator that had paused once its roster was set.
+  final Set<String> _admittedNodeUIds = {};
+
+  bool _admitFormerMembers = true;
+
+  bool _admits(String nodeUId) =>
+      _acceptingNewNodes ||
+      (_admitFormerMembers && _admittedNodeUIds.contains(nodeUId));
+
   /// Called when a node this coordinator does not know about heartbeats at it.
   ///
   /// The one unambiguous signal that an evicted node is alive, reachable and
@@ -280,7 +293,7 @@ class CoordinatorMessageHandler extends CoordinationMessageHandler
       return;
     }
 
-    if (!_acceptingNewNodes) return;
+    if (!_admits(message.fromNodeUId)) return;
 
     // Not a warning any more, because it is now acted on rather than merely
     // observed. The old message said it was "treating as implicit join request"
@@ -321,7 +334,7 @@ class CoordinatorMessageHandler extends CoordinationMessageHandler
     );
 
     if (!isAlreadyConnected) {
-      if (!_acceptingNewNodes) {
+      if (!_admits(nodeUId)) {
         logger.warning('Rejecting $nodeUId: not accepting new nodes');
         await _rejectJoin(nodeUId, 'Not accepting new nodes');
         return;
@@ -343,6 +356,7 @@ class CoordinatorMessageHandler extends CoordinationMessageHandler
   Future<void> _acceptJoin(JoinRequestMessage request) async {
     final node = request.requestingNode;
     state.addNode(node);
+    _admittedNodeUIds.add(node.uId);
 
     // Send acceptance with current topology
     final acceptMessage = JoinAcceptMessage(
@@ -423,7 +437,15 @@ class CoordinatorMessageHandler extends CoordinationMessageHandler
   }
 
   // Coordinator control methods
-  void pauseAcceptingNodes() => _acceptingNewNodes = false;
+
+  /// Refuse nodes that have never been members. Former members (see
+  /// [_admittedNodeUIds]) may still rejoin unless [admitFormerMembers] is
+  /// false.
+  void pauseAcceptingNodes({bool admitFormerMembers = true}) {
+    _acceptingNewNodes = false;
+    _admitFormerMembers = admitFormerMembers;
+  }
+
   void resumeAcceptingNodes() => _acceptingNewNodes = true;
   bool get isAcceptingNodes => _acceptingNewNodes;
 

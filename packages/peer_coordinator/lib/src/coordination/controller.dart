@@ -71,6 +71,25 @@ class CoordinationController {
   /// timeout and an announced departure can both fire for one event.
   bool _handlingCoordinatorLoss = false;
 
+  /// A rejoin or re-election started by a coordinator loss is still running.
+  ///
+  /// [_handlingCoordinatorLoss] covers only the synchronous part; the recovery
+  /// itself runs unawaited for seconds. During it the participant's liveness
+  /// check keeps seeing the old coordinator as silent and reports the loss
+  /// again, and each report used to start another recovery loop alongside the
+  /// first: concurrent `_becomeParticipant` calls on one controller, failing
+  /// with "Stream has already been listened to" and null checks.
+  bool _recovering = false;
+
+  Future<void> _recover(Future<void> Function() recovery) async {
+    _recovering = true;
+    try {
+      await recovery();
+    } finally {
+      _recovering = false;
+    }
+  }
+
   /// Why this session ended, for the error a later send throws. Null while live.
   SessionEndReason? _endReason;
 
@@ -168,6 +187,7 @@ class CoordinationController {
       // Clean up pending join tracking when a node successfully joins
       if (event is NodeJoinedEvent) {
         _pendingJoins.complete(event.node.uId);
+        _evictedMembers.remove(event.node.uId);
       }
       // Every removal path funnels through here — voluntary leave, topology
       // update and the timeout sweep all go via state.removeNode — so this is
@@ -1122,12 +1142,32 @@ class CoordinationController {
       }
     });
 
-    _discovery.start(
-      query: PeerQueries.participants(
-        streamName: coordinationConfig.streamConfig.name,
-        sessionName: coordinationConfig.sessionConfig.name,
-      ),
-    );
+    _discovery.start(query: _participantsQuery());
+  }
+
+  DiscoveryQuery _participantsQuery() => PeerQueries.participants(
+    streamName: coordinationConfig.streamConfig.name,
+    sessionName: coordinationConfig.sessionConfig.name,
+  );
+
+  /// Members the sweep evicted that have not joined again, coordinator side.
+  final Set<String> _evictedMembers = {};
+
+  /// Asks discovery again for every participant, while an evicted member is
+  /// still out.
+  ///
+  /// An evicted node is often alive and still on the transport — a device that
+  /// slept past `nodeTimeout` — and under [CoordinatorLossPolicy.rejoin] it
+  /// keeps asking to come back. On a hub transport the continuous discovery
+  /// query reports only *growth*, and that node never left the hub, so it was
+  /// never reported again: the coordinator held no inlet for it, its join
+  /// requests and heartbeats were dropped unread, and the rejoin could never
+  /// succeed. A fresh query reports the whole current set, and the discovery
+  /// handler re-adds the inlet for anyone not in the topology. Repeated each
+  /// sweep because the first try can come while the node is still asleep.
+  void _rediscoverEvictedMembers() {
+    if (_evictedMembers.isEmpty || _stopping || !_state.isCoordinator) return;
+    _discovery.start(query: _participantsQuery());
   }
 
   /// Starts the liveness sweep, for either role.
@@ -1149,6 +1189,7 @@ class CoordinationController {
       if (_stopping) return;
       if (_state.isCoordinator) {
         _sweepStaleNodes(nodeTimeout);
+        _rediscoverEvictedMembers();
         // Repeated, not only sent on a change: a participant that missed its
         // eviction (and the update that followed) but hears this learns that
         // it is no longer in the session, and one that missed any other
@@ -1203,6 +1244,7 @@ class CoordinationController {
             }),
       );
       _state.removeNode(nodeUId);
+      _evictedMembers.add(nodeUId);
       // A stale offset for a departed peer is worse than no offset.
       _untrackPeerClock(nodeUId);
       // Broadcast topology update will happen automatically via state listener
@@ -1260,7 +1302,7 @@ class CoordinationController {
   Future<void> _onCoordinatorLost(SessionEndReason reason) async {
     // A timeout and an announced departure can both fire for the same event, and
     // the timer keeps ticking while an async policy runs.
-    if (_handlingCoordinatorLoss || _stopping) return;
+    if (_handlingCoordinatorLoss || _recovering || _stopping) return;
     if (_state.phase == CoordinationPhase.ended ||
         _state.phase == CoordinationPhase.disposing) {
       return;
@@ -1288,13 +1330,13 @@ class CoordinationController {
           _emitSessionEnded(reason, policy, lostCoordinatorUId);
           // Not awaited: this is called from a message handler or a timer tick,
           // and a re-election takes discovery timeouts to complete.
-          unawaited(_reelect());
+          unawaited(_recover(_reelect));
         case CoordinatorLossPolicy.rejoin:
           await _teardownRole();
           _emitSessionEnded(reason, policy, lostCoordinatorUId);
           // Not awaited, for the same reason as re-election: discovery blocks
           // for whole seconds and the caller here is a timer tick.
-          unawaited(_rejoin(lostCoordinatorUId));
+          unawaited(_recover(() => _rejoin(lostCoordinatorUId)));
       }
     } finally {
       _handlingCoordinatorLoss = false;
@@ -1337,6 +1379,7 @@ class CoordinationController {
     await _discoverySubscription?.cancel();
     _discoverySubscription = null;
     _pendingJoins.clear();
+    _evictedMembers.clear();
     _state.clearNodes();
     _state.transitionTo(CoordinationPhase.ended);
   }
@@ -1366,6 +1409,7 @@ class CoordinationController {
     _participantHandler?.dispose();
     _participantHandler = null;
     _pendingJoins.clear();
+    _evictedMembers.clear();
     // Clears the clock estimators too, via NodeLeftEvent — the peer set is about
     // to change and a stale offset is worse than none.
     _state.clearNodes();
@@ -1569,11 +1613,13 @@ class CoordinationController {
   static final Random _random = Random();
 
   // Public coordinator methods
-  Future<void> pauseAcceptingNodes() async {
+  Future<void> pauseAcceptingNodes({bool admitFormerMembers = true}) async {
     if (!_state.isCoordinator) {
       throw StateError('Only coordinator can pause accepting nodes');
     }
-    _coordinatorHandler!.pauseAcceptingNodes();
+    _coordinatorHandler!.pauseAcceptingNodes(
+      admitFormerMembers: admitFormerMembers,
+    );
   }
 
   Future<void> resumeAcceptingNodes() async {

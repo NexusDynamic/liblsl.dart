@@ -268,6 +268,38 @@ void main() {
         expect(state.connectedNodes.map((n) => n.uId), ['coord', 'p1']);
       });
 
+      test('a paused coordinator still re-admits a former member', () async {
+        // An evicted member rejoining (CoordinatorLossPolicy.rejoin) is not a
+        // new node: pausing once the roster is set must not lock it out.
+        await handler.handleMessage(_join('p1'));
+        await spy.settle();
+        state.removeNode('p1');
+        handler.pauseAcceptingNodes();
+
+        await handler.handleMessage(_join('p1'));
+        await handler.handleMessage(_join('stranger'));
+        await spy.settle();
+
+        expect(state.connectedNodes.map((n) => n.uId), ['coord', 'p1']);
+        expect(
+          spy.sent<JoinRejectMessage>().single.rejectedNodeUId,
+          'stranger',
+        );
+      });
+
+      test('admitFormerMembers: false refuses former members too', () async {
+        await handler.handleMessage(_join('p1'));
+        await spy.settle();
+        state.removeNode('p1');
+        handler.pauseAcceptingNodes(admitFormerMembers: false);
+
+        await handler.handleMessage(_join('p1'));
+        await spy.settle();
+
+        expect(spy.sent<JoinRejectMessage>().single.rejectedNodeUId, 'p1');
+        expect(state.connectedNodes, hasLength(1));
+      });
+
       test(
         'an already-connected node is re-accepted even when paused',
         () async {

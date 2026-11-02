@@ -1,3 +1,18 @@
+## Unreleased
+
+- `pauseAcceptingNodes()` now refuses only nodes that were never members:
+  a participant evicted by a transient fault can rejoin a paused
+  coordinator under `CoordinatorLossPolicy.rejoin`. Pass
+  `admitFormerMembers: false` for the previous behaviour.
+- Coordinator: while a member it evicted is still out, discovery is
+  re-queried on each liveness sweep. Hub transports report only growth, so
+  an evicted node that never left the hub was never rediscovered and could
+  not rejoin.
+- A coordinator loss reported again while a rejoin or re-election is
+  running no longer starts a second, concurrent recovery loop.
+- `join()` without a timeout no longer waits zero time when
+  `discoveryInterval` is under a second.
+
 ## 0.4.3
 
 - `ClockHop`, `ClockChain`, `ClockModel`, `TimestampSmoother`,

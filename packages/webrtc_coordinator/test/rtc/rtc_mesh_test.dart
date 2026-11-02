@@ -365,6 +365,32 @@ void main() {
       expect(await lost.timeout(const Duration(seconds: 2)), 'aaa');
       expect(b.connectedPeers, isEmpty);
     });
+
+    test('a link that fails on one side is dropped on both, so the same '
+        'peer can reconnect', () async {
+      final a = await peer('aaa');
+      final b = await peer('bbb');
+
+      await Future.wait([
+        a.channelFor(peerNodeUId: 'bbb', streamName: 'Data'),
+        b.channelFor(peerNodeUId: 'aaa', streamName: 'Data'),
+      ]);
+
+      // Only a's half fails, as when b has not yet noticed an ICE failure.
+      final lost = b.peerLost.first;
+      final link = bus.adapterFor('aaa')!.links.single;
+      await (link as dynamic).simulateFailure();
+      expect(await lost.timeout(const Duration(seconds: 2)), 'aaa');
+
+      // Same uIds, fresh link.
+      final channels = await Future.wait([
+        a.channelFor(peerNodeUId: 'bbb', streamName: 'Data'),
+        b.channelFor(peerNodeUId: 'aaa', streamName: 'Data'),
+      ]).timeout(const Duration(seconds: 5));
+      expect(channels, hasLength(2));
+      expect(a.connectedPeers, ['bbb']);
+      expect(b.connectedPeers, ['aaa']);
+    });
   });
 
   group('signal validation', () {
