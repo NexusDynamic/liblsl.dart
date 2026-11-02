@@ -4,7 +4,6 @@
     "start_url": ".",
     "display": "standalone",
     "background_color": "#09090B",
-    "theme_color": "#3C0366",
     "description": "A flutter app for analysing timing test data",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
