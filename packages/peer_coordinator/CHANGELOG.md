@@ -1,4 +1,4 @@
-## Unreleased
+## 0.4.4
 
 - `pauseAcceptingNodes()` now refuses only nodes that were never members:
   a participant evicted by a transient fault can rejoin a paused
