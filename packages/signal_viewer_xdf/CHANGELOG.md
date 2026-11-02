@@ -1,3 +1,7 @@
+## 0.2.1
+
+- Requires `signal_viewer` ^0.2.1.
+
 ## 0.2.0
 
 - Recordings keep their values as recorded, unless the 32 bit pref is set.

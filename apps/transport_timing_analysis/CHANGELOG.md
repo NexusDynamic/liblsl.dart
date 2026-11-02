@@ -1,3 +1,7 @@
+## 2.0.5
+
+- Requires `signal_viewer` ^0.2.1.
+
 ## 2.0.4
 
 - migrate to `launcher_icons` from `flutter_launcher_icons`

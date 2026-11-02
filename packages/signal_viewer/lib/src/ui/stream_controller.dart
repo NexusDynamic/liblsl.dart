@@ -191,6 +191,15 @@ class StreamController extends ChangeNotifier {
 
   bool get live => source.live;
 
+  /// Whether the live plot sweeps (see [LiveDisplay.sweep]) rather than
+  /// scrolls.
+  bool get sweeping =>
+      source.live && _settings.liveDisplay == LiveDisplay.sweep;
+
+  /// Time at the left edge of the current sweep: the window is laid over
+  /// the time axis in whole windows, so data stays where it was drawn.
+  double get sweepOrigin => sweepOriginOf(source.end, windowS);
+
   /// Move the window to start at [t].
   void scrollTo(double t) {
     if (source.live) return;
@@ -265,8 +274,10 @@ class StreamController extends ChangeNotifier {
       _tracker = _newTracker();
       _quality = const [];
     }
+    // A sweep fetches a different span than a scrolling window.
+    final span = _settings.liveDisplay != old.liveDisplay && source.live;
     _changed(
-      data: spec,
+      data: spec || span,
       overview: spec,
       power:
           spec ||
@@ -276,7 +287,7 @@ class StreamController extends ChangeNotifier {
       quality:
           !setEquals(_settings.bad, old.bad) || _settings.notch != old.notch,
     );
-    if (!spec) notifyListeners();
+    if (!spec && !span) notifyListeners();
   }
 
   // -- channels and reference -----------------------------------------------
@@ -660,8 +671,11 @@ class StreamController extends ChangeNotifier {
     final oldError = error;
     var scales = false;
     _fetchedEnd = source.end;
+    final (a, b, bins) = sweeping
+        ? sweepFetchRange(source.end, windowS, _bins)
+        : (t0, t1, _bins);
     try {
-      final d = await source.envelope(t0, t1, _bins, spec);
+      final d = await source.envelope(a, b, bins, spec);
       if (_disposed) return;
       _data = d;
       error = null;
@@ -947,6 +961,21 @@ PowerData _bandPower(
   if (binS <= 0) return PowerData(metric, per, start, 0, const []);
   final (first, binned) = binnedBandPower(channels, start, rate, metric, binS);
   return PowerData(metric, per, first, binS, binned);
+}
+
+/// Start of the sweep that time [end] falls in, for a window of [windowS].
+double sweepOriginOf(double end, double windowS) =>
+    windowS <= 0 ? end : (end / windowS).floor() * windowS;
+
+/// The span and bin count to fetch for a sweeping plot ending at [end]:
+/// the newest [windowS] seconds, with bins on a fixed grid of
+/// `windowS / bins` so that each keeps the same samples from one frame to
+/// the next (otherwise the older data would shimmer while it stands
+/// still). One bin more covers the newest partial one.
+(double, double, int) sweepFetchRange(double end, double windowS, int bins) {
+  final step = windowS / bins;
+  final a = ((end - windowS) / step).floor() * step;
+  return (a, a + (bins + 1) * step, bins + 1);
 }
 
 class _Frame extends ChangeNotifier {

@@ -34,6 +34,18 @@ enum RefMode {
   const RefMode(this.label, this.short);
 }
 
+/// How live data moves across the plot.
+enum LiveDisplay {
+  /// A cursor sweeps from left to right and draws over the previous pass.
+  sweep('Sweep'),
+
+  /// The window scrolls, with the newest data at the right edge.
+  scroll('Scroll');
+
+  final String label;
+  const LiveDisplay(this.label);
+}
+
 const highpassPresets = <double?>[null, 0.1, 0.5, 1, 5, 10, 20];
 const notchPresets = <double?>[null, 50, 60];
 
@@ -64,6 +76,9 @@ class ViewSettings {
   /// Event channels decoded as Manchester trigger words.
   final Set<int> decoded;
 
+  /// How a live stream moves across the plot (recordings ignore it).
+  final LiveDisplay liveDisplay;
+
   const ViewSettings({
     this.windowS = 10,
     this.scaleMode = ScaleMode.fixed,
@@ -80,6 +95,7 @@ class ViewSettings {
     this.powerMetric = 'rms',
     this.powerStyle = PowerStyle.trace,
     this.decoded = const {},
+    this.liveDisplay = LiveDisplay.sweep,
   });
 
   ViewSettings copyWith({
@@ -98,6 +114,7 @@ class ViewSettings {
     String? powerMetric,
     PowerStyle? powerStyle,
     Set<int>? decoded,
+    LiveDisplay? liveDisplay,
   }) => ViewSettings(
     windowS: windowS ?? this.windowS,
     scaleMode: scaleMode ?? this.scaleMode,
@@ -114,6 +131,7 @@ class ViewSettings {
     powerMetric: powerMetric ?? this.powerMetric,
     powerStyle: powerStyle ?? this.powerStyle,
     decoded: decoded ?? this.decoded,
+    liveDisplay: liveDisplay ?? this.liveDisplay,
   );
 
   /// Keep only the choices that apply to [info] (validity rules of the

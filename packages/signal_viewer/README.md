@@ -8,7 +8,10 @@ devices and network streams. It is the viewer behind
 that other applications can use it with their own data sources.
 
 The viewer shows each stream in a tab, with filtering, re-referencing, power
-spectra, signal quality and trigger decoding. Signal processing and the
+spectra, signal quality and trigger decoding. Live streams are drawn
+either as a sweep, in which a cursor moves across the window and draws over
+the previous pass while older data stays in place, or as a window that
+scrolls with the newest data at its right edge. Signal processing and the
 summary pyramids used for fast overviews of long recordings come from
 [`signal_core`](https://pub.dev/packages/signal_core), which this package
 re-exports.

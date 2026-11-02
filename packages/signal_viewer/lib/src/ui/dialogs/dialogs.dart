@@ -32,6 +32,7 @@ class _PreferencesDialogState extends State<_PreferencesDialog> {
   late ThemeMode _theme = widget.prefs.themeMode;
   late double _lineWidth = widget.prefs.lineWidth;
   late bool _antialias = widget.prefs.antialias;
+  late LiveDisplay _live = widget.prefs.liveDisplay;
   late int _cacheMb = widget.prefs.cacheMb;
   late bool _compact = widget.prefs.compactSamples;
   late Map<Kind, KindDefaults> _defaults = Map.of(widget.prefs.defaults);
@@ -40,6 +41,7 @@ class _PreferencesDialogState extends State<_PreferencesDialog> {
     _theme = ThemeMode.system;
     _lineWidth = 1;
     _antialias = true;
+    _live = LiveDisplay.sweep;
     _cacheMb = Preferences.defaultCacheMb;
     _compact = false;
     _defaults = Map.of(KindDefaults.factory);
@@ -50,6 +52,7 @@ class _PreferencesDialogState extends State<_PreferencesDialog> {
       ..themeMode = _theme
       ..lineWidth = _lineWidth
       ..antialias = _antialias
+      ..liveDisplay = _live
       ..cacheMb = _cacheMb
       ..compactSamples = _compact
       ..defaults = _defaults;
@@ -110,6 +113,27 @@ class _PreferencesDialogState extends State<_PreferencesDialog> {
               label: const Text('Antialiasing'),
               selected: _antialias,
               onSelected: (v) => setState(() => _antialias = v),
+            ),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('Live data'),
+                const SizedBox(width: 8),
+                Tooltip(
+                  message:
+                      'For live tabs opened from now on: a cursor sweeps '
+                      'across and draws over the previous pass, or the '
+                      'window scrolls. Each tab can switch in its bar.',
+                  child: SegmentedButton<LiveDisplay>(
+                    segments: [
+                      for (final m in LiveDisplay.values)
+                        ButtonSegment(value: m, label: Text(m.label)),
+                    ],
+                    selected: {_live},
+                    onSelectionChanged: (s) => setState(() => _live = s.first),
+                  ),
+                ),
+              ],
             ),
           ],
         ),

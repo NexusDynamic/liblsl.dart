@@ -40,6 +40,9 @@ class Preferences extends ChangeNotifier {
   double lineWidth = 1;
   bool antialias = true;
 
+  /// How live tabs opened from now on move their data.
+  LiveDisplay liveDisplay = LiveDisplay.sweep;
+
   /// Memory for decoded chunks of open recordings, in MB.
   int cacheMb = defaultCacheMb;
 
@@ -106,6 +109,13 @@ class Preferences extends ChangeNotifier {
           validator: (v) => v > 0 && v <= 5,
         ),
         BoolSetting(key: 'antialias', defaultValue: true),
+        StringSetting(
+          key: 'live_display',
+          defaultValue: LiveDisplay.sweep.name,
+          validator: EnumValidator<String>([
+            for (final m in LiveDisplay.values) m.name,
+          ]).validate,
+        ),
         IntSetting(
           key: 'cache_mb',
           defaultValue: defaultCacheMb,
@@ -181,6 +191,11 @@ class Preferences extends ChangeNotifier {
     );
     read(() => lineWidth = s.getDouble('preferences.line_width'));
     read(() => antialias = s.getBool('preferences.antialias'));
+    read(
+      () => liveDisplay = LiveDisplay.values.byName(
+        s.getString('preferences.live_display'),
+      ),
+    );
     read(() => cacheMb = s.getInt('preferences.cache_mb'));
     read(() => compactSamples = s.getBool('preferences.compact_samples'));
     read(() => panelVisible = s.getBool('view.panel'));
@@ -228,6 +243,7 @@ class Preferences extends ChangeNotifier {
       'preferences.theme': themeMode.name,
       'preferences.line_width': lineWidth,
       'preferences.antialias': antialias,
+      'preferences.live_display': liveDisplay.name,
       'preferences.cache_mb': cacheMb,
       'preferences.compact_samples': compactSamples,
       'view.panel': panelVisible,
@@ -258,6 +274,7 @@ class Preferences extends ChangeNotifier {
     themeMode = ThemeMode.system;
     lineWidth = 1;
     antialias = true;
+    liveDisplay = LiveDisplay.sweep;
     cacheMb = defaultCacheMb;
     compactSamples = false;
     defaults = Map.of(KindDefaults.factory);

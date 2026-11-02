@@ -6,7 +6,7 @@ Linux, Android and the web.
 
 The [web app](https://nexusdynamic.org/liblsl.dart/lsl_viewer/) reads XDF
 files locally in the browser. Version
-[0.3.3](https://github.com/NexusDynamic/liblsl.dart/releases/tag/lsl_viewer-v0.3.3)
+[0.3.4](https://github.com/NexusDynamic/liblsl.dart/releases/tag/lsl_viewer-v0.3.4)
 is available for Windows, macOS, Linux and Android
 ([all releases](https://github.com/NexusDynamic/liblsl.dart/releases?q=lsl_viewer&expanded=true)).
 The Linux and Windows archives include the `lsl` command line tool under
@@ -26,7 +26,7 @@ menu (right-click, *Open*).
 | --- | --- |
 | XDF recordings | Files of any size, with one tab per stream. A file is opened with *Open recording…*, by dropping it on the window, or on the desktop with `lsl_viewer file.xdf` |
 | Live LSL streams | *LSL > View streams…*, on desktop platforms and Android |
-| Signal display | Each tab has filters, re-referencing, power spectra, signal quality and trigger decoding. The source setup (View menu) overrides the type and channel names of a stream |
+| Signal display | Each tab has filters, re-referencing, power spectra, signal quality and trigger decoding. Live data is drawn as a sweep, in which a cursor moves across the window and draws over the previous pass, or as a scrolling window; the choice is made per tab and its default in Preferences. The source setup (View menu) overrides the type and channel names of a stream |
 | Recording and replay | LSL streams are recorded to XDF. A recording is replayed as LSL streams from the position shown, and a single stream, live or recorded, can be forwarded under another name |
 | Devices | The OpenBCI Cyton (with or without Daisy), and serial devices that print lines of numbers, such as an Arduino. The *Cyton* menu sets the channels (gain, input, reference, and use as EEG, EMG or other), applies test signals, measures electrode impedance, sends markers and records to the board's SD card, whose files *Open recording…* also opens. They are supported on desktop platforms, on Android over USB, and in Chrome and Edge with WebSerial. On Linux the user must belong to the group that owns the serial device, usually `dialout` (`uucp` on Arch Linux) |
 

@@ -1,3 +1,12 @@
+## 0.2.1
+
+- Live trace and event plots sweep by default: a cursor moves from left to
+  right and draws over the previous pass, so the data already drawn stays
+  still. The *Live display* chip of a live tab switches it between sweeping
+  and scrolling, and Preferences > Appearance sets the choice for new live
+  tabs. Spectrograms continue to scroll.
+- `ViewSettings.liveDisplay` and `Preferences.liveDisplay` (`LiveDisplay`).
+
 ## 0.2.0
 
 - Samples are shown as recorded: live buffers, events and windows keep

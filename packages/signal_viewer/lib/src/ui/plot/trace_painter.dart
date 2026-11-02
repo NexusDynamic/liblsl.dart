@@ -135,37 +135,49 @@ class TracePainter extends CustomPainter {
       colourBar: c.powerActive && c.powerLevels != null,
     );
     final plot = geo.plot;
-    final t0 = c.t0, t1 = c.t1;
     canvas.drawRect(Offset.zero & size, Paint()..color = style.background);
-
-    _drawTimeAxis(canvas, geo, t0, t1);
     _drawLaneLabels(canvas, geo, lanes, mean);
 
-    canvas.save();
-    canvas.clipRect(plot);
-    final heat = c.heatmap;
-    final power = c.power;
-    if (heat != null && power != null && !mean && lanes.isNotEmpty) {
-      final x0 = geo.x(power.binStart, t0, t1);
-      final x1 = geo.x(power.binStart + power.binS * heat.width, t0, t1);
-      final top = geo.laneCentre(0) - geo.unit / 2;
-      final bottom = geo.laneCentre(lanes.length - 1) + geo.unit / 2;
-      canvas.drawImageRect(
-        heat,
-        Rect.fromLTWH(0, 0, heat.width.toDouble(), heat.height.toDouble()),
-        Rect.fromLTRB(x0, top, x1, bottom),
-        Paint()
-          ..filterQuality = FilterQuality.none
-          ..color = const Color.fromRGBO(0, 0, 0, 80 / 255),
-      );
+    // A sweeping live plot is drawn in two passes, each clipped to its
+    // part of the plot: the current sweep left of the cursor, and the
+    // previous one right of it, after a short gap.
+    final passes = <(double, double, double, double)>[];
+    double? cursor;
+    if (c.sweeping) {
+      final w = c.windowS;
+      final o = c.sweepOrigin;
+      final x = geo.x(c.source.end, o, o + w);
+      final gap = math.max(6.0, plot.width * 0.02);
+      cursor = x;
+      passes
+        ..add((o, o + w, plot.left, x))
+        ..add((o - w, o, x + gap, plot.right));
+    } else {
+      passes.add((c.t0, c.t1, plot.left, plot.right));
     }
 
-    if (info.kind == Kind.event || info.irregular) {
-      _drawEvents(canvas, geo, lanes, t0, t1);
-    } else {
-      _drawTraces(canvas, geo, lanes, t0, t1, mean);
+    final axis = Paint()
+      ..color = style.foreground.withValues(alpha: 0.5)
+      ..strokeWidth = 1;
+    canvas.drawLine(plot.bottomLeft, plot.bottomRight, axis);
+    _drawTimeUnit(canvas, geo);
+    for (final (t0, t1, xa, xb) in passes) {
+      if (xb <= xa) continue;
+      _drawTimeAxis(canvas, geo, t0, t1, xa, xb);
+      canvas.save();
+      canvas.clipRect(Rect.fromLTRB(xa, plot.top, xb, plot.bottom));
+      _drawData(canvas, geo, lanes, t0, t1, mean);
+      canvas.restore();
     }
-    canvas.restore();
+    if (cursor != null) {
+      canvas.drawLine(
+        Offset(cursor, plot.top),
+        Offset(cursor, plot.bottom),
+        Paint()
+          ..color = style.foreground.withValues(alpha: 0.5)
+          ..strokeWidth = 1,
+      );
+    }
 
     _drawScaleBar(canvas, geo, info, s);
     if (geo.colourBar) _drawColourBar(canvas, geo);
@@ -189,7 +201,59 @@ class TracePainter extends CustomPainter {
     }
   }
 
-  void _drawTimeAxis(Canvas canvas, PlotGeometry geo, double t0, double t1) {
+  /// The heatmap and the traces or events of [t0, t1], mapped across the
+  /// whole plot (the caller clips).
+  void _drawData(
+    Canvas canvas,
+    PlotGeometry geo,
+    List<int> lanes,
+    double t0,
+    double t1,
+    bool mean,
+  ) {
+    final heat = c.heatmap;
+    final power = c.power;
+    if (heat != null && power != null && !mean && lanes.isNotEmpty) {
+      final x0 = geo.x(power.binStart, t0, t1);
+      final x1 = geo.x(power.binStart + power.binS * heat.width, t0, t1);
+      final top = geo.laneCentre(0) - geo.unit / 2;
+      final bottom = geo.laneCentre(lanes.length - 1) + geo.unit / 2;
+      canvas.drawImageRect(
+        heat,
+        Rect.fromLTWH(0, 0, heat.width.toDouble(), heat.height.toDouble()),
+        Rect.fromLTRB(x0, top, x1, bottom),
+        Paint()
+          ..filterQuality = FilterQuality.none
+          ..color = const Color.fromRGBO(0, 0, 0, 80 / 255),
+      );
+    }
+    final info = c.info;
+    if (info.kind == Kind.event || info.irregular) {
+      _drawEvents(canvas, geo, lanes, t0, t1);
+    } else {
+      _drawTraces(canvas, geo, lanes, t0, t1, mean);
+    }
+  }
+
+  void _drawTimeUnit(Canvas canvas, PlotGeometry geo) {
+    final unit = _text(
+      'time (s)',
+      style.foreground.withValues(alpha: 0.6),
+      size: 10,
+    );
+    unit.paint(canvas, Offset(8, geo.plot.bottom + 6));
+  }
+
+  /// Grid lines and tick labels of [t0, t1] (mapped across the whole
+  /// plot), only between [xa] and [xb]; labels only where they fit.
+  void _drawTimeAxis(
+    Canvas canvas,
+    PlotGeometry geo,
+    double t0,
+    double t1,
+    double xa,
+    double xb,
+  ) {
     final plot = geo.plot;
     final span = t1 - t0;
     if (span <= 0) return;
@@ -210,20 +274,18 @@ class TracePainter extends CustomPainter {
     final axis = Paint()
       ..color = style.foreground.withValues(alpha: 0.5)
       ..strokeWidth = 1;
-    canvas.drawLine(plot.bottomLeft, plot.bottomRight, axis);
+    final whole = xa <= plot.left && xb >= plot.right;
     for (var t = (t0 / step).ceil() * step; t <= t1 + 1e-9; t += step) {
       final x = geo.x(t, t0, t1);
+      if (x < xa - 0.5 || x > xb + 0.5) continue;
       canvas.drawLine(Offset(x, plot.top), Offset(x, plot.bottom), gridPaint);
       canvas.drawLine(Offset(x, plot.bottom), Offset(x, plot.bottom + 4), axis);
       final tp = _text(_formatTime(t, digits), style.foreground, size: 10);
-      tp.paint(canvas, Offset(x - tp.width / 2, plot.bottom + 6));
+      final lx = x - tp.width / 2;
+      // Part of a sweep: no labels running into the cursor or the gap.
+      if (!whole && (lx < xa - 0.5 || lx + tp.width > xb + 0.5)) continue;
+      tp.paint(canvas, Offset(lx, plot.bottom + 6));
     }
-    final unit = _text(
-      'time (s)',
-      style.foreground.withValues(alpha: 0.6),
-      size: 10,
-    );
-    unit.paint(canvas, Offset(8, plot.bottom + 6));
   }
 
   static String _formatTime(double t, int digits) {
@@ -383,16 +445,20 @@ class TracePainter extends CustomPainter {
     Paint paint,
   ) {
     final mins = d.min[ch], maxs = d.max[ch];
-    final n = mins.length;
-    if (n == 0) return null;
+    // Only bins in the window, plus one on each side (a sweep draws part
+    // of the data in each of two passes).
+    final b0 = math.max(0, ((t0 - d.start) / d.step).floor() - 1);
+    final b1 = math.min(mins.length, ((t1 - d.start) / d.step).ceil() + 1);
+    final n = b1 - b0;
+    if (n <= 0) return null;
     final plot = geo.plot;
     final sx = plot.width / (t1 - t0);
     final half = d.step * sx / 2;
     // Screen y of each bin's top (max) and bottom (min); NaN for no data.
     final top = Float64List(n), bottom = Float64List(n);
     for (var b = 0; b < n; b++) {
-      top[b] = centre - (maxs[b] - base) * k;
-      bottom[b] = centre - (mins[b] - base) * k;
+      top[b] = centre - (maxs[b0 + b] - base) * k;
+      bottom[b] = centre - (mins[b0 + b] - base) * k;
     }
     // Close the gaps between neighbours, from the original extents.
     final up = Float64List.fromList(top), down = Float64List.fromList(bottom);
@@ -423,7 +489,7 @@ class TracePainter extends CustomPainter {
         y0 = m - minHeight / 2;
         y1 = m + minHeight / 2;
       }
-      final x = plot.left + (d.start + (b + 0.5) * d.step - t0) * sx;
+      final x = plot.left + (d.start + (b0 + b + 0.5) * d.step - t0) * sx;
       final x0 = x - half, x1 = x + half;
       final o = v * 2;
       pos

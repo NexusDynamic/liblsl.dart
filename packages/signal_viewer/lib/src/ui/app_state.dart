@@ -351,7 +351,8 @@ class AppState extends ChangeNotifier {
     // Settings the tab had earlier in this session win over the defaults
     // from Preferences.
     var settings = (prefs.defaults[g.info.kind] ?? const KindDefaults())
-        .toSettings(labels);
+        .toSettings(labels)
+        .copyWith(liveDisplay: prefs.liveDisplay);
     final remembered = _remembered[_rememberKey(session, g)];
     if (remembered != null) {
       final channels = g.info.channels;

@@ -81,6 +81,17 @@ class QuickBar extends StatelessWidget {
           _channelChip('Y', c.yChannel, (ch) => c.setView(PlotView.xy, y: ch)),
         ],
       ],
+      if (c.live && c.view == PlotView.traces)
+        ChipMenu<LiveDisplay>(
+          icon: s.liveDisplay == LiveDisplay.sweep
+              ? Icons.redo
+              : Icons.swap_horiz,
+          tooltip: 'Live display: sweep across, or scroll',
+          label: s.liveDisplay.label,
+          selected: s.liveDisplay,
+          choices: [for (final m in LiveDisplay.values) (m.label, m)],
+          onSelected: (m) => set(s.copyWith(liveDisplay: m)),
+        ),
       if (!isEvent && c.view == PlotView.traces)
         ChipMenu<double?>(
           icon: Icons.height,

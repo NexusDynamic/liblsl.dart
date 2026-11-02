@@ -1,3 +1,12 @@
+## 0.3.4
+
+- Live streams are drawn as a sweep by default; each tab can switch to a
+  scrolling window, and Preferences sets the default.
+- Requires `signal_viewer` ^0.2.1.
+- Requires `signal_viewer_lsl` ^0.3.4.
+- Requires `signal_viewer_serial` ^0.2.1.
+- Requires `signal_viewer_xdf` ^0.2.1.
+
 ## 0.3.3
 
 - Requires `signal_viewer_lsl` ^0.3.3.

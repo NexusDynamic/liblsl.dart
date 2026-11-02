@@ -1,3 +1,8 @@
+## 0.2.1
+
+- Requires `signal_viewer` ^0.2.1.
+- Requires `signal_viewer_xdf` ^0.2.1.
+
 ## 0.2.0
 
 - The *Cyton* menu for a connected OpenBCI Cyton: board settings (channel
