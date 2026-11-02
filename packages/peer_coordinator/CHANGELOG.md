@@ -1,4 +1,4 @@
-## Unreleased
+## 0.4.5
 
 - Rejoin over peer-to-peer transports: a participant that loses its
   coordinator now releases the coordinator's inlet as part of its role

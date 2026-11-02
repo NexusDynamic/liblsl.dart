@@ -1,4 +1,4 @@
-## Unreleased
+## 0.2.4
 
 - `RtcMesh.releaseChannel` ends only this node's reading of the stream and
   tells the peer with a new `unsubscribe` signal; the channel closes once
