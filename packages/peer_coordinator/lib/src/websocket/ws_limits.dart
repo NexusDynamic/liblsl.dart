@@ -19,6 +19,8 @@ class WsLimits {
     this.maxEndpointsPerConnection = 32,
     this.maxLiveQueriesPerConnection = 32,
     this.maxPeers = 256,
+    this.maxInboundBytesPerSecond,
+    this.inboundBurstBytes,
   });
 
   /// 1 MiB. Comfortably above any coordination message or realistic sample —
@@ -54,6 +56,20 @@ class WsLimits {
   /// Registered endpoints across the whole hub. Also bounds slot allocation.
   final int maxPeers;
 
+  /// Sustained bytes per second one connection may send the hub, or null for
+  /// no limit (the default: a relay transport can carry high-rate data).
+  ///
+  /// [maxFrameBytes] bounds a frame, not a message: `dart:io` buffers a
+  /// fragmented message until its final frame, so a peer — before
+  /// authenticating, too — could stream an unbounded message as small
+  /// non-final frames. Set this on a hub reachable by untrusted clients; a
+  /// connection over budget is dropped.
+  final int? maxInboundBytesPerSecond;
+
+  /// Burst allowance for [maxInboundBytesPerSecond], in bytes. Defaults to
+  /// twice [maxFrameBytes] or one second's worth, whichever is larger.
+  final int? inboundBurstBytes;
+
   WsLimits copyWith({
     int? maxFrameBytes,
     Duration? handshakeTimeout,
@@ -62,6 +78,8 @@ class WsLimits {
     int? maxEndpointsPerConnection,
     int? maxLiveQueriesPerConnection,
     int? maxPeers,
+    int? maxInboundBytesPerSecond,
+    int? inboundBurstBytes,
   }) => WsLimits(
     maxFrameBytes: maxFrameBytes ?? this.maxFrameBytes,
     handshakeTimeout: handshakeTimeout ?? this.handshakeTimeout,
@@ -72,6 +90,9 @@ class WsLimits {
     maxLiveQueriesPerConnection:
         maxLiveQueriesPerConnection ?? this.maxLiveQueriesPerConnection,
     maxPeers: maxPeers ?? this.maxPeers,
+    maxInboundBytesPerSecond:
+        maxInboundBytesPerSecond ?? this.maxInboundBytesPerSecond,
+    inboundBurstBytes: inboundBurstBytes ?? this.inboundBurstBytes,
   );
 }
 

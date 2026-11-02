@@ -26,10 +26,13 @@
 library;
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:peer_coordinator/framework.dart';
+import 'package:crypto/crypto.dart' show sha1;
+import 'package:peer_coordinator/src/websocket/metered_socket.dart';
 import 'package:peer_coordinator/src/websocket/ws_auth.dart';
 import 'package:peer_coordinator/src/websocket/ws_limits.dart';
 import 'package:peer_coordinator/src/websocket/ws_protocol.dart';
@@ -330,16 +333,60 @@ class CoordinationHub {
         // WebSocket frames either, so a cumulative byte-rate limit is the
         // remaining gap. Post-auth that is a trusted-peer problem; pre-auth,
         // the handshake deadline bounds it.
-        final socket = await WebSocketTransformer.upgrade(
-          request,
-          maxPayloadLength: limits.maxFrameBytes,
-        );
+        final socket = limits.maxInboundBytesPerSecond == null
+            ? await WebSocketTransformer.upgrade(
+                request,
+                maxPayloadLength: limits.maxFrameBytes,
+              )
+            : await _upgradeMetered(request, limits.maxInboundBytesPerSecond!);
+        if (socket == null) continue;
         socket.pingInterval = limits.pingInterval;
         _onConnected(socket);
       } catch (e) {
         logger.warning('Failed to upgrade connection: $e');
       }
     }
+  }
+
+  /// Upgrades [request] like `WebSocketTransformer.upgrade`, but beneath a
+  /// [ByteBudget] (see [WsLimits.maxInboundBytesPerSecond]). No compression
+  /// is negotiated. Null when the request is not a valid upgrade (it has
+  /// already been answered).
+  Future<WebSocket?> _upgradeMetered(HttpRequest request, int perSecond) async {
+    final key = request.headers.value('sec-websocket-key');
+    final version = request.headers.value('sec-websocket-version');
+    if (key == null || version != '13') {
+      request.response.statusCode = HttpStatus.badRequest;
+      await request.response.close();
+      return null;
+    }
+    final accept = base64.encode(
+      sha1
+          .convert(utf8.encode('${key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11'))
+          .bytes,
+    );
+    request.response
+      ..statusCode = HttpStatus.switchingProtocols
+      ..headers.set(HttpHeaders.connectionHeader, 'Upgrade')
+      ..headers.set(HttpHeaders.upgradeHeader, 'websocket')
+      ..headers.set('Sec-WebSocket-Accept', accept);
+    final raw = await request.response.detachSocket();
+    final burst =
+        limits.inboundBurstBytes ??
+        (limits.maxFrameBytes * 2 > perSecond
+            ? limits.maxFrameBytes * 2
+            : perSecond);
+    return WebSocket.fromUpgradedSocket(
+      MeteredSocket(
+        raw,
+        ByteBudget(capacity: burst, perSecond: perSecond),
+        onExceeded: () => logger.warning(
+          'Hub: dropping a connection over its inbound byte budget',
+        ),
+      ),
+      serverSide: true,
+      maxPayloadLength: limits.maxFrameBytes,
+    );
   }
 
   /// Challenges a fresh socket and waits, briefly, for it to answer.

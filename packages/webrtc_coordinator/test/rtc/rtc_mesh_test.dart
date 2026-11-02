@@ -331,18 +331,59 @@ void main() {
         b.channelFor(peerNodeUId: 'aaa', streamName: 'Other'),
       ]);
 
-      await a.releaseChannel(peerNodeUId: 'bbb', streamName: 'Data');
+      Future<void> releaseBoth(String stream) async {
+        await a.releaseChannel(peerNodeUId: 'bbb', streamName: stream);
+        await b.releaseChannel(peerNodeUId: 'aaa', streamName: stream);
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      }
+
+      await releaseBoth('Data');
       expect(a.connectedPeers, [
         'bbb',
       ], reason: 'one channel left, so the connection stays');
 
-      await a.releaseChannel(peerNodeUId: 'bbb', streamName: 'Other');
+      await releaseBoth('Other');
       expect(
         a.connectedPeers,
         isEmpty,
         reason: 'last channel gone, so the RTCPeerConnection must go too',
       );
+      expect(b.connectedPeers, isEmpty);
     });
+
+    test(
+      'releasing a channel keeps it while the peer still reads it',
+      () async {
+        // Regression: releasing dropped the peer's subscription and closed the
+        // shared channel. A participant tearing down its role after losing the
+        // coordinator thereby closed the connection the coordinator had just
+        // reopened to re-admit it, and the acceptance went nowhere.
+        final a = await peer('aaa');
+        final b = await peer('bbb');
+        final channels = await Future.wait([
+          a.channelFor(peerNodeUId: 'bbb', streamName: 'Data'),
+          b.channelFor(peerNodeUId: 'aaa', streamName: 'Data'),
+        ]);
+
+        // a stops reading from b; b still reads from a.
+        await a.releaseChannel(peerNodeUId: 'bbb', streamName: 'Data');
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        expect(a.connectedPeers, ['bbb']);
+        expect(a.subscribersFor('Data'), contains('bbb'));
+
+        final received = <Object>[];
+        channels[1].messages.listen(received.add);
+        channels[0].send('still here');
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        expect(received, ['still here']);
+
+        // Once b stops reading too, nothing uses it.
+        await b.releaseChannel(peerNodeUId: 'aaa', streamName: 'Data');
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        expect(a.connectedPeers, isEmpty);
+        expect(b.connectedPeers, isEmpty);
+      },
+    );
 
     test('releasing a channel that is not there is a no-op', () async {
       final a = await peer('aaa');

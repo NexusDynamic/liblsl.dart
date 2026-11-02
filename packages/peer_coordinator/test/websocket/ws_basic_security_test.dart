@@ -393,6 +393,82 @@ void main() {
       expect(honest.closed.isCompleted, isFalse);
     });
 
+    group('with an inbound byte budget', () {
+      Future<void> meteredHub() async {
+        await testHub.close();
+        testHub = await startTestHub(
+          session: _session,
+          secret: _secret,
+          limits: const WsLimits(
+            maxFrameBytes: 16 * 1024,
+            maxInboundBytesPerSecond: 8 * 1024,
+            // Long, so only the byte budget can be what ends the attack.
+            handshakeTimeout: Duration(seconds: 30),
+          ),
+        );
+        hub = testHub.hub;
+      }
+
+      test('an honest peer still connects and registers', () async {
+        await meteredHub();
+        final honest = await peer('honest');
+        expect(honest.authenticated, isTrue);
+        expect(hub.endpointCount, 1);
+      });
+
+      test('a message streamed as endless fragments is cut off', () async {
+        // maxFrameBytes bounds a frame, but dart:io buffers a fragmented
+        // message until its final frame. Unauthenticated, too: this never
+        // answers the challenge. A raw socket, because no WebSocket library
+        // will send this.
+        await meteredHub();
+        final raw = await Socket.connect(testHub.uri.host, testHub.uri.port);
+        final closed = Completer<void>();
+        final response = <int>[];
+        raw.listen(
+          response.addAll,
+          onDone: () {
+            if (!closed.isCompleted) closed.complete();
+          },
+          onError: (_) {
+            if (!closed.isCompleted) closed.complete();
+          },
+        );
+        raw.write(
+          'GET ${testHub.uri.path.isEmpty ? '/' : testHub.uri.path} HTTP/1.1\r\n'
+          'Host: ${testHub.uri.host}\r\n'
+          'Upgrade: websocket\r\n'
+          'Connection: Upgrade\r\n'
+          'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n'
+          'Sec-WebSocket-Version: 13\r\n\r\n',
+        );
+        await _settle(100);
+        expect(
+          utf8.decode(response, allowMalformed: true),
+          startsWith('HTTP/1.1 101'),
+        );
+
+        List<int> frame(int opcode) => [
+          opcode, // FIN clear: never the last fragment
+          0x80 | 126, 4000 >> 8, 4000 & 0xff, // masked, 16-bit length
+          0, 0, 0, 0,
+          ...List.filled(4000, 0x61),
+        ];
+        try {
+          raw.add(frame(0x1));
+          for (var i = 0; i < 200 && !closed.isCompleted; i++) {
+            raw.add(frame(0x0));
+            await raw.flush();
+          }
+        } catch (_) {
+          // Cut off mid-send: the point.
+        }
+        await closed.future.timeout(const Duration(seconds: 5));
+        raw.destroy();
+        expect(hub.pendingCount, 0);
+      });
+    });
+
     test('a client refuses to send a frame the hub would reject', () async {
       final connection = await testHub.connect('sender', maxFrameBytes: 4096);
       expect(

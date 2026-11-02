@@ -92,6 +92,11 @@ class RtcMesh {
   /// by [RtcSignalKind.open] signals from subscribers.
   final Map<String, Set<String>> _subscribersByStream = {};
 
+  /// streamName -> node uIds this node reads it from: the other direction of
+  /// [_subscribersByStream]. A channel carries both, so it is needed while
+  /// either side still uses it (see [_releaseIfUnused]).
+  final Map<String, Set<String>> _readingByStream = {};
+
   final _peerLost = StreamController<String>.broadcast();
   final _channelOpened = StreamController<RtcChannelEvent>.broadcast();
   StreamSubscription<WsSignal>? _signalSubscription;
@@ -169,6 +174,7 @@ class RtcMesh {
     }
 
     final entry = await _entryFor(peerNodeUId);
+    (_readingByStream[streamName] ??= <String>{}).add(peerNodeUId);
     final id = channelIdFor(streamName);
     final channel = await _ensureChannel(
       entry,
@@ -221,18 +227,46 @@ class RtcMesh {
     required String streamName,
   }) => _peers[peerNodeUId]?.channels[streamName];
 
-  /// Releases one stream's channel to one peer.
+  /// Stops reading [streamName] from [peerNodeUId], and tells the peer so.
   ///
-  /// When the last channel to a peer goes, so does the connection. That is the
-  /// whole reason `NetworkStream.removeInlet` exists: without it a departed
-  /// peer's `RTCPeerConnection` survives until the session is disposed.
+  /// Only this node's half of the subscription ends. The channel carries both
+  /// directions, and the peer may still be reading [streamName] from this
+  /// node — it may even have subscribed a moment ago. This used to drop the
+  /// peer's subscription and close the channel regardless: a participant
+  /// tearing down its role after losing the coordinator closed the channel
+  /// and connection the coordinator had just reopened to re-admit it, and
+  /// the join acceptance that followed went nowhere. The channel closes once
+  /// neither side uses it, and with the last channel, the connection — which
+  /// is still what keeps a departed peer's `RTCPeerConnection` from
+  /// surviving until the session is disposed.
   Future<void> releaseChannel({
     required String peerNodeUId,
     required String streamName,
   }) async {
+    _readingByStream[streamName]?.remove(peerNodeUId);
+    if (!_peers.containsKey(peerNodeUId)) return;
+    if (!_closed && connection.isConnected) {
+      _send(
+        peerNodeUId,
+        RtcSignal(
+          kind: RtcSignalKind.unsubscribe,
+          fromNodeUId: selfNodeUId,
+          payload: {'s': streamName},
+        ),
+      );
+    }
+    await _releaseIfUnused(peerNodeUId, streamName);
+  }
+
+  /// Closes [streamName]'s channel to [peerNodeUId] if neither this node nor
+  /// the peer reads it any more, and the connection with its last channel.
+  Future<void> _releaseIfUnused(String peerNodeUId, String streamName) async {
+    if ((_readingByStream[streamName]?.contains(peerNodeUId) ?? false) ||
+        (_subscribersByStream[streamName]?.contains(peerNodeUId) ?? false)) {
+      return;
+    }
     final entry = _peers[peerNodeUId];
     if (entry == null) return;
-    _subscribersByStream[streamName]?.remove(peerNodeUId);
     final channel = entry.channels.remove(streamName);
     if (channel == null) return;
     entry.streamByChannelId.remove(channel.id);
@@ -266,6 +300,7 @@ class RtcMesh {
     }
     _peers.clear();
     _subscribersByStream.clear();
+    _readingByStream.clear();
     await adapter.close();
     await _peerLost.close();
     await _channelOpened.close();
@@ -359,6 +394,9 @@ class RtcMesh {
   void _forgetSubscriber(String peerNodeUId) {
     for (final subscribers in _subscribersByStream.values) {
       subscribers.remove(peerNodeUId);
+    }
+    for (final readFrom in _readingByStream.values) {
+      readFrom.remove(peerNodeUId);
     }
   }
 
@@ -516,6 +554,11 @@ class RtcMesh {
           await _onOpen(signal);
         case RtcSignalKind.bye:
           await _onLinkClosed(signal.fromNodeUId);
+        case RtcSignalKind.unsubscribe:
+          final streamName = signal.payload['s'];
+          if (streamName is! String) break;
+          _subscribersByStream[streamName]?.remove(signal.fromNodeUId);
+          await _releaseIfUnused(signal.fromNodeUId, streamName);
       }
     } catch (e) {
       _logger.warning(

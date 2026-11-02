@@ -197,8 +197,14 @@ class CoordinationController {
         // Release the coordination-stream inlet too. Inert on a relay
         // transport, but a peer-to-peer one holds a live connection behind it,
         // and there is no other point where it learns the peer is gone.
-        if (_coordinationStreamReady) {
-          final nodeUId = event.node.uId;
+        final nodeUId = event.node.uId;
+        // Delivered asynchronously: by now the node may be back (a rejoin
+        // re-adds the coordinator's inlet straight after the teardown that
+        // emitted this), and releasing then would remove the new inlet.
+        final isBack =
+            _state.coordinatorUId == nodeUId ||
+            _state.connectedNodes.any((n) => n.uId == nodeUId);
+        if (_coordinationStreamReady && !isBack) {
           // Closing an inlet takes time on a real transport, and until it has
           // finished the stream still reports the inlet as there. Discovery
           // must not offer this node a join in that window: see
@@ -1388,6 +1394,19 @@ class CoordinationController {
   /// leaving the coordination stream and the transport up, so a new role can be
   /// established over the same connection.
   Future<void> _teardownRole() async {
+    // Released here, awaited, rather than left to the NodeLeft listener that
+    // clearNodes below triggers: that runs later, by when a rejoin may have
+    // re-added this very inlet (see the guard there).
+    final lostCoordinator = _state.isCoordinator ? null : _state.coordinatorUId;
+    if (lostCoordinator != null &&
+        lostCoordinator != thisNode.uId &&
+        _coordinationStreamReady) {
+      try {
+        await _coordinationStream.removeInlet(lostCoordinator);
+      } catch (e) {
+        logger.fine('Releasing the inlet of lost coordinator: $e');
+      }
+    }
     _heartbeatTimer?.cancel();
     _joinRetryTimer?.cancel();
     _joinRetryTimer = null;
@@ -1447,6 +1466,15 @@ class CoordinationController {
   Future<void> _awaitJoinAccepted(Duration budget) async {
     final deadline = DateTime.now().add(budget);
     var lastRequestAt = DateTime.now();
+    // Several requests per window, not one every couple of seconds. On a
+    // peer-to-peer transport the request can travel a channel that is already
+    // open while this node's re-subscription to the coordinator still crosses
+    // the hub; the acceptance is then sent before this node is subscribed and
+    // is lost. With `nodeTimeout` as the budget a 2 s interval never repeated
+    // within one attempt, so every attempt lost its acceptance the same way.
+    final retryInterval = budget ~/ 3 < _joinRequestRetryInterval
+        ? budget ~/ 3
+        : _joinRequestRetryInterval;
 
     while (DateTime.now().isBefore(deadline)) {
       if (_stopping || _state.phase == CoordinationPhase.ended) {
@@ -1456,8 +1484,7 @@ class CoordinationController {
 
       await Future<void>.delayed(const Duration(milliseconds: 100));
 
-      if (DateTime.now().difference(lastRequestAt) >=
-          _joinRequestRetryInterval) {
+      if (DateTime.now().difference(lastRequestAt) >= retryInterval) {
         lastRequestAt = DateTime.now();
         // Idempotent on the coordinator: a request from a node it already has
         // re-accepts and re-sends the acceptance rather than duplicating it.

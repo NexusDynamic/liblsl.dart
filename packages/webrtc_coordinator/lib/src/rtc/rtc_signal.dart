@@ -13,8 +13,10 @@ library;
 /// reason of its own to open one. [open] is a subscriber saying "open your half
 /// of stream S" — which is also, and deliberately, the only subscribe this
 /// transport has: the hub is not routing, so the far end's channel list *is*
-/// the routing table.
-enum RtcSignalKind { offer, answer, candidate, open, bye }
+/// the routing table. [unsubscribe] is its inverse: "I no longer read stream
+/// S from you". A peer that predates it drops it as unrecognised, and the
+/// channel then simply lives until the connection closes.
+enum RtcSignalKind { offer, answer, candidate, open, bye, unsubscribe }
 
 /// One signalling message between two peers.
 ///
@@ -35,7 +37,7 @@ class RtcSignal {
 
   /// An SDP map for offer/answer, a candidate map for candidate, a
   /// `{'s': streamName, 'id': channelId, 'o': ordered, 'r': maxRetransmits}`
-  /// map for open, empty for bye.
+  /// map for open, `{'s': streamName}` for unsubscribe, empty for bye.
   final Map<String, Object?> payload;
 
   Map<String, Object?> toJson() => {

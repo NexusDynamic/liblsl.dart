@@ -1,3 +1,20 @@
+## Unreleased
+
+- Rejoin over peer-to-peer transports: a participant that loses its
+  coordinator now releases the coordinator's inlet as part of its role
+  teardown, and the later departure event no longer releases an inlet the
+  rejoin has already re-added.
+- A participant waiting for a join acceptance repeats its request a few
+  times within the window (every `min(2 s, budget / 3)`), so an acceptance
+  sent before its re-subscription reached the coordinator is no longer lost
+  for the whole attempt.
+- New `WsLimits.maxInboundBytesPerSecond` (and `inboundBurstBytes`), off by
+  default: a per-connection inbound byte budget for the hub. `maxFrameBytes`
+  bounds a frame, but `dart:io` buffers a fragmented message until its final
+  frame, so a client could stream an unbounded message as small non-final
+  frames, unauthenticated too. Set it on hubs reachable by untrusted
+  clients.
+
 ## 0.4.4
 
 - `pauseAcceptingNodes()` now refuses only nodes that were never members:

@@ -260,7 +260,17 @@ void main() {
 
       final stream = await coordinator.getDataStream(streamName);
       await stream.removeInlet(participantUId);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(
+        adapter.openChannelIdsTo(participantUId),
+        contains(dataChannelId),
+        reason: 'the participant still reads this stream from the coordinator',
+      );
 
+      // Once the participant stops reading it too, the channel goes.
+      final participantStream = await peers[1].getDataStream(streamName);
+      await participantStream.removeInlet(coordinator.thisNode.uId);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
       expect(
         adapter.openChannelIdsTo(participantUId),
         isNot(contains(dataChannelId)),

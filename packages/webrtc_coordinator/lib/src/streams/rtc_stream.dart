@@ -218,12 +218,16 @@ mixin RtcStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
       }
       if (!_subscribedPeers.add(peerNodeUId)) return;
       try {
-        await mesh.channelFor(
+        final channel = await mesh.channelFor(
           peerNodeUId: peerNodeUId,
           streamName: config.name,
           ordered: channelOrdered,
           maxRetransmits: channelMaxRetransmits,
         );
+        // Attached here, not only on `channelOpened`: a channel can outlive a
+        // [removeInlet] because the peer still reads it from this node, and
+        // then reading again reuses it without any channel being opened.
+        _attach(peerNodeUId, channel);
       } catch (_) {
         // A half-added inlet would filter inbound as if connected while
         // holding nothing, which reads as a silent delivery failure.
@@ -242,13 +246,21 @@ mixin RtcStreamMixin<T extends NetworkStreamConfig, M extends IMessage>
       return;
     }
     if (!_subscribedPeers.remove(nodeUId)) return;
-    await _channelSubscriptions.remove(nodeUId)?.cancel();
-    if (_disposed) return;
+    final subscription = _channelSubscriptions.remove(nodeUId);
     // The point of the whole `removeInlet` contract: this releases an
     // `RTCPeerConnection`, and on the last stream between the pair the mesh
     // closes the connection itself. Without it a departed peer leaks until the
     // session is disposed.
-    await mesh.releaseChannel(peerNodeUId: nodeUId, streamName: config.name);
+    //
+    // Started before any await: its bookkeeping and the unsubscribe it sends
+    // happen synchronously, so an [addInlet] for the same peer that runs while
+    // this awaits comes after them, not before (which would leave the peer
+    // unsubscribed and this node not reading, with the inlet "added").
+    final release = _disposed
+        ? null
+        : mesh.releaseChannel(peerNodeUId: nodeUId, streamName: config.name);
+    await subscription?.cancel();
+    await release;
   }
 
   @override
