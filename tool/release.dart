@@ -539,8 +539,10 @@ Future<void> bump(Map<String, Package> packages, List<String> args) async {
 
 Future<void> tag(Map<String, Package> packages, List<String> args) async {
   final push = args.remove('--push');
+  final force = args.remove('--force');
   final testCheck = !args.remove('--no-test-check');
-  if (args.isNotEmpty) fail('usage: tag [--push] [--no-test-check]', 64);
+  if (args.isNotEmpty)
+    fail('usage: tag [--push] [--no-test-check] [--force]', 64);
 
   run('git', ['fetch', '--quiet', '--tags', 'origin', 'main']);
   packages = loadWorkspace();
@@ -560,7 +562,7 @@ Future<void> tag(Map<String, Package> packages, List<String> args) async {
     print('Nothing to release.');
     return;
   }
-  if (testCheck && blockers.isEmpty) {
+  if (testCheck && (blockers.isEmpty || force)) {
     // As release.yml looks: a release run repeats the whole suite if Test
     // has not passed on the commit, once for every tag.
     final sha = run('git', ['rev-parse', 'HEAD']);
@@ -586,7 +588,7 @@ Future<void> tag(Map<String, Package> packages, List<String> args) async {
   for (final package in ready) {
     print('  ${package.tag}');
   }
-  if (blockers.isNotEmpty) {
+  if (blockers.isNotEmpty && !force) {
     print('\nNot yet:');
     for (final blocker in blockers) {
       print('  $blocker');
