@@ -1,3 +1,8 @@
+## 0.2.4
+
+- Requires `webrtc_coordinator` ^0.2.3.
+- Requires `peer_coordinator` ^0.4.4.
+
 ## 0.2.3
 
 - Requires `peer_coordinator` ^0.4.3 and `webrtc_coordinator` ^0.2.2.

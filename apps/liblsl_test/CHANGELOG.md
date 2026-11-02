@@ -1,3 +1,7 @@
+## 1.2.2
+
+- migrate to `launcher_icons` from `flutter_launcher_icons`
+
 ## 1.2.1
 
 - Requires `liblsl` ^1.2.0.

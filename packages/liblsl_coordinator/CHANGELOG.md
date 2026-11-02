@@ -1,3 +1,7 @@
+## 0.6.1
+
+- Requires `peer_coordinator` ^0.4.4.
+
 ## 0.6.0
 
 - `ListenerRestartSchedule` and `TimeCorrectionSchedule` moved to

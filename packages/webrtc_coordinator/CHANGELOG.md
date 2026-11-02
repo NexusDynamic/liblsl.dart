@@ -3,6 +3,7 @@
 - A link that closes on this side only (ICE failure, timeout) now tells the
   peer with a best-effort `bye`, so the peer drops its stale half and the
   same node uId can connect again (as `CoordinatorLossPolicy.rejoin` does).
+- Requires `peer_coordinator` ^0.4.4.
 
 ## 0.2.2
 

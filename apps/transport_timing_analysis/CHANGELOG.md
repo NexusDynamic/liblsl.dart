@@ -1,5 +1,6 @@
-## Unreleased
+## 2.0.4
 
+- migrate to `launcher_icons` from `flutter_launcher_icons`
 - Minor, display 64 bit values in plotted traces (data is unaffected)
 
 ## 2.0.3
