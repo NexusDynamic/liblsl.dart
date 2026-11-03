@@ -1,3 +1,14 @@
+## 0.3.5
+
+- *Test > Synthetic stream…* shows a synthetic signal without LSL: sines,
+  a test pattern, EEG with or without artefacts, line noise, or a stress
+  signal for many channels at high rates, with markers and simulated
+  dropouts. *LSL > Test outlets…* sends the same signals over LSL.
+- Requires `signal_viewer` ^0.2.2.
+- Requires `signal_viewer_lsl` ^0.3.5.
+- Requires `signal_viewer_serial` ^0.2.2.
+- Requires `signal_viewer_xdf` ^0.2.2.
+
 ## 0.3.4
 
 - Live streams are drawn as a sweep by default; each tab can switch to a

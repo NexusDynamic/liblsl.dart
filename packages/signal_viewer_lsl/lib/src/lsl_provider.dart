@@ -297,20 +297,42 @@ class LslProvider extends SourceProvider {
   /// The marker stream the user sends on, once used.
   LslMarkerSender? markers;
 
+  /// The options of the last test stream started, offered again.
+  SynthOptions lastGenerator = const SynthOptions();
+
+  /// Send a test stream called [name]: [options], or (as before they
+  /// were given) sines at [channels] × [rate] Hz from [frequency].
   Future<void> startGenerator({
     required String name,
-    required int channels,
-    required double rate,
-    required double frequency,
+    SynthOptions? options,
+    int? channels,
+    double? rate,
+    double? frequency,
   }) async {
+    options ??= SynthOptions(
+      spec: SynthSpec(
+        channels: channels ?? 8,
+        rate: rate ?? 250,
+        frequency: frequency ?? 10,
+      ),
+    );
+    lastGenerator = options;
     await lsl.prepare();
     try {
+      final s = options.spec;
       generators.add(
         await LslSignalGenerator.start(
           name: name,
-          channels: channels,
-          rate: rate,
-          frequency: frequency,
+          preset: s.preset,
+          channels: s.channels,
+          rate: s.rate,
+          frequency: s.frequency,
+          amplitude: s.amplitude,
+          noise: s.noise,
+          lineFrequency: s.lineFrequency,
+          seed: s.seed,
+          markers: options.markers,
+          impairments: options.impairments,
           options: app.prefs.lsl.outlet,
         ),
       );

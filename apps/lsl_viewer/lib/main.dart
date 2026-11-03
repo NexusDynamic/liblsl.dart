@@ -18,12 +18,14 @@ final lslViewerConfig = ViewerConfig(
 );
 
 /// What the LSL Viewer opens: LSL streams, XDF recordings, serial devices
-/// that print numbers, OpenBCI Cyton boards and their SD card recordings.
+/// that print numbers, OpenBCI Cyton boards and their SD card recordings,
+/// and synthetic test signals.
 List<SourceProvider> lslViewerProviders() => [
   LslProvider(),
   XdfProvider(),
   CytonSdProvider(),
   SerialStreamProvider(serial: lslViewerSerialPorts()),
+  SyntheticProvider(),
 ];
 
 /// Opens the XDF recordings given on the command line (desktop).

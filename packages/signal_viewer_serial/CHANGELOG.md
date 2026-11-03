@@ -1,3 +1,9 @@
+## 0.2.2
+
+- Requires `openbci_cyton` ^0.2.1.
+- Requires `signal_viewer` ^0.2.2.
+- Requires `signal_viewer_xdf` ^0.2.2.
+
 ## 0.2.1
 
 - Requires `signal_viewer` ^0.2.1.

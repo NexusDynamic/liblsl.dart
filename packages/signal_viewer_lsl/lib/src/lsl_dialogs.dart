@@ -1388,29 +1388,23 @@ class _TestOutletsDialog extends StatefulWidget {
 
 class _TestOutletsDialogState extends State<_TestOutletsDialog> {
   final _name = TextEditingController(text: 'Test signal');
-  final _channels = TextEditingController(text: '8');
-  final _rate = TextEditingController(text: '250');
-  final _frequency = TextEditingController(text: '10');
   final _marker = TextEditingController();
+  late SynthOptions? _options = widget.app.lastGenerator;
 
   @override
   void dispose() {
-    for (final c in [_name, _channels, _rate, _frequency, _marker]) {
+    for (final c in [_name, _marker]) {
       c.dispose();
     }
     super.dispose();
   }
 
   Future<void> _start() async {
-    final channels = int.tryParse(_channels.text.trim());
-    final rate = double.tryParse(_rate.text.trim());
-    final frequency = double.tryParse(_frequency.text.trim());
-    if (channels == null || channels < 1 || rate == null || rate <= 0) return;
+    final options = _options;
+    if (options == null) return;
     await widget.app.startGenerator(
       name: _name.text.trim().isEmpty ? 'Test signal' : _name.text.trim(),
-      channels: channels,
-      rate: rate,
-      frequency: frequency ?? 10,
+      options: options,
     );
   }
 
@@ -1427,14 +1421,6 @@ class _TestOutletsDialogState extends State<_TestOutletsDialog> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    Widget field(TextEditingController c, String label, {double w = 90}) =>
-        SizedBox(
-          width: w,
-          child: TextField(
-            controller: c,
-            decoration: InputDecoration(isDense: true, labelText: label),
-          ),
-        );
     return ListenableBuilder(
       listenable: widget.app,
       builder: (context, _) => AlertDialog(
@@ -1447,25 +1433,35 @@ class _TestOutletsDialogState extends State<_TestOutletsDialog> {
               children: [
                 Text('Signal generator', style: theme.textTheme.titleSmall),
                 Text(
-                  'Sine waves (channel n at n × the frequency) with noise, '
-                  'in real time.',
+                  'A synthetic stream sent over LSL in real time, with its '
+                  'markers on "<name> markers" if chosen. To view a signal '
+                  'without LSL, use Test → Synthetic stream.',
                   style: theme.textTheme.bodySmall,
                 ),
                 const SizedBox(height: 8),
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 8,
-                  crossAxisAlignment: WrapCrossAlignment.end,
-                  children: [
-                    field(_name, 'Name', w: 160),
-                    field(_channels, 'Channels'),
-                    field(_rate, 'Rate (Hz)'),
-                    field(_frequency, 'Frequency (Hz)', w: 110),
-                    FilledButton.tonal(
-                      onPressed: _start,
-                      child: const Text('Start'),
+                SizedBox(
+                  width: 240,
+                  child: TextField(
+                    controller: _name,
+                    decoration: const InputDecoration(
+                      isDense: true,
+                      labelText: 'Name',
                     ),
-                  ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                SynthForm(
+                  initial: widget.app.lastGenerator,
+                  jitter: true,
+                  onChanged: (o) => setState(() => _options = o),
+                ),
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: FilledButton.tonal(
+                    onPressed: _options == null ? null : _start,
+                    child: const Text('Start'),
+                  ),
                 ),
                 for (final g in widget.app.generators)
                   ListTile(
@@ -1473,8 +1469,14 @@ class _TestOutletsDialogState extends State<_TestOutletsDialog> {
                     leading: const Icon(Icons.graphic_eq),
                     title: Text(g.name),
                     subtitle: Text(
-                      '${g.outlet.spec.channelCount} ch · '
-                      '${g.rate} Hz · ${g.sent} samples sent',
+                      [
+                        g.spec.preset.label,
+                        '${g.outlet.spec.channelCount} ch',
+                        '${formatNumber(g.rate)} Hz',
+                        '${g.sent} samples sent',
+                        if (g.lost > 0) '${g.lost} dropped',
+                        if (g.markerOutlet != null) '${g.markersSent} markers',
+                      ].join(' · '),
                     ),
                     trailing: TextButton(
                       onPressed: () => widget.app.stopGenerator(g),

@@ -1,3 +1,7 @@
+## 0.2.1
+
+- Requires `xdf` ^0.2.1.
+
 ## 0.2.0
 
 - Sampling rate (`setSampleRate`) and board mode (`setBoardMode`), set on

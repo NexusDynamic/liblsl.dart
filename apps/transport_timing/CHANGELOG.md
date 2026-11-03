@@ -1,3 +1,7 @@
+## 2.0.6
+
+- Requires `timing_core` ^0.2.2.
+
 ## 2.0.5
 
 - Requires `liblsl_coordinator` ^0.6.2.

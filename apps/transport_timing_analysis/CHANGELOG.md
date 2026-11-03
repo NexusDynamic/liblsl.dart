@@ -1,3 +1,8 @@
+## 2.0.6
+
+- Requires `signal_viewer` ^0.2.2.
+- Requires `timing_core` ^0.2.2.
+
 ## 2.0.5
 
 - Requires `signal_viewer` ^0.2.1.

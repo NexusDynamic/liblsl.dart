@@ -1,3 +1,8 @@
+## 0.2.2
+
+- Requires `signal_viewer` ^0.2.2.
+- Requires `xdf` ^0.2.1.
+
 ## 0.2.1
 
 - Requires `signal_viewer` ^0.2.1.

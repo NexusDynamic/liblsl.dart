@@ -1,3 +1,7 @@
+## 0.2.1
+
+- Requires `signal_core` ^0.3.0.
+
 ## 0.2.0
 
 - Values are no longer reduced to 32-bit floats: `XdfFile` keeps them as

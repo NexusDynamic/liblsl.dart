@@ -1,3 +1,13 @@
+## 0.2.2
+
+- `SyntheticProvider` and `SyntheticSession`: synthetic test signals made
+  in the app and shown as live streams, with markers as a stream of their
+  own and simulated dropouts. The provider adds *Test > Synthetic stream…*
+  and a button on the welcome screen.
+- `SynthForm`, the fields for choosing a synthetic signal, for providers
+  that send one elsewhere.
+- Requires `signal_core` ^0.3.0.
+
 ## 0.2.1
 
 - Live trace and event plots sweep by default: a cursor moves from left to

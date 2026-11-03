@@ -1,3 +1,10 @@
+## 0.3.5
+
+- *LSL > Test outlets…* offers the synthetic signals of `signal_core`
+  (presets, seed, markers, dropouts and jitter).
+- Requires `lsl_tools` ^0.3.4.
+- Requires `signal_viewer` ^0.2.2.
+
 ## 0.3.4
 
 - Requires `signal_viewer` ^0.2.1.
