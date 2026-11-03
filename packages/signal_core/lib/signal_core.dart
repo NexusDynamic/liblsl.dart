@@ -1,6 +1,6 @@
 /// Format-agnostic multichannel signal engine: summary pyramids for fast
 /// zooming, display filters, re-referencing, channel quality, and random
-/// access to the bytes of large recordings.
+/// access to the bytes of large recordings, and synthetic test signals.
 ///
 /// Pure Dart; everything here works on all platforms, including the web.
 library;
@@ -14,4 +14,8 @@ export 'src/io/byte_source.dart';
 export 'src/precision.dart';
 export 'src/pyramid.dart';
 export 'src/requests.dart';
+export 'src/synth/components.dart';
+export 'src/synth/generator.dart';
+export 'src/synth/presets.dart';
+export 'src/synth/run.dart';
 export 'src/util/list_prefix.dart';
