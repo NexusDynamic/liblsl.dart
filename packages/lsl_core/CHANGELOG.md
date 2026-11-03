@@ -1,3 +1,7 @@
+## 1.0.1
+
+- Added an example
+
 ## 1.0.0
 
 - First version: the Lab Streaming Layer types and utilities that need no
