@@ -1,3 +1,16 @@
+## 0.3.4
+
+- `LslSignalGenerator` is built on `signal_core`'s synthetic signals: it
+  takes a `preset`, `seed`, `lineFrequency`, `impairments` (dropouts and
+  jitter) and `markers`, which are sent on a stream named `<name> markers`.
+  Its existing parameters keep their meaning, except that the frequencies
+  of the sines now wrap below the Nyquist frequency.
+- `lsl generate` has `--preset`, `--amplitude`, `--line`, `--seed`,
+  `--markers`, `--dropout`, `--dropout-length` and `--jitter`.
+- Requires `openbci_cyton` ^0.2.1.
+- Requires `signal_core` ^0.3.0.
+- Requires `xdf` ^0.2.1.
+
 ## 0.3.3
 
 - Requires `peer_coordinator` ^0.4.5.

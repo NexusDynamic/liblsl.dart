@@ -12,3 +12,5 @@ export 'src/bridge/server.dart';
 export 'src/lsl.dart';
 export 'src/lsl_recorder.dart';
 export 'src/lsl_test_outlets.dart';
+export 'package:signal_core/signal_core.dart'
+    show Impairments, MarkerSchedule, SynthPreset, SynthSpec;

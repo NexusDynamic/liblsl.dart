@@ -40,7 +40,8 @@ lsl list [--wait 2]                              # streams on the network
 lsl info EEG                                     # full XML and clock offset
 lsl record session.xdf -s EEG -s Markers [-d 60] # Ctrl-C stops
 lsl replay session.xdf [--loop]                  # an XDF file as LSL streams
-lsl generate -c 8 -r 500 [-f 10] [--name --type] # a test stream
+lsl generate -c 8 -r 500 [-p eegArtefacts] [--markers 1] [--dropout 0.5]
+                                                 # a synthetic test stream
 lsl cyton [/dev/ttyUSB0] [--emg 9,10] [--markers] [--sd 60 [--sd-rate 1000]]
                                                  # OpenBCI Cyton (+ Daisy)
 lsl cyton-sd OBCI_2A.TXT [out.xdf] [--rate 1000] # its SD card file to XDF
@@ -59,6 +60,7 @@ lsl publish wss://relay.example.org [-s EEG] [--token t] [--rescan 5]
 | `relay` | Passes streams between WebSocket clients only. It requires no LSL and can run on a server. |
 | `bridge` | Publishes a bridge's streams as LSL streams here, and follows them as they come and go. |
 | `publish` | Publishes LSL streams from here on a bridge or relay that accepts them, connecting out. |
+| `generate` | Sends a synthetic stream from one of `signal_core`'s presets (`sines`, `testPattern`, `eegResting`, `eegArtefacts`, `lineNoise`, `stress`). `--markers <s>` adds a marker stream with a marker every s seconds and at blinks, spikes and alpha bursts; `--dropout` and `--jitter` simulate lost samples and time stamp error. |
 
 `-s` takes names or types, and `*` is a wildcard. `--peer <address>`
 (before the command) looks for streams on computers that multicast does not

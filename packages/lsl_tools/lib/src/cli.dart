@@ -693,9 +693,52 @@ class _Generate extends _Base {
     argParser
       ..addOption('name', defaultsTo: 'Test signal')
       ..addOption('type', defaultsTo: 'EEG')
+      ..addOption(
+        'preset',
+        abbr: 'p',
+        defaultsTo: SynthPreset.sines.name,
+        allowed: [for (final p in SynthPreset.values) p.name],
+        allowedHelp: {
+          for (final p in SynthPreset.values) p.name: p.description,
+        },
+      )
       ..addOption('channels', abbr: 'c', defaultsTo: '8')
       ..addOption('rate', abbr: 'r', defaultsTo: '250')
-      ..addOption('frequency', abbr: 'f', defaultsTo: '10');
+      ..addOption(
+        'frequency',
+        abbr: 'f',
+        defaultsTo: '10',
+        help: 'Base frequency of sines, test pattern and stress (Hz).',
+      )
+      ..addOption(
+        'amplitude',
+        abbr: 'a',
+        defaultsTo: '50',
+        help: 'Size of the signal (microvolts).',
+      )
+      ..addOption('line', defaultsTo: '50', help: 'Mains frequency (Hz).')
+      ..addOption('seed', defaultsTo: '0')
+      ..addOption(
+        'markers',
+        help:
+            'Also send markers on "<name> markers": every this many '
+            'seconds (0 for none) and at the events of the signal.',
+      )
+      ..addOption(
+        'dropout',
+        defaultsTo: '0',
+        help: 'Dropouts per second (samples lost), on average.',
+      )
+      ..addOption(
+        'dropout-length',
+        defaultsTo: '0.2',
+        help: 'Length of a dropout (s).',
+      )
+      ..addOption(
+        'jitter',
+        defaultsTo: '0',
+        help: 'Standard deviation of the time stamps\' error (ms).',
+      );
   }
 
   @override
@@ -703,23 +746,45 @@ class _Generate extends _Base {
 
   @override
   String get description =>
-      'Send a test stream: sines (channel n at n × the frequency) and '
-      'noise.';
+      'Send a test stream: sines and noise, EEG-like signals with '
+      'artefacts, test patterns; with simulated dropouts and jitter.';
 
   @override
   Future<int> run() async {
     double num(String k) => double.parse(argResults![k] as String);
+    final markers = argResults!['markers'] as String?;
+    final every = markers == null ? null : double.parse(markers);
     final g = await LslSignalGenerator.start(
       name: argResults!['name'] as String,
       type: argResults!['type'] as String,
+      preset: SynthPreset.byName(argResults!['preset'] as String)!,
       channels: num('channels').round(),
       rate: num('rate'),
       frequency: num('frequency'),
+      amplitude: num('amplitude'),
+      lineFrequency: num('line'),
+      seed: num('seed').round(),
+      markers: every == null
+          ? null
+          : MarkerSchedule(every: every > 0 ? every : null),
+      impairments: Impairments(
+        dropoutRate: num('dropout'),
+        dropoutS: num('dropout-length'),
+        jitterS: num('jitter') / 1000,
+      ),
     );
-    out.writeln('Sending ${g.name}; Ctrl-C to stop');
+    out.writeln(
+      'Sending ${g.name} (${g.spec})'
+      '${g.markerOutlet == null ? '' : ' and ${g.markerOutlet!.spec.name}'}'
+      '; Ctrl-C to stop',
+    );
     await _untilStopped(stop);
     await g.close();
-    out.writeln('Sent ${g.sent} samples');
+    out.writeln(
+      'Sent ${g.sent} samples'
+      '${g.lost > 0 ? ' (${g.lost} dropped)' : ''}'
+      '${g.markerOutlet == null ? '' : ' and ${g.markersSent} markers'}',
+    );
     return 0;
   }
 }

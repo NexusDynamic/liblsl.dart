@@ -62,6 +62,54 @@ void main() {
     expect(s.effectiveRate, closeTo(100, 1));
   });
 
+  test('generate: a preset with its markers, recorded to XDF', () async {
+    final stop = Completer<void>();
+    final out = StringBuffer();
+    final name = 'cli_eeg_$id';
+    final running = runLslCli(
+      [
+        'generate',
+        '--name',
+        name,
+        '-p',
+        'eegArtefacts',
+        '-c',
+        '4',
+        '-r',
+        '200',
+        '--markers',
+        '0.25',
+      ],
+      stop: stop.future,
+      out: out,
+    );
+    final path = '${dir.path}/gen.xdf';
+    final rec = StringBuffer();
+    expect(
+      await runLslCli([
+        'record',
+        path,
+        '-s',
+        name,
+        '-s',
+        '$name markers',
+        '-d',
+        '1.5',
+      ], out: rec),
+      0,
+      reason: '$rec',
+    );
+    stop.complete();
+    expect(await running, 0);
+    expect(out.toString(), contains('EEG with artefacts'));
+    final x = loadXdf(File(path).readAsBytesSync());
+    final data = x.stream(name)!;
+    expect(data.info.channelCount, 4);
+    expect(data.effectiveRate, closeTo(200, 2));
+    final markers = x.stream('$name markers')!;
+    expect(markers.length, greaterThanOrEqualTo(3));
+  });
+
   test('share and bridge: a stream published again elsewhere', () async {
     final g = await LslSignalGenerator.start(
       name: 'cli_share_$id',

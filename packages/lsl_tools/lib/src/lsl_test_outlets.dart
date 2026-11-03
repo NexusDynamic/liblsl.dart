@@ -1,33 +1,25 @@
 import 'dart:async';
-import 'dart:math' as math;
 import 'dart:typed_data';
+
+import 'package:signal_core/signal_core.dart';
 
 import 'lsl.dart';
 
-/// A synthetic stream for testing a pipeline: a sine wave per channel
-/// (channel c at [frequency] × (c + 1) Hz, [amplitude] peak) plus noise,
-/// sent in real time.
+/// A synthetic stream for testing a pipeline, sent in real time: one of
+/// signal_core's [SynthPreset]s (by default sine waves, channel n at n ×
+/// [frequency], with noise), optionally with simulated dropouts and jitter
+/// and a companion marker stream named `<name> markers`.
 class LslSignalGenerator {
   final LslOutlet outlet;
-  final double rate;
-  final double frequency;
-  final double amplitude;
-  final double noise;
-  final _rng = math.Random();
-  late final Timer _timer;
-  late double _next;
-  int _sent = 0;
 
-  LslSignalGenerator._(
-    this.outlet,
-    this.rate,
-    this.frequency,
-    this.amplitude,
-    this.noise,
-  ) {
-    _next = lsl.clock();
-    _timer = Timer.periodic(const Duration(milliseconds: 20), (_) => _tick());
-  }
+  /// The marker stream, if markers are sent.
+  final LslOutlet? markerOutlet;
+  final SynthSpec spec;
+  final SynthRun _run;
+  final List<Future<void>> _pending = [];
+  int _markersSent = 0;
+
+  LslSignalGenerator._(this.outlet, this.markerOutlet, this.spec, this._run);
 
   static Future<LslSignalGenerator> start({
     String name = 'Test signal',
@@ -37,52 +29,100 @@ class LslSignalGenerator {
     double frequency = 10,
     double amplitude = 50,
     double noise = 5,
+    SynthPreset preset = SynthPreset.sines,
+    double lineFrequency = 50,
+    int seed = 0,
+    MarkerSchedule? markers,
+    Impairments impairments = Impairments.none,
     LslOutletOptions options = const LslOutletOptions(),
   }) async {
+    final spec = SynthSpec(
+      preset: preset,
+      channels: channels,
+      rate: rate,
+      frequency: frequency,
+      amplitude: amplitude,
+      noise: noise,
+      lineFrequency: lineFrequency,
+      seed: seed,
+    );
+    final generator = spec.generator();
+    final stamp = DateTime.now().microsecondsSinceEpoch;
     final outlet = await lsl.createOutlet(
       LslOutletSpec(
         name: name,
         type: type,
         channelCount: channels,
         rate: rate,
-        sourceId: 'test:$name:${DateTime.now().microsecondsSinceEpoch}',
+        sourceId: 'test:$name:$stamp',
         channels: [
           for (var c = 0; c < channels; c++)
-            LSLChannel('ch${c + 1}', unit: 'microvolts', type: type),
+            LSLChannel(
+              generator.labels[c],
+              unit: generator.units[c],
+              type: type,
+            ),
         ],
       ),
       options,
     );
-    return LslSignalGenerator._(outlet, rate, frequency, amplitude, noise);
+    LslOutlet? markerOutlet;
+    if (markers != null) {
+      markerOutlet = await lsl.createOutlet(
+        LslOutletSpec(
+          name: '$name markers',
+          type: 'Markers',
+          channelCount: 1,
+          rate: 0,
+          format: LSLChannelFormat.string,
+          sourceId: 'test:$name:markers:$stamp',
+        ),
+        options,
+      );
+    }
+    late final LslSignalGenerator g;
+    final run = SynthRun(
+      generator,
+      clock: lsl.clock,
+      impairments: impairments,
+      markers: markers,
+      onChunk: (c) => g._push(c),
+      onMarkers: markerOutlet == null ? null : (m) => g._mark(m),
+    );
+    return g = LslSignalGenerator._(outlet, markerOutlet, spec, run);
   }
 
   String get name => outlet.spec.name;
-  int get sent => _sent;
+  double get rate => spec.rate;
 
-  void _tick() {
-    final now = lsl.clock();
-    final n = ((now - _next) * rate).floor();
-    if (n <= 0) return;
-    final ch = outlet.spec.channelCount;
-    final values = Float32List(n * ch);
-    final times = Float64List(n);
-    for (var i = 0; i < n; i++) {
-      final t = _next + i / rate;
-      times[i] = t;
-      for (var c = 0; c < ch; c++) {
-        values[i * ch + c] =
-            amplitude * math.sin(2 * math.pi * frequency * (c + 1) * t) +
-            noise * (_rng.nextDouble() * 2 - 1);
-      }
-    }
-    _next += n / rate;
-    _sent += n;
-    outlet.push(values, times);
+  /// Samples sent, and lost in simulated dropouts.
+  int get sent => _run.sent;
+  int get lost => _run.lost;
+  int get markersSent => _markersSent;
+
+  void _track(Future<void> f) {
+    _pending.add(f);
+    f.whenComplete(() => _pending.remove(f));
+  }
+
+  void _push(SynthChunk c) =>
+      _track(outlet.push(Float32List.fromList(c.values), c.times));
+
+  void _mark(List<SynthMarker> markers) {
+    _markersSent += markers.length;
+    _track(
+      markerOutlet!.pushStrings(
+        [for (final m in markers) m.text],
+        [for (final m in markers) m.time],
+      ),
+    );
   }
 
   Future<void> close() async {
-    _timer.cancel();
+    _run.stop();
+    await Future.wait(List.of(_pending));
     await outlet.close();
+    await markerOutlet?.close();
   }
 }
 
