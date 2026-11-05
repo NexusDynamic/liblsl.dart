@@ -28,7 +28,7 @@ dependencies:
   lsl_core: ^1.0.0
   signal_core: ^0.3.0
   web: ^1.1.1
-  wakelock_plus: ^1.8.2
+  wakelock_plus: ^1.8.0
 
 dev_dependencies:
   flutter_lints: ^6.0.0
