@@ -541,6 +541,7 @@ Future<void> tag(Map<String, Package> packages, List<String> args) async {
   final push = args.remove('--push');
   final force = args.remove('--force');
   final testCheck = !args.remove('--no-test-check');
+
   if (args.isNotEmpty)
     fail('usage: tag [--push] [--no-test-check] [--force]', 64);
 
