@@ -1,3 +1,7 @@
+## 0.2.3
+
+- Requires `signal_viewer` ^0.2.3.
+
 ## 0.2.2
 
 - Requires `signal_viewer` ^0.2.2.

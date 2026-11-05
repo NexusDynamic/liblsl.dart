@@ -1,3 +1,7 @@
+## 0.3.6
+
+- Requires `signal_viewer` ^0.2.3.
+
 ## 0.3.5
 
 - *LSL > Test outlets…* offers the synthetic signals of `signal_core`

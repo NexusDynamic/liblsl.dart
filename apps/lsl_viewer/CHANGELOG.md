@@ -1,3 +1,10 @@
+## 0.3.6
+
+- Requires `signal_viewer` ^0.2.3.
+- Requires `signal_viewer_lsl` ^0.3.6.
+- Requires `signal_viewer_serial` ^0.2.3.
+- Requires `signal_viewer_xdf` ^0.2.3.
+
 ## 0.3.5
 
 - *Test > Synthetic stream…* shows a synthetic signal without LSL: sines,
