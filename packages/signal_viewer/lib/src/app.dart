@@ -63,33 +63,54 @@ class _SignalViewerAppState extends State<SignalViewerApp> {
     config: widget.config,
   );
 
+  // Built once: seeded themes are costly, and the same instances let
+  // MaterialApp skip a theme change.
+  late final ThemeData _theme =
+      widget.config.theme?.copyWith(visualDensity: _density) ??
+      ThemeData(
+        colorSchemeSeed: widget.config.seedColor,
+        visualDensity: _density,
+      );
+  late final ThemeData _darkTheme =
+      widget.config.darkTheme?.copyWith(visualDensity: _density) ??
+      ThemeData(
+        colorSchemeSeed: widget.config.seedColor,
+        brightness: Brightness.dark,
+        visualDensity: _density,
+      );
+  late final Widget _home = MainWindow(
+    state: _state,
+    initialFiles: widget.files,
+  );
+  late ThemeMode _themeMode = widget.prefs.themeMode;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.prefs.addListener(_prefsChanged);
+  }
+
+  /// Only the theme mode matters here; [MainWindow] follows the rest.
+  void _prefsChanged() {
+    if (widget.prefs.themeMode != _themeMode) {
+      setState(() => _themeMode = widget.prefs.themeMode);
+    }
+  }
+
   @override
   void dispose() {
+    widget.prefs.removeListener(_prefsChanged);
     _state.dispose();
     super.dispose();
   }
 
   @override
-  Widget build(BuildContext context) {
-    final seed = widget.config.seedColor;
-    return ListenableBuilder(
-      listenable: widget.prefs,
-      builder: (context, _) => MaterialApp(
-        title: widget.config.title,
-        debugShowCheckedModeBanner: false,
-        themeMode: widget.prefs.themeMode,
-        theme:
-            widget.config.theme?.copyWith(visualDensity: _density) ??
-            ThemeData(colorSchemeSeed: seed, visualDensity: _density),
-        darkTheme:
-            widget.config.darkTheme?.copyWith(visualDensity: _density) ??
-            ThemeData(
-              colorSchemeSeed: seed,
-              brightness: Brightness.dark,
-              visualDensity: _density,
-            ),
-        home: MainWindow(state: _state, initialFiles: widget.files),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => MaterialApp(
+    title: widget.config.title,
+    debugShowCheckedModeBanner: false,
+    themeMode: _themeMode,
+    theme: _theme,
+    darkTheme: _darkTheme,
+    home: _home,
+  );
 }

@@ -1,3 +1,9 @@
+## 0.2.3
+
+- Added wakelock toggle for all platforms (it's pretty annoying when
+  the screen turns off while you're watching an EEG signal).
+- Removed a few unnecessary widget rebuilds.
+
 ## 0.2.2
 
 - `SyntheticProvider` and `SyntheticSession`: synthetic test signals made

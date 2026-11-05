@@ -7,6 +7,7 @@ import '../model/groups.dart';
 import '../model/stream_info.dart';
 import '../model/view_settings.dart';
 import '../platform/files.dart';
+import '../platform/wakelock.dart';
 import '../settings/prefs.dart';
 import '../viewer/source.dart';
 import 'stream_controller.dart';
@@ -92,6 +93,12 @@ class AppState extends ChangeNotifier {
       p.addListener(notifyListeners);
     }
   }
+
+  SleepGuard? _sleep;
+
+  /// Keeps the screen awake as [Preferences.preventSleep] asks; made on
+  /// first use, so models without a window never touch the platform.
+  SleepGuard get sleep => _sleep ??= SleepGuard(prefs);
 
   /// The provider of type [T].
   T provider<T extends SourceProvider>() => providers.whereType<T>().first;
@@ -225,12 +232,13 @@ class AppState extends ChangeNotifier {
           try {
             final session = await provider.openFile(f);
             if (f.path != null) {
-              prefs.addRecent(f.path!);
               final sep = f.path!.contains('\\') ? '\\' : '/';
+              // Before addRecent, which saves.
               prefs.lastDir = f.path!.substring(
                 0,
                 f.path!.lastIndexOf(sep) + 1,
               );
+              prefs.addRecent(f.path!);
             }
             opened[i] = session;
             providerOf[session] = provider;
@@ -472,6 +480,7 @@ class AppState extends ChangeNotifier {
     for (final s in sessions) {
       s.close();
     }
+    _sleep?.dispose();
     super.dispose();
   }
 }

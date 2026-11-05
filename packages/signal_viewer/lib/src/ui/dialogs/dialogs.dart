@@ -37,15 +37,20 @@ class _PreferencesDialogState extends State<_PreferencesDialog> {
   late bool _compact = widget.prefs.compactSamples;
   late Map<Kind, KindDefaults> _defaults = Map.of(widget.prefs.defaults);
 
-  void _restore() => setState(() {
-    _theme = ThemeMode.system;
-    _lineWidth = 1;
-    _antialias = true;
-    _live = LiveDisplay.sweep;
-    _cacheMb = Preferences.defaultCacheMb;
-    _compact = false;
-    _defaults = Map.of(KindDefaults.factory);
-  });
+  /// The defaults, from a fresh [Preferences] (their one source).
+  void _restore() {
+    final d = Preferences();
+    setState(() {
+      _theme = d.themeMode;
+      _lineWidth = d.lineWidth;
+      _antialias = d.antialias;
+      _live = d.liveDisplay;
+      _cacheMb = d.cacheMb;
+      _compact = d.compactSamples;
+      _defaults = d.defaults;
+    });
+    d.dispose();
+  }
 
   Future<void> _ok() async {
     final p = widget.prefs

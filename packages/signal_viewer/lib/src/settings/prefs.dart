@@ -10,10 +10,8 @@ import '../model/groups.dart';
 import '../model/stream_info.dart';
 import '../model/view_settings.dart';
 
-const bool _isWeb = bool.fromEnvironment('dart.library.js_interop');
-
 bool get _isMobile =>
-    !_isWeb &&
+    !kIsWeb &&
     (defaultTargetPlatform == TargetPlatform.android ||
         defaultTargetPlatform == TargetPlatform.iOS);
 
@@ -68,7 +66,10 @@ class Preferences extends ChangeNotifier {
   String? lastDir;
   String? recordDir;
 
-  static int get defaultCacheMb => _isWeb ? 256 : (_isMobile ? 128 : 512);
+  /// Keep the screen awake while the viewer runs (see `SleepGuard`).
+  bool preventSleep = false;
+
+  static int get defaultCacheMb => kIsWeb ? 256 : (_isMobile ? 128 : 512);
 
   List<SettingsGroup> _groups(SettingsStore store) {
     final extras = <String, List<String>>{};
@@ -103,6 +104,7 @@ class Preferences extends ChangeNotifier {
             for (final m in ThemeMode.values) m.name,
           ]).validate,
         ),
+        BoolSetting(key: 'prevent_sleep', defaultValue: false),
         DoubleSetting(
           key: 'line_width',
           defaultValue: 1,
@@ -189,16 +191,19 @@ class Preferences extends ChangeNotifier {
       () =>
           themeMode = ThemeMode.values.byName(s.getString('preferences.theme')),
     );
-    read(() => lineWidth = s.getDouble('preferences.line_width'));
-    read(() => antialias = s.getBool('preferences.antialias'));
+    // Plain values need no guard: the store validated them on init and
+    // falls back to the default on a bad one.
+    preventSleep = s.getBool('preferences.prevent_sleep');
+    lineWidth = s.getDouble('preferences.line_width');
+    antialias = s.getBool('preferences.antialias');
     read(
       () => liveDisplay = LiveDisplay.values.byName(
         s.getString('preferences.live_display'),
       ),
     );
-    read(() => cacheMb = s.getInt('preferences.cache_mb'));
-    read(() => compactSamples = s.getBool('preferences.compact_samples'));
-    read(() => panelVisible = s.getBool('view.panel'));
+    cacheMb = s.getInt('preferences.cache_mb');
+    compactSamples = s.getBool('preferences.compact_samples');
+    panelVisible = s.getBool('view.panel');
     for (final kind in Kind.values) {
       read(() {
         final raw = s.getString('defaults.${kind.name}');
@@ -223,24 +228,27 @@ class Preferences extends ChangeNotifier {
         preamble: s.getBool('manchester.preamble'),
       ),
     );
-    read(() => manchesterLabels = s.getStringList('manchester.labels').toSet());
+    manchesterLabels = s.getStringList('manchester.labels').toSet();
     for (final k in extraKeys) {
-      read(() => extra[k] = s.getString(k));
+      extra[k] = s.getString(k);
     }
-    read(() => recentFiles = List.of(s.getStringList('files.recent')));
-    read(() => lastDir = _nonEmpty(s.getString('files.last_dir')));
-    read(() => recordDir = _nonEmpty(s.getString('files.record_dir')));
+    recentFiles = List.of(s.getStringList('files.recent'));
+    lastDir = _nonEmpty(s.getString('files.last_dir'));
+    recordDir = _nonEmpty(s.getString('files.record_dir'));
     notifyListeners();
   }
 
   static String? _nonEmpty(String s) => s.isEmpty ? null : s;
 
-  Future<void> save() async {
-    notifyListeners();
+  /// Save what changed since the last save. [notify] false keeps listeners
+  /// (the whole window) from rebuilding, for a change shown elsewhere.
+  Future<void> save({bool notify = true}) async {
+    if (notify) notifyListeners();
     final s = _settings;
     if (s == null) return;
-    await s.setMultiple({
+    final all = <String, Object>{
       'preferences.theme': themeMode.name,
+      'preferences.prevent_sleep': preventSleep,
       'preferences.line_width': lineWidth,
       'preferences.antialias': antialias,
       'preferences.live_display': liveDisplay.name,
@@ -260,23 +268,24 @@ class Preferences extends ChangeNotifier {
       'files.sources': jsonEncode({
         for (final e in sources.entries) e.key: e.value.toJson(),
       }),
-    });
+    };
+    // Only the values that differ from the stored ones (an in-memory read),
+    // so a toggle writes one key rather than all of them.
+    final changed = {
+      for (final e in all.entries)
+        if (!_same(s[e.key], e.value)) e.key: e.value,
+    };
+    if (changed.isNotEmpty) await s.setMultiple(changed);
   }
+
+  static bool _same(Object? stored, Object value) => value is List
+      ? stored is List && listEquals(stored, value)
+      : stored == value;
 
   void addRecent(String path) {
     recentFiles.remove(path);
     recentFiles.insert(0, path);
     if (recentFiles.length > 8) recentFiles.removeRange(8, recentFiles.length);
     save();
-  }
-
-  void restoreDefaults() {
-    themeMode = ThemeMode.system;
-    lineWidth = 1;
-    antialias = true;
-    liveDisplay = LiveDisplay.sweep;
-    cacheMb = defaultCacheMb;
-    compactSamples = false;
-    defaults = Map.of(KindDefaults.factory);
   }
 }

@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import '../model/view_settings.dart';
 import '../platform/files.dart';
+import '../platform/wakelock.dart';
 import '../settings/prefs.dart';
 import '../viewer/source.dart';
 import 'app_state.dart';
@@ -50,6 +51,8 @@ class _MainWindowState extends State<MainWindow> {
   @override
   void initState() {
     super.initState();
+    // The guard outlives this widget; a new window checks the lock again.
+    app.sleep.sync();
     for (final p in app.providers) {
       p.start();
     }
@@ -499,6 +502,7 @@ class _MainWindowState extends State<MainWindow> {
             ),
           for (final p in app.providers) ...p.toolbar(context),
           const Spacer(),
+          _SleepButton(app.sleep),
           IconButton(
             tooltip: switch (prefs.themeMode) {
               ThemeMode.system => 'Theme: system',
@@ -553,6 +557,15 @@ class _MainWindowState extends State<MainWindow> {
                   value: a.onPressed,
                   child: Text(a.narrowLabel ?? a.label),
                 ),
+            CheckedPopupMenuItem(
+              value: () => app.sleep.set(!prefs.preventSleep),
+              checked: prefs.preventSleep,
+              child: Text(
+                app.sleep.mismatch
+                    ? 'Keep screen on (not allowed)'
+                    : 'Keep screen on',
+              ),
+            ),
             PopupMenuItem(
               value: () => showPreferences(context, prefs),
               child: const Text('Preferences…'),
@@ -955,4 +968,30 @@ class _MainWindowState extends State<MainWindow> {
       ),
     );
   }
+}
+
+/// Toggles [SleepGuard]: shows the preference, and warns when the system
+/// does not hold the lock it asks for. Rebuilds alone, on [SleepGuard.state].
+class _SleepButton extends StatelessWidget {
+  final SleepGuard guard;
+  const _SleepButton(this.guard);
+
+  @override
+  Widget build(BuildContext context) => ValueListenableBuilder<SleepState>(
+    valueListenable: guard.state,
+    builder: (context, s, _) {
+      final mismatch = guard.mismatch;
+      return IconButton(
+        tooltip: switch ((s.want, mismatch)) {
+          (true, false) => 'Prevent sleep: on',
+          (true, true) => 'Prevent sleep: on, but the system did not allow it',
+          (false, false) => 'Prevent sleep: off',
+          (false, true) => 'Prevent sleep: off, but the screen is kept on',
+        },
+        onPressed: () => guard.set(!s.want),
+        color: mismatch ? Theme.of(context).colorScheme.error : null,
+        icon: Icon(s.want ? Icons.bedtime : Icons.bedtime_off),
+      );
+    },
+  );
 }

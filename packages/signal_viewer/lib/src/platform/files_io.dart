@@ -85,8 +85,6 @@ Future<(Sink<List<int>>, String)?> recordingSink(
       fileName: suggestedName,
       initialDirectory: directory,
       bytes: Uint8List(0),
-      type: FileType.custom,
-      allowedExtensions: [ext],
     );
     if (uri == null) return null;
     path = uri.toFilePath();
