@@ -37,6 +37,12 @@ jobs:
         working-directory: packages/liblsl
         run: dart run benchmark/bin/liblsl_benchmark.dart --repeat 3 --out bench.json
 
+      # The action switches to gh-pages, which fails on a dirty tree. A newer
+      # stable Flutter on the runner can rewrite pubspec.lock and generated
+      # plugin files during bootstrap; bench.json is untracked, so keep it.
+      - name: Discard bootstrap changes to tracked files
+        run: git checkout -- .
+
       - name: Store benchmark result
         uses: benchmark-action/github-action-benchmark@v1
         with:
