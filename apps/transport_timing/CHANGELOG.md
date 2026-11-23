@@ -1,3 +1,7 @@
+## 2.0.7
+
+- Updated `flutter_fullscreen` to ^2.0.1.
+
 ## 2.0.6
 
 - Requires `timing_core` ^0.2.2.

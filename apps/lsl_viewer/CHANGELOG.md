@@ -1,3 +1,7 @@
+## 0.3.8
+
+- Updated to flutter 3.50.1, web WASM now supports safari, ff, etc.
+
 ## 0.3.7
 
 - Remove vendored `usb_serial` and replace with upstream `usb_serial` `^0.6.0` which no longer breaks on modern gradle (and removed `jcenter` dependency).

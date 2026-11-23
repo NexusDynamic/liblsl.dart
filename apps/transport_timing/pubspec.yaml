@@ -9,7 +9,7 @@ issue_tracker: https://github.com/NexusDynamic/liblsl.dart/issues
 
 resolution: workspace
 
-version: 2.0.6+0
+version: 2.0.7+0
 
 environment:
   sdk: ^3.12.2
@@ -29,7 +29,7 @@ dependencies:
   flutter_multicast_lock: ^1.1.0
   path_provider: ^2.1.5
   shared_preferences: ^2.5.5
-  flutter_fullscreen: ^1.2.0
+  flutter_fullscreen: ^2.0.1
   wakelock_plus: ^1.6.0
   share_plus: ^13.1.0
   permission_handler: ^13.0.0

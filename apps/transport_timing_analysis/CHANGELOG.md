@@ -1,3 +1,7 @@
+## 2.0.8
+
+- Updated to flutter 3.50.1, web WASM now supports safari, ff, etc.
+
 ## 2.0.7
 
 - Requires `signal_viewer` ^0.2.3.
