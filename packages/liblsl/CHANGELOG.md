@@ -1,3 +1,9 @@
+# 1.2.1
+
+- Updated `liblsl` to upstream `dev` (`a497f3c`), `1.18.0.b7`, fixes some
+  memory leaks and includes various other enhancements.
+  Nothing changes the API.
+
 # 1.2.0
 
 - The types that do not require FFI (`LSLChannelFormat`, `LSLContentType`,
