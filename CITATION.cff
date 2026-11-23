@@ -7,7 +7,7 @@ date-released: "2026-11-23"
 license: MIT
 repository-code: "https://github.com/NexusDynamic/liblsl.dart"
 url: "https://pub.dev/packages/liblsl"
-doi: "10.5281/zenodo.20340248"
+doi: "10.5281/zenodo.20340247"
 keywords:
   - Lab Streaming Layer
   - Dart
@@ -38,7 +38,7 @@ preferred-citation:
   title: "Liblsl.dart: A Dart native API for Lab Streaming Layer (LSL)"
   journal: "Journal of Open Source Software"
   year: 2026
-  # doi: "10.21105/joss.XXXXX"
+  doi: "10.21105/joss.10425"
   authors:
     - family-names: Ring
       given-names: Luke Daniel

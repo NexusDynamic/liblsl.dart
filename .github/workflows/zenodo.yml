@@ -1,0 +1,108 @@
+name: Zenodo
+
+# Archives a liblsl release on Zenodo as a new version of the record in
+# CITATION.cff (see .github/scripts/zenodo_release.py). Called by release.yml
+# for `liblsl-v*` tags; can also be run by hand for a tag that is already
+# released, e.g. one whose Zenodo upload failed.
+#
+# The source and metadata come from the tag; the script comes from the
+# commit this workflow runs on, so a fixed script also works for older tags.
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: true
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Released liblsl tag, e.g. liblsl-v1.2.1
+        type: string
+        required: true
+      publish:
+        description: Publish on Zenodo (otherwise the repository variable ZENODO_PUBLISH decides)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: zenodo-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  zenodo:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ inputs.tag }}
+    steps:
+      - name: Check tag
+        run: |
+          case "$TAG" in
+            liblsl-v[0-9]*) ;;
+            *) echo "::error::Not a liblsl release tag: $TAG"; exit 1 ;;
+          esac
+          VERSION="${TAG#liblsl-v}"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "ARCHIVE=liblsl-$VERSION.zip" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@v7
+        with:
+          ref: refs/tags/${{ inputs.tag }}
+          submodules: recursive
+
+      - name: Check out the release scripts
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          path: .ci
+          sparse-checkout: .github/scripts
+
+      - name: Build source archive
+        run: |
+          STAGING="liblsl-${VERSION}"
+          mkdir -p "$STAGING"
+          # Package source (paper/, src/ with the liblsl C++ submodule, lib/, test/, …)
+          rsync -a \
+            --exclude '.git' --exclude '.dart_tool' --exclude 'build' --exclude 'coverage' \
+            packages/liblsl/ "$STAGING/"
+          cp CITATION.cff codemeta.json "$STAGING/"
+          zip -qr "$ARCHIVE" "$STAGING"
+          echo "Created $ARCHIVE ($(du -sh "$ARCHIVE" | cut -f1))"
+
+      - name: Attach archive to the GitHub release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ inputs.tag }}
+          files: ${{ env.ARCHIVE }}
+
+      # Set the repository variable ZENODO_PUBLISH to "true" to publish
+      # straight away instead of leaving a draft to review.
+      - name: Create Zenodo version
+        id: zenodo
+        env:
+          ZENODO_TOKEN: ${{ secrets.ZENODO_TOKEN }}
+          ZENODO_PUBLISH: ${{ inputs.publish && 'true' || vars.ZENODO_PUBLISH }}
+        run: python3 .ci/.github/scripts/zenodo_release.py "$VERSION" "$ARCHIVE"
+
+      - name: Summary
+        env:
+          STATE: ${{ steps.zenodo.outputs.state }}
+          RECORD: ${{ steps.zenodo.outputs.id }}
+          DOI: ${{ steps.zenodo.outputs.doi }}
+        run: |
+          {
+            echo "## Zenodo version $VERSION: $STATE"
+            echo ""
+            echo "- Archive: \`$ARCHIVE\`"
+            echo "- Record: https://zenodo.org/uploads/$RECORD"
+            echo "- DOI: https://doi.org/$DOI"
+            if [ "$STATE" = "draft" ]; then
+              echo ""
+              echo "Review and publish the draft on Zenodo (the DOI resolves once it is published)."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

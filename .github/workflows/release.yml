@@ -4,7 +4,7 @@ name: Release
 # tag (prepare and push them with `tool/release.dart`):
 #
 #   parse → test ─┬→ pub.dev (packages without `publish_to: none`)
-#                 │     └→ GitHub release ─┬→ Zenodo draft (liblsl only)
+#                 │     └→ GitHub release ─┬→ Zenodo version (liblsl only)
 #                 │                        └→ app binaries (apps/ only)
 #                 └→ app builds ───────────────┘
 #
@@ -236,88 +236,12 @@ jobs:
       !cancelled()
       && needs.parse.outputs.package == 'liblsl'
       && needs.github-release.result == 'success'
-    runs-on: ubuntu-latest
     permissions:
       contents: write
-    env:
-      VERSION: ${{ needs.parse.outputs.version }}
-      ARCHIVE: liblsl-${{ needs.parse.outputs.version }}.zip
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          submodules: recursive
-
-      - name: Build source archive
-        run: |
-          STAGING="liblsl-${VERSION}"
-          mkdir -p "$STAGING"
-          # Package source (paper/, src/ with the liblsl C++ submodule, lib/, test/, …)
-          rsync -a \
-            --exclude '.git' --exclude '.dart_tool' --exclude 'build' --exclude 'coverage' \
-            packages/liblsl/ "$STAGING/"
-          cp CITATION.cff codemeta.json "$STAGING/"
-          zip -qr "$ARCHIVE" "$STAGING"
-          echo "Created $ARCHIVE ($(du -sh "$ARCHIVE" | cut -f1))"
-
-      - name: Attach archive to the GitHub release
-        uses: softprops/action-gh-release@v3
-        with:
-          tag_name: ${{ github.ref_name }}
-          files: ${{ env.ARCHIVE }}
-
-      - name: Upload to Zenodo draft
-        env:
-          ZENODO_TOKEN: ${{ secrets.ZENODO_TOKEN }}
-          ZENODO_DEPOSIT_ID: ${{ secrets.ZENODO_DEPOSIT_ID }}
-        run: |
-          DEPOSIT_URL="https://zenodo.org/api/deposit/depositions/$ZENODO_DEPOSIT_ID"
-          DEPOSIT="$(curl -sSf -H "Authorization: Bearer $ZENODO_TOKEN" "$DEPOSIT_URL")"
-
-          STATUS="$(echo "$DEPOSIT" | python3 -c "import sys,json; print(json.load(sys.stdin)['state'])")"
-          if [ "$STATUS" != "inprogress" ] && [ "$STATUS" != "unsubmitted" ]; then
-            echo "::error::Zenodo deposit $ZENODO_DEPOSIT_ID is not editable (state=$STATUS). Create a new version draft on Zenodo and update ZENODO_DEPOSIT_ID."
-            exit 1
-          fi
-          BUCKET_URL="$(echo "$DEPOSIT" | python3 -c "import sys,json; print(json.load(sys.stdin)['links']['bucket'])")"
-
-          echo "Uploading $ARCHIVE…"
-          curl -sSf -X PUT \
-            -H "Authorization: Bearer $ZENODO_TOKEN" \
-            -H "Content-Type: application/octet-stream" \
-            --data-binary @"$ARCHIVE" \
-            "$BUCKET_URL/$ARCHIVE" > /dev/null
-
-          # Metadata from .zenodo.json (its version is checked against the tag in `parse`).
-          python3 - <<'PYEOF'
-          import json, os, urllib.request
-
-          with open('.zenodo.json') as f:
-              meta = json.load(f)
-
-          req = urllib.request.Request(
-              f"https://zenodo.org/api/deposit/depositions/{os.environ['ZENODO_DEPOSIT_ID']}",
-              data=json.dumps({'metadata': meta}).encode(),
-              method='PUT',
-              headers={
-                  'Authorization': f"Bearer {os.environ['ZENODO_TOKEN']}",
-                  'Content-Type': 'application/json',
-              },
-          )
-          with urllib.request.urlopen(req) as resp:
-              result = json.load(resp)
-              print(f"Metadata updated. DOI: {result.get('doi', 'n/a')}")
-          PYEOF
-
-      - name: Summary
-        run: |
-          {
-            echo "## Zenodo draft updated"
-            echo ""
-            echo "- Archive: \`$ARCHIVE\`"
-            echo "- Deposit: https://zenodo.org/deposit/${{ secrets.ZENODO_DEPOSIT_ID }}"
-            echo ""
-            echo "Review and publish the draft on Zenodo."
-          } >> "$GITHUB_STEP_SUMMARY"
+    uses: ./.github/workflows/zenodo.yml
+    with:
+      tag: ${{ github.ref_name }}
+    secrets: inherit
 
   app-assets:
     needs: [parse, github-release, build-app]
