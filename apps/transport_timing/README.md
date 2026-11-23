@@ -146,6 +146,10 @@ devices, and requests the highest refresh rate of the display.
 
 ## Tests
 
+**Note:** To run the tests on linux, you need the normal flutter/dart dependencies,
+but make sure these are installed: `socat pkg-config libgtk-3-dev libx11-dev libxi-dev`.
+
+
 ```bash
 flutter test                 # three devices on an in-memory bus
 flutter test --tags lsl      # two devices over real LSL on loopback; prints the reports
