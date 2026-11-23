@@ -1,3 +1,7 @@
+## 0.3.7
+
+- Remove vendored `usb_serial` and replace with upstream `usb_serial` `^0.6.0` which no longer breaks on modern gradle (and removed `jcenter` dependency).
+
 ## 0.3.6
 
 - Requires `signal_viewer` ^0.2.3.

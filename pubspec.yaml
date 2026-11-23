@@ -42,10 +42,6 @@ dependency_overrides:
   # loses drops from e.g. Dolphin; patched copy (as in hyprview).
   desktop_drop:
     path: third_party/desktop_drop
-  # usb_serial 0.5.2 does not build with AGP 9 (jcenter); patched copy
-  # (as in hyprview).
-  usb_serial:
-    path: third_party/usb_serial
   # launcher_icons needs pure_svg, which asks for xml ^6.3 though it works
   # with xml 7 (lsl_core, xdf).
   xml: ^7.1.0

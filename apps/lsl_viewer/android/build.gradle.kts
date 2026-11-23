@@ -2,8 +2,6 @@ allprojects {
     repositories {
         google()
         mavenCentral()
-        // felHR85/UsbSerial, used by the usb_serial plugin.
-        maven { url = uri("https://jitpack.io") }
     }
 }
 
