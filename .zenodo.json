@@ -38,17 +38,43 @@
     {
       "identifier": "https://github.com/NexusDynamic/liblsl.dart",
       "relation": "isSupplementTo",
+      "resource_type": "software",
       "scheme": "url"
     },
     {
       "identifier": "https://pub.dev/packages/liblsl",
       "relation": "isDocumentedBy",
+      "resource_type": "publication-softwaredocumentation",
       "scheme": "url"
+    },
+    {
+      "identifier": "10.21105/joss.10425",
+      "relation": "isDescribedBy",
+      "resource_type": "publication-article",
+      "scheme": "doi"
     }
   ],
   "communities": [
     {
       "identifier": "joss"
     }
-  ]
+  ],
+  "custom": {
+    "journal:journal": {
+      "title": "Journal of Open Source Software",
+      "issn": "2475-9066",
+      "volume": "11",
+      "issue": "122",
+      "pages": "10425"
+    },
+    "code:codeRepository": "https://github.com/NexusDynamic/liblsl.dart",
+    "code:programmingLanguage": [
+      {
+        "id": "dart"
+      }
+    ],
+    "code:developmentStatus": {
+      "id": "active"
+    }
+  }
 }
